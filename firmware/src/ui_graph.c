@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee UI: the panel (Y_GRAPH .. Y_GRAPH + H_GRAPH) between the cards and the footer: a SURF area
- * (rounded, on BG) holding the page graphs (ADSR, LFO, steps, piano roll, drum grid, scale, FX, SLICER,
+ * (rounded, on BG) holding the page graphs (ADSR, LFO, steps, piano roll, drum grid, scale,
  * MOD, lists: presets, user presets, patterns, project slots, song), the HOME oscilloscope, the
  * instrument diagrams; the MIXER page draws four SURF columns instead. Each graph is redrawn only when
  * graph_signature() changes. The look:
@@ -435,30 +435,7 @@ static void graph_chord(const track_t *t, uint16_t c)
                  !on ? T_RAISE : note % 12u == (uint32_t)r % 12u ? T_ACCENT : c, T_SURF);
     }
 }
-/* the four sends as faders under their cards: a RAISE slot, the THEME fill from the bottom, a cap */
-/* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
- * open (DEPTH), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
-static void graph_slicer(const track_t *t, uint16_t c)
-{
-    uint32_t i, pat = sl_pattern(t), mode = (uint32_t)t->p[P_SLCR], cur = sl[t - trk].idx;
-    int32_t open = 70 - t->p[P_SLDEPTH] * 70 / 127;      /* px a closed GATE step keeps */
-    uint16_t col = mode == SL_OFF ? T_DIM : c;
-    for (i = 0; i < 16u; i++) {
-        int32_t x = bar_x(i), y;
-        if ((pat >> i) & 1u) {
-            cv_rrect(x, 8, 9, 72, 2, mode == SL_OFF ? T_RAISE : col, T_SURF);
-        } else if (mode == SL_STUT) {
-            for (y = 8; y < 80; y += 4)
-                cv_rect(x, y, 9, 1, col);
-        } else {
-            cv_rrect(x, 77, 9, 3, 1, T_RAISE, T_SURF);
-            if (open > 3)
-                cv_rrect(x, 80 - open, 9, open, 2, T_RAISE, T_SURF);
-        }
-        if (mode != SL_OFF && i == cur)
-            cv_rect(x, 84, 9, 2, T_ACCENT);
-    }
-}
+
 
 static uint32_t steps_hash(const track_t *t)
 {
@@ -781,8 +758,6 @@ static uint32_t graph_sig(int play)
         for (i = 0; i < FM6_NFN; i++)
             h = (h ^ fm6_fn[song.sel % NTRK][i]) * 16777619u;
     }
-    if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
-        h ^= (sl[song.sel].idx + 1u) * 2654435761u;
 #if MELODEE_SLICE
     if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
 #endif
@@ -898,7 +873,7 @@ static void engine_sound_row(int32_t y)
 }
 /* MIXER page: four SURF columns, one under each card: the circled numeral (filled and in the accent:
  * the selected track) with a REC / ARM / MUTE badge (P_MUTE, KNOB 1), the sound's short name (a MUTE badge
- * when armed and muted), the LEVEL knob (dB inside) with the output meter beside it, then the PAN and REV
+ * when armed and muted), the LEVEL knob (dB inside) with the output meter beside it, then the PAN
  * knobs with their values. Knobs: a 270 degree ring, the track RAISE, the value arc THEME (the knob just
  * turned: ACCENT; muted: DIM); PAN from 12 o'clock. Each column is its own canvas with its own signature:
  * while the transport runs only the meters move. */
@@ -906,7 +881,7 @@ static void engine_sound_row(int32_t y)
 #define TS_MH 32
 #define KB_X 4                                       /* LEVEL knob: box 4..37 x 37..70, centre (21, 54) */
 #define KB_Y 37
-#define KS_Y 86                                      /* PAN / REV knobs: boxes 86..105, centres x 15 and 42 */
+#define KS_Y 86                                      /* PAN knob: boxes 86..105, centres x 15 and 42 */
 static struct {
     uint32_t col[NTRK];
     uint8_t meter[NTRK];
@@ -1116,9 +1091,6 @@ static void draw_graph(void)
         case GR_CHORD:
             cv_oy = 0;
             graph_chord(t, c);
-            break;
-        case GR_SLCR:
-            graph_slicer(t, c);
             break;
 #if MELODEE_SLICE
         case GR_SLICES:

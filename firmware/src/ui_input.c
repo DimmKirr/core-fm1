@@ -32,7 +32,7 @@ static int led_get(const uint8_t *nl, uint32_t id)
     return q != 0xFF && ((nl[q >> 3] >> (q & 7u)) & 1u);
 }
 
-static const uint8_t FAM_BTN[FAM_COUNT] = {B_HOME, B_ENV, B_LFO, B_FX, B_SCL, B_EDIT, B_GLO, B_SAVE,
+static const uint8_t FAM_BTN[FAM_COUNT] = {B_HOME, B_ENV, B_LFO, B_SCL, B_EDIT, B_GLO, B_SAVE,
                                            B_ARP, B_SEQ, B_GLO};   /* GLO: mixer + global settings; REC is transport */
 
 static uint32_t cur_fam(void)                       /* (an engine's own envelope / LFO page: ENV / LFO, ui.c native_page) */
@@ -280,7 +280,7 @@ static int32_t list_accel(uint32_t role, int32_t s, uint32_t total, uint32_t *fa
     return accel_by(role, s, total > 256u ? 16u : total > 64u ? 8u : total > 16u ? 4u : 1u, fast);
 }
 
-/* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 MUTE of the selected track (right = ON, left = OFF: the
+/* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 unused, 4 MUTE of the selected track (right = ON, left = OFF: the
  * track itself is ALGORITHM's, on every page). Pattern length stays on SEQ. */
 static void tracks_edit(uint32_t slot, int32_t steps)
 {
@@ -296,9 +296,7 @@ static void tracks_edit(uint32_t slot, int32_t steps)
         d = &TP[P_LEVEL];
         break;
     case 2:
-        vp = &t->p[P_REV];
-        d = &TP[P_REV];
-        break;
+        return;
     default:
         vp = &t->p[P_PAN];
         d = &TP[P_PAN];
@@ -379,13 +377,18 @@ static void capture_take(void)
     uint32_t k = song.sel, n = 0, i, now, first = 0xFFFFu, last = 0, end, w, start, put = 0, full = 0, j = 0, from;
     uint64_t touched = 0;
     int empty;
+    cap_ev_t captured[CAP_N];
+    uint32_t until;
     if (chain_busy()) { ui_message("STOP SONG TO CAPTURE"); return; }
     if ((song.rec >> k) & 1u) { ui_message("RECORDING"); return; }
     fm1_irq_off();                                      /* the selected track's events of this run: the newest, the oldest */
     now = cap_now(t);
     from = cap_w - cap_from > CAP_N ? cap_w - CAP_N : cap_from;
-    for (i = from; i != cap_w; i++) {
-        const cap_ev_t *e = &cap_ev[i % CAP_N];
+    until = cap_w;
+    memcpy(captured, cap_ev, sizeof captured);
+    fm1_irq_on();
+    for (i = from; i != until; i++) {
+        const cap_ev_t *e = &captured[i % CAP_N];
         uint32_t back = (uint16_t)((now >> 8) - e->step);
         if ((e->tr & 127u) != k || back >= 64u)
             continue;
@@ -393,7 +396,6 @@ static void capture_take(void)
         if (back > last) last = back;
         if (back < first) first = back;
     }
-    fm1_irq_on();
     if (!n) { ui_message("NOTHING TO CAPTURE"); return; }
     {   /* (16-bit step counts: they wrap) */
         uint32_t cur = (now >> 8) & 0xFFFFu, pos = cur & 15u, span;
@@ -406,17 +408,12 @@ static void capture_take(void)
     load_begin(t, UNDO_PAT);
     if (empty)
         t->p[P_SLEN] = (int16_t)w;
-    fm1_irq_off();
-    for (i = from; i != cap_w; i++) {
-        const cap_ev_t *e = &cap_ev[i % CAP_N];
+    for (i = from; i != until; i++) {
+        const cap_ev_t *e = &captured[i % CAP_N];
         uint32_t actual = (uint16_t)(e->step - start), on = (uint32_t)e->on << 8, view, dur, exp;
         recorded_note_t r;
         if ((e->tr & 127u) != k || actual >= w)
             continue;                                   /* (another track's; before the bars, or after them) */
-        for (; j < RECORD_MAX && recording[j].vel && (recording_present(&recording[j]) || recording_run[j].left); j++)
-            ;
-        if (j == RECORD_MAX) { full = 1; break; }
-        if (recording[j].vel) recording_unlink(j);
         view = on >= RECORD_UNIT / 2u ? (actual + 1u) % w : actual;
         memset(&r, 0, sizeof r);
         r.on = (uint16_t)on;
@@ -428,18 +425,35 @@ static void capture_take(void)
         r.owner = (uint8_t)(recording_owner(t) | (exp << 5));
         r.step = (uint8_t)(actual | (view != actual ? 64u : 0u) | (!view && actual ? 128u : 0u));
         r.length = drum_track(t) ? 1u : 0u;
+        fm1_irq_off();
+        /* Capturing an overlapping window again must not stack another voice
+         * at an onset already kept in this bank. Distinct pitches and times
+         * remain independent events; keep existing edits to the first take. */
+        uint32_t existing = recording_head[recording_owner(t)];
+        for (; existing < RECORD_MAX; existing = recording_next[existing])
+            if (recording_active(t, existing) && recording[existing].note == r.note &&
+                (recording[existing].step & 63u) == actual && recording[existing].on == r.on)
+                break;
+        if (existing < RECORD_MAX) { fm1_irq_on(); continue; }
+        for (; j < RECORD_MAX && recording[j].vel && (recording_present(&recording[j]) || recording_run[j].left); j++)
+            ;
+        if (j == RECORD_MAX) { fm1_irq_on(); full = 1; break; }
+        if (recording[j].vel) recording_unlink(j);
         recording_restore_note(t, j, r);
         t->step[view].time = ST_NOTE;
         t->step[view].flags |= SF_RECORDED;
         touched |= 1ull << view;
         put++;
+        fm1_irq_on();
     }
     for (i = 0; i < NSTEP; i++)
-        if ((touched >> i) & 1u)
+        if ((touched >> i) & 1u) {
+            fm1_irq_off();
             notes_rebuild(t, i);
+            fm1_irq_on();
+        }
     if (put)
         t->seq_active = 1;
-    fm1_irq_on();
     load_end(t);
     if (!put) { ui_message("NOTHING TO CAPTURE"); return; }
     {
@@ -1339,9 +1353,6 @@ static uint32_t btn_hold(uint32_t *t0, uint32_t label, uint32_t now, int hold_ok
 /* the quick layers: ui_layer.c (included after this file) */
 static void layer_masks(void);
 static void layer_lock_input(uint32_t pressed);
-static void fx_assign(int32_t s);
-static void fx_default(void);
-static uint32_t fx_key_held(void);
 static void layer_arm(uint32_t pressed, uint32_t now);
 static uint32_t layer_held(void);
 static uint32_t layer_gesture(uint32_t now, uint32_t combo);
@@ -1642,10 +1653,6 @@ static void ui_input(void)
     if (knob_layer)
         for (k = 0; k < 4u; k++)
             ks[k] = panel_enc(EN_K1 + k);
-    if (!layer_allowed())
-        perf_kill = 1;                                  /* (effects off until their keys are let go) */
-    else if (!kb_layer)
-        perf_kill = 0;
     {   /* a key pressed with the button: a combo (its edge, or the ISR already took it); then not the grid's or a step's */
         static uint32_t kb_seen;
         lkeys = kb_layer & ~kb_seen;
@@ -1668,8 +1675,6 @@ static void ui_input(void)
         if (pressed & (1u << panel.btn[B_SEQ]))
             ui.seq_t0 |= 2u;
         s=panel_enc(EN_PRESET);
-        if (ui.ly==LAYER_FX && s) fx_assign(s);
-        if (ui.ly==LAYER_FX && fx_key_held() && (pressed & (1u<<panel.btn[B_EDIT]))) fx_default();
         panel_enc(EN_ALGO);                             /* (another track: OCT- puts back the layer's track only) */
     }
     lytap = layer_gesture(now, combo);
@@ -1796,7 +1801,7 @@ static void ui_input(void)
         go_home();
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     if (step_page() && live_rec_sel() && !ui.step_mods) { /* armed: follow recording
-                                                         * (not while ENV / SCL / FX are held: a note edit) */
+                                                         * (not while ENV / SCL are held: a note edit) */
         uint32_t idx = TSEL->seq_pos == 0x7FFFFFFFu ? 0u : TSEL->seq_idx;
         if (ui.cursor != idx)
             cursor_set((int32_t)idx);
@@ -1831,7 +1836,7 @@ static void ui_input(void)
         case B_SEQ:
         case B_REC:                                     /* tap / hold: above */
         case B_SAVE:
-        case B_FX:                                      /* the layers' buttons: ui_layer.c */
+        case B_FX:                                      /* retired panel button */
         case B_GLO:
         case B_SCL:
         case B_EDIT:
@@ -1888,7 +1893,7 @@ static void ui_input(void)
             break;
         }
         default:                                        /* page buttons (GLO SCL ENV LFO EDIT ARP): when let go */
-            if (!lay)                                   /* (with FX held: swallowed) */
+            if (!lay)                                   /* (with a layer held: swallowed) */
                 ui.pg_down |= (uint16_t)(1u << id);
             break;
         }

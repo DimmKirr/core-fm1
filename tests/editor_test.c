@@ -132,6 +132,8 @@ static int preferences(void)
     a[0] = 1; a[1] = 1; request(ED_UI_SET, a, 2);
     bad += check("the retired font weight is not supported (rc 2), UI_STATE says 127",
         host_wire[5] == 2 && host_wire[8] == 57 && host_wire[10] == 127);
+    a[0] = 9; request(ED_UI_SET, a, 2);
+    bad += check("retired FX latch cannot be enabled", host_wire[5] == 2);
     a[0] = 2; request(ED_UI_SET, a, 2);
     bad += check("unsupported preference is reported without applying it", host_wire[5] == 2);
     a[0] = ENGI_DRUM; a[1] = 0; a[2] = 64; a[3] = 1;
@@ -488,8 +490,8 @@ static int native_protocol(void)
     bad+=check("malformed native nibbles cannot replace a committed tone",host_wire[8]==1 && !memcmp(native_raw(ENGI_CZ,127),cz,sizeof cz));
     a[1]=0;a[2]=120;a[3]=16;request(ED_NATIVE,a,4);
     bad+=check("last native page clamps to Z128 and reports 128 slots",!host_wire[8] && host_wire[9]==8 && host_wire[10]==0 && host_wire[11]==1);
-    a[1]=4;a[2]=127;a[3]=2;trk[2].p[P_REV]=77;trk[2].p[P_LEVEL]=61;trk[2].step[0].note[0]=67;request(ED_NATIVE,a,4);
-    bad+=check("native load targets track 3 and preserves effects, level and pattern",!host_wire[8] && trk[2].user==128 && trk[2].user_native && trk[2].p[P_REV]==77 && trk[2].p[P_LEVEL]==61 && trk[2].step[0].note[0]==67 && !memcmp(cz_patch[2].raw,cz,sizeof cz));
+    a[1]=4;a[2]=127;a[3]=2;trk[2].p[P_PAN]=37;trk[2].p[P_LEVEL]=61;trk[2].step[0].note[0]=67;request(ED_NATIVE,a,4);
+    bad+=check("native load targets track 3 and preserves pan, level and pattern",!host_wire[8] && trk[2].user==128 && trk[2].user_native && trk[2].p[P_PAN]==37 && trk[2].p[P_LEVEL]==61 && trk[2].step[0].note[0]==67 && !memcmp(cz_patch[2].raw,cz,sizeof cz));
     trk[2].p[P_E2]=23;request(ED_NATIVE,a,4);
     bad+=check("same-engine native load also keeps track macros",trk[2].p[P_E2]==23);
     a[1]=7;a[2]=2;request(ED_NATIVE,a,3);
@@ -596,8 +598,8 @@ static int native_motion_protocol(void)
     bad += check("native motion query encodes the high id in the spare step bit", host_wire[10] == 127u && host_wire[11] == (id & 127u));
     a[1] = 4; request(ED_MOTION, a, 4);
     bad += check("native motion delete removes the same high parameter id", !host_wire[6] && !motion.count);
-    a[1] = 3; a[2] = 0; a[3] = P_REV; a[4] = 64; a[5] = 64; request(ED_MOTION, a, 6);
-    bad += check("legacy motion wire writes retain the original format", !host_wire[6] && motion.event[0].param == P_REV && motion.event[0].value == 64);
+    a[1] = 3; a[2] = 0; a[3] = P_LEVEL; a[4] = 64; a[5] = 64; request(ED_MOTION, a, 6);
+    bad += check("legacy motion wire writes retain the original format", !host_wire[6] && motion.event[0].param == P_LEVEL && motion.event[0].value == 64);
     return bad;
 }
 #ifndef EDITOR_TEST_NO_MAIN

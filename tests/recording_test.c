@@ -196,10 +196,34 @@ static int full_recording_replay(void)
     seq_stop();
     return bad;
 }
+static int control_tick_precision(void)
+{
+    int bad = 0;
+    for (uint32_t clock = 0; clock < 2; clock++) {
+        for (uint32_t div = 0; div < 10; div++) {
+            raw_begin();
+            if (!clock) { seq_stop(); midi_sync_active = 0; song.g[G_BPM] = 40; }
+            track_t *t = &trk[0]; t->p[P_SDIV] = div;
+            uint32_t period = seq_div_samples(div), remainder = period - 1u;
+            song.playing = 1; song.rec = 1; t->seq_pos = 0;
+            input_on(t, 60, 100);
+            recording_run[0].held = 0;
+            recording_fraction[0] = remainder;
+            uint64_t total = remainder;
+            for (uint32_t tick = 0; tick < 127u; tick++) {
+                recording_tick(t, CTL); total += CTL * RECORD_UNIT;
+            }
+            bad += check("short audio ticks retain exact fractional recording time at every division", recording_fraction[0] == total % period && recording_run[0].held == (total / period > 8388607u ? 8388607u : total / period));
+            recording_tick(t, 70000u); total += 70000ull * RECORD_UNIT;
+            bad += check("large external-clock batches retain the wide recording calculation", recording_fraction[0] == total % period && recording_run[0].held == (total / period > 8388607u ? 8388607u : total / period));
+        }
+    }
+    seq_stop(); return bad;
+}
 #ifndef RECORDING_NO_MAIN
 int main(void)
 {
-    int bad=repeated_hits()+independent_lengths()+raw_loop()+raw_storage()+raw_capacity()+copy_and_edit()+slow_precision()+replace_during_replay()+standalone_and_template()+full_recording_replay();
+    int bad=control_tick_precision()+repeated_hits()+independent_lengths()+raw_loop()+raw_storage()+raw_capacity()+copy_and_edit()+slow_precision()+replace_during_replay()+standalone_and_template()+full_recording_replay();
     printf("%s\n",bad?"RAW RECORDING TEST FAILED":"Raw recording tests passed");return !!bad;
 }
 #endif

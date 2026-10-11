@@ -84,7 +84,7 @@ async function prophetTests(){
   const official=E.P5.read(new Uint8Array(readFileSync(join(HERE,"../assets/prophet5-factory/prophet5-v1.03.syx")))).voices;
   ok(eq(E.P5_FACTORY[0],official[0].raw),"Prophet: first factory patch matches Sequential's original bytes");
   await rq(E.req.track(2));const pt=E.p5LibraryPatch({name:E.P5.name(b),raw:b},info);pt.p[34]=77;await E.auditionPatch(rq,info,pt);const captured=(await E.capturePatch(rq,info,"CAPTURED")).patch;
-  ok(eq(captured.p5,b)&&m.state.tracks[2].engine===19&&m.state.tracks[2].p[34]===77,"Prophet: audition and capture target selected track and retain effects");
+  ok(eq(captured.p5,b)&&m.state.tracks[2].engine===19&&m.state.tracks[2].p[34]===0,"Prophet: audition and capture target selected track and discard removed effects");
   const ctx={keys:Array.from({length:92},(_,i)=>`P${i}`),engines:info.engines,pe0:84};const file=E.libraryFile("library",[pt],ctx),back=E.readLibraryFile(JSON.parse(JSON.stringify(file)),ctx).patches[0];ok(eq(back.p5,b),"Prophet: librarian JSON retains every native byte and metadata");
   await E.nativeBank.put(rq,19,127,pt);const native=await E.nativeBank.get(rq,info,19,127);ok(eq(native.p5,b)&&(await E.nativeBank.list(rq,19)).total===128,"Prophet: highest native slot uses 138-byte records and lists 128 slots");
   let writes=0;try{await E.nativeBank.put(async()=>{writes++;},19,0,{engine:19,p5:b.slice(0,133)});}catch{}ok(!writes,"Prophet: invalid native program rejected before sending any write");
@@ -127,7 +127,7 @@ async function czTests() {
   await rq(E.req.track(2));const pt=E.czLibraryPatch({name:E.CZ.name(b),raw:b},info);pt.p[34]=77;pt.p[13]=12;
   await E.auditionPatch(rq,info,pt);const live=E.parse[E.CMD.CZ_GET](await rq(E.req.czGet(0,2)));
   ok(eq(live.raw,b),"CZ: audition targets selected track 3 with complete native data");
-  const sound=E.parse[E.CMD.DUMP](await rq(E.req.dump()),info);ok(sound.engine===15 && info.engines[2]==="-" && info.engines[15]==="CZ-1" && sound.p[34]===77 && sound.p[13]===12,"CZ: native library audition restores saved effects and modulation after raw tone upload");
+  const sound=E.parse[E.CMD.DUMP](await rq(E.req.dump()),info);ok(sound.engine===15 && info.engines[2]==="-" && info.engines[15]==="CZ-1" && sound.p[34]===0 && sound.p[13]===12,"CZ: native library audition ignores removed effects and restores modulation after raw tone upload");
   const captured=await E.capturePatch(rq,info,"Captured");ok(eq(captured.patch.cz,b),"CZ: capture reads the selected track's native tone");
   ok(await E.bank.put(rq,8,pt)===0,"CZ: upload to user preset bank");const saved=await E.bank.get(rq,info,8);ok(eq(saved.cz,b),"CZ: user preset bank returns all 144 tone bytes");
   const ctx={keys:Array.from({length:92},(_,i)=>`P${i}`),pe0:84,engines:info.engines};const lib=E.libraryFile("library",[captured.patch],ctx);const imported=E.readLibraryFile(lib,ctx);ok(eq(imported.patches[0].cz,b),"CZ: library JSON round trip retains native bytes");
@@ -164,7 +164,7 @@ async function nativeTests() {
   ok(a.p.every(x=>x===null) && !a.pattern && !b.grid,"native: returned presets contain no Felucca effects or pattern");
   await rq(E.req.set(0,34,77));await rq(E.req.set(0,13,12));const before=JSON.stringify(m.state.tracks[0].step);
   await E.nativeBank.load(rq,15,127,0);const sound=E.parse[E.CMD.DUMP](await rq(E.req.dump()),info);
-  ok(sound.engine===15 && sound.p[34]===77 && sound.p[13]===12 && JSON.stringify(m.state.tracks[0].step)===before,"native: loading changes the tone and keeps effects, modulation and steps");
+  ok(sound.engine===15 && sound.p[34]===0 && sound.p[13]===12 && JSON.stringify(m.state.tracks[0].step)===before,"native: loading changes the tone and keeps modulation and steps without effects");
   await rq(E.req.set(0,info.pe0,3));await E.nativeBank.load(rq,15,127,0);
   ok(E.parse[E.CMD.DUMP](await rq(E.req.dump()),info).p[info.pe0]===3,"native: scrolling within CZ keeps track macros");
   const status=E.parse[E.CMD.NATIVE](await rq(E.req.native(15,7,0)));ok(status.user===128,"native: Z128 current slot survives 7-bit protocol encoding");
@@ -194,21 +194,13 @@ async function editorMock() {
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
-  ok(descs === info.pcount, "editor: DESC for every parameter");
+  ok(descs === info.pcount-8, "editor: DESC for every parameter");
   {
-    /* the SLICER (core.h P_SLCR..P_SLDEPTH = 45..48, just before P_E0; its descriptors: mockTables) is the
-       track's: a factory preset keeps it, as ui.c apply_preset_to does (param_kept) */
-    const sd = [];
-    for (let i = 45; i < 49; i++) sd.push(E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))));
-    ok(sd.map((d) => d.label).join() === "SLCR,PAT,RATE,DEPTH" && sd[0].names.join() === "OFF,GATE,STUT",
-      "editor: SLICER parameters 45..48 over DESC");
-    await rq(E.req.set(0, 45, 2));
-    await rq(E.req.set(0, 46, 7));
-    const on = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
-    await rq(E.req.preset(3, 1));
-    const off = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
-    ok(on.p[45] === 2 && on.p[46] === 7 && off.p[45] === 2 && off.p[46] === 7 && off.preset === 1, "editor: a factory preset keeps the SLICER (the track's)");
-    await rq(E.req.set(0, 45, 0));
+    for(const id of [33,34,35,36,45,46,47,48]){
+      const d=E.parse[E.CMD.DESC](await rq(E.req.desc(0,id)));
+      const r=E.parse[E.CMD.SET](await rq(E.req.set(0,id,127)));
+      ok(!d.label && r.value===0,"editor: removed effect parameter is inert "+id);
+    }
   }
   {
     /* the modulation matrix (core.h P_M1SRC..P_M4AMT = 49..60, just before P_E0 61): SRC / DST / AMT x 4, the
@@ -330,20 +322,11 @@ async function editorMock() {
       "editor: MIDI IN routing (ROUT CH1-4 / SEL, global id 14)");
   }
   {
-    /* FX > REVERB TYPE (G_RTYPE 24, the old drum channel's id): ROOM (0, the default) / SPRING (1) / HALL (2); G_COUNT unchanged */
-    const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 24)));
-    const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 10)));
-    const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 0)));
-    const dly = [4, 5, 6, 7, 25, 26].map(async (id) => E.parse[E.CMD.DESC](await rq(E.req.desc(1, id))));
-    const [d4, d5, d6, d7, d25, d26] = await Promise.all(dly);
-    ok(rd.label === "TYPE" && rd.def === 0 && eq(rd.names, ["ROOM", "SPRING", "HALL"]) && r1.value === 2 && r0.value === 0 && info.gcount === 27,
-      "editor: REVERB TYPE (ROOM / SPRING / HALL, global id 24)");
-    /* the delay back (x0x's tape delay): 4..7 TIME FDBK TONE MIX, 25 / 26 (the old drum part's) TYPE WEAR; P 35 DLY */
-    const p35 = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 35)));
-    ok(d4.label === "TIME" && d4.names.length === 14 && d4.names[11] === "1/8." && d4.def === 11 && d5.label === "FDBK" && d5.max === 120 &&
-       d6.label === "TONE" && d7.label === "MIX" && d25.label === "TYPE" && eq(d25.names, ["DIGI", "TAPE", "DG-PP", "TP-PP"]) && d25.def === 1 &&
-       d26.label === "WEAR" && d26.max === 127 && p35.label === "DLY",
-      "editor: the delay's globals (4..7, 25 TYPE, 26 WEAR) and track send 35 over DESC");
+    for(const id of [4,5,6,7,8,9,10,11,24,25,26]){
+      const d=E.parse[E.CMD.DESC](await rq(E.req.desc(1,id)));
+      const r=E.parse[E.CMD.SET](await rq(E.req.set(1,id,127)));
+      ok(!d.label && r.value===0,"editor: removed global effect parameter is inert "+id);
+    }
   }
   const st = E.parse[E.CMD.STEP_SET](await rq(E.req.stepSet(5, { n: 2, notes: [60, 64], time: 0, flags: 1, vel: 100 })));
   ok(st.n === 2 && st.notes[1] === 64 && st.vel === 100, "editor: STEP_SET");
@@ -400,7 +383,7 @@ function mockTables() {
   const norm = (d) => ({ label: d.label, fmt: d.fmt, min: d.min, max: d.max, def: d.def, names: d.names || null, unit: d.unit || "" });
   const diffs = [];
   const cmp = (what, a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) diffs.push(`${what}: mock ${JSON.stringify(a)} != firmware ${JSON.stringify(b)}`); };
-  for (const k of ["P_COUNT", "G_COUNT", "NSTEP", "P_E0", "G_ENGSEL", "P_SLCR", "NTRK"]) cmp(k, T[k], fw[k]);
+  for (const k of ["P_COUNT", "G_COUNT", "NSTEP", "P_E0", "G_ENGSEL", "P_RESERVED45", "NTRK"]) cmp(k, T[k], fw[k]);
   cmp("TP length", T.TP.length, fw.TP.length);
   fw.TP.forEach((d, i) => cmp(`TP[${i}]`, T.TP[i] && norm(T.TP[i]), d));
   cmp("GP length", T.GP.length, fw.GP.length);
@@ -458,8 +441,7 @@ async function editorFm4() {
     ok(fw.cases.length === 48 && !bad, `DIGITAL -> FM6: the editor's conversion == the firmware's (${fw.cases.length} sounds, ${bad} differ)`);
     ok(eq(E.FM4.TO_FM6, fw.to_fm6) && fw.presets.length === E.FM4.PRESETS.length && fw.presets.every((p, k) => {
       const q = E.FM4.PRESETS[k];
-      return q.name === p.name && eq(q.e, p.e) && eq(q.env, p.env) && q.fenv === p.fenv && q.mono === p.mono &&
-        eq(q.fx, p.fx.map((x) => x - 1));
+      return q.name === p.name && eq(q.e, p.e) && eq(q.env, p.env) && q.fenv === p.fenv && q.mono === p.mono;
     }), "DIGITAL -> FM6: its presets and the FM6 presets covering them == the firmware's");
   } else {
     console.log("DIGITAL -> FM6: == the firmware's (no tests/fm4_reference.json)    skip");

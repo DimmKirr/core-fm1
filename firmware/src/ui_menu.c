@@ -1,22 +1,22 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Melodee menu (HOME held): COLOR, SPEAKER (LOWCUT), HOLD (the layer threshold), LIGHTS (the keys' and buttons'
+/* Melodee menu (HOME held): COLOR, HOLD (the layer threshold), LIGHTS (the keys' and buttons'
  * glow: ui_input.c ui_leds), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (the devices the host gets: IN+OUT, OUT, IN or OFF; usb.c ua_off_set),
  * CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
  * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information. */
 /* ------------------------------------------------------------ menu --- */
 #define MENU_HEAD 24                     /* the menu's own title strip (Stage and the pages: H_HEAD) */
-enum { MI_COLOR, MI_LOWCUT, MI_HOLD, MI_LIGHTS,
+enum { MI_COLOR, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB,
 #endif
-       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_LATCH, MI_ACCEL, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
+       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_ACCEL, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
-static const char *const MI_NAME[MI_COUNT] = {"COLOR", "SPEAKER", "HOLD", "LIGHTS",
+static const char *const MI_NAME[MI_COUNT] = {"COLOR", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO",
 #endif
-                                              "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY", "FX LATCH",
+                                              "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY",
                                               "KNOB ACCEL", "SCREEN OFF", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
@@ -80,12 +80,6 @@ static const menu_credit_t MENU_CREDITS[] = {
     {"RESID / SID MODEL", MC_TITLE},
     {"Dag Lem / GPL-2.0-or-later", MC_TEXT},
     {"https://github.com/libsidplayfp/resid", MC_URL},
-    {"", MC_TEXT},
-    {"SPACE DELAY + FM1-X0X / DELAY", MC_TITLE},
-    {"Charles Vestal; 9W9: athousanddetails", MC_TEXT},
-    {"space-delay: MIT, x0x + 9W9: GPL-3.0", MC_TEXT},
-    {"https://github.com/charlesvestal/schwung-space-delay", MC_URL},
-    {"https://github.com/charlesvestal/fm1-x0x", MC_URL},
     {"", MC_TEXT},
     {"RINGS / PHYS PORT", MC_TITLE},
     {"Emilie Gillet / MIT", MC_TEXT},
@@ -277,11 +271,9 @@ static void draw_menu(void)
                   i==MI_CLICK_LEVEL?(const char *const[]){"LOW","MID","HIGH"}[settings_click_level%3u]:
                   i==MI_COUNTIN?(const char *const[]){"OFF","1 BAR","2 BARS"}[settings_countin%3u]:
                   i==MI_PREVIEW?(settings_preview?"ON":"OFF"):(settings_chord_add?"ADD":"HOLD");
-            if (i == MI_LATCH) value = settings_latch ? "ON" : "OFF";
             if (i == MI_ACCEL) value = PREF_BITS & PREF_ACCEL_OFF ? "OFF" : "ON";
             if (i == MI_SCREEN) value = (const char *const[]){"NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"}[scr_get()];
             if (i == MI_LIGHTS) value = LIGHTS_NAME[settings_lights % LIGHTS_N];
-            if (i == MI_LOWCUT) value = (const char *const[]){"OFF", "LOWCUT", "BASS+"}[settings.lowcut % 3u];
 #if MELODEE_USB_AUDIO
             if (i == MI_USB) value = (const char *const[]){"In + Out", "In", "Out", "Off"}[ua_off_want & 3u];
 #endif
@@ -356,13 +348,7 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         palette_set(settings.palette);              /* (the menu signature redraws) */
         ui.force = 1;
     }
-    if ((s != 0 || ok) && ui.menu == 1 && ui.menu_sel == MI_LOWCUT) {
-        /* KNOB 1: right = ON, left = OFF; OCT+ toggles (SPEAKER: OFF LOWCUT BASS+, OCT+ steps) */
-        uint32_t *v = &settings.lowcut, top = 2u;
-        *v = s > 0 ? (*v < top ? *v + 1u : top) : s < 0 ? (*v ? *v - 1u : 0u) : (*v < top ? *v + 1u : 0u);
-        fx_lowcut = (uint8_t)(settings.lowcut % 3u);
-        ok = 0;
-    }
+
 #if MELODEE_USB_AUDIO
     if ((s != 0 || ok) && ui.menu == 1 && ui.menu_sel == MI_USB) {
         /* KNOB 1 steps IN+OUT IN OUT OFF, OCT+ steps and wraps; the host gets it once it rests (main.c) */
@@ -397,11 +383,10 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         PREF_BITS = (uint8_t)(on ? PREF_BITS & ~PREF_ACCEL_OFF : PREF_BITS | PREF_ACCEL_OFF);
         ui.force=1; ok=0;
     }
-    if ((s || ok) && ui.menu==1 && (ui.menu_sel==MI_LATCH || ui.menu_sel==MI_SCREEN)) {
-        uint32_t value=ui.menu_sel==MI_LATCH?settings_latch:scr_get(), top=ui.menu_sel==MI_LATCH?1u:4u;
+    if ((s || ok) && ui.menu==1 && ui.menu_sel==MI_SCREEN) {
+        uint32_t value=scr_get(), top=4u;
         value=s>0?(value<top?value+1u:value):s<0?(value?value-1u:0u):(value+1u)%(top+1u);
-        if (ui.menu_sel==MI_LATCH) { settings_latch=(uint8_t)value; perf_latch_on=settings_latch; if (!value) perf_latched=0; }
-        else scr_put(value);
+        scr_put(value);
         ui.force=1; ok=0;
     }
     if (ok && ui.menu == 1) {

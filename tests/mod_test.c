@@ -20,6 +20,7 @@
 #include <sys/resource.h>
 #endif
 
+#define MOD_MIX_IPS_MAX 90.0      /* fixed matrix work: bounded independently of the now cheaper dry mixer */
 #define MOD_COST_MAX 5.0          /* % more instructions per sample with every slot active, at most */
 
 static int bad;
@@ -79,12 +80,6 @@ static uint32_t preset_by_name(uint32_t e, const char *n)
 static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails), track 1 = engine e preset pi */
 {
     uint32_t k;
-    chorus_prepare(); memset(cho_buf, 0, CHO_LEN * sizeof(int16_t));
-    reverb_prepare(); memset(rev_comb, 0, REV_COMB_LEN * sizeof(int16_t));
-    memset(rev_ap, 0, sizeof rev_ap);
-    memset(&fx, 0, sizeof fx);
-    if (dly_buf) resource_release(RES_DELAY);
-    dly_buf = 0; memset(&dl, 0, sizeof dl);   /* (the delay at rest) */
     lim_env = LIM_T;
     memset(trk, 0, sizeof trk);
     memset(&mod, 0, sizeof mod);
@@ -135,7 +130,7 @@ static uint64_t phrase_child(uint32_t k)
             slot(&trk[0], 0, MS_LFO, MD_CUT, 40);
             slot(&trk[0], 1, MS_MODW, MD_PAN, 63);
             slot(&trk[0], 2, MS_LFO, MD_E1 + 4, -50);
-            slot(&trk[0], 3, MS_ENV, MD_REV, 30);
+            slot(&trk[0], 3, MS_ENV, MD_RESERVED9, 30);
             trk[0].mw = 100;
         }
         memcpy(keep, trk[0].p, sizeof keep);
@@ -286,30 +281,30 @@ static void test_math(void)
     check("PAN clamps to +63", t->p[P_PAN] == 63);
     mod_end(t);
     slot(t, 1, MS_OFF, MD_OFF, 0);
-    slot(t, 0, MS_AT, MD_REV, -64);
+    slot(t, 0, MS_AT, MD_RESERVED9, -64);
     t->at = 127;
-    t->p[P_REV] = 50;
+    t->p[P_RESERVED36] = 50;
     mod_begin(t);
-    check("AT -> REV -64: the send down to 0 (clamped)", t->p[P_REV] == 0);
+    check("retired REV destination is ignored", t->p[P_RESERVED36] == 50);
     mod_end(t);
     lfo_at(t, -32768);
-    slot(t, 0, MS_LFO, MD_DIST, 32);
-    slot(t, 1, MS_LFO, MD_CHO, -32);
+    slot(t, 0, MS_LFO, MD_RESERVED6, 32);
+    slot(t, 1, MS_LFO, MD_RESERVED7, -32);
     slot(t, 2, MS_LFO, MD_RATE, 32);
     slot(t, 3, MS_LFO, MD_VIB, 32);
-    t->p[P_DIST] = t->p[P_CHOR] = 64;
+    t->p[P_RESERVED33] = t->p[P_RESERVED34] = 64;
     t->p[P_LRATE] = 100;
     t->p[P_LD_PIT] = 0;
     lfo = mulq15(-32768, 32767);
     mod_begin(t);
     {
         int32_t up = (((lfo * 32) >> 6) * 127) >> 15, dn = (((lfo * -32) >> 6) * 127) >> 15;
-        check("LFO -> DIST / CHO (+-32), RATE, VIB: bipolar, half the range each",
-              up < -30 && dn > 30 && t->p[P_DIST] == 64 + up && t->p[P_CHOR] == 64 + dn && t->p[P_LRATE] == 100 + up &&
+        check("retired DIST / CHO ignored; RATE, VIB retain bipolar modulation",
+              up < -30 && dn > 30 && t->p[P_RESERVED33] == 64 && t->p[P_RESERVED34] == 64 && t->p[P_LRATE] == 100 + up &&
               t->p[P_LD_PIT] == up);
     }
     mod_end(t);
-    check("every per-block value restored", t->p[P_DIST] == 64 && t->p[P_CHOR] == 64 && t->p[P_LRATE] == 100 && t->p[P_LD_PIT] == 0);
+    check("every per-block value restored", t->p[P_RESERVED33] == 64 && t->p[P_RESERVED34] == 64 && t->p[P_LRATE] == 100 && t->p[P_LD_PIT] == 0);
 
     /* an engine parameter: its descriptor's range */
     e_trio = eng_by_name("TRIO");
@@ -346,10 +341,10 @@ static void test_math(void)
         check("VEL -> PAN: the latest note-on's velocity", p1 == ((((20 * 258) * 63) >> 6) * 127 >> 15) && t->p[P_PAN] == 63);
         mod_end(t);
     }
-    slot(t, 0, MS_KEY, MD_DLY, 63);
-    t->p[P_DLY] = 64;
+    slot(t, 0, MS_KEY, MD_RESERVED8, 63);
+    t->p[P_RESERVED35] = 64;
     mod_begin(t);
-    check("KEY -> DLY: the latest note (E4: +4 semitones)", t->p[P_DLY] == 64 + ((((4 * 512) * 63) >> 6) * 127 >> 15));
+    check("retired DLY destination is ignored", t->p[P_RESERVED35] == 64);
     mod_end(t);
     slot(t, 0, MS_ENV, MD_PAN, 63);
     blocks(FS / 10u / CTL);
@@ -380,7 +375,7 @@ static int pan_e2e(void)                       /* MODW -> PAN moves the pan the 
     uint32_t i, k;
     fresh(HOST_SYNTH, 0);
     slot(&trk[0], 0, MS_MODW, MD_PAN, 63);
-    trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;   /* (the buses are in the middle) */
+    trk[0].p[P_RESERVED34] = trk[0].p[P_RESERVED35] = trk[0].p[P_RESERVED36] = 0;   /* (the buses are in the middle) */
     pkt(0xB0, 1, 127);
     trk_note_on(&trk[0], 60, 100);
     blocks(FS / 10u / CTL);
@@ -420,7 +415,7 @@ static void test_midi(void)
     check("TRS: CC1, running status, realtime between, CC11, AT (1 data byte, running status) -> parts",
           trk[0].mw == 0x7F && trk[0].ex_off == 127 - 0x20 && trk[2].at == 0x34 && trk[0].at == 0);
     check("TRS: ch 5 -> the selected track (2)", trk[1].mw == 9);
-    check("MODW -> PAN +63 through MIDI: the part is on the right (fresh FX)", in_child(pan_e2e));
+    check("MODW -> PAN +63 through MIDI: the part is on the right (dry mixer)", in_child(pan_e2e));
 }
 /* ------------------------------------------------------------------ 4 --- */
 static uint64_t instr_now(void)
@@ -488,8 +483,8 @@ static void test_cost(void)
            (c1 - c0) * 100 / (c0 - c_idle), c_idle);
     printf("mod: cost: 4 parts (FM6 8 + PHASE 8 + PHYS 4 + TRIO 4 asked, the budget plays 8), every slot of "
            "every part active: %.0f -> %.0f (+%.1f %%)\n", m0, m1, (m1 - m0) * 100 / m0);
-    check("cost: 4 active slots add at most a few percent (PHYS part, the 4-part mix)",
-          (c1 - c0) * 100 / (c0 - c_idle) <= MOD_COST_MAX && (m1 - m0) * 100 / m0 <= MOD_COST_MAX);
+    check("cost: PHYS <=5%; four-track matrix overhead <=90 instructions/sample",
+          (c1 - c0) * 100 / (c0 - c_idle) <= MOD_COST_MAX && m1 - m0 <= MOD_MIX_IPS_MAX);
 }
 
 /* ------------------------------------------------------------------ 5 --- */

@@ -7,7 +7,7 @@
  *    glides from the cycle before's value to this one's, stays inside S&H's range; DEPTH scales the LFO (its LFO DEST
  *    routings and the matrix's LFO source) as AMP does a voice, several slots multiply, none = untouched (bit for bit);
  *    RATE (the LFO's rate) with them: the modulator modulated; values past the lists do nothing.
- * 2. SPREAD (fx.c mix_spread): SPRD 0 / MONO / LEGATO bit for bit the plain mix, a POLY note hard left / the next hard
+ * 2. SPREAD (mix.c mix_spread): SPRD 0 / MONO / LEGATO bit for bit the plain mix, a POLY note hard left / the next hard
  *    right at SPRD 127, a chord's L and R differ, the mono sum's level, UNISON's voices alternate, the SLICER's gate and
  *    the mute key close the side too, the sends stay mono. */
 #define main hostsim_main
@@ -67,16 +67,6 @@ static uint32_t preset_by_name(uint32_t e, const char *n)
 static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails), track 1 = engine e preset pi */
 {
     uint32_t k;
-    chorus_prepare(); memset(cho_buf, 0, CHO_LEN * sizeof(int16_t));
-    reverb_prepare(); rev_clear();
-    memset(rev_ap, 0, sizeof rev_ap);
-    memset(&fx, 0, sizeof fx);
-    if (dly_buf) resource_release(RES_DELAY);
-    dly_buf = 0; memset(&dl, 0, sizeof dl);   /* (the delay at rest) */
-    memset(&pf, 0, sizeof pf);
-    for (k = 0; k < NTRK; k++)
-        pf.mg[k] = 32768;
-    perf_held = perf_latched = 0;
     lim_env = LIM_T;
     dc_l = dc_r = dce_l = dce_r = 0;                      /* (the master's DC blockers: no residue of a run before) */
     vage = 0;                                             /* the seeds: every run the same (noise by voice age) */
@@ -84,7 +74,6 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
     mod_seed = 0x2545F491u;
     memset(trk, 0, sizeof trk);
     memset(&mod, 0, sizeof mod);
-    memset(sl, 0, sizeof sl);
     host_tracks_init();
     for (k = 0; k < NPART; k++)
         host_preset(&trk[k], k ? HOST_SYNTH : e, k ? 0u : pi);
@@ -93,7 +82,7 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
 }
 static void dry(track_t *t)                       /* no sends: the dry mix only */
 {
-    t->p[P_DIST] = t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
+    t->p[P_RESERVED33] = t->p[P_RESERVED34] = t->p[P_RESERVED35] = t->p[P_RESERVED36] = 0;
 }
 
 /* the hash of a phrase on track 1 in a fork()ed child (the seeds as they were: the same in each); setup(t) first */
@@ -138,7 +127,7 @@ static uint64_t phrase_child(uint32_t e, uint32_t pi, void (*setup)(track_t *t))
 static void test_matrix(void)
 {
     static const char *const SRC_V12[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR"};
-    static const char *const DST_V12[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
+    static const char *const DST_V12[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "", "", "", "", "RATE",
                                           "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"};
     track_t *t = &trk[0];
     uint32_t i, k, steps = 0, changes_in_cycle = 0, pos = 0, neg = 0, same_as_wave = 1;
@@ -149,7 +138,7 @@ static void test_matrix(void)
         ok &= str_eq(N_MSRC[i], SRC_V12[i]);
     for (i = 0; i < NELEM(DST_V12); i++)
         ok &= str_eq(N_MDST[i], DST_V12[i]);
-    check("SRC / DST lists only grew: every stored value keeps its name (S&H SLEW, DEPTH appended)",
+    check("SRC / DST identities stay fixed; retired effect destinations are blank",
           ok && MS_SH == 9 && MS_SLEW == 10 && MS_N == 11 && MD_DEPTH == 20 && MD_N == 21 &&
           str_eq(N_MSRC[MS_SH], "S&H") && str_eq(N_MSRC[MS_SLEW], "SLEW") && str_eq(N_MDST[MD_DEPTH], "DEPTH") &&
           TP[P_M1SRC].max == MS_N - 1 && TP[P_M1DST].max == MD_N - 1);
@@ -422,98 +411,7 @@ static void test_spread(void)
 }
 
 /* the SLICER's gate and the mute key close the side too; the sends stay mono */
-static void test_spread_fx(void)
-{
-    static const uint8_t CHORD[4] = {48, 55, 60, 64};
-    track_t *t = &trk[0];
-    uint32_t k, i, closed = 0;
-    double side_closed = 0, side_open = 0;
-    char msg[160];
-    /* SLICER GATE, pattern 1 (x.x.), DEPTH 100 %: in the closed steps L and R both near silent */
-    fresh(HOST_SYNTH, preset_by_name(HOST_SYNTH, "SYN STRINGS"));
-    dry(t);
-    t->p[P_ATK] = 0;
-    t->p[P_SPRD] = 127;
-    t->p[P_SLCR] = SL_GATE;
-    t->p[P_SLPAT] = 1;
-    t->p[P_SLDEPTH] = 127;
-    slicer_start();
-    for (i = 0; i < 4u; i++)
-        trk_note_on(t, CHORD[i], 100);
-    blocks(FS / 4u / CTL);
-    for (k = 0; k < FS / CTL; k++) {
-        double s = 0;
-        blocks(1);
-        for (i = 0; i < CTL; i++) {
-            double d = (double)out_buf[2u * i] - out_buf[2u * i + 1u];
-            s += d * d;
-        }
-        if (sl[0].gc >= 32000 && !sl[0].bit) {
-            side_closed += s;
-            closed++;
-        } else if (!sl[0].gc) {
-            side_open += s;
-        }
-    }
-    snprintf(msg, sizeof msg, "SLICER GATE: the side closes with the gate (L - R energy closed / open %.2e, %u blocks)",
-             side_closed / (side_open + 1), closed);
-    check(msg, closed > 10u && side_closed < side_open * 1e-4);
-    /* the mute key (FX layer, black key 1): both sides ramp to silence. What is left after it is the master's DC
-     * blockers settling: as much at SPRD 127 as at 0, and L - R no more than that (the side muted with the mid) */
-    {
-        double side[2][2] = {{0}}, all[2][2] = {{0}};
-        uint32_t ph, r;
-        for (r = 0; r < 2u; r++) {
-            fresh(HOST_SYNTH, 0);                         /* (INIT TONE: little DC for the blockers to settle) */
-            dry(t);
-            t->p[P_ATK] = 0;
-            t->p[P_SPRD] = (int16_t)(r ? 127 : 0);
-            for (i = 0; i < 4u; i++)
-                trk_note_on(t, CHORD[i], 100);
-            for (ph = 0; ph < 2u; ph++) {
-                if (ph)
-                    perf_held |= 1u << PF_M1;
-                blocks(FS / 8u / CTL);
-                for (k = 0; k < 8u; k++) {
-                    blocks(1);
-                    for (i = 0; i < CTL; i++) {
-                        side[r][ph] += fabs((double)out_buf[2u * i] - out_buf[2u * i + 1u]);
-                        all[r][ph] += fabs((double)out_buf[2u * i]) + fabs((double)out_buf[2u * i + 1u]);
-                    }
-                }
-            }
-            perf_held = 0;
-        }
-        snprintf(msg, sizeof msg, "the mute key: L and R both go (SPRD 127: left %.1e, L - R %.1e of before; SPRD 0: %.1e)",
-                 all[1][1] / all[1][0], side[1][1] / side[1][0], all[0][1] / all[0][0]);
-        check(msg, side[1][0] > 0 && all[1][1] / all[1][0] < 2 * all[0][1] / all[0][0] + 3e-3 &&   /* (CZ-1's DC: a few 1e-3) */
-              side[1][1] <= all[1][1] && all[0][1] < all[0][0] * 0.05);
-    }
-    /* the sends: mono (a chord with SPRD 127 and only REV: what the wet bus gets is the same) */
-    {
-        uint64_t hw[2];
-        uint32_t r;
-        for (r = 0; r < 2u; r++) {
-            fresh(HOST_SYNTH, preset_by_name(HOST_SYNTH, "SYN STRINGS"));
-            dry(t);
-            t->p[P_REV] = 100;
-            t->p[P_SPRD] = (int16_t)(r ? 127 : 0);
-            for (i = 0; i < 4u; i++)
-                trk_note_on(t, CHORD[i], 100);
-            blocks(FS / 4u / CTL);
-            uint64_t hs = 0xCBF29CE484222325ull;   /* (blocks() hashes the output into hash: its own) */
-            for (k = 0; k < FS / 4u / CTL; k++) {
-                blocks(1);
-                for (i = 0; i < CTL; i++) {
-                    hs ^= (uint32_t)send_r[i];
-                    hs *= 0x100000001B3ull;
-                }
-            }
-            hw[r] = hs;
-        }
-        check("the sends take the mono mix: REV's send the same at SPRD 127 as at 0", hw[0] == hw[1]);
-    }
-}
+
 
 
 int main(void)
@@ -521,7 +419,6 @@ int main(void)
     test_matrix();
     test_matrix_sound();
     test_spread();
-    test_spread_fx();
     printf("%s\n", bad ? "MOD / SPREAD TEST FAILED" : "mod / spread test passed");
     return bad != 0;
 }

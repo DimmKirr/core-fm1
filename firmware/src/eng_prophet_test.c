@@ -376,15 +376,9 @@ static void p5_join(void)
  * voice it starts afresh */
 #define P5_DC_K 1072976913                       /* (1 - 2 pi 5 / FS) << 30 */
 _Static_assert(FS == 44100, "P5_DC_K: the sample rate");
-static void p5_post(track_t *t,int32_t *out,uint32_t n,uint32_t nr)
+static __attribute__((noinline,section(".dsp_text"))) void p5_dc_samples(p5_part_t *P,int32_t *out,uint32_t n)
 {
-#if MELODEE_DUAL_CORE
-    p5_join();
-#endif
-    p5_part_t *P=p5_part((uint32_t)(t-trk)%NPART);
-    if(!P)return;
     int32_t x1=P->dc_x1,y=P->dc_y1;
-    if(!nr){P->dc_x1=P->dc_y1=0;return;}
     for(uint32_t i=0;i<n;i++){
         int32_t x=out[i];
         y=(int32_t)((int64_t)(x-x1)*256+(((int64_t)y*P5_DC_K)>>30));
@@ -392,6 +386,17 @@ static void p5_post(track_t *t,int32_t *out,uint32_t n,uint32_t nr)
         out[i]=(y+128)>>8;
     }
     P->dc_x1=x1;P->dc_y1=y;
+}
+static void p5_post(track_t *t,int32_t *out,uint32_t n,uint32_t nr)
+{
+#if MELODEE_DUAL_CORE
+    p5_join();
+#endif
+    p5_part_t *P=p5_part((uint32_t)(t-trk)%NPART);
+    if(!P)return;
+    if(!nr){P->dc_x1=P->dc_y1=0;return;}
+    void (*volatile run)(p5_part_t *,int32_t *,uint32_t)=p5_dc_samples;
+    run(P,out,n);
 }
 
 /* XIP stalls dominated the first hardware run. This bounded hot path uses
@@ -515,7 +520,7 @@ static void p5_factory(uint32_t k,p5_patch_t *p)
 static void p5_preset_make(uint32_t k,preset_t *pr,char *name)
 {
     p5_patch_t p;
-    pr->env[2]=127;memset(pr->fx,1,sizeof pr->fx);                 /* dry: sends 0 (stored + 1) */
+    pr->env[2]=127;
     if(!k){str_cpy(name,"INIT PROPHET",21);return;}
     p5_factory(k-1u,&p);p5_patch_name(name,&p);
 }
@@ -539,5 +544,5 @@ static const engine_t ENG_P5_TEST = {
     .preset_make=p5_preset_make,.npresets=P5_FACTORY_N+1u,.poly=P5_POLY,.ownenv=1,
     .note_on=p5_note_on,.render=p5_render,.done=p5_done,.block=p5_block,.units=p5_units,.cap=p5_cap,.legato=p5_legato,
     .post=p5_post,
-    .knob={P_E0,P_E1,P_CHOR,P_REV}
+    .knob={P_E0,P_E1,P_RESERVED34,P_RESERVED36}
 };

@@ -15,7 +15,7 @@ EXP_RANGES = [
     ("HT_TUNE", 110.0, 170.0), ("HT_DECAY", 60.0, 2000.0),
     ("RS_TUNE", 150.0, 300.0), ("CP_TUNE", 650.0, 1400.0), ("CP_TAIL", 120.0, 1000.0),
     ("OH_DECAY", 20.0, 1200.0), ("CH_DECAY", 15.0, 300.0), ("CY_DECAY", 100.0, 3000.0),
-    ("SMP_PITCH", 0.25, 4.0), ("FX_HPF", 30.0, 800.0),
+    ("SMP_PITCH", 0.25, 4.0),
 ]
 
 TANH_N = 1024          # points over [0, TANH_MAX]; linear interpolation

@@ -192,13 +192,13 @@ static int control_clashes(void)
     t=clash_setup();memcpy(saved,recording,sizeof saved);chain.running=1;press(B_EDIT);
     bad+=check("song-chain protection also blocks individual note deletion",!memcmp(saved,recording,sizeof saved)&&msg_is("STOP TO EDIT"));
     chain.running=0;
-    for(uint32_t layer=LAYER_FX;layer<LAYER_SCL;layer++) {
+    for(uint32_t layer=LAYER_GLO;layer<LAYER_SCL;layer++) {
         t=clash_setup();memcpy(saved,recording,sizeof saved);uint8_t zoom=ui.note_zoom;
         uint32_t b=LAYERS[layer].btn;
         fm1_in.buttons|=1u<<panel.btn[b];host_pressed|=1u<<panel.btn[b];frame();turn(EN_K4,1);
         int active=ui.ly==layer&&ui.layer==layer;
         fm1_in.buttons&=~(1u<<panel.btn[b]);frame();
-        bad+=check("FX/GLO layers keep their own knobs inside NOTES",active&&ui.note_zoom==zoom&&!memcmp(saved,recording,sizeof saved));
+        bad+=check("GLO layer keep their own knobs inside NOTES",active&&ui.note_zoom==zoom&&!memcmp(saved,recording,sizeof saved));
     }
     return bad;
 }

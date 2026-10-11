@@ -38,11 +38,11 @@ int main(void)
     bad+=check("F064 stores original 128-byte DX7 VMEM",native_put(ENGI_FM6,63,fm)==0 && !memcmp(native_raw(ENGI_FM6,63),fm,128));
     bad+=check("Z128 stores all original 144 CZ-1 bytes",native_put(ENGI_CZ,127,cz)==0 && !memcmp(native_raw(ENGI_CZ,127),cz,144));
     bad+=check("one engine's native slot cannot occupy the other engine or a general slot",!up_used(63) && native_count(ENGI_FM6)==1 && native_count(ENGI_CZ)==1);
-    TSEL->p[P_DIST]=47;TSEL->p[P_LD_PIT]=12;TSEL->step[0]=(step_t){.time=ST_NOTE,.n=1,.note={60}};
+    TSEL->p[P_RESERVED33]=47;TSEL->p[P_LD_PIT]=12;TSEL->step[0]=(step_t){.time=ST_NOTE,.n=1,.note={60}};
     native_load(ENGI_FM6,63,0);fm6_pack(fm6_patch[0],got);
-    bad+=check("native FM6 load keeps effects, modulation and pattern",!memcmp(got,fm,128) && TSEL->p[P_DIST]==47 && TSEL->p[P_LD_PIT]==12 && TSEL->step[0].note[0]==60);
+    bad+=check("native FM6 load keeps effects, modulation and pattern",!memcmp(got,fm,128) && TSEL->p[P_RESERVED33]==47 && TSEL->p[P_LD_PIT]==12 && TSEL->step[0].note[0]==60);
     native_load(ENGI_CZ,127,0);
-    bad+=check("native CZ load keeps effects, modulation and pattern",!memcmp(cz_patch[0].raw,cz,144) && TSEL->p[P_DIST]==47 && TSEL->p[P_LD_PIT]==12 && TSEL->step[0].note[0]==60);
+    bad+=check("native CZ load keeps effects, modulation and pattern",!memcmp(cz_patch[0].raw,cz,144) && TSEL->p[P_RESERVED33]==47 && TSEL->p[P_LD_PIT]==12 && TSEL->step[0].note[0]==60);
     uint32_t total,cur=eng_list_pos(&total);
     bad+=check("Z128 occupies the next ordinary preset position after CZ factory tones",total==66 && cur==65 && user_of(TSEL)==127);
     eng_list_step(1);bad+=check("ordinary engine preset scrolling wraps from Z128 to INIT",TSEL->eng_req==ENGI_CZ && TSEL->preset==0 && !TSEL->user);

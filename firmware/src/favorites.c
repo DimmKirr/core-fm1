@@ -6,7 +6,7 @@
  *   row 8  (GRAIN, retired; Felucca 1.0's stars in bits 0..11) 16..25 the FX key map, 28..31 its tag (below)
  *   row 14 (OBXF, retired; its old stars in 0..15)             16..27 the scale favorites, 28..31 their tag
  *   row 15 (CZ-1: factory tones bits 0..64, native slots 65..192) 27 SCREEN OFF, 29 the PRESETS LIST (browse.c),
- *          30 bit 0 FX LATCH, bit 1 KNOB ACCEL OFF (ui.c PREF_BITS), 31 the quick layers seen (ui_layer.c);
+ *          30 bit 0 retired, bit 1 KNOB ACCEL OFF (ui.c PREF_BITS), 31 the quick layers seen (ui_layer.c);
  *          free: 24 bits 1..7, 25, 26, 28, 30 bits 2..7
  *   row 0 bytes 2..27 hold all 201 Prophet factory stars, tagged in bytes 28..31;
  *         bytes 0..1 held retired ANALOG's stars.
@@ -42,15 +42,6 @@ static int scale_favorite_set(uint32_t scale, int on)
     if (on) p[16u + scale / 8u] |= (uint8_t)(1u << (scale % 8u));
     else p[16u + scale / 8u] &= (uint8_t)~(1u << (scale % 8u));
     return 1;
-}
-/* The FX layer's white-key map (perform.c perf_map_of, ui_layer.c fx_keys) in the upper half of retired engine 8's
- * row, tagged FXK (settings_export tags every record; 1.2 moved the untagged maps of before out of CZ's row). */
-#define FX_KEYS_ROW 8u
-#define FX_KEYS_AT 16u
-#define FX_KEYS_LEN 10u
-static void fx_keys_tag(uint8_t *row)
-{
-    row[28] = 'F'; row[29] = 'X'; row[30] = 'K'; row[31] = 1;
 }
 static int p5_favorite_has(uint32_t slot,int factory);
 static int p5_favorite_set(uint32_t slot,int on,int factory);

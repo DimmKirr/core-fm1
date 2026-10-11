@@ -16,7 +16,6 @@ static int p5_favorite_set(uint32_t slot,int on,int factory){(void)slot;(void)on
 #define USER_NATIVE_CZ 18u
 #define ENGI_FM6 12u
 #define ENGI_CZ 15u
-static uint8_t fx_lowcut;
 static void fm1_led_key(unsigned k, int on) { (void)k; (void)on; }
 static int fm1_enc_take(unsigned k) { (void)k; return 0; }
 static void lcd_sync(void) {}
@@ -27,8 +26,6 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "../firmware/src/panel.c"
 static void settings_save(void) {}
 static uint8_t settings_boot, settings_drumch = 10;  /* (params.c) */
-#define PF_KEYS 16u                                       /* (perform.c: the FX key map's keys and effects) */
-#define PF_NFX 12u
 static int native_used(uint32_t e, uint32_t k) { (void)e; (void)k; return 0; }
 #if __has_include("../firmware/src/favorites.c")
 #include "../firmware/src/favorites.c"
@@ -44,7 +41,7 @@ int main(void)
     original.favorites.user = 1u << 31; original.favorites.filter = 1;
     p = original;
     assert(settings_import(&p, sizeof p) == 1); settings_init();
-    assert(settings.palette == UI_DEFAULT_INDEX && fx_lowcut && settings.zoom && panel.enc[0] == 3);
+    assert(settings.palette == UI_DEFAULT_INDEX && !settings.lowcut && settings.zoom && panel.enc[0] == 3);
     assert(p.palette == palette_to_stored(UI_DEFAULT_INDEX));
     {   /* tagged ids round trip; any other id (the untagged ones of before 1.0 too) is the default */
         persist_t q = original;

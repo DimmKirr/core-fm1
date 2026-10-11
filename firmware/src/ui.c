@@ -71,8 +71,7 @@ static uint32_t user_of(const track_t *t)    /* user preset slot its sound came 
 static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "favorites.c"
-/* MENU's two-valued settings in a byte no engine uses (favorites.factory[15][30], saved with the settings): bit 0 FX
- * LATCH (settings_persist.c settings_latch), bit 1 KNOB ACCEL OFF (ui_input.c accel_by; clear in older settings = ON) */
+/* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF. */
 #define PREF_BITS (favorites.factory[15][30])
 #define PREF_ACCEL_OFF 2u
 
@@ -118,8 +117,8 @@ static struct {
     recorded_note_t note_identity; /* retain focus when unrelated event storage changes */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
     uint8_t step_move;           /* a held SELECT modifier gesture: one edit until the modifier is released */
-    uint8_t step_oct_used;       /* OCT buttons consumed by FX/SAVE undo or redo */
-    uint16_t step_mods, step_used; /* STEP's ENV/SCL/FX buttons awaiting release, and the gestures consumed */
+    uint8_t step_oct_used;       /* OCT buttons consumed by SAVE undo or redo */
+    uint16_t step_mods, step_used; /* STEP's ENV/SCL buttons awaiting release, and the gestures consumed */
     uint8_t lane;                /* SEQ > STEP on a DRUM track (the grid): the lane the keys and KNOB 3 / 4 edit */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
     uint8_t import_refresh, new_active;
@@ -193,7 +192,7 @@ static uint32_t drum_hit_selected(void);
 static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.page]; }
 
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
-enum { LAYER_NONE, LAYER_FX, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_N };
+enum { LAYER_NONE, LAYER_RESERVED, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_N };
 static void draw_layer(void);
 static const char *layer_head(void);
 static uint32_t layer_leds(void);
@@ -584,8 +583,8 @@ static int seq_is_empty(const track_t *t)
  * loads changed (held again: the level before, SAVE + OCT+ redoes), so steps recorded after a sound load, or a sound
  * edited after a pattern load, stay as they are. Loads in a row on one track with nothing changed in between (the
  * PRESETS knob through the list, one pattern after the other, an editor audition) keep the copy from before the first,
- * so the undo goes back past the whole browse. Levels: UNDO_LV_MAX in the cache RAM's UI part (resources.c ui_cache),
- * one without it. Not snapshotted: power-on, projects (a project load drops them all) */
+ * so the undo goes back past the whole browse. Eight levels fit in ordinary SRAM,
+ * leaving the data cache available for flash reads. Not snapshotted: power-on, projects (a project load drops them all) */
 enum { UNDO_SOUND = 1, UNDO_PAT = 2 };
 typedef struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
@@ -606,16 +605,16 @@ typedef struct {
 } undo_t;
 #define UNDO_LV_MAX 8u
 _Static_assert(UNDO_LV_MAX * sizeof(undo_t) <= UI_CACHE_BYTES, "undo levels fit the cache RAM's UI part");
-static undo_t undo_one;          /* the level of a build without cache RAM */
-static undo_t *undo_lv = &undo_one;
-static uint8_t undo_nlv = 1, undo_top, undo_cnt;   /* levels; undoable 0 .. top-1, redoable top .. cnt-1 */
+static undo_t undo_sram[UNDO_LV_MAX] __attribute__((section(".pool")));
+static undo_t *undo_lv = undo_sram;
+static uint8_t undo_nlv = UNDO_LV_MAX, undo_top, undo_cnt;   /* levels; undoable 0 .. top-1, redoable top .. cnt-1 */
 static undo_t *undo_last(void) { return &undo_lv[undo_top ? undo_top - 1u : 0u]; }
 #define undo (*undo_last())      /* the latest level (tests, the layers: undo.keep); none: level 0 */
 static void undo_clear(void) { undo_top = undo_cnt = 0; undo_lv[0].trk = undo_lv[0].keep = 0; }
 static void undo_levels(void)    /* the cache RAM's UI part once it is there (boot self-test passed) */
 {
     uint8_t *c = ui_cache();
-    if (c && undo_lv == &undo_one) {
+    if (c && undo_lv == undo_sram) {
         undo_lv = (undo_t *)(void *)c;
         undo_nlv = UNDO_LV_MAX;
         undo_clear();
@@ -676,7 +675,7 @@ static void momentary_take(uint32_t slot)
     if(!d || !vp || d->max==d->min)return;
     uint32_t native=pg->scope==SC_FM6 || pg->scope==SC_FMOP?1:pg->scope==SC_CZ1?2:pg->scope==SC_P5?3:0;
     if(!native && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&
-       !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING || (pg->id[slot]>=G_DTIME && pg->id[slot]<=G_CDEPTH) || pg->id[slot]==G_DWEAR)))return;
+       !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING)))return;
     if(!native && pg->scope==SC_TRACK && scale_shared((uint32_t)(vp-TSEL->p)))return;
     if(!momentary.active){momentary.track=song.sel;momentary.active=1;}
     if(native && !momentary.native){
@@ -852,12 +851,12 @@ static void track_defaults_steps(track_t *t)
 
 /* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
  * TOOLS INIT) leaves alone. The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
- * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE) and the SLICER insert,
+ * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE),
  * which chops whatever the track plays in time with its sequencer */
 static int param_kept(uint32_t i)
 {
     return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_MPCDEG || i == P_RECQ;
+           i == P_CHRD || i == P_VOIC || i == P_MPCDEG || i == P_RECQ;
 }
 
 /* SCL, QNT and the MPC degree are the song's: one scale for every part, kept the same in each track's own slots
@@ -911,11 +910,6 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     t->p[P_REL] = pr->env[3];
     t->p[P_ED_FLT] = pr->fenv;
     t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
-    {   /* the sends */
-        static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
-        for (i = 0; i < 4u; i++)                      /* (no delay: its sends predate the delay bus coming back) */
-            t->p[P_DIST + i] = (int16_t)(i == 2u ? 0 : pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
-    }
     if(t->eng_req==ENGI_PROPHET)p5_preset_loaded(t,pi);
     cz_factory_loaded(t);
     cz_track_accept(t);

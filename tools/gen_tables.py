@@ -129,7 +129,9 @@ def main(path):
     dms = [5.0 * (800 ** (v / 127)) for v in range(128)]
     L += arr("DECAY_K", "uint16_t", [min(65535, int(65536 * math.exp(-6.9 / (m / 1000 * FS)))) for m in dms])
     # soft clip curve for |x| in 0..2 (Q12 in, Q15 out): tanh
-    L += arr("TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)])
+    tanh_q15 = arr("TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)])
+    tanh_q15[0] = tanh_q15[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+    L += tanh_q15
     L += fm6_tables()
     L += sid_tables()
     Path(path).write_text("\n".join(L) + "\n")

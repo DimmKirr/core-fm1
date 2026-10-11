@@ -55,7 +55,6 @@ static void cz_preset_make(uint32_t k, preset_t *pr, char *name)
     uint32_t i, a = 128u, z = CZ_BYTES;
     pr->e[7] = CZ_NATIVE;
     pr->env[1] = 70; pr->env[2] = 127; pr->env[3] = 60;
-    memset(pr->fx, 1, sizeof pr->fx);                 /* sends 0 (stored + 1) */
     if (!k) { str_cpy(name, "INIT TONE", 21); return; }
     k--;
     pr->e[0] = (int8_t)(k / 16u);

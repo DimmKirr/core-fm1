@@ -257,7 +257,7 @@ static uint32_t page_sheet(void)
     if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS)
         return 3;
     fam = cur_page()->fam;
-    return fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO || fam == FAM_FX ? 1u : 0u;
+    return fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO ? 1u : 0u;
 }
 static void page_sheet_open(void)
 {
@@ -372,6 +372,19 @@ static void pick_poll(void)                             /* ST_KNOB_MS after the 
 
 /* ------------------------------------------------ a value's list --- */
 /* OCT+ on a list page's row whose value is a name from a list: the whole list (KNOB 2, OCT+ takes it, OCT- closes) */
+/* Compact enum lists omit retired empty entries without changing stored IDs. */
+static int32_t enum_rows(const param_desc_t *d)
+{
+    int32_t count=0;for(int32_t v=d->min;v<=d->max;v++)count+=d->names[v-d->min][0]!=0;return count;
+}
+static int32_t enum_rank(const param_desc_t *d,int32_t value)
+{
+    int32_t rank=0;for(int32_t v=d->min;v<value;v++)rank+=d->names[v-d->min][0]!=0;return rank;
+}
+static int32_t enum_value(const param_desc_t *d,int32_t rank)
+{
+    for(int32_t v=d->min;v<=d->max;v++)if(d->names[v-d->min][0] && !rank--)return v;return d->min;
+}
 static struct { uint8_t page, slot; int16_t sel; } vl;
 static const param_desc_t *vlist_desc(int16_t **vp) { return page_desc(&PAGES[vl.page], vl.slot, vp); }
 static void vlist_open(uint8_t page, uint8_t slot)
@@ -396,7 +409,7 @@ static void vlist_input(int32_t k2, uint32_t oct)
         return;
     }
     if (k2)
-        vl.sel = (int16_t)clamp(vl.sel + (k2 > 0 ? 1 : -1), d->min, d->max);
+        vl.sel = (int16_t)enum_step(d,vl.sel,clamp(vl.sel + (k2 > 0 ? 1 : -1), d->min, d->max));
     if (oct & 1u) {
         pop_close();
     } else if (oct & 2u) {                              /* (its page edits it, as if it were shown) */
@@ -420,12 +433,12 @@ static void vlist_draw(void)
         pop_close();
         return;
     }
-    n = d->max - d->min + 1 < 7 ? d->max - d->min + 1 : 7;
+    n = enum_rows(d) < 7 ? enum_rows(d) : 7;
     sig = (uint32_t)(vl.sel + 1) * 7919u + vl.page * 131u + ux.gen * 977u + ux.pal * 31u;
     if (!ui.force && sig == pop.sig)
         return;
     pop.sig = sig;
-    first = clamp(vl.sel - 3, d->min, d->max - n + 1);
+    first = clamp(enum_rank(d,vl.sel) - 3, 0, enum_rows(d) - n);
     h = 30 + n * 20 + 6;
     y0 = 236 - h;
     for (top = 0; top < h; ) {                          /* in slices between rows (a canvas holds 124 rows) */
@@ -438,7 +451,7 @@ static void vlist_draw(void)
         if (top == 0)
             cv_text_on(10, 8, &AF_S, b, T_TEXT, T_SURF);
         for (i = 0; i < n; i++) {
-            int32_t v = first + i, y = 28 + i * 20, on = v == vl.sel, cur = v == *vp;
+            int32_t v = enum_value(d,first + i), y = 28 + i * 20, on = v == vl.sel, cur = v == *vp;
             uint16_t bg = on ? T_LIFT : T_SURF;
             if (y + 20 <= top || y >= top + sh)
                 continue;
@@ -518,15 +531,15 @@ static void pick_draw(void)
         return;
     pop.sig = sig;
     {
-    int32_t rows = d->max - d->min + 1 < 5 ? d->max - d->min + 1 : 5, h = 16 + rows * 20;
-    int32_t first = clamp(v - 2, d->min, d->max - rows + 1);   /* five names around it, the list's ends kept */
+    int32_t rows = enum_rows(d) < 5 ? enum_rows(d) : 5, h = 16 + rows * 20;
+    int32_t first = clamp(enum_rank(d,v) - 2, 0, enum_rows(d) - rows);   /* five names around it, the list's ends kept */
     x = 4 + 60 * (int32_t)(pop.col < 3u ? pop.col : 2u);   /* its column and the next (the last: the two last), whole:
                                                          * a neighbour's value is under it entirely or not at all */
     cv_begin(POP_PICK_W, (uint32_t)h, T_BG);
     cv_rrect(0, 0, POP_PICK_W, h, 10, T_LINE, T_BG);
     cv_rrect(1, 1, POP_PICK_W - 2, h - 2, 9, T_SURF, T_LINE);
     for (i = 0; i < rows; i++) {
-        int32_t n = first + i, y = 8 + i * 20, far = n - v > 1 || v - n > 1;
+        int32_t n = enum_value(d,first + i), y = 8 + i * 20, far = n - v > 1 || v - n > 1;
         char b[16];
         list_words(b, d->names[n - d->min], sizeof b);
         if (n == v) {

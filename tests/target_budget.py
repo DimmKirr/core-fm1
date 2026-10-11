@@ -22,17 +22,19 @@ FUNCS = ["phase_render", "sid_render", "cz_native_render", "cz_native_wave", "fo
          "dr_bd", "dr_sd", "dr_tom", "dr_rs", "dr_cl", "dr_cp", "dr_ma", "dr_metal", "dr_cb", "dr_cy", "dr_hat", "dr8_run",   # drum_808.c
          "drum_source", "drum_limit", "drum_color", "dr_metal_tune",
          "d9_render_bd", "d9_render_sd", "d9_render_tom", "d9_render_rim", "d9_render_clap", "d9_render_smp",
-         "slicer_track",
                                    # SLICE (eng_slice.c): the render, the reverse windows
          "fm1_alnk0_irq", "track_render_audio",       # per-track renderer has its own bounded function
          "midi_parameter", "audition_tick", "click_render", # bounded optional recording/performance paths
          "mod_begin", "mod_voice", "mod_end",                 # the modulation matrix (mod.c), called when active
-         "perf_begin", "perf_mute", "perf_pre", "perf_block", "perf_master",   # the FX layer (perform.c), when busy
-         "rev_room", "rev_spring"]                # the reverb bus (fx.c): REVERB TYPE ROOM / SPRING
+         ]
 OPTIONAL = {}                   # built only with an option, not in BUDGET: absent, skipped; present, checked against these
 # The FM6 operator kernel may be extracted from its renderer. Keep the original
 # combined budget, so moving work into a helper cannot weaken the existing guard.
-EXTRACTED = {"fm6_render": ("fm6_run", "fm6_run_into", "fm6_output", "fm6_join")}
+EXTRACTED = {
+    "fm6_render": ("fm6_run", "fm6_run_into", "fm6_output", "fm6_join"),
+    "fm1_alnk0_irq": ("mix_mono_samples", "master_samples", "master_out"),
+    "track_render_audio": ("fm6_dc_samples", "p5_dc_samples"),
+}
 KERNEL_NAMES = {n for names in EXTRACTED.values() for n in names}
 FEATURE_OPTIONAL = {"p5_samples", "p5_mod_samples"}  # MELODEE_PROPHET=0 omits these
 TOL = 0.10                      # exact (no noise): small edits pass, a grown render loop does not
@@ -186,7 +188,9 @@ def main():
                "phase_render", "formant_render", "noise_render",
                "px_modal_block", "px_modal_run", "px_memb_block", "px_string_excite",
                "px_string_run", "px_symp_run"}
-    missing = [n for n in FUNCS if n not in res and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired]
+    disabled = set()
+    missing = [n for n in FUNCS if n not in res and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired and n not in disabled]
+    if disabled: print("target: resident audio profile has delay/reverb disabled; their absent kernels are excluded")
     base = {}
     if os.path.exists(budget):
         for line in open(budget):

@@ -299,8 +299,7 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
     for (i = 0; i < P_COUNT; i++)
         def[i] = param_desc_of(up_native_cz(r)?ENGI_CZ:r->engine, i)->def;
     up_params(r, v, def);
-    if (r->np < P_COUNT)                          /* (before the delay came back: its send inert, so none) */
-        v[P_DLY] = 0;
+    for (i = 0; i < P_COUNT; i++) if (param_reserved(i)) v[i] = 0;
     for (i = 0; i < P_COUNT; i++)
         if (!(eng_extra_retired(r->engine) && i >= P_E0))
         v[i] = (int16_t)clamp(v[i], param_desc_of(up_native_cz(r)?ENGI_CZ:r->engine, i)->min, param_desc_of(up_native_cz(r)?ENGI_CZ:r->engine, i)->max);
@@ -481,7 +480,7 @@ static int up_rename(uint32_t k, const char *name)
 }
 
 /* slot k -> the selected part's sound: engine and every parameter except the track's own (param_kept:
- * the mix, ARP, SCL, the pattern parameters, the SLICER). The steps stay: the record's pattern is
+ * the mix, ARP, SCL, the pattern parameters). The steps stay: the record's pattern is
  * never loaded (the phrases are gone). 0 ok, 1 empty */
 static int up_load(uint32_t k)
 {
@@ -501,7 +500,7 @@ static int up_load(uint32_t k)
         t->eng_req = up_native_cz(r)?ENGI_CZ:r->engine;
         for (i = 0; i < P_COUNT; i++)
             if (!param_kept(i))
-                t->p[i] = v[i];
+                t->p[i] = param_reserved(i) ? 0 : v[i];
         t->preset = 0;
         if (up_native_cz(r))up_cz_raw(r,cz_patch[song.sel % NTRK].raw);
         if(r->engine==ENGI_DRUM){memset(&drum_patch[song.sel],0,sizeof(drum_patch_t));if(r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)up_drum_raw(r,&drum_patch[song.sel]);}

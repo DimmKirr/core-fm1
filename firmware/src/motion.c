@@ -140,9 +140,9 @@ static void motion_native_snapshot(const track_t *t, uint8_t *raw, uint32_t tag,
 static int motion_param(uint32_t id)
 {
     /* Sound only: transport, routing, voice allocation and discrete engine
-     * changes never become automation. FX sends and continuous mix are safe. */
+     * changes never become automation. Continuous mix parameters are safe. */
     return id != P_RECQ && id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
-        (id >= P_DIST && id <= P_REV) || id == P_GLIDE || id == P_PAN ||
+        id == P_GLIDE || id == P_PAN ||
         id == P_DETUNE || id == P_SPRD || (id >= P_LN0 && id <= P_LN7) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || id >= P_E0);   /* (not the chord keys) */
 }
 static int motion_valid(const motion_store_t *m)
@@ -152,7 +152,7 @@ static int motion_valid(const motion_store_t *m)
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
         if (e->param >= MO_NATIVE ? !motion_native_ok(e->param, e->value) :
-            (!motion_param(e->param) && e->param != P_RECQ) || e->value < -64 || e->value > 127) return 0;
+            (!motion_param(e->param) && !param_reserved(e->param) && e->param != P_RECQ) || e->value < -64 || e->value > 127) return 0;
         if (!m->rsv[0]) for (j = 0; j < i; j++)
             if (m->event[j].place == e->place && m->event[j].param == e->param) return 0;
     }
@@ -378,7 +378,7 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
         if (motion_pattern[i] != t->pattern || e->place != (k << 6 | step)) continue;
-        if (e->param == P_RECQ) continue; /* old inert FX automation stays inert */
+        if (e->param == P_RECQ || param_reserved(e->param)) continue; /* old inert FX automation stays inert */
         if (e->param >= MO_NATIVE) {      /* the engine's own patch: its engine's events only */
             if ((uint32_t)e->value >> 8 == motion_native_tag(t)) motion_native_set(t, e->param - MO_NATIVE, (uint32_t)e->value & 255u);
             continue;

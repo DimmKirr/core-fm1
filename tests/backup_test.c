@@ -175,7 +175,7 @@ static int full_pattern_archive(void)
     for (uint32_t k=0; k<NTRK; k++) for (uint32_t b=0; b<NPAT; b++) {
         track_t *t=&trk[k]; pattern_request(t,b); t->p[P_SLEN]=(int16_t)(16+b);
         t->step[3]=(step_t){{(uint8_t)(40+k*8+b),60,64,67},4,ST_NOTE,SF_ACCENT,100,0x81,0x80,(uint8_t)(20+b)};
-        t->step[4]=(step_t){{0},0,ST_TIE}; motion_set_event(t,3,P_REV,(int16_t)(k*8+b));
+        t->step[4]=(step_t){{0},0,ST_TIE}; motion_set_event(t,3,P_PAN,(int16_t)(k*8+b));
     }
     chain_config.count=1; chain_config.row[0]=(chain_row_t){0,2};
     for (uint32_t k=0; k<NTRK; k++) chain_patterns[0][k]=(uint8_t)(k+1);
@@ -287,7 +287,7 @@ int main(void)
     ps.lowcut = 2;                                       /* SPEAKER BASS+ */
     ps.palette = palette_to_stored(2);
     bad += check("settings with SPEAKER BASS+ restore", put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 &&
-                 settings.lowcut == 2u && fx_lowcut == 2u && settings.palette == 2u);
+                 settings.lowcut == 0u && settings.palette == 2u);
     before = erases;
     ps.palette = 13;                                     /* an untagged id (before 1.0; 1.2 rewrote them) */
     bad += check("settings with an untagged palette id are refused, nothing written",
@@ -304,7 +304,7 @@ int main(void)
     before = erases;
     ps.lowcut = 3;
     bad += check("settings with an unknown SPEAKER value are refused, nothing written",
-                 put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 2u && erases == before && settings.lowcut == 2u);
+                 put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 2u && erases == before && settings.lowcut == 0u);
     ps.lowcut = 0;
     ps.bold = hold_to_stored(0, 3);                      /* HOLD 0.6 s */
     bad += check("settings with HOLD 0.6 s restore",

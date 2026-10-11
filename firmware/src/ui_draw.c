@@ -694,15 +694,14 @@ static void draw_columns(void)
     const char *unit;
     if (ui.home)                                        /* Stage: its knobs drop in when turned (ui_stage.c stage_knobs) */
         return;
-    if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV MUTE of the selected track */
+    if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN MUTE of the selected track */
         const track_t *t = TSEL;
         uint32_t lvl = trk_level(song.sel);
         param_format(&TP[P_LEVEL], (int32_t)lvl, val, &unit);   /* (0: OFF) */
         draw_column(0, "LEVEL", val, unit, lvl && !t->p[P_MUTE] ? VAL(0u) : T_DIM, (int32_t)lvl * 1000 / 127, ICON_AUTO);
         param_format(&TP[P_PAN], t->p[P_PAN], val, &unit);
         draw_column(1, "PAN", val, unit, VAL(1u), RATIO(&TP[P_PAN], t->p[P_PAN]), param_icon(&TP[P_PAN], t->p[P_PAN]));
-        param_format(&TP[P_REV], t->p[P_REV], val, &unit);
-        draw_column(2, "REV", val, unit, VAL(2u), RATIO(&TP[P_REV], t->p[P_REV]), ICON_AUTO);
+        draw_column(2, "", "", "", T_DIM, -1, ICON_NONE);
         draw_column(3, "MUTE", t->p[P_MUTE] ? "ON" : "OFF", "", t->p[P_MUTE] ? T_ACCENT : VAL(3u), -1, ICON_AUTO);
         return;
     }
@@ -1135,9 +1134,9 @@ static void ui_draw_frame(void)
         if (ui.force) {                                 /* over the page, dimmed (each canvas darkened as it goes) */
             uint8_t cf = ui.confirm;
             ui.confirm = 0;
-            cv_dim = 1;
+            cv_dim = cv_under = 1;
             draw_page();
-            cv_dim = 0;
+            cv_dim = cv_under = 0;
             ui.confirm = cf;
             ui.force = 1;
             draw_confirm();

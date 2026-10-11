@@ -15,7 +15,7 @@ static void control_setup(uint32_t id)
     eng_state_reset();ui_power_on();vage=0;
     set_engine_of(TSEL,ENGI_PROPHET);apply_preset_to(TSEL,0);
     TSEL->engine=TSEL->eng_req;TSEL->xf=TSEL->xf_on=0;
-    panic_req=0;TSEL->p[P_DIST]=TSEL->p[P_CHOR]=TSEL->p[P_DLY]=TSEL->p[P_REV]=0;
+    panic_req=0;TSEL->p[P_RESERVED33]=TSEL->p[P_RESERVED34]=TSEL->p[P_RESERVED35]=TSEL->p[P_RESERVED36]=0;
     uint8_t *p=p5_patch_of(TSEL)->raw;
     p[P5_FREQ_A]=24;p[P5_FREQ_B]=38;p[P5_FINE_B]=17;
     p[P5_SAW_A]=p[P5_PULSE_A]=p[P5_SAW_B]=p[P5_PULSE_B]=p[P5_TRI_B]=1;

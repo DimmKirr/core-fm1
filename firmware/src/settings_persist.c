@@ -50,10 +50,9 @@ static int settings_import(persist_t *p, int n)
 #endif
     p->palette = palette_to_stored(palette_from_stored(p->palette));
     settings_screen=p->favorites.factory[15][27] < 8u ? p->favorites.factory[15][27] : 0u;
-    settings_latch=p->favorites.factory[15][30] & 1u;
     settings.magic = SETTINGS_MAGIC;
     settings.palette = palette_from_stored(p->palette);
-    settings.lowcut = p->lowcut;
+    settings.lowcut = 0;
     settings.zoom = p->zoom & 0xFFu;
     uint32_t rp = (p->zoom & 0xFFFF0000u) == RECORD_PREF_TAG ? (p->zoom >> 8) & 0xFFu : 0u;
     settings_click = (uint8_t)((rp & 3u) < 3u ? rp & 3u : 0u);
@@ -78,7 +77,7 @@ static void settings_export(persist_t *p)
 {
     p->magic = PERSIST_MAGIC;
     p->palette = palette_to_stored(settings.palette);
-    p->lowcut = settings.lowcut;
+    p->lowcut = 0;
     uint32_t rp = settings_click % 3u | (settings_click_level == 0u ? 1u : settings_click_level == 2u ? 2u : 0u) << 2 |
                   (settings_countin % 3u) << 4 | (settings_preview != 0u) << 6 | (settings_chord_add != 0u) << 7;
     p->zoom = (settings.zoom & 0xFFu) | (rp ? RECORD_PREF_TAG | rp << 8 : 0u);
@@ -86,14 +85,12 @@ static void settings_export(persist_t *p)
     p->bold = hold_to_stored(p->bold, settings_hold);
 #ifdef MELODEE_FAVORITES
     memcpy(&p->favorites, &favorites, sizeof favorites);
-    fx_keys_tag(p->favorites.factory[FX_KEYS_ROW]);     /* (a device with no record before: its map is there too) */
     p->ext.spare[0] = favorites_user_hi;
 #endif
 #if MELODEE_USB_AUDIO
     p->ext.usb_off = ua_off;
 #endif
     p->favorites.factory[15][27]=settings_screen;
-    p->favorites.factory[15][30]=(p->favorites.factory[15][30]&~1u) | settings_latch;
     p->ext.boot = settings_boot;
     p->ext.drumch = settings_drumch == 10u ? 0u : !settings_drumch ? 17u : settings_drumch;
     p->ext.lights = settings_lights == LIGHTS_MID ? 0u : settings_lights + 1u;

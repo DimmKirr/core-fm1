@@ -15,14 +15,12 @@ static void reset_controls(void)
 {
     seq_stop(); ui_power_on();
     memset(&scrn, 0, sizeof scrn); lcd_count = 0;
-    settings_screen = settings_latch = kb_asleep = kb_lock = 0;
-    perf_latched = perf_latch_on = 0;
-    memset(kb_fx, 0, sizeof kb_fx); fx_map_sync();
+    settings_screen = kb_asleep = kb_lock = 0;
 }
 static void tap_fast(uint32_t b) { btn_down(b); frame(); btn_up(b); frame(); }
 static void test_layers(void)
 {
-    for (uint32_t l=LAYER_FX;l<LAYER_N;l++) {
+    for (uint32_t l=LAYER_GLO;l<LAYER_N;l++) {
         reset_controls(); uint32_t b=LAYERS[l].btn;
         tap_fast(b); tap_fast(b);
         assert(ui.lock==l && ui.layer==l && ui.home);
@@ -31,21 +29,7 @@ static void test_layers(void)
         key_up(white(0)); frame(); tap_fast(b);
         assert(!ui.lock && !ui.layer);
     }
-    reset_controls(); settings_latch=1;
-    tap_fast(B_FX); tap_fast(B_FX);
-    key_down(white(10)); frame(); key_up(white(10)); frame();
-    assert(perf_latched & PF_BIT(PF_FLG));
-    key_down(white(10)); frame(); key_up(white(10)); frame();
-    assert(!(perf_latched & PF_BIT(PF_FLG)));
-    key_down(white(11)); frame(); key_up(white(11)); frame();
-    assert(perf_latched & PF_BIT(PF_PHS));
-    press(B_OCTDN); assert(!perf_latched);
-    key_down(white(12)); frame(); turn(EN_PRESET,1);
-    assert(perf_map[12]==PF_R8);
-    press(B_EDIT); assert(perf_map[12]==PF_N);
-    key_up(white(12)); frame(); tap_fast(B_FX);
-    assert(!ui.lock);
-    puts("layers/screen: double-tap layers, silent keys, FX latch, clear and key assignment passed");
+    puts("layers/screen: double-tap layers and silent layer keys passed");
 }
 static void test_screen_sleep(void)
 {
@@ -88,50 +72,7 @@ static void test_lfo(void)
 /* the FX key map and the native CZ-1 favorites share no bits (the map sat in CZ's row, factory[15][14..23], over
  * native slots 47..126's stars), and a settings record from before the move keeps its map, or its stars when its
  * bytes cannot be a map (a code no map writes) or sit only on filled slots */
-static uint32_t cz_stars(void)
-{
-    uint32_t k, n = 0;
-    for (k = 0; k < NATIVE_CZ_SLOTS; k++)
-        n += (uint32_t)favorite_has(USER_NATIVE_CZ, k);
-    return n;
-}
-static int map_is(const uint8_t *m)
-{
-    uint32_t q;
-    for (q = 0; q < PF_KEYS && perf_map[q] == m[q]; q++)
-        ;
-    return q == PF_KEYS;
-}
-static void test_fx_map_storage(void)
-{
-    static const uint8_t MAP[PF_KEYS] = {PF_PHS, PF_N, PF_FLG, PF_TAPE, PF_R32, PF_N, PF_REV, PF_LPF,
-                                         PF_ODN, PF_OUP, PF_FRZ, PF_HPF, PF_R8, PF_R16, PF_PHS, PF_N};
-    static const uint8_t STARS[] = {0, 46, 47, 60, 126, 127};
-    uint8_t def[PF_KEYS];
-    persist_t p;
-    uint32_t k, q;
-    reset_controls(); memset(&favorites, 0, sizeof favorites); fx_map_sync();
-    for (q = 0; q < PF_KEYS; q++)
-        def[q] = perf_map[q];
-    for (k = 0; k < NATIVE_CZ_SLOTS; k++) {                     /* (one by one: all at once, 31s, read as defaults) */
-        memset(&favorites, 0, sizeof favorites);
-        favorite_set(USER_NATIVE_CZ, k, 1); fx_map_sync();
-        assert(cz_stars() == 1u && map_is(def));                 /* a CZ slot starred: the keys unchanged */
-    }
-    memset(&favorites, 0, sizeof favorites);                     /* (a device with no settings saved yet) */
-    for (q = 0; q < PF_KEYS; q++)
-        perf_map_put(fx_keys, q, MAP[q]);
-    fx_map_sync();
-    assert(map_is(MAP) && !cz_stars());                          /* a key map stars no CZ slot */
-    for (k = 0; k < sizeof STARS; k++)
-        favorite_set(USER_NATIVE_CZ, STARS[k], 1);
-    settings_export(&p); memset(&favorites, 0, sizeof favorites);
-    assert(settings_import(&p, sizeof p) == 1); fx_map_sync();
-    assert(map_is(MAP) && cz_stars() == sizeof STARS);
-    for (k = 0; k < sizeof STARS; k++)
-        assert(favorite_has(USER_NATIVE_CZ, STARS[k]));
 
-    memset(&favorites, 0, sizeof favorites); reset_controls();
-    puts("layers/screen: FX key map apart from the native CZ-1 favorites passed");
-}
-int main(void) { test_layers(); test_screen_sleep(); test_lfo(); test_fx_map_storage(); return 0; }
+
+
+int main(void) { test_layers(); test_screen_sleep(); test_lfo(); return 0; }

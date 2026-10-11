@@ -122,7 +122,7 @@ static void feature_tests(void)
     for(uint32_t e=0;e<NELEM(engines);e++){
         uint32_t feats;
         eng_state_reset();ui_power_on();sound_init_of(TSEL,engines[e]);designer_open();ds.current=0;press(B_OCTUP);
-        TSEL->p[P_DIST]=TSEL->p[P_CHOR]=TSEL->p[P_DLY]=TSEL->p[P_REV]=0;
+        TSEL->p[P_RESERVED33]=TSEL->p[P_RESERVED34]=TSEL->p[P_RESERVED35]=TSEL->p[P_RESERVED36]=0;
         const uint8_t *fs=designer_feats(&feats);
         /* every operator on: a modulator is heard through its carrier */
         if(TSEL->eng_req==ENGI_FM6)for(uint32_t f=DF_OP1;f<=DF_OP6;f++){uint32_t k=designer_feature(f);turn(EN_K1+k,1);}
@@ -208,7 +208,7 @@ static void route_recipe_tests(void)
                 else coverage &= !found;            /* (what FEATURES switched off is not shaped) */
             }
         }
-        clean &= !song.grid && !kb_mask && !perf_mask;
+        clean &= !song.grid && !kb_mask ;
         if(TSEL->eng_req==ENGI_CZ)valid &= cz_patch_valid(cz_patch[0].raw);
         TSEL->engine=TSEL->eng_req;memset(TSEL->v,0,sizeof TSEL->v);eng_state_clear(0);eng_state_prepare(TSEL);
         trk_note_on(TSEL,drum_track(TSEL)?36:60,100);int64_t energy=0;int32_t out[CTL];
@@ -246,7 +246,7 @@ static void save_tests(void)
     uint32_t st=ds.stage;turn(EN_PRESET,1);
     failures+=check("PRESETS jumps to the next stage's first page",ds.stage>st && (ds.at==0 || ds.route[ds.at-1u].stage!=ds.stage));
     project_save(0);
-    TSEL->p[P_DLY]=7;project_load(0);
+    TSEL->p[P_RESERVED35]=7;project_load(0);
     failures+=check("external project load ends design without restoring over the new project",!designer_on() && !motion_design_pause);
     ui_power_on();ui.menu=1;ui.menu_sel=MI_DESIGNER;menu_input(2);
     failures+=check("designer is reachable from device menu",designer_on() && !ui.menu);

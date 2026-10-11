@@ -40,6 +40,35 @@ On Linux x86-64 the toolchain runs natively and Docker is not needed.
 ./build.sh
 ```
 
+`MELODEE_RAM_AUDIO=1 ./build.sh` builds the resident audio performance profile.
+All builds use the dry mixer; external effects and their buffers have been removed.
+The optimized audio ISR, all enabled engine callbacks and their reachable helpers
+execute from ordinary SRAM; `tools/audio_ram.py` preserves existing low-SRAM DSP
+sections and uses volatile indirect calls across the XIP/SRAM boundary. Startup
+copies the additional `.audio_text` section before audio or CPU1 starts. Build
+checks verify every linked audio function's address and reject direct XIP calls
+from that graph. Engine callbacks invoked through function pointers are explicit
+roots, including mono-note handling and key mapping; a new engine callback must
+be classified before the build passes. The hardware PC guard includes both SRAM
+code banks, using the linker-derived `_guard_ram_end`.
+`MELODEE_SIZE=0` cannot be combined with this profile.
+
+The profile retains at least a 64 KiB contiguous resource arena for four engine
+states and off-record note history. Additional SRAM tails remain available.
+Factory banks and cold assets remain in flash; loaded patches and active engine
+state are in SRAM. Old effect values remain readable as inert format padding.
+Run the host suite with `MELODEE_RAM_AUDIO=1` when checking this target variant.
+Both target profiles reject linked effect processors. Host sound regressions
+validate dry output against the original engines with all effect sends off.
+`tools/usb_audio_stats.py --parts` identifies cuts on each of the four tracks.
+The resident profile raises the shared voice budget from sixteen to eighteen
+units while CPU1 is online. An offline replay of the captured Prophet / two-FM6 /
+808 song needs this increase to avoid allocation cuts; the eighteen-unit replay
+recorded no allocation cuts for three minutes without growing memory or recorded event data.
+Normal builds and a retired or unavailable CPU1 retain sixteen units. Per-engine
+caps and overload shedding remain active. Target CPU headroom for the higher
+budget still requires a device measurement; host playback cannot establish it.
+
 `JIELI_TOOLCHAIN` and `AC79_SDK` override the default locations
 (`~/.jieli/toolchain`, `~/fw-AC79_AIoT_SDK`).
 
@@ -76,10 +105,8 @@ SAMPLE engine has only the generated drum kit.
 Audio working memory is allocated on demand from the unused part of POOL and
 linker-derived gaps after RAM code, ordinary data and retained state. Allocations
 stay within a single bank and preserve boot records and stack guards. Each
-track reserves only its current engine state; STUT reserves 8 KiB per enabled
-track, while GATE needs no recording buffer. Performance loops reuse the same
-32 KiB capacity as the four stutters. Chorus and reverb retain their tails before
-releasing their delay lines; silent buses skip the delay processing.
+track reserves only its current engine state. The off-record note history uses
+one bounded allocation; no effect processor allocates audio buffers.
 
 Preset browsing keeps names and slot indexes in RAM, with one bank cache shared by
 the general presets and the native FM6, CZ-1 and Prophet banks (the last bank asked for). Melodee 2.0
@@ -87,8 +114,8 @@ reads only the formats written since 1.0; 1.2 rewrote older records at boot.
 
 The build reports both permanent POOL usage and the available working arena,
 and requires at least 139 KiB for simultaneous maximum engine state, recording
-and effects. The resource tests cover eviction,
-engine transitions, effect tails and resumption, and allocation failure.
+and note history in normal builds (64 KiB in the resident profile). The resource
+tests cover eviction, engine transitions, and allocation failure.
 
 USB stem buffers are written only for an active capture stream. Derived tuning
 and mixer gains are cached by their effective parameter values, including
@@ -108,7 +135,7 @@ user presets, projects of every format, backup, the keys and knobs, MIDI (USB, T
 control), USB audio, the update entry and loader, the command-line installer, the UI (the real
 drawing code against stubs: every screen in every palette is rendered and checked for clipped or
 overlapping text; PNGs land in `build/ui_new/`), every engine (DRUM, NOISE, PHYS, FM6, SLICE, the
-DIGITAL conversion), the chord keys, the modulation matrix, the FX layer, the reverbs, the SLICER
+DIGITAL conversion), the chord keys, the modulation matrix, retired effect compatibility
 and swing. With `DAISYSP` pointing at a DaisySP checkout, the PHYS models are also compared with
 their floating-point originals; without it that test is skipped.
 
@@ -155,10 +182,10 @@ starts, recovery needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-tr
 ## Experimental cache RAM
 
 Builds reclaim seven 4 KiB data-cache ways at `0x01F28000..0x01F2F000`
-(`MELODEE_CACHE_RAM=1`, the default while it is being validated on the device; `MELODEE_CACHE_RAM=0 ./build.sh`
+(`MELODEE_CACHE_RAM=1`, opt-in; normal builds retain all data-cache ways; `MELODEE_CACHE_RAM=0 ./build.sh`
 turns it off), following the AC79 SDK's flash-execution configuration. All instruction-cache ways remain available.
 The first 14 KiB are the UI's (eight undo levels); the rest join the audio allocator, whose worst case still fits
-the SRAM banks alone. Without a passed self-test the UI keeps one undo level. Keep USB audio enabled during
+the SRAM banks alone. Normal builds keep eight undo levels in ordinary SRAM, within the existing arena reserve. Keep USB audio enabled during
 validation.
 
 The boot routine runs wholly in SRAM with interrupts off and CPU1 held. It
@@ -231,6 +258,17 @@ stay on CPU0. Prophet's per-voice sample noise state travels with its voice.
 An isolated voice stays on CPU0. Other engines, effects, MIDI, USB and the screen
 retain their existing execution paths. This is a targeted synth optimization;
 it does not double all firmware throughput.
+
+The FM6, Prophet and synthesized 808 sample loops stay resident in internal
+DSP RAM, shared by all four tracks; two FM6 tracks share code while retaining
+separate voice state and loaded patches. Startup copies the code and saturation
+tables once. Loaded patches and active engine state also live in RAM.
+FM6 output mixing and its DC filter, ordinary track mixing and the master output
+also run from DSP RAM.
+FM6 per-voice control and envelopes are resident too. Other block-rate helpers
+and factory-library browsing may still use flash. The build
+checks kernel/table placement and retains the existing worst-case audio arena
+reserve; neither voices nor recording capacity are reduced to make room.
 
 With an online CPU1, Prophet's polyphony cap is eight and each voice
 costs two of the existing sixteen shared budget units. Eight Prophet voices fill

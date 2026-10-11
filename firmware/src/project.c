@@ -319,7 +319,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
  * restore the same sound without passing its index through factory preset browsing. */
 static void proj_legacy_perc(track_t *t)
 {
-    static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
+
     const preset_t *pr = &DRUM_PRESETS[0];
     t->eng_req = ENGI_DRUM;
     uint32_t i;
@@ -335,8 +335,6 @@ static void proj_legacy_perc(track_t *t)
     t->p[P_REL] = pr->env[3];
     t->p[P_ED_FLT] = pr->fenv;
     t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;
-    for (i = 0; i < 4u; i++)
-        t->p[P_DIST + i] = (int16_t)(i == 2u ? 0 : pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
 }
 
 static project_t proj_scratch __attribute__((section(".pool")));              /* decoded main-loop work, never audio ISR */
@@ -638,7 +636,7 @@ static int project_restore_runtime(const project_t *input)
     ui.song_row = 0;
     for (i = 0; i < G_COUNT; i++)
         if (i != G_SLOT && i != G_LOAD && i != G_SAVE)
-            song.g[i] = (int16_t)clamp(p->g[i], GP[i].min, GP[i].max);
+            song.g[i] = global_reserved(i) ? 0 : (int16_t)clamp(p->g[i], GP[i].min, GP[i].max);
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         const proj_trk_t *s = &p->t[k];
@@ -647,7 +645,7 @@ static int project_restore_runtime(const project_t *input)
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = param_desc_of(e, i);
-            t->p[i] = eng_extra_retired(e) && i >= P_E0 ? s->p[i] : (int16_t)clamp(s->p[i], d->min, d->max);
+            t->p[i] = param_reserved(i) ? 0 : eng_extra_retired(e) && i >= P_E0 ? s->p[i] : (int16_t)clamp(s->p[i], d->min, d->max);
         }
         t->preset = eng_extra_retired(e) ? s->preset : (uint8_t)(ENGINES[e]->npresets ? (s->preset >= PROJ_DEF_KEEP ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         t->pattern = p->pattern[k];
@@ -698,8 +696,7 @@ static int project_restore_runtime(const project_t *input)
         } else if (p->t[k].preset == PROJ_DEF_KEEP) {   /* the steps, LEVEL PAN MUTE, LEN DIV SWING GATE kept */
             memcpy(keep, t->p, sizeof keep);
             fm1_irq_off();                           /* publish the legacy sound as one bounded parameter batch */
-            proj_legacy_perc(t);                      /* (keeps the SLICER: param_kept) */
-            t->p[P_REV] = keep[P_REV];                  /* and the drums' reverb send */
+            proj_legacy_perc(t);                      /* track-owned parameters stay */
             for (i = P_AMODE; i <= P_TRANS; i++)        /* the drum part had no arp or scale */
                 t->p[i] = TP[i].def;
             fm1_irq_on();
@@ -1017,11 +1014,9 @@ static void persist_boot(void)                    /* before settings_init / pane
         if (ns > 0)
             memcpy(&p, &proj_wire_u, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);
         uint32_t palette = p.palette;
-        const uint8_t *fx = p.favorites.factory[FX_KEYS_ROW];
-        int fx_tagged = fx[28] == 'F' && fx[29] == 'X' && fx[30] == 'K' && fx[31] == 1u;
         if (settings_import(&p, ns)) {
             persist_saved = p;
-            persist_old = (uint8_t)(!palette_stored_ok(palette) || !fx_tagged);
+            persist_old = (uint8_t)(!palette_stored_ok(palette));
         } else persist_old = (uint8_t)st_exists(OBJ_SETTINGS);
     }
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */

@@ -98,8 +98,8 @@ and patterns; settings represented by multiple patch bytes can use multiple even
 - **Faster display:** the firmware sends only the areas that changed to the LCD. Scrolling NOTES,
   moving its playhead and turning most controls no longer resend the whole screen.
 - **More sound and performance:** dual-core rendering is on by default, DSP signal paths use the
-  FM-1's native single-precision FPU, the shared delay returns in DIGI and TAPE modes, and the
-  Felucca 1.4 modulation, performance-FX, stereo-spread, HALL and screen-sleep work is included.
+  FM-1's native single-precision FPU. Modulation, stereo spread and screen sleep are included;
+  all external effects and their hold/latch controls have been removed.
 - **808 and 909 kits:** both DRUM kits synthesize every voice in real time. The 909 kick, snare,
   toms, rim and clap use circuit models from
   [fm1-x0x](https://github.com/charlesvestal/fm1-x0x/tree/201e5c5c1ac056a028a006bd1eabb23ac1bb174d);
@@ -122,7 +122,7 @@ and patterns; settings represented by multiple patch bytes can use multiple even
 **Upgrading from 0.13.1:** the Prophet user banks move to their new flash location on first boot.
 Export important Prophet programs, or keep the installer's complete backup, before downgrading:
 older firmware does not know the new location. The four legacy project objects are retired and are
-not read by 1.0.0. Sounds saved before the delay returned load with their delay send at zero.
+not read by 1.0.0. Former effect fields in older saves are ignored.
 Tracks and user presets that used LOFI keep their engine number and load as SID with LOFI's control
 values, so they sound different; choose a SID preset to start again.
 
@@ -175,9 +175,8 @@ erases the Prophet user slots: export them, or keep the installer's backup, firs
   take, deletes selected hits and supports undo without changing neighbouring notes
 - **Native user presets:** 64 FM6 voices and 128 CZ-1 tones in separate collections, alongside 64 general
   user presets. Scroll and favorite them in PRESETS; import/export Dexed/DX7 and Casio .syx in the editor.
-  Native slots store only the tone, so loading keeps the track's effects and patterns
+  Native slots store only the tone, so loading keeps the track's mix and patterns
 - **FM6 diagrams:** MARK I algorithms 4 and 6 show their longer feedback paths
-- **FX change:** the shared delay is retired to make room for expanded recording; THROW now feeds reverb
 
 **Upgrading from 0.11 / 0.11.1:** existing projects, templates, settings and presets migrate.
 Expanded recordings and new scale IDs need 0.12; older firmware cannot reproduce those additions.
@@ -255,17 +254,9 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Arpeggiator** with REPEAT and a beat LED, 70 scales with a white-key mode, glide,
   MONO / LEGATO / UNISON
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources
-- **Effects:** distortion and the SLICER per track; chorus, delay and reverb sends (the delay as
-  DIGI or TAPE, either ping-pong: fm1-x0x's tape delay; the reverb as ROOM, SPRING or HALL); master limiter
-- **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
-  (OCT UP / OCT DN with shimmer), flanger and phaser, and mutes on the black keys; any effect on any
-  white key (hold the key, turn PRESETS; EDIT restores it), MENU > FX LATCH toggles instead of holding;
-  double-press FX within 300 ms to keep punch-in mode open with both hands free, then press FX again to close it.
-  The keys punch effects while held; the knobs change only performance macros, leaving the preset untouched.
-  KNOB 4 increases DEPTH clockwise (or SHIMMER while OCT UP / OCT DN plays).
-  GLO, SCL and EDIT also support double-press locking
-- **Quick layers:** hold FX, GLO, SCL or EDIT for shortcuts on the keys and knobs; multi-level undo
-  (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
+- **Dry mixer:** track level, pan and synth voice spread, with output protection; no effects or sends
+- **Quick layers:** hold GLO, SCL or EDIT for shortcuts on the keys and knobs; double-press to lock
+  a layer. Multi-level undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
 - **Presets:** browse by category (BASS, LEAD, PAD, KEYS, ORGAN, STRING, BRASS, WIND, PLUCK, BELL, DRUM, FX), favourites or
   RECENT, with knob acceleration; factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
@@ -280,8 +271,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   while its note sounds, MIDI in too, and the idle buttons glow; REC breathes while armed and stopped, PLAY while
   counting in; the HOME-held menu's LIGHTS sets the level (OFF: only what is pressed, engaged or selectable)
 - **USB:** class-compliant MIDI in and out; **Melodee Out** plays the computer through the FM-1,
-  **Melodee In** records four mono tracks (one channel per track, after level and before pan, sends
-  and master effects). Both support 16/24-bit audio at 44.1 kHz; each can be disabled in the
+  **Melodee In** records four mono tracks (one channel per track, after level and before pan and
+  master gain/output protection). Both support 16/24-bit audio at 44.1 kHz; each can be disabled in the
   HOME-held menu's USB AUDIO setting. No driver needed
 - **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4, channel 10 the first DRUM track (GLO >
   SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
@@ -302,14 +293,15 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **BPM**, the song's **SWG** and the selected track's playback **QNT** are on **SEQ > TEMPO**:
   the project's, saved and loaded with it (power-on: the BOOT project's, the template's or 120);
   GLO > GLOBAL keeps CLK and TUNE, the device's
-- FX, SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
+- SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
   HOME returns home
-- **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the PATTERNS grid with
+- **Held:** GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the PATTERNS grid with
   the song under it, REC captures (below).
 - **Undo:** hold SAVE to undo the last sound or pattern load or Capture; hold it again to go further back (up to 8
-  levels with cache RAM, else one); while SAVE is held, OCT- undoes and OCT+ redoes. On the step pages SAVE's undo
+  levels); while SAVE is held, OCT- undoes and OCT+ redoes. On the step pages SAVE's undo
   covers the step edits first
-  When editing synth steps, SCL and EDIT use the editing controls below instead; FX keeps its layer
+  When editing synth steps, SCL and EDIT use the editing controls below instead.
+- The panel's FX button has no action.
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
   transport; **REC + PLAY** arms it and starts recording in one gesture
 - On Stage, OCT− / OCT+ shift the octave (both: reset). Everywhere else OCT+ enters, opens or
@@ -452,12 +444,10 @@ replaces that event. **RECORDING FULL** leaves existing recordings intact; clear
 recorded steps makes space for new takes. Notes held longer than 128
 nominal steps are capped at that duration.
 
-0.12 retired the shared FX delay to free 128 KiB for recording. It is back as a port of
-[fm1-x0x](https://github.com/charlesvestal/fm1-x0x)'s tape delay (from
-[schwung-space-delay](https://github.com/charlesvestal/schwung-space-delay)) (FX > DLY: TIME, FDBK, TONE, MIX;
-DLY 2: TYPE DIGI / TAPE / DG-PP / TP-PP, WEAR), a 1.49 s line at 22.05 kHz borrowed only while it
-sounds. Projects, templates and presets saved before it load with their delay sends at 0, so nothing
-echoes until a track's DLY send is turned up. THROW feeds the delay and the reverb.
+External effects have been removed from every build: no distortion insert, chorus, delay, reverb,
+slicer or performance effects. Their former controls, key assignments and latch preferences are
+absent. Older projects and presets still load their notes and synth settings; retired effect
+values and automation have no effect on playback.
 Older 152-note recordings keep their original timing when loaded and saved in the expanded format.
 
 With **CLK TRS** or **CLK USB**, musical timing follows MIDI clock pulses directly, so tempo
@@ -490,7 +480,7 @@ FM6 and CZ-1 have independent native user collections: F001–F064 store the 128
 voice, and Z001–Z128 store the complete 144-byte Casio tone. They appear alongside factory tones
 in normal global and engine-specific preset scrolling, and can be favorited. SAVE > USER selects
 the current engine's collection; FM6 > STORE uses those same FM6 slots. Native saves exclude
-Felucca effects, envelopes, modulation settings and patterns. Loading keeps these track settings;
+Felucca envelopes, modulation settings and patterns. Loading keeps these track settings;
 when changing engines, only engine-specific controls receive their defaults.
 
 The 64 general U01–U64 slots remain available for other engines. First boot copies saved FM6
@@ -545,8 +535,6 @@ notes: [docs/PROPHET5_PROTOTYPE.md](docs/PROPHET5_PROTOTYPE.md).
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them.
 
-**SLICER** (FX page, every track): a tempo-synced 16-step gate or stutter, with 16 patterns.
-
 CZ-1 opens with a native INIT TONE; PRESETS then lists Casio's 64 CZ-1 preset tones (A-1 BRASS 1 to
 H-8 TYPHOON SOUND). The separate 128-slot user collection starts empty. Imported Casio tones use
 their original oscillator and six eight-point envelope parameters.
@@ -569,7 +557,7 @@ calibration; this build does not establish near-identical CZ-1 audio.
 SAMPLE, GRAIN and SLICE and all recorded sample material have been removed. Engine numbers 4, 8
 and 13 remain reserved so existing projects do not accidentally select another instrument. Old tracks
 using those engines are silent until another sound is chosen. Historical separate GM drum parts load
-as the synthesized 808 kit. SLICER remains a gate/stutter effect on synthesized audio.
+as the synthesized 808 kit.
 
 
 ## Scale keyboard
@@ -650,12 +638,11 @@ You can leave a tip with [ko-fi](https://ko-fi.com/keremimo).
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
 - Native CZ engine: uPD933 model by Devin Acker in [MAME](https://github.com/mamedev/mame/blob/master/src/devices/sound/upd933.cpp) ([BSD-3-Clause](LICENSES/BSD-3-Clause-uPD933.txt))
 - PHYS engine: models ported from [DaisySP](https://github.com/electro-smith/DaisySP) by Electrosmith and Emilie Gillet ([MIT](LICENSES/MIT-DaisySP.txt)) and from Emilie Gillet's [eurorack](https://github.com/pichenettes/eurorack) code ([MIT](LICENSES/MIT-Rings.txt))
-- Delay: the tape delay of [schwung-space-delay](https://github.com/charlesvestal/schwung-space-delay) by Charles Vestal ([MIT](LICENSES/MIT-schwung-space-delay.txt)), by way of [fm1-x0x](https://github.com/charlesvestal/fm1-x0x) by Charles Vestal (GPL-3.0; its DIGI mode after [9W9](https://github.com/athousanddetails/schwung-9W9) by athousanddetails, GPL-3.0), in fixed point
 - SID engine: after [reSID](https://github.com/libsidplayfp/resid) by Dag Lem (GPL-2.0-or-later); its samples of a real
   6581's and 8580's combined waveforms are included as data ([assets/resid](assets/resid/README.md))
 - FM6 engine: msfa from [Dexed](https://github.com/asb2m10/dexed) by Google Inc. and Pascal Gauthier ([Apache-2.0](LICENSES/Apache-2.0-msfa.txt))
 - Package format and boot files: [JieLi AC79 SDK](https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK) ([Apache-2.0](LICENSES/Apache-2.0.txt); three of its files are in every package, none in this tree)
-- Contributions: [Charles Vestal](https://github.com/charlesvestal) (knob acceleration, 808/909 models and tape delay),
+- Contributions: [Charles Vestal](https://github.com/charlesvestal) (knob acceleration and 808/909 models),
   [keremimo](https://github.com/keremimo) (white-key scales, #2), [ChanceTheMaker](https://github.com/ChanceTheMaker)
   (TRS MIDI, bend, sustain and clock, palettes, favourites, editor display settings: #8, #10, #11, #12),
   [andreahaku](https://github.com/andreahaku) (sample recording and trim, #29; SLICE manual slices and tests, #27, #22)

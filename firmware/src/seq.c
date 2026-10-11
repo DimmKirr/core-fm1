@@ -363,12 +363,14 @@ static void cap_on(const track_t *t, uint32_t note, uint32_t vel)
 static void cap_off(const track_t *t, uint32_t note)
 {
     uint32_t i, k = trk_index(t);
-    for (i = 0; i < 32u && i < cap_w - cap_from && i < CAP_N; i++) {
+    /* A dense four-track jam can put more than 32 onsets between a note's
+     * press and release. Close all matching retained onsets, as input_off's
+     * source ownership already waits for the final release of this pitch. */
+    for (i = 0; i < cap_w - cap_from && i < CAP_N; i++) {
         cap_ev_t *e = &cap_ev[(cap_w - 1u - i) % CAP_N];
         if (e->tr == (k | 128u) && e->note == note) {
             e->dur = (uint16_t)cap_len(e, cap_now(t));
             e->tr = (uint8_t)k;
-            return;
         }
     }
 }
@@ -612,60 +614,6 @@ static void input_off(track_t *t, uint32_t note)
     if (!recording_owns(t, note)) trk_note_off(t, note); /* other mode (ARP switched while held) */
 }
 
-/* the effect of key k in the FX layer (PF_N none): the first PF_M1 white keys (F3 .. A4) in order, black keys
- * 1..4 (F#3 G#3 A#3 C#4) the track mutes */
-static uint32_t perf_key(uint32_t k)
-{
-    uint32_t p = key_place(k);
-    return !key_black(k) ? (p < PF_KEYS ? perf_map[p] : PF_N) : p < NTRK ? PF_M1 + p : PF_N;
-}
-
-static uint8_t kb_fx[27];
-static __attribute__((noinline)) void perf_key_press(uint32_t k, int down)
-{
-    uint32_t e, j;
-    if (down) {
-        e = perf_key(k);
-        kb_fx[k] = (uint8_t)(e + 1u);
-        perf_press(e, 1);
-        return;
-    }
-    if (!kb_fx[k])
-        return;
-    e = kb_fx[k] - 1u;
-    kb_fx[k] = 0;
-    for (j = 0; j < 27u; j++)
-        if (kb_fx[j] == e + 1u)
-            return;
-    perf_press(e, 0);
-}
-
-/* the map changed (ui_layer.c: PRESETS with a key held, EDIT, a settings load): a white key held takes its new
- * effect at once (the old one let go); FX LATCH: a latched effect of the key's becomes the new one */
-static __attribute__((noinline)) void perf_key_remap(void)
-{
-    uint32_t k, e, o;
-    perf_remap = 0;
-    for (k = 0; k < 27u; k++) {
-        if (!kb_fx[k] || key_black(k) || (o = kb_fx[k] - 1u) == (e = perf_key(k)))
-            continue;
-        if (!perf_latch_on) {
-            perf_key_press(k, 0);
-            perf_key_press(k, 1);
-            continue;
-        }
-        kb_fx[k] = (uint8_t)(e + 1u);
-        if (o < PF_N && ((perf_latched >> o) & 1u)) {
-            perf_latched &= ~PF_BIT(o);
-            if (e < PF_N) {
-                perf_latched |= PF_BIT(e);
-                perf_ord[e] = ++perf_seq;
-            }
-        }
-    }
-}
-
-
 /* key k plays kb_note[k] on track t: its chord (chord.c; the note alone with CHRD OFF). A note another key
  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
 static void key_on(uint32_t k, track_t *t)
@@ -718,7 +666,6 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
-    if (perf_remap) perf_key_remap();
     ch = cur ^ kb_prev;                           /* keys also sound while entering steps */
     if (!ch)
         return;
@@ -729,10 +676,9 @@ static void keyboard_block(void)
             kb_trk[k] = song.sel;
             if (kb_asleep) { kb_note[k]=KB_SILENT; continue; }
             if ((fm1_in.buttons & kb_mask) || kb_lock) {       /* a layer's button held: the key is the layer's (ui_layer.c), */
-                kb_note[k] = KB_SILENT;           /* with FX an effect (perform.c) */
+                kb_note[k] = KB_SILENT;           /* a quick-layer key */
                 kb_layer |= 1u << k;
-                if ((fm1_in.buttons & perf_mask) || (kb_lock & 2u))
-                    perf_key_press(k, 1);
+
                 continue;
             }
             if (song.grid == 2u)                  /* NAME (ui_name.c): every key types, none sounds */
@@ -750,7 +696,6 @@ static void keyboard_block(void)
         } else {
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
-                perf_key_press(k, 0);
                 continue;
             }
             if (kb_note[k] == KB_SILENT)
@@ -830,8 +775,6 @@ static void seq_start(void)
     beat_pos = 0; beat_n = 0;                      /* the ARP LED's beat from the top too */
     song.playing = 1;
     if (click_wanted()) click_req=2;
-    slicer_start();                                /* slicer.c: its step 0 with the sequencer's */
-    perf_start();                                  /* perform.c: its 1/16 grid too */
 }
 
 static void seq_release(track_t *t)

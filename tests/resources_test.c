@@ -3,14 +3,7 @@
 #define PERSISTENCE_TEST_NO_MAIN
 #include "persistence_test.c"
 
-static void audio_resources_reset(void)
-{
-    memset(resource,0,sizeof resource);memset(sl_buf,0,sizeof sl_buf);
-    cho_buf=rev_comb=perf_audio=0;rev_memory=0;sl_lent=0;
-    memset(&fx,0,sizeof fx);memset(sl,0,sizeof sl);
-    memset(rev_hold_comb,0,sizeof rev_hold_comb);memset(rev_hold_ap,0,sizeof rev_hold_ap);
-    rev_hold_dc=0;cho_idle=rev_scan=0;pf.mode=BM_NONE;pf.src=pf.next=PF_N;pf.w=0;
-}
+static void audio_resources_reset(void) { memset(resource,0,sizeof resource); }
 static int cache_tests(void)
 {
     int bad=0;uint8_t fm[FM6_PACKED],cz[CZ_BYTES];char name[13];
@@ -46,10 +39,10 @@ static int cache_tests(void)
     bad+=check("missing flash refuses mutations without evicting committed indexes",native_put(ENGI_FM6,0,fm)==2 && native_put(ENGI_CZ,0,cz)==2 && up_store(0,"NO FLASH")==2 && native_used(ENGI_FM6,0) && native_used(ENGI_CZ,0) && up_used(0));
     flash_ok=1;
     bad+=check("failed missing-flash writes preserve stored patches",native_raw(ENGI_FM6,0)[118]=='A' && native_raw(ENGI_CZ,0)[128]=='A' && up_value(up_rec(0),P_E0)==0);
-    resource_get(RES_PERFORM,RESOURCE_MAIN_CAPACITY);
+    resource_get(RES_NOTE_HISTORY,RESOURCE_MAIN_CAPACITY);
     for(uint32_t b=0;b<RESOURCE_BANKS-1u;b++)if(b!=RESOURCE_CACHE_BANK || RESOURCE_CACHE_AVAILABLE)
         resource_get(RES_ENGINE0+b,(uint32_t)((uintptr_t)resource_banks[b].end-(uintptr_t)resource_banks[b].start));
-    resource_release(RES_PERFORM);
+    resource_release(RES_NOTE_HISTORY);
     for(uint32_t b=0;b<RESOURCE_BANKS-1u;b++)resource_release(RES_ENGINE0+b);
     return bad;
 }
@@ -73,57 +66,11 @@ static int audio_tests(void)
     uint32_t maximum=largest*NPART;
     for(uint32_t k=0;k<4u;k++){
         eng_state_clear(k);trk[k].engine=(uint8_t)largest_engine;eng_state_prepare(&trk[k]);
-        trk[k].p[P_SLCR]=SL_GATE;slicer_track(&trk[k],in,CTL);
     }
-    bad+=check("GATE reserves no recording buffers",resource_used()==maximum);
-    for(uint32_t k=0;k<4u;k++){trk[k].p[P_SLCR]=SL_STUT;slicer_track(&trk[k],in,CTL);}
-    bad+=check("four largest remaining engine tracks and four stutters fit together",resource_used()==maximum+32768u);
-    c[0]=d[0]=r[0]=12000;fx_buses(c,d,r,out,CTL);c[0]=d[0]=r[0]=0;
-    bad+=check("maximum engines, stutter and the three FX fit simultaneously",resource_used()==maximum+32768u+CHO_LEN*2u+REV_MEMORY_BYTES+DL_N*2u);
-    printf("resources: worst case %u B\n",(unsigned)(maximum+32768u+CHO_LEN*2u+REV_MEMORY_BYTES+DL_N*2u));
-    bad+=check("that stays within the linker's 139 KiB budget (app.ld)",
-               maximum+32768u+CHO_LEN*2u+REV_MEMORY_BYTES+DL_N*2u<=139u*1024u);
-    perf_buf_start(PF_FRZ);
-    int released=1;for(uint32_t k=0;k<4u;k++)released&=!resource[RES_SLICER0+k].size;
-    bad+=check("performance loop replaces stutter storage without extra 32 KiB",perf_audio && released && resource[RES_PERFORM].size==32768u);
-    pf.next=PF_N;perf_buf_done();bad+=check("performance storage is returned after its fade",!resource[RES_PERFORM].size && !perf_audio);
-    for(uint32_t k=0;k<4u;k++){trk[k].p[P_SLCR]=SL_OFF;slicer_track(&trk[k],in,CTL);}
-    for(uint32_t t=0;t<30u*FS;t+=CTL)fx_buses(c,d,r,out,CTL);
-    bad+=check("chorus/delay/reverb tails eventually release their buffers",!resource[RES_CHORUS].size && !resource[RES_DELAY].size && !resource[RES_REVERB].size && !dly_buf);
-    song.g[G_RTYPE]=1;fx_buses(c,d,r,out,CTL);
-    bad+=check("switching an idle reverb model needs no delay lines",!resource[RES_REVERB].size);
-    r[0]=12000;fx_buses(c,d,r,out,CTL);r[0]=0;
-    int spring_tail=0;
-    for(uint32_t t=0;t<30u*FS;t+=CTL){fx_buses(c,d,r,out,CTL);for(uint32_t j=0;j<CTL;j++)spring_tail |= out[j];}
-    bad+=check("SPRING keeps its audible tail then releases storage",spring_tail && !resource[RES_REVERB].size);
-    reverb_prepare();__typeof__(fx) spring_saved=fx;int32_t spring_ref[CTL]={0};r[0]=10000;
-    rev_spring(r,spring_ref,CTL);fx=spring_saved;resource_release(RES_REVERB);rev_comb=0;rev_memory=0;
-    fx_buses(c,d,r,out,CTL);r[0]=0;
-    bad+=check("SPRING resumes with its exact filter and modulation state",!memcmp(spring_ref,out,sizeof spring_ref));
-    for(uint32_t t=0;t<30u*FS;t+=CTL)fx_buses(c,d,r,out,CTL);
-    song.g[G_RTYPE]=2;fx_buses(c,d,r,out,CTL);
-    r[0]=12000;fx_buses(c,d,r,out,CTL);r[0]=0;
-    int hall_tail=0;
-    for(uint32_t t=0;t<30u*FS;t+=CTL){fx_buses(c,d,r,out,CTL);for(uint32_t j=0;j<CTL;j++)hall_tail |= out[j] | (hl.side?rev_side[j]:0);}
-    bad+=check("HALL keeps its audible stereo tail then releases storage",hall_tail && !resource[RES_REVERB].size && !hl.side);
-    reverb_prepare();__typeof__(hl) hall_saved=hl;int32_t hall_ref[CTL]={0},hall_sd[CTL];r[0]=10000;
-    rev_hall(r,hall_ref,CTL);memcpy(hall_sd,rev_side,sizeof hall_sd);hl=hall_saved;resource_release(RES_REVERB);rev_comb=0;rev_memory=0;
-    fx_buses(c,d,r,out,CTL);r[0]=0;
-    bad+=check("HALL resumes with its exact line positions and filter state",!memcmp(hall_ref,out,sizeof hall_ref) && hl.side && !memcmp(hall_sd,rev_side,sizeof hall_sd));
-    for(uint32_t t=0;t<30u*FS;t+=CTL)fx_buses(c,d,r,out,CTL);
-    song.g[G_RTYPE]=0;fx_buses(c,d,r,out,CTL);reverb_prepare();
-    uint32_t off=0;
-    for(uint32_t k=0;k<4u;k++){fx.comb_lp[k]=-2;for(uint32_t j=0;j<REV_COMB[k];j++)rev_comb[off++]=-2;}
-    off=0;for(uint32_t k=0;k<2u;k++)for(uint32_t j=0;j<REV_AP[k];j++)rev_ap[off++]=-16;
-    for(uint32_t t=0;t<2u*FS;t+=CTL)fx_buses(c,d,r,out,CTL);
-    bad+=check("ROOM constant tail is represented exactly after release",!resource[RES_REVERB].size && rev_hold_dc==-8 && out[0]==-8);
-    reverb_prepare();__typeof__(fx) saved=fx;int32_t ref[CTL]={0};r[0]=10000;
-    rev_room(r,ref,CTL);fx=saved;resource_release(RES_REVERB);rev_comb=0;rev_memory=0;
-    fx_buses(c,d,r,out,CTL);r[0]=0;
-    bad+=check("new send restores the previous tail byte for byte",!memcmp(ref,out,sizeof ref));
+    bad+=check("four maximum engine states fit without effect buffers",resource_used()==maximum && maximum<=64u*1024u);
     bad+=check("capacity exhaustion returns failure and preserves live memory",resource_get(RES_ENGINE0,RESOURCE_CAPACITY+4u)==0 && resource[RES_ENGINE0].size==largest);
     bad+=check("zero-byte requests release rather than return an arena pointer",!resource_get(RES_ENGINE0,0) && !resource[RES_ENGINE0].size);
-    printf("resources: default engine bytes %u, worst audio bytes %u, host arena %u\n",expected,maximum+32768u+CHO_LEN*2u+(uint32_t)REV_MEMORY_BYTES+DL_N*2u,RESOURCE_CAPACITY);
+    printf("resources: default engine bytes %u, worst audio bytes %u, host arena %u\n",expected,maximum,RESOURCE_CAPACITY);
     return bad;
 }
 static int bank_tests(void)
@@ -138,7 +85,7 @@ static int bank_tests(void)
         if(p)memset(p,(int)(b+1u),n);
     }
     bad+=check("all SRAM tails contribute usable capacity",resource_used()==RESOURCE_CAPACITY && resource_used()>RESOURCE_MAIN_CAPACITY);
-    bad+=check("combined capacity cannot be returned as one contiguous allocation",!resource_get(RES_PERFORM,RESOURCE_CAPACITY));
+    bad+=check("combined capacity cannot be returned as one contiguous allocation",!resource_get(RES_NOTE_HISTORY,RESOURCE_CAPACITY));
     void *saved=resource[0].ptr;uint32_t size=resource[0].size;
     bad+=check("failed growth leaves original allocation and contents intact",!resource_get(0,size+4u) && resource[0].ptr==saved && resource[0].size==size && ((uint8_t *)saved)[size-1u]==1u);
     bad+=check("overflowing requests fail without releasing a live allocation",!resource_get(0,UINT32_MAX) && !resource_get(0,UINT32_MAX-3u) && resource[0].ptr==saved && resource[0].size==size);

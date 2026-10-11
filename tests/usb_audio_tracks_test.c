@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Real render path (fx.c mix_part -> track_capture -> usb_audio_stream.c ua_audio): Melodee In's four channels are
+/* Real render path (mix.c mix_part -> track_capture -> usb_audio_stream.c ua_audio): Melodee In's four channels are
  * the four tracks, each isolated, after DIST, the SLICER and LEVEL, independent of the monitor's pan, sends and
  * MASTER; a silent block clears its channel. */
 #include <assert.h>
@@ -25,12 +25,12 @@ static struct result render(uint32_t channel, int sliced, int variant)
         usb.up=usb.config=1;usb.suspended=0;ua.cap_alt=1;
         host_tracks_init();
         for (uint32_t k = 0; k < NPART; k++) host_preset(&trk[k], HOST_SYNTH, 0);
-        t->p[P_DIST] = 60;
-        t->p[P_SLCR] = sliced ? SL_GATE : SL_OFF;
-        t->p[P_SLPAT] = 1;
-        t->p[P_SLDEPTH] = 127;
+        t->p[P_RESERVED33] = 60;
+        t->p[P_RESERVED45] = sliced ? 2 : 0;
+        t->p[P_RESERVED46] = 1;
+        t->p[P_RESERVED48] = 127;
         t->p[P_PAN] = variant == 1 ? -64 : variant == 2 ? 64 : 0;
-        t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = variant == 1 ? 127 : 0;
+        t->p[P_RESERVED34] = t->p[P_RESERVED35] = t->p[P_RESERVED36] = variant == 1 ? 127 : 0;
         song.master_q12 = variant == 2 ? 0 : 4096;
         if (variant == 3)
             t->p[P_LEVEL] = 0;
@@ -54,7 +54,6 @@ static struct result render(uint32_t channel, int sliced, int variant)
             }
         }
         memset(trk, 0, sizeof trk);
-        memset(sl, 0, sizeof sl);
         mix_block(out, CTL);
         for (uint32_t i = 0; i < CTL * NTRK; i++) assert(track_capture[i] == 0);
         assert(write(fd[1], &result, sizeof result) == sizeof result);
@@ -75,7 +74,7 @@ int main(void)
         for (int sliced = 0; sliced <= 1; sliced++) {
             struct result base = render(ch, sliced, 0);
             assert(base.energy && base.monitor);
-            if (sliced) assert(base.hash != dry.hash);
+            if (sliced) assert(base.hash == dry.hash);
             for (int variant = 1; variant <= 2; variant++) {
                 struct result changed = render(ch, sliced, variant);
                 assert(changed.hash == base.hash && changed.energy == base.energy);
@@ -84,6 +83,6 @@ int main(void)
             assert(render(ch, sliced, 3).energy == 0);
         }
     }
-    puts("USB track capture: tracks 1..4 isolated, SLICER, level, pan/FX/master isolation, stale blocks: OK");
+    puts("USB track capture: tracks 1..4 isolated, ignored legacy effects, level, pan/master isolation, stale blocks: OK");
     return 0;
 }

@@ -131,11 +131,11 @@ static int clock_test(uint32_t source)
     clock_packet(source, 0xFA, 700); clock_to(source, 700, 7);
     bad += check("Start after timeout restarts cleanly at the master's phase", song.playing && trk[0].seq_idx == 1u);
     /* Original base values remain after MIDI Stop even while motion sounds. */
-    trk[0].p[P_REV] = 23; motion_clear(&trk[0]); motion_set_event(&trk[0], 0, P_REV, 100);
+    trk[0].p[P_LEVEL] = 23; motion_clear(&trk[0]); motion_set_event(&trk[0], 0, P_LEVEL, 100);
     clock_packet(source, 0xFA, 1000); clock_packet(source, 0xF8, 1000);
-    bad += check("external-clock playback applies recorded motion", trk[0].p[P_REV] == 100);
+    bad += check("external-clock playback applies recorded motion", trk[0].p[P_LEVEL] == 100);
     clock_packet(source, 0xFC, 1010);
-    bad += check("external Stop restores the musical parameter base", trk[0].p[P_REV] == 23);
+    bad += check("external Stop restores the musical parameter base", trk[0].p[P_LEVEL] == 23);
     return bad;
 }
 static int clock_arp_and_boundaries(void)

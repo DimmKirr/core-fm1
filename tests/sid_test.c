@@ -132,7 +132,7 @@ static uint32_t play(int32_t *buf, uint32_t ms, uint32_t note, uint32_t release_
 static void fresh(uint32_t preset)
 {
     memset(trk, 0, sizeof trk); host_tracks_init(); host_preset(&trk[0], 3, preset); T = &trk[0];
-    T->p[P_DIST] = T->p[P_CHOR] = T->p[P_DLY] = T->p[P_REV] = 0;
+    T->p[P_RESERVED33] = T->p[P_RESERVED34] = T->p[P_RESERVED35] = T->p[P_RESERVED36] = 0;
 }
 
 /* Hann-windowed DFT from f0 / 2 to FS / 4: the share of energy (dB) outside +-3 bins of the harmonics of f0 */

@@ -51,7 +51,6 @@ USB and TRS MIDI share these controls, using the existing channel routing:
 | 71 | Resonance, or Q where the engine exposes it |
 | 72 / 73 / 75 | Release / attack / decay |
 | 74 | Engine cutoff or brightness |
-| 91 / 93 | Reverb / chorus send |
 
 Cutoff/brightness uses PHASE DCW, SID CUT, DRUM TONE, NOISE FREQ,
 FM6 MLVL and PROPHET CUT. CZ-1 uses its filter-envelope amount. Engines without

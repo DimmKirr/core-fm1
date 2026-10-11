@@ -9,7 +9,7 @@
  * MELODEE_OTA_RAMONLY (ota.c). */
 #include "build_options.h"      /* defaults shared with crt0.S */
 #ifndef MELODEE_CACHE_RAM
-#define MELODEE_CACHE_RAM 1     /* seven data-cache ways as RAM after a boot self-test (MELODEE_CACHE_RAM=0: off) */
+#define MELODEE_CACHE_RAM 0     /* opt-in: seven data-cache ways as RAM; keep the full data cache for audio by default */
 #endif
 #ifndef MELODEE_CORE1_TEST
 #define MELODEE_CORE1_TEST 0    /* editor command 79 injects CPU1 failures (tools/core1_fault_test.py); never release */
@@ -71,10 +71,9 @@
 #include "core.h"
 #include "engines.c"             /* dsp.c, the eng_*.c files, the factory patterns */
 #include "params.c"
-#include "mod.c"               /* the modulation matrix, used by voice.c and fx.c */
+#include "mod.c"               /* the modulation matrix, used by voice.c and mix.c */
 #include "voice.c"
-#include "slicer.c"              /* per-track SLICER insert, used by fx.c */
-#include "fx.c"
+#include "mix.c"
 
 /* ------------------------------------------------- MIDI, sequencer --- */
 #define MIDI_TIME_NOW() fm1_ticks()
@@ -95,7 +94,7 @@
 #include "ui_draw.c"
 #include "ui_menu.c"
 #include "ui_input.c"
-#include "ui_layer.c"              /* the quick layers (FX GLO SCL EDIT held) */
+#include "ui_layer.c"              /* the quick layers (GLO SCL EDIT held) */
 
 /* --------------------------------------------- storage, update, editor --- */
 #if MELODEE_FLASH

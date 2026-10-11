@@ -252,7 +252,7 @@ static int test_step_modifiers(void)
     press(B_EDIT); fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]); frame();
     bad += check("OCT+ then EDIT redoes, either order works", !step_on(&t->step[6]) && ui.cursor == 7 && !song.octave && cur_page()->graph == GR_ROLL);
     put_note(t, 7, 62, 1); frame(); press(B_FX);
-    bad += check("FX tapped on STEP: its page, the note stays (EDIT deletes)", step_on(&t->step[7]) && cur_page()->fam == FAM_FX);
+    bad += check("retired FX button leaves STEP and its note unchanged", step_on(&t->step[7]) && !ui.home && cur_page()->graph == GR_ROLL);
     t = edit_setup(); cursor_set(7); frame();
     press(B_OCTUP);
     bad += check("plain STEP OCT+: neither the cursor (the knobs move it) nor the octave (Stage only)", ui.cursor == 7 &&
@@ -327,7 +327,7 @@ static int test_held_gestures(void)
     {
         uint32_t ly = ui.ly;
         fm1_in.buttons &= ~(1u << panel.btn[B_FX]); frame();
-        bad += check("  FX while recording live: its performance layer, the note stays", ly == LAYER_FX &&
+        bad += check("  retired FX while recording live: no layer, the note stays", !ly &&
                      step_on(&t->step[9]));
     }
     song.octave = 0; song.rec = 0; song.playing = 0;

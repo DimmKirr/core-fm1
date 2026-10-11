@@ -395,7 +395,7 @@ static void sid_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const v
 /* name, MODEL WAVE STACK PW CUT RES MODE DRIVE, ATK DEC SUS REL (the track's: SID_ADSR_RATE), ENV -> FILTER,
  * mono, sends */
 #define SIDP(n, mo, wa, st, pw, cu, re, md, dr, a, d, s, r, fe, mi, di, ch, de, rv) \
-    {n, {mo, wa, st, pw, cu, re, md, dr}, {a, d, s, r}, fe, mi, FX(di, ch, de, rv)}
+    {n, {mo, wa, st, pw, cu, re, md, dr}, {a, d, s, r}, fe, mi}
 
 static const preset_t SID_PRESETS[] = {
     SIDP("INIT SID",    0, 1, 0, 64, 127,  0, 0,  0,   0, 36, 127, 36,   0, 0,  0,  0, 0,  0),

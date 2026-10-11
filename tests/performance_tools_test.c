@@ -91,7 +91,7 @@ static void test_midi_and_levels(void)
     midi_event(0xb0,0,10,64);assert(TSEL->p[P_PAN]==0);
     midi_event(0xb0,0,74,0);assert(TSEL->p[P_E4]==0);
     midi_event(0xb0,0,71,127);assert(TSEL->p[P_E5]==ENGINES[TSEL->eng_req]->edit[5].max);   /* (SID's RES: 0..15) */
-    song.g[G_ROUTE]=0;midi_event(0xb0,1,91,88);assert(trk[1].p[P_REV]==88 && trk[0].p[P_REV]!=88);
+    song.g[G_ROUTE]=0;midi_event(0xb0,1,91,88);assert(!trk[1].p[P_RESERVED36] && !trk[0].p[P_RESERVED36]);
     set_engine_of(TSEL,ENGI_PROPHET);TSEL->engine=TSEL->eng_req;
     midi_event(0xb0,0,73,70);assert(p5_patch_of(TSEL)->raw[P5_ATTACK_AMP]==70);
     reset_tools();song.rec=1;seq_start();seq_advance(0);midi_event(0xb0,0,7,17);
@@ -107,23 +107,23 @@ static void test_compatibility(void)
     assert(settings_import(&p,sizeof p));assert(settings_click==2 && !settings_click_level && settings_countin==2 && settings_preview && settings_chord_add);
     p.zoom=1;assert(settings_import(&p,sizeof p));assert(!settings_click && settings_click_level==1 && !settings_countin && !settings_preview && !settings_chord_add);
     project_t q,back;project_store_t current;project_capture(&q);q.t[0].p[P_E4]=53;
-    for(uint32_t t=0;t<NTRK;t++)q.t[t].p[P_DLY]=77;   /* delay sends and their automation (a FUN16's are kept) */
-    q.g[G_DTYPE]=3;q.g[G_DWEAR]=9;q.g[G_DTIME]=2;q.motion.count=1;q.motion.event[0]=(motion_event_t){0,P_DLY,100};q.sum=proj_sum(&q);
+    for(uint32_t t=0;t<NTRK;t++)q.t[t].p[P_RESERVED35]=77;   /* delay sends and their automation (a FUN16's are kept) */
+    q.g[G_RESERVED25]=3;q.g[G_RESERVED26]=9;q.g[G_RESERVED4]=2;q.motion.count=1;q.motion.event[0]=(motion_event_t){0,P_RESERVED35,100};q.sum=proj_sum(&q);
     assert(proj_pack(&current,&q));
-    assert(proj_import(&back,&current,PROJ_STORE_SIZE) && back.t[1].p[P_DLY]==77 && back.g[G_DTYPE]==3 && back.g[G_DWEAR]==9 &&
+    assert(proj_import(&back,&current,PROJ_STORE_SIZE) && back.t[1].p[P_RESERVED35]==77 && back.g[G_RESERVED25]==3 && back.g[G_RESERVED26]==9 &&
            back.motion.count==1 && back.motion.event[0].value==100);
-    {   /* a user preset: a record of today's keeps its delay send, one of before (np 100) has none */
-        up_rec_t r;int16_t v[P_COUNT];memset(&r,0,sizeof r);r.used=UP_USED;r.ver=UP_VER_GRID;r.engine=3;r.np=P_COUNT;memcpy(r.name,"DLY",3);
+    {   /* Both current and earlier user presets ignore retired effects in their live values. */
+        up_rec_t r;int16_t v[P_COUNT];memset(&r,0,sizeof r);r.used=UP_USED;r.ver=UP_VER_GRID;r.engine=3;r.np=P_COUNT;memcpy(r.name,"OLD",3);
         for(uint32_t i=0;i<P_COUNT;i++)up_set_value(&r,i,param_desc_of(0,i)->def);
-        up_set_value(&r,P_DLY,77);up_values(&r,v);assert(v[P_DLY]==77);
-        r.np=100;up_values(&r,v);assert(v[P_DLY]==0);
+        up_set_value(&r,P_RESERVED35,77);up_values(&r,v);assert(v[P_RESERVED35]==0);
+        r.np=100;up_values(&r,v);assert(v[P_RESERVED35]==0);
     }
     {   /* a factory preset: no delay send (its sends predate the delay coming back) */
-        TSEL->eng_req=3;TSEL->p[P_DLY]=77;apply_preset_to(TSEL,8);assert(TSEL->p[P_DLY]==0 && TSEL->p[P_REV]>0);
+        TSEL->eng_req=3;TSEL->p[P_RESERVED35]=77;apply_preset_to(TSEL,8);assert(TSEL->p[P_RESERVED35]==0 && TSEL->p[P_RESERVED36]==0);
     }
 }
 int main(void)
 {
     test_recording_tools();test_click_volume();test_editing_tools();test_midi_and_levels();test_compatibility();
-    puts("performance tools: count-in, click, additive entry, audition, momentary restore/keep, MIDI, drum levels and the revived delay's zeroed old sends passed");return 0;
+    puts("performance tools: count-in, click, additive entry, audition, momentary restore/keep, MIDI, drum levels and inert legacy effect values passed");return 0;
 }

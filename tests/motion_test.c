@@ -7,48 +7,48 @@
 static int motion_recording(void)
 {
     int bad = 0; ui_power_on(); track_t *t = &trk[0];
-    t->p[P_REV] = 23; song.sel = 0; song.rec = 1;
+    t->p[P_LEVEL] = 23; song.sel = 0; song.rec = 1;
     seq_start(); seq_tick(t, CTL); /* first real step */
-    t->p[P_REV] = 92;
-    bad += check("motion records the selected armed track at its current step", !motion_capture(t, P_REV, 92) &&
+    t->p[P_LEVEL] = 92;
+    bad += check("motion records the selected armed track at its current step", !motion_capture(t, P_LEVEL, 92) &&
         motion.count == 1u && motion.event[0].place == 0u && motion.event[0].value == 92);
-    t->p[P_REV] = 110; motion_capture(t, P_REV, 110);
+    t->p[P_LEVEL] = 110; motion_capture(t, P_LEVEL, 110);
     bad += check("same step/parameter overwrites rather than consuming capacity", motion.count == 1u && motion.event[0].value == 110);
-    bad += check("sounding values never replace the original patch base", t->p[P_REV] == 110 && motion_base_value(t, P_REV) == 23);
+    bad += check("sounding values never replace the original patch base", t->p[P_LEVEL] == 110 && motion_base_value(t, P_LEVEL) == 23);
     project_t q; project_store_t packed;
     project_capture(&q);
-    bad += check("project snapshot saves base + independent events while sounding", q.t[0].p[P_REV] == 23 && q.motion.event[0].value == 110 &&
+    bad += check("project snapshot saves base + independent events while sounding", q.t[0].p[P_LEVEL] == 23 && q.motion.event[0].value == 110 &&
         proj_pack(&packed, &q) && sizeof packed == PROJ_STORE_SIZE);
     seq_stop();
-    bad += check("stop before another step restores the original parameter", t->p[P_REV] == 23);
+    bad += check("stop before another step restores the original parameter", t->p[P_LEVEL] == 23);
     seq_start(); seq_tick(t, CTL);
-    bad += check("recorded motion plays back at step zero", t->p[P_REV] == 110);
+    bad += check("recorded motion plays back at step zero", t->p[P_LEVEL] == 110);
     motion_set_enabled(t, 0);
-    bad += check("bypass restores base without deleting automation", t->p[P_REV] == 23 && motion_count(t) == 1u && !motion_enabled(t));
+    bad += check("bypass restores base without deleting automation", t->p[P_LEVEL] == 23 && motion_count(t) == 1u && !motion_enabled(t));
     motion_set_enabled(t, 1); motion_step(t, 0, &motion);
-    song.rec = 0; t->p[P_REV] = 37; motion_capture(t, P_REV, 37); seq_stop();
-    bad += check("manual edits outside recording become the new base", t->p[P_REV] == 37);
+    song.rec = 0; t->p[P_LEVEL] = 37; motion_capture(t, P_LEVEL, 37); seq_stop();
+    bad += check("manual edits outside recording become the new base", t->p[P_LEVEL] == 37);
     song.rec = 3; seq_start(); seq_tick(t, CTL);
-    trk[1].p[P_REV] = 45; motion_capture(&trk[1], P_REV, 45);
+    trk[1].p[P_LEVEL] = 45; motion_capture(&trk[1], P_LEVEL, 45);
     bad += check("only the selected track captures knob motion", motion_count(&trk[1]) == 0u);
     bad += check("transport and engine-switch parameters cannot be captured", !motion_param(P_SLEN) && !motion_param(P_AMODE) &&
         motion_set_event(t, 0, P_SLEN, 8) == 1);
     seq_stop(); motion_clear(t);
-    t->p[P_REV] = 42; song.rec = 1; seq_start(); seq_tick(t, CTL);
-    motion_clear(t); t->p[P_REV] = 70; motion_capture(t, P_REV, 70); seq_stop();
-    bad += check("clearing then recording mid-play keeps the correct new base", t->p[P_REV] == 42);
+    t->p[P_LEVEL] = 42; song.rec = 1; seq_start(); seq_tick(t, CTL);
+    motion_clear(t); t->p[P_LEVEL] = 70; motion_capture(t, P_LEVEL, 70); seq_stop();
+    bad += check("clearing then recording mid-play keeps the correct new base", t->p[P_LEVEL] == 42);
     return bad;
 }
 static int motion_capacity(void)
 {
     int bad = 0; ui_power_on();
-    for (uint32_t i = 0; i < MOTION_MAX; i++) bad += motion_set_event(&trk[0], i, P_REV, (int16_t)i);
+    for (uint32_t i = 0; i < MOTION_MAX; i++) bad += motion_set_event(&trk[0], i, P_LEVEL, (int16_t)i);
     motion_store_t saved = motion;
-    bad += check("full event pool refuses append without overwriting earlier events", motion_set_event(&trk[1], 0, P_REV, 90) == 2 &&
+    bad += check("full event pool refuses append without overwriting earlier events", motion_set_event(&trk[1], 0, P_LEVEL, 90) == 2 &&
         !memcmp(&motion, &saved, sizeof saved));
-    bad += check("full pool still permits a targeted overwrite", !motion_set_event(&trk[0], 12, P_REV, 100) && motion.count == MOTION_MAX);
-    motion_delete_event(&trk[0], 12, P_REV);
-    bad += check("deleting one event releases one slot", motion.count == MOTION_MAX - 1u && !motion_set_event(&trk[1], 0, P_REV, 90));
+    bad += check("full pool still permits a targeted overwrite", !motion_set_event(&trk[0], 12, P_LEVEL, 100) && motion.count == MOTION_MAX);
+    motion_delete_event(&trk[0], 12, P_LEVEL);
+    bad += check("deleting one event releases one slot", motion.count == MOTION_MAX - 1u && !motion_set_event(&trk[1], 0, P_LEVEL, 90));
     saved = motion; motion_store_t invalid = motion; invalid.count = MOTION_MAX + 1;
     bad += check("invalid restore leaves the pool intact", motion_replace_track(&trk[0], &invalid) != 0 && !memcmp(&motion, &saved, sizeof saved));
     motion_clear(&trk[0]);
@@ -74,7 +74,7 @@ static int compact_project(void)
     int bad = 0; ui_power_on(); track_t *t = &trk[0];
     t->step[3] = (step_t){{60, 67}, 2, ST_NOTE, SF_ACCENT, 110, 0x81, 0x80, 0};
     step_set_chance(&t->step[3], 25); t->p[P_FM1_LEVEL] = 80; t->p[P_ED_FLT] = -50;
-    motion_set_event(t, 3, P_REV, 110);
+    motion_set_event(t, 3, P_LEVEL, 110);
     project_t before, after; project_store_t packed, corrupt;
     project_capture(&before);
     bad += check("FUN16 fits the retained and flash extent", sizeof(proj_slot) == 4u * PROJ_STORE_SIZE && proj_pack(&packed, &before));
@@ -134,12 +134,12 @@ static int older_count(void)
     for (k = 0; k < NTRK; k++)
         for (i = 0; i < 8u; i++) trk[k].p[P_E0 + i] = (int16_t)(ENGINES[trk[k].eng_req]->edit[i].min + (int16_t)(k + i) %
             (ENGINES[trk[k].eng_req]->edit[i].max - ENGINES[trk[k].eng_req]->edit[i].min + 1));
-    t->p[P_FM1_ATK] = 33; t->p[P_REV] = 20;
+    t->p[P_FM1_ATK] = 33; t->p[P_LEVEL] = 20;
     t->step[2] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
     project_capture(&before);
     memset(&m, 0, sizeof m);                                       /* as that firmware numbered them */
     m.count = 3; m.on = 1;
-    m.event[0] = (motion_event_t){3, P_REV, 90};
+    m.event[0] = (motion_event_t){3, P_LEVEL, 90};
     m.event[1] = (motion_event_t){5, (uint8_t)e0, 40};             /* its P_E0 */
     m.event[2] = (motion_event_t){6, P_FM1_ATK, 20};               /* below its P_E0: the same id then and now */
     pack_np(&old, &before, &m, np);
@@ -152,7 +152,7 @@ static int older_count(void)
     bad += check("FUN16 of P_COUNT - 2: E0..E7 in place, the two added parameters their defaults, the rest kept", ok &&
         after.t[0].p[P_FM1_ATK] == 33 && !memcmp(after.t[0].step, before.t[0].step, sizeof before.t[0].step));
     bad += check("  its motion: its E0 -> P_E0, REV and FM OP1 ATK kept",
-        after.motion.count == 3u && after.motion.event[0].param == P_REV && after.motion.event[1].param == P_E0 &&
+        after.motion.count == 3u && after.motion.event[0].param == P_LEVEL && after.motion.event[1].param == P_E0 &&
         after.motion.event[1].value == 40 && after.motion.event[2].param == P_FM1_ATK);
     bad += check("  written again with today's count: the same project", proj_pack(&old, &after) && old.raw[66] == P_COUNT &&
         proj_import(&before, &old, sizeof old) && !memcmp(&before, &after, sizeof before));
@@ -168,17 +168,17 @@ static int older_count(void)
 static int loads_and_song(void)
 {
     int bad = 0; ui_power_on(); track_t *t = &trk[0];
-    t->p[P_REV] = 21; motion_set_event(t, 0, P_REV, 100); t->step[0] = (step_t){{60}, 1, ST_NOTE, 0, 100};
+    t->p[P_LEVEL] = 21; motion_set_event(t, 0, P_LEVEL, 100); t->step[0] = (step_t){{60}, 1, ST_NOTE, 0, 100};
     apply_preset_to(t, 1);
     bad += check("sound load clears incompatible motion and keeps pattern", !motion_count(t) && t->step[0].note[0] == 60);
-    undo_swap(); bad += check("sound undo restores the original motion pool and base", motion_count(t) == 1u && t->p[P_REV] == 21);
+    undo_swap(); bad += check("sound undo restores the original motion pool and base", motion_count(t) == 1u && t->p[P_LEVEL] == 21);
     undo_step(1); bad += check("sound redo restores the loaded motion state", !motion_count(t));
     undo_swap(); pattern_commit(t); pattern_request(t, 1);
-    t->p[P_REV] = 43; t->step[0].note[0] = 72; chain_config.count = 1; chain_config.row[0] = (chain_row_t){0, 1};
+    t->p[P_LEVEL] = 43; t->step[0].note[0] = 72; chain_config.count = 1; chain_config.row[0] = (chain_row_t){0, 1};
     bad += check("song preparation imports saved motion alongside steps", chain_prepare() == 0 && motion_count(t) == 0u);
     seq_start(); seq_tick(t, CTL);
-    bad += check("song plays saved automation with current instruments", chain.running && t->p[P_REV] == 100 && t->step[0].note[0] == 60);
-    seq_stop(); bad += check("song stop restores current base and editable pattern", t->p[P_REV] == 43 && t->step[0].note[0] == 72);
+    bad += check("song plays saved automation with current instruments", chain.running && t->p[P_LEVEL] == 100 && t->step[0].note[0] == 60);
+    seq_stop(); bad += check("song stop restores current base and editable pattern", t->p[P_LEVEL] == 43 && t->step[0].note[0] == 72);
     return bad;
 }
 static int repeat_mode(void)
@@ -251,7 +251,7 @@ static int native_motion_test(void)
     ui_power_on(); set_engine_of(TSEL, ENGI_FM6); uint32_t page = 0;   /* (not the Prophet: its events below are another's) */
     for (uint32_t p = 0; p < NPAGES; p++) if (PAGES[p].graph == GR_MOTION) page = p;
     bad += check("empty motion page is hidden", !page_visible(page));
-    motion_set_event(TSEL, 0, P_REV, 50);
+    motion_set_event(TSEL, 0, P_LEVEL, 50);
     bad += check("recorded motion makes its page visible", page_visible(page));
     ui.home = 0; ui.page = page; motion_clear(TSEL);
     bad += check("clearing keeps the current page until leaving it", page_visible(page));
@@ -265,7 +265,7 @@ static int native_motion_test(void)
         !motion_native_ok(MO_NATIVE + FP_TRNSP, MO_TAG_FM6 << 8) &&
         !motion_native_ok(MO_NATIVE + FP_DET, MO_TAG_FM6 << 8 | 99));
     ui_power_on(); set_engine_of(TSEL, ENGI_CZ); apply_preset_to(TSEL, 0);
-    for (uint32_t j = 0; j < MOTION_MAX - 1u; j++) motion_set_event(TSEL, j, P_REV, 30);
+    for (uint32_t j = 0; j < MOTION_MAX - 1u; j++) motion_set_event(TSEL, j, P_LEVEL, 30);
     song.rec = 1; seq_start(); seq_tick(TSEL, CTL); uint8_t old[MO_NATIVE_N]; motion_native_peek(TSEL, old);
     cz_patch[0].raw[38] ^= 1; cz_patch[0].raw[39] ^= 1; motion_native_edited(TSEL, old);
     bad += check("full pool refuses a whole multi-byte native edit without partial events", motion.count == MOTION_MAX - 1u && motion_full);

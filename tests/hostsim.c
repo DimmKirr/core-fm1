@@ -53,8 +53,7 @@ static const uint8_t *cz_fac(uint32_t k)
 #include "../firmware/src/params.c"
 #include "../firmware/src/mod.c"
 #include "../firmware/src/voice.c"
-#include "../firmware/src/slicer.c"
-#include "../firmware/src/fx.c"
+#include "../firmware/src/mix.c"
 static void fm1_delay_ms(uint32_t ms) { (void)ms; }
 #include "../firmware/src/usb.c"
 #include "../firmware/src/midi_uart.c"                /* TRS MIDI IN: its parser (um_byte) feeds midi_in_q */
@@ -109,7 +108,6 @@ static void host_tracks_init(void)                /* as melodee_init: defaults, 
  * the engine as the UI asks for it (eng_req: the audio side switches; host_preset: at once) */
 static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset_t *p)
 {
-    static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
     uint32_t i;
     t->eng_req = (uint8_t)e;
     t->preset = (uint8_t)pi;
@@ -121,8 +119,6 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     t->p[P_REL] = p->env[3];
     t->p[P_ED_FLT] = p->fenv;
     t->p[P_VOICE] = p->mono ? V_LEGATO : V_POLY;
-    for (i = 0; i < 4u; i++)
-        t->p[P_DIST + i] = (int16_t)(i == 2u ? 0 : p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
     cz_factory_loaded(t);
     if(e==ENGI_PROPHET){uint32_t k=(uint32_t)(t-trk)%NTRK;p5_ready[k]=1;p5_preset_loaded(t,pi);}   /* (its program, as ui.c) */
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
@@ -417,7 +413,7 @@ static int steal_test(const char *dir)
         track_t *t = &trk[p];
         host_preset(t, HOST_SYNTH, 0);             /* CZ-1 INIT TONE (DCW closed): a plain held sine, no sends */
         t->p[P_ED_FLT] = 0;
-        t->p[P_DIST] = t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
+        t->p[P_RESERVED33] = t->p[P_RESERVED34] = t->p[P_RESERVED35] = t->p[P_RESERVED36] = 0;
         t->p[P_VOICE] = V_POLY;
         t->p[P_LEVEL] = 90;
     }
@@ -476,7 +472,7 @@ static void xfade_sine(track_t *t)
 {
     host_preset(t, HOST_SYNTH, 0);                 /* CZ-1 INIT TONE (DCW closed): a plain held sine */
     t->p[P_ED_FLT] = 0;
-    t->p[P_DIST] = t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
+    t->p[P_RESERVED33] = t->p[P_RESERVED34] = t->p[P_RESERVED35] = t->p[P_RESERVED36] = 0;
     t->p[P_VOICE] = V_POLY;
     t->p[P_LEVEL] = 100;
 }
@@ -515,7 +511,7 @@ static int xfade_test(const char *dir)
         for (k = 0; k < 4u; k++)
             if (f == sw[k]) {
                 host_preset_req(t, to[k], 0);
-                t->p[P_DIST] = t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
+                t->p[P_RESERVED33] = t->p[P_RESERVED34] = t->p[P_RESERVED35] = t->p[P_RESERVED36] = 0;
                 panic_req |= 1u;
             } else if (k == 3u && f == sw[k] + CTL) {
                 trk_note_on(t, 60, 100);           /* (c): a note during the fade */
@@ -851,13 +847,13 @@ int main(int argc, char **argv)
     }
     fm6_track_loaded(&inst);                            /* FM6: the preset's patch */
     inst.p[P_VOICE] = (int16_t)mono;
-    inst.p[P_CHOR] = argc > 5 ? atoi(argv[5]) : 24;      /* as melodee_init */
-    inst.p[P_DLY] = argc > 5 ? atoi(argv[5]) : 28;
-    inst.p[P_REV] = argc > 5 ? atoi(argv[5]) : 36;
+    inst.p[P_RESERVED34] = argc > 5 ? atoi(argv[5]) : 24;      /* as melodee_init */
+    inst.p[P_RESERVED35] = argc > 5 ? atoi(argv[5]) : 28;
+    inst.p[P_RESERVED36] = argc > 5 ? atoi(argv[5]) : 36;
     if (getenv("PRESET"))                               /* PRESET=1: sends, voice mode too (then SENDS, PSET) */
         host_preset(&inst, (uint32_t)eng, (uint32_t)preset);
     if (getenv("SENDS"))                                 /* SENDS=chorus,delay,reverb */
-        sscanf(getenv("SENDS"), "%hd,%hd,%hd", &inst.p[P_CHOR], &inst.p[P_DLY], &inst.p[P_REV]);
+        sscanf(getenv("SENDS"), "%hd,%hd,%hd", &inst.p[P_RESERVED34], &inst.p[P_RESERVED35], &inst.p[P_RESERVED36]);
     if (getenv("OCT"))                                   /* OCT=o: keyboard octave shift (key 7 = C4 + 12 o) */
         song.octave = (int8_t)atoi(getenv("OCT"));
     if (getenv("PSET")) {                               /* PSET=id:value,... (track parameter ids, P_E0 = 61) */
@@ -915,7 +911,7 @@ int main(int argc, char **argv)
             drum_hit(f / (FS / 8u));
         }
         if (getenv("DIST"))
-            inst.p[P_DIST] = (int16_t)atoi(getenv("DIST"));
+            inst.p[P_RESERVED33] = (int16_t)atoi(getenv("DIST"));
         if (getenv("LEVEL"))
             inst.p[P_LEVEL] = (int16_t)atoi(getenv("LEVEL"));
         if (getenv("SWEEP")) {          /* cutoff and resonance sweeps while a note is held */

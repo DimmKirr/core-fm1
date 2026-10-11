@@ -185,7 +185,7 @@ static void phrase(track_t *t, uint32_t base)
 }
 
 /* ------------------------------------------------------------- jobs --- */
-enum { J_PRESET, J_MODE, J_SENDS, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER };
+enum { J_PRESET, J_MODE, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER };
 typedef struct {
     char name[64];
     uint8_t kind, e, pi, arg, cpu_notes;
@@ -215,21 +215,7 @@ static void job_mode(const job_t *j)            /* arg: the voice mode, ARP off,
     phrase(t, 60);
 }
 
-static void job_sends(const job_t *j)           /* arg: 0 dry, 1 chorus, 2 delay, 3 reverb, 4 all, 5 DIST */
-{
-    static const int16_t S[6][4] = {{0, 0, 0, 0}, {0, 110, 0, 0}, {0, 0, 110, 0}, {0, 0, 0, 110},
-                                    {40, 80, 80, 80}, {110, 0, 0, 30}};
-    track_t *t = &trk[0];
-    uint32_t i;
-    host_tracks_init();
-    host_preset(t, j->e, j->pi);
-    t->p[P_AMODE] = 0;
-    for (i = 0; i < 4u; i++)
-        t->p[P_DIST + i] = S[j->arg][i];
-    if (S[j->arg][2])                          /* the delay's repeats (x0x's defaults: TAPE, FDBK 50) ring ~5 s */
-        tail_s = 7;
-    phrase(t, 60);
-}
+
 
 static void job_drums(const job_t *j)           /* every GM note through 808 DRUM on part 4, a roll */
 {
@@ -260,18 +246,7 @@ static void job_drums(const job_t *j)           /* every GM note through 808 DRU
 
 /* the SLICER on the phrase (its clock free-running, no transport): arg 0 GATE (the power-on bass, PROPHET FUNK BASS II,
  * pattern 6, 1/16), 1 STUT (DIGITAL PAD, pattern 7, 1/32, DEPTH 100 %) */
-static void job_slicer(const job_t *j)
-{
-    static const int16_t S[2][4] = {{SL_GATE, 6, 1, 120}, {SL_STUT, 7, 2, 127}};
-    track_t *t = &trk[0];
-    uint32_t i;
-    host_tracks_init();
-    host_preset(t, j->e, j->pi);
-    t->p[P_AMODE] = 0;
-    for (i = 0; i < 4u; i++)
-        t->p[P_SLCR + i] = S[j->arg][i];
-    phrase(t, 60);
-}
+
 
 /* the 4-track mix: T1 the power-on bass (PROPHET FUNK BASS II; ANALOG ACID until 2.0), T2 the power-on pad
  * (TRK_DEF: FM6 PAD since DIGITAL was retired; DIGITAL PAD before) (tied chords), T3 SID lead (12 steps against 16),
@@ -316,16 +291,7 @@ static void job_song(const job_t *j)
             n[k++] = i == 14u ? 46 : 42;
         put_step(td, i, k, n, k ? ST_NOTE : ST_REST, i % 4u == 0u ? SF_ACCENT : 0u);
     }
-    if (j->arg) {
-        static const int16_t S[4][4] = {{SL_STUT, 9, 1, 127}, {SL_GATE, 1, 1, 127}, {0, 1, 1, 127},
-                                        {SL_STUT, 12, 2, 110}};
-        for (i = 0; i < NTRK; i++) {
-            uint32_t k;
-            for (k = 0; k < 4u; k++)
-                trk[i].p[P_SLCR + k] = S[i][k];
-        }
-        song.g[G_SWING] = 20;
-    }
+
     transport_req = 1;
     run_to(8u * FS);
     transport_req = 2;
@@ -405,17 +371,11 @@ static int run_job_body(job_t *j)
     case J_MODE:
         job_mode(j);
         break;
-    case J_SENDS:
-        job_sends(j);
-        break;
     case J_DRUMS:
         job_drums(j);
         break;
     case J_SONG:
         job_song(j);
-        break;
-    case J_SLICER:
-        job_slicer(j);
         break;
     case J_CPU:
         job_cpu(j);
@@ -1044,21 +1004,7 @@ int main(int argc, char **argv)
             j->pi = MODE_E[i][1];
             j->arg = (uint8_t)k0;
         }
-    for (i = 0; i < 2u; i++)
-        for (k0 = 0; k0 < 6u && eng_ok(SEND_E[i][0]); k0++) {
-            job_t *j;
-            snprintf(name, sizeof name, "sends/%s/%s", ENGINES[SEND_E[i][0]]->name, SN[k0]);
-            j = add(J_SENDS, name);
-            j->e = SEND_E[i][0];
-            j->pi = SEND_E[i][1];
-            j->arg = (uint8_t)k0;
-        }
     add(J_SONG, "song/4track_mix");
-    {   /* the SLICER */
-        job_t *j = add(J_SLICER, "slicer/gate/PROPHET_FUNK_BASS_II");
-        j->e = TRK_DEF[0][0], j->pi = TRK_DEF[0][1], j->arg = 0;
-        add(J_SONG, "slicer/song_gate_stut")->arg = 1;
-    }
     g1 = nj;
     {   /* determinism: the first preset render once more */
         job_t *j = add(J_PRESET, "repeat");

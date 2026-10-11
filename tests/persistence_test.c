@@ -180,7 +180,7 @@ int main(void)
     settings_poll();
     bad += check("STOP: latest settings saved and request cleared", !persist_pending && erases == 1u &&
                   st_load(OBJ_SETTINGS, &p, sizeof p) == (int)sizeof p && p.palette == palette_to_stored(2) &&
-                  p.lowcut == 2u && p.zoom == 1u && p.bold == 1u &&
+                  p.lowcut == 0u && p.zoom == 1u && p.bold == 1u &&
                   p.favorites.factory[8][0] == 1 && p.favorites.user == (1u << 31) &&
                   !memcmp(&p.panel, &panel, sizeof panel));
     settings_save();

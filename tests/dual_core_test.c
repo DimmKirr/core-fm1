@@ -66,24 +66,15 @@ static void setup_case(uint32_t alg, uint32_t eng, uint32_t voices)
     memset(midi_bend_q8, 0, sizeof midi_bend_q8);
     memset(midi_bend_target, 0, sizeof midi_bend_target);
     memset(&mod, 0, sizeof mod);
-    memset(&fx, 0, sizeof fx);
     memset(resource, 0, sizeof resource);
-    cho_buf = rev_comb = 0; rev_memory = 0;
-    dly_buf = 0; memset(&dl, 0, sizeof dl);           /* (the delay: no line, every state at rest) */
-    cho_idle = rev_scan = 0; rev_hold_dc = 0;
-    memset(rev_hold_comb, 0, sizeof rev_hold_comb);
-    memset(rev_hold_ap, 0, sizeof rev_hold_ap);
     memset(mix_cache, 0, sizeof mix_cache);
+    track_solo = 0;
+    for (uint32_t i=0;i<NPART;i++) solo_gain[i]=32768;
     lim_env = LIM_T;
     dc_l = dc_r = dce_l = dce_r = 0;
     rng_state = 0x12345678u;
     mod_seed = 0x2545F491u;
     vage = 0; panic_req = 0;
-    memset(&pf, 0, sizeof pf);
-    pf.src = pf.next = PF_N; pf.lc = PF_TOP;
-    for (uint32_t i = 0; i < NTRK; i++) pf.mg[i] = 32768;
-    perf_held = perf_act = perf_mask = perf_solo = perf_kill = 0;
-    memset((void *)perf_k, 0, sizeof perf_k);
     host_tracks_init();
     fm6_fn_reset();
     for (uint32_t i = 0; i < NTRK; i++) {
@@ -102,7 +93,7 @@ static void setup_case(uint32_t alg, uint32_t eng, uint32_t voices)
         fm6_put_patch(i, patch, 1);
         FM6F(&trk[i])[FN_ENGINE] = eng;
         trk[i].p[P_LEVEL] = 70;
-        trk[i].p[P_CHOR] = 24; trk[i].p[P_REV] = 36;
+        trk[i].p[P_RESERVED34] = 24; trk[i].p[P_RESERVED36] = 36;
         trk[i].p[P_M1SRC] = MS_LFO; trk[i].p[P_M1DST] = MD_PITCH; trk[i].p[P_M1AMT] = 12;
         trk[i].p[P_M2SRC] = MS_VEL; trk[i].p[P_M2DST] = MD_PAN; trk[i].p[P_M2AMT] = 7;
         trk[i].p[P_VOICE] = voices == 8 ? V_UNISON : V_POLY;
@@ -221,7 +212,7 @@ static void prophet_case(int parallel,uint32_t preset,uint32_t mode,uint32_t voi
     /* Ensure requested polyphony independent of native factory unison. */
     if(mode>=8){patch->raw[P5_UNISON]=1;patch->raw[P5_UNISON_COUNT]=voices;}
     trk[0].p[P_VOICE]=mode>=8?V_UNISON:V_POLY;
-    trk[0].p[P_CHOR]=24;trk[0].p[P_REV]=36;trk[0].p[P_DLY]=20;
+    trk[0].p[P_RESERVED34]=24;trk[0].p[P_RESERVED36]=36;trk[0].p[P_RESERVED35]=20;
     trk[0].mw=90;trk[0].at=64;
     trk[0].p[P_M1SRC]=MS_LFO;trk[0].p[P_M1DST]=MD_PITCH;trk[0].p[P_M1AMT]=12;
     for(uint32_t i=0;i<voices;i++)trk_note_on(&trk[0],48+i*3,70+i*7);

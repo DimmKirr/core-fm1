@@ -41,20 +41,11 @@
 #                   exactly what its key / MIDI note started, recording, the ARP, MIDI IN, kits ignore CHRD.
 # MOD (tests/mod_test.c): the modulation matrix: slots that do nothing are bit-identical, every source on each
 #                   kind of destination, clamping, MIDI CC1 / CC11 / aftertouch routing, the cost of 4 active
-#                   slots (at most +5 %), demos in build/mod_demo/.
-# PERFORM (tests/perform_test.c): the FX hold layer (src/perform.c): 1/16 starts, stereo buffer effects, the
-#                   too-long REPEAT, the SLICER interplay, silent layer keys, idle bit-identical, cost; build/perform_demo/;
-#                   OCT UP / DN (the harmonizer): pitch, stereo, clicks, the shimmer bounded, cost; build/fx_demo/;
-#                   FLANGER / PHASER: silence, DC, bounds, tempo-locked sweeps, clicks, stacking; the white-key map.
-# REVERB (tests/reverb_test.c): REVERB TYPE (src/fx.c): ROOM bit for bit as before, SPRING's decay against SIZE,
-#                   its chirp (group delay rising with frequency), stability at the corners, level; HALL's decay,
-#                   damping, echo density, ringing, flutter, stereo and exact silence; model changes without a
-#                   click, the cost against ROOM (+30 % at most); demos in build/fx_demo/.
-# DELAY (tests/delay_test.c): the delay bus (src/delay.c, fm1-x0x's tape delay): silent without a send, echoes on the
-#                   note value, FDBK and TONE, a long division halved, TAPE's bounded self-oscillation and its pitch
-#                   swing, the ping-pong, glides without clicks, the line given back when silent, the cost.
+#                   slots (PHYS at most +5%, mixed dry path at most 90 instructions/sample), demos in build/mod_demo/.
+# NO EFFECTS (tests/no_effects_test.c): legacy FX values/automation do not process audio or allocate,
+#                   old notes survive, MIDI sends and the retired physical FX button have no effect.
 # MOD / SPREAD (tests/mod_spread_test.c): the matrix's S&H / SLEW sources and DEPTH destination, SPREAD's sides.
-# LAYERS / SCREEN (tests/layer_screen_test.c): double-tapped layers, FX LATCH, the FX key map, SCREEN OFF, LFO 2.
+# LAYERS / SCREEN (tests/layer_screen_test.c): GLO/SCL/EDIT double-tapped layers, SCREEN OFF, LFO 2.
 # INPUT (tests/input_test.c): the key / button debounce of hal/fm1_input.h against the TIMER5 scan and bouncing
 #                   contacts: a press within 2 scans (<= 2.3 ms), one note per bouncy press, no early or hanging
 #                   release, stray samples ignored, fast repeats, the encoders' detents.
@@ -238,6 +229,10 @@ if core; then
     t "USB audio: routing, clock drift and stream recovery" usb_audio_test
     t "USB audio: endpoint lifecycle and packet ownership" usb_audio_driver_test
     run "USB descriptors: MIDI, CDC and audio configurations" python3 tests/usb_audio_desc_test.py
+    run "resident audio: call graph and flash/RAM ABI boundaries" python3 tests/audio_ram_test.py
+    t "removed effects: old songs and motion, MIDI, physical input and dry output" no_effects_test -O1 $FW
+    t "resident audio: four-track resource budget and removed buses" ram_audio_test -O2 $FW
+    t "resident audio: expanded voice budget and CPU1 fallback" ram_voice_budget_test -O2 $FW
     t "USB audio: four isolated track stems through the real mixer" usb_audio_tracks_test -O2 $FW
     t "M-UPGRADE entry (own loader)" ota_test -DOWN_PKG=1 -- "$OUT/ota_test" build/melodee.fwsc
     t "update loader: other app -> this build" ldr_test -- old_to_new
@@ -288,16 +283,14 @@ if core && [ $TABLES = 1 ]; then
     t "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" backup_test $FW
     t "editor: real C protocol, malformed transfers and queue recovery" editor_test $FW
     t "DX7 librarian: USB voice/bank receive, dump replies and malformed frame recovery" fm6_sysex_test $FW
-    t "SWING: track + global at most 100, sequencer and SLICER step lengths, the SWG display" swing_test -O2 $FW
-    t "double-tap layers, FX LATCH, FX key map, SCREEN OFF, LFO 2 SYNC / TRIG / POL" layer_screen_test \
-        -O1 -DMELODEE_USB_AUDIO=1 $FW
-    t "punch FX: exclusive knob routing, release detents, DEPTH direction and double-press lock" punch_fx_test \
+    t "SWING: track + global at most 100, sequencer step lengths, the SWG display" swing_test -O2 $FW
+    t "double-tap layers, SCREEN OFF, LFO 2 SYNC / TRIG / POL" layer_screen_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW
     t "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" drum_editor_test -O2 $FW
 fi
 
 if sound && [ $TABLES = 1 ]; then
-    mkdir -p build/mod_demo build/slicer_demo build/perform_demo build/fx_demo build/delay_demo \
+    mkdir -p build/mod_demo \
         build/phys_demo build/drum_demo build/noise_demo build/fm6_demo
     t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
@@ -309,18 +302,9 @@ if sound && [ $TABLES = 1 ]; then
     t "native fp32: independent numerical references, exact pitch, quiet signals and fractional envelopes" synth_fpu_test \
         -O2 $FW
     job prophet
-    t "SPEAKER BASS+: harmonics of the bass, the sub cut, no offset after" speaker_test -O2 $FW
     t "modulation matrix: off = bit-identical, the math, MIDI CC1 / CC11 / aftertouch, cost, demos" mod_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/mod_test" build/mod_demo
-    t "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" slicer_test -O2 $FW -- \
-        "$OUT/slicer_test" build/slicer_demo
-    t "FX layer effects: on the 1/16, stereo, too-long REPEAT, SLICER, silent keys, idle bit-identical, clicks, OCT UP / DN, cost, demos" \
-        perform_test -O2 $FW -- "$OUT/perform_test" build/perform_demo build/fx_demo
-    t "REVERB TYPE: ROOM bit-identical, SPRING decay / chirp / stability / level, HALL decay / damping / density / stereo / silence, model change, cost, demos" \
-        reverb_test -O2 $FW -- "$OUT/reverb_test" build/fx_demo
-    t "DELAY (x0x's tape delay): off = silent, echo timing, feedback, TAPE bounded / swing, ping-pong, glides, idle release, cost, demos" \
-        delay_test -O2 $FW -- "$OUT/delay_test" build/delay_demo
-    t "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, sides, sends mono, SLICER and mutes" mod_spread_test -O2 $FW
+    t "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, stereo sides and routing" mod_spread_test -O2 $FW
     t "CZ: oscillator boundaries, native rate/target envelopes and independent lines" phase_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW
     t "SID: oscillator/LFSR/register semantics, revisions and 32 factory presets" sid_test -O2 $FW

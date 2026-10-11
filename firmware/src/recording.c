@@ -293,9 +293,18 @@ static void recording_tick(track_t *t, uint32_t n)
 {
     uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), tr = trk_index(t);
     uint32_t a = recording_prefix(t, period, t->seq_idx) + t->seq_pos, b = a + n;
-    uint64_t ticks = (uint64_t)n * RECORD_UNIT + recording_fraction[tr];
-    recording_fraction[tr] = (uint32_t)(ticks % period);
-    uint32_t elapsed = (uint32_t)(ticks / period);
+    uint32_t elapsed;
+    if (n <= CTL) {
+        /* At most CTL * 65536 plus one sequencer period: the ordinary
+         * audio tick fits 32 bits, including the slowest supported division. */
+        uint32_t ticks = n * RECORD_UNIT + recording_fraction[tr];
+        recording_fraction[tr] = ticks % period;
+        elapsed = ticks / period;
+    } else {
+        uint64_t ticks = (uint64_t)n * RECORD_UNIT + recording_fraction[tr];
+        recording_fraction[tr] = (uint32_t)(ticks % period);
+        elapsed = (uint32_t)(ticks / period);
+    }
     recording_sync(t, period);
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         if ((recording_flags[i] & 1u)) recording_run[i].held = (uint32_t)clamp((int32_t)(recording_run[i].held + elapsed), 0, 8388607);
@@ -304,9 +313,11 @@ static void recording_tick(track_t *t, uint32_t n)
                 recording_end(t, i);
             } else recording_run[i].left -= n;
         }
-        if (!(recording_flags[i] & 4u) && recording_active(t, i)) {
+        if (!(recording_flags[i] & 4u)) {
             uint32_t on = recording_due[i];
-            if (on > a && on <= b) recording_fire(t, i, period, b - on);
+            /* Most retained events are nowhere near this block. Avoid
+             * looking up their STEP ownership until their onset is due. */
+            if (on > a && on <= b && recording_active(t, i)) recording_fire(t, i, period, b - on);
         }
     }
 }

@@ -4,6 +4,7 @@
  * guards; then LCD, input (TIMER5 IRQ, 10 kHz), audio (ALNK0 IRQ). */
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _dsp_start[], _dsp_end[], _dsp_load[], _dt_start[], _dt_end[], _dt_load[];
+extern uint32_t _audio_start[], _audio_end[], _audio_load[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
 
 
@@ -360,6 +361,8 @@ void fm1_cstart(void)
         *d = *s;                                /* DSP code: audio is stopped while NOR is busy */
     for (s = _dt_load, d = _dt_start; d < _dt_end; s++, d++)
         *d = *s;                                /* the oscillator correction tables */
+    for (s = _audio_load, d = _audio_start; d < _audio_end; s++, d++)
+        *d = *s;                                /* resident audio profile: executable ordinary SRAM */
     fm1_mailbox_clear();
 #if MELODEE_CACHE_RAM
     {   /* XIP-to-SRAM exceeds the direct-call range on pi32v2. */
