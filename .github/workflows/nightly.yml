@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  pages: write
 
 concurrency:
   group: melodee-nightly-pages
@@ -96,3 +97,27 @@ jobs:
             git commit -m 'build: publish next nightly variants'
             git push origin HEAD:gh-pages
           fi
+      - name: Request and verify Pages publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"
+          expected=$(git -C .nightly-pages rev-parse HEAD)
+          published=false
+          for attempt in $(seq 1 60); do
+            result=$(gh api "repos/$GITHUB_REPOSITORY/pages/builds/latest")
+            status=$(echo "$result" | jq -r .status)
+            revision=$(echo "$result" | jq -r .commit)
+            if [ "$revision" = "$expected" ] && [ "$status" = built ]; then
+              published=true
+              break
+            fi
+            if [ "$revision" = "$expected" ] && [ "$status" = errored ]; then
+              echo "$result"
+              exit 1
+            fi
+            sleep 10
+          done
+          test "$published" = true
+          site=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url)
+          python web/verify_nightly.py "$site" build

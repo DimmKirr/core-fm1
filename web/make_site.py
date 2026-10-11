@@ -125,9 +125,9 @@ def main(pkg, single, version, out, nightly=None, installer_only=False):
             shutil.copy(HERE / f, ed / f)
     if not installer_only:
         (out / "index.html").write_text(
-        '<!doctype html><meta charset="utf-8"><title>Melodee</title>'
-        '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
-        '<a href="webapp/installer/">Melodee installer</a>\n', encoding="utf-8")
+            '<!doctype html><meta charset="utf-8"><title>Melodee</title>'
+            '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
+            '<a href="webapp/installer/">Melodee installer</a>\n', encoding="utf-8")
     print(f"site: {out}: webapp/installer ({len(html)} B), webapp/editor, firmware/{name} ({len(raw)} B) and "
           f"{name1} ({len(raw1)} B), {product}")
 
