@@ -86,6 +86,7 @@ static void reset(void)
     fm1_ms = 0;
     transport_req = 0;
     persist_pending = 0;
+    persist_old = tmpl_old = preset_old_write = 0;
     persist_retry_ms = 0;
     flash_ok = 1;
     erase_error = 0;
@@ -255,7 +256,7 @@ int main(void)
         got[BANK_EXTRA_OFF + 3u] |= 0xF0; bank_checksum(got);
         st_save(OBJ_BANK0, got, sizeof got);
         project_load(0);
-        bad += check("damaged inactive-bank chord is refused with runtime unchanged", !strcmp(ui.msg,"EMPTY SLOT") &&
+        bad += check("damaged inactive-bank chord is refused with runtime unchanged", !strcmp(ui.msg,"OLD FORMAT") &&
             !memcmp(&trk[0].step[0],&keep,sizeof keep));
     }
     {   /* every parameter range fits the record's byte (FUN16: value + 64, 0..191) */

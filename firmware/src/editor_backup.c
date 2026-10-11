@@ -40,6 +40,23 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
     *len = 0;
 #if MELODEE_FLASH
     ed_bk_source_obj = OBJ_COUNT;
+    /* Preserve unreadable records in a full archive instead of exporting the empty RAM view. */
+    uint32_t old_obj = OBJ_COUNT;
+    if (id == 1u && template_old()) old_obj = OBJ_SETTINGS;
+    else if (id == 6u || id == 7u || id == 17u || id == 18u) {
+        uint32_t b = id < 8u ? id - 6u : id - 15u;
+        if (up_old_bank(b * UP_PER_BANK)) old_obj = up_obj(b);
+    } else if (id >= 19u && id <= 22u) {
+        uint32_t b = id < 21u ? id - 17u : id - 21u;
+        if (native_old(ENGI_FM6, b * 16u)) old_obj = native_fm_obj(b);
+    } else if (id >= 9u && id <= 16u && native_old(ENGI_CZ, (id - 9u) * 16u)) old_obj = OBJ_CZBANK0 + id - 9u;
+    if (old_obj < OBJ_COUNT) {
+        st_hdr_t h; int copy = st_current(old_obj, &h);
+        if (copy >= 0) {
+            *len = h.len; ed_bk_source_obj = old_obj; ed_bk_source_copy = (uint32_t)copy; ed_bk_source_crc = h.crc;
+            return ED_BK_FLASH_PTR(st_sector(old_obj, (uint32_t)copy) + st_payload_off(old_obj));
+        }
+    }
 #endif
     if(id>=23u && id<=27u){p5_bank_t *b=p5_user_bank(id-23u);*len=sizeof *b;return (const uint8_t *)b;}
     if (id == 0u) { *len = BANK_STORE_SIZE; return ED_BK_RAW; }
@@ -187,6 +204,7 @@ static uint32_t ed_bk_commit_inner(void)
         settings_import(&ed_bk_set.p, (int)ns);
         tmpl_take(raw + ns, ed_bk_len - ns);            /* (none in the backup: none now) */
         tmpl_dirty = 0;
+        settings_old_accept();
         panel_init(); settings_init(); palette_set(settings.palette);
 #if MELODEE_FLASH
         persist_saved = ed_bk_set.p; persist_pending = 0;
@@ -200,6 +218,9 @@ static uint32_t ed_bk_commit_inner(void)
         memset(up_cache_bank(b), 0, sizeof (*up_cache_bank(b)));
         if (ed_bk_len) memcpy(up_cache_bank(b), raw, ed_bk_len);
         up_bank_check(b, (int)ed_bk_len); up_gen++;
+#if MELODEE_FLASH
+        up_bank_old &= (uint8_t)~(1u << b); up_cache_index(b);
+#endif
     }
     sync_reload = 1; ui.force = 1;
     return 0;

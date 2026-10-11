@@ -2957,6 +2957,28 @@ static int test_edit_cycle(void)
 /* SAVE > PROJECT: KNOB 2 BOOT (OFF, A..D: the device's, kept with the settings), SLOT T the template (SAVE keeps the
  * sounds without the patterns, LOAD makes a new project of them on a free slot, no name); power-on (project_boot)
  * loads the BOOT project, else the template; CLK TUNE MIDI ROUT kept as last used (glo_poll, glo_restore) */
+static int test_old_storage_ui(void)
+{
+    int bad = 0; char tag[8], name[16], title[32], detail[40];
+    ui_power_on(); stop_transport(); set_engine(9u); up_cache_reset();
+    up_rec_t *old = up_rec(0); old->used = UP_USED; old->ver = 1; old->engine = 9u;
+    for (uint32_t p = 0; p < NPAGES; p++) if (PAGES[p].graph == GR_USER) { ui.page = (uint8_t)p; break; }
+    ui.home = ui.menu = ui.layer = 0; ui.uslot = 0;
+    bad += check("old user record appears occupied with OLD FORMAT", slot_row(SK_USER, 0, tag, name) && str_eq(name, "OLD FORMAT"));
+    ui.act = 4; act_do(); confirm_text(title, detail);
+    bad += check("saving an old user record asks before naming", ui.confirm == CF_OVR_USER && !name_on() && str_eq(detail, "OLD FORMAT"));
+    ui_confirm_accept();
+    bad += check("old-slot confirmation opens naming without protocol authority", name_on() && !preset_old_write);
+    name_close();
+    bad += check("cancelled name keeps the old record", up_old(0) && up_rec(0)->ver == 1 && !preset_old_write);
+    ui.act = 3; act_do(); ui_confirm_accept();
+    bad += check("confirmed old-slot erase clears the record", !up_old(0) && !up_used(0));
+    tmpl_old = 1; song.g[G_SLOT] = PROJ_TMPL; go_title("PROJECT"); ui.act = 4; act_do();
+    bad += check("saving an old template asks before capture", ui.confirm == CF_OLD_TEMPLATE && tmpl_old);
+    ui_confirm_accept();
+    bad += check("accepted old template capture clears protection", template_used() && !template_old());
+    return bad;
+}
 static int test_boot_template(void)
 {
     int bad = 0, ok;
@@ -4633,6 +4655,7 @@ int main(void)
     bad += test_cz1_factory();
     bad += test_fm6_pages();
     bad += test_boot_template();
+    bad += test_old_storage_ui();
     bad += test_key_lights();
     bad += test_rec_gestures();
     bad += test_quick_save();

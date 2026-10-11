@@ -12,6 +12,9 @@ static void fm6_init_voice(void);
 static void panel_setup(void);
 static void project_load(uint32_t slot);
 static int project_used(uint32_t slot);
+static int project_old(uint32_t slot);
+static int template_old(void);
+static void settings_old_accept(void);
 static int template_used(void);                 /* SLOT TMPL (PROJ_TMPL): project.c */
 static void template_save(void);
 static void template_load(void);
@@ -29,6 +32,9 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k);   /* naming (ui_name.
 static void up_ui_named(uint32_t op, uint32_t k, const char *name);
 static uint32_t native_limit(uint32_t e);
 static int native_used(uint32_t e, uint32_t k);
+static int native_old(uint32_t e, uint32_t k);
+static int up_old(uint32_t k);
+static int up_old_bank(uint32_t k);
 static uint32_t native_count(uint32_t e);
 static uint32_t native_nth(uint32_t e, uint32_t n);
 static uint32_t native_rank(uint32_t e, uint32_t k);
@@ -46,6 +52,9 @@ static void confirm_open(uint32_t kind,uint32_t track);
 static uint32_t library_engine(void);
 static uint32_t user_limit(void);
 static int user_used(uint32_t k);
+static int user_old(uint32_t k);
+static int user_old_bank(uint32_t k);
+static void preset_old_allow(uint32_t allow);
 static void user_name(uint32_t k, char *out);
 static void user_label(char *out, uint32_t k);
 static void user_ui_named(uint32_t op, uint32_t k, const char *name);
@@ -175,7 +184,7 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
-       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
+       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
                                       * over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to over a
                                       * pattern in use */
 

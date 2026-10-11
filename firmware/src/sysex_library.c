@@ -69,7 +69,7 @@ static void sysex_choose(void)
     uint32_t first = ui.uslot;
     if (first + sx_import.count > (sx_import.general?UP_SLOTS:native_limit(sx_import.engine))) { ui_message("NOT ENOUGH SLOTS"); return; }
     sx_import.first = (uint16_t)first;
-    for(uint32_t k=first;k<first+sx_import.count;k++)if(sx_import.general?up_used(k):native_used(sx_import.engine,k)){confirm_open(CF_IMPORT,0);return;}
+    for(uint32_t k=first;k<first+sx_import.count;k++)if(sx_import.general?(up_used(k)||up_old(k)):(native_used(sx_import.engine,k)||native_old(sx_import.engine,k))){confirm_open(CF_IMPORT,0);return;}
     sysex_commit();
 }
 /* Native single-voice frames preserve each selected slot's name on USB. */
@@ -93,6 +93,8 @@ static void bulk_erase(void)
 {
     if(transport_busy()){ui_message("STOP TO ERASE");return;}
     uint32_t e=bulk.engine;
+    for (uint32_t k = 0; k < (native_limit(e) ? native_limit(e) : UP_SLOTS); k++)
+        if (bulk_has(k) && (native_limit(e) ? native_old(e,k) : up_old(k))) { ui_message("ERASE OLD SLOT FIRST"); return; }
     for(uint32_t k=0;k<(native_limit(e)?native_limit(e):UP_SLOTS);k++)if(bulk_has(k)&& (native_limit(e)?native_used(e,k):up_used(k))){
         if(native_limit(e)){int rc=native_put(e,k,0);if(rc==1||rc==2){ui_message("ERASE ERROR");return;}}
         else {up_ui_named(1,k,0);if(up_used(k))return;}

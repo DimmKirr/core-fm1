@@ -15,7 +15,7 @@ static int native_fm_valid(const native_fm_t *b);
 static void native_index(uint32_t e, uint32_t b);
 /* Names and used masks stay resident. Audio owns independent track patches;
  * only main-loop loading/editing touches these single-bank caches. */
-static struct { uint16_t used; uint8_t ready, valid; char name[16][13]; } native_meta[12];
+static struct { uint16_t used; uint8_t ready, valid, old; char name[16][13]; } native_meta[12];
 #if MELODEE_FLASH
 static native_fm_t *bank_fm(void);                     /* (the shared bank cache: upreset.c bank_claim) */
 #define native_fm_cache (*bank_fm())
@@ -26,6 +26,7 @@ static native_fm_t *native_fm_bank(uint32_t b)
     if (native_fm_cached != b) {
         bank_claim(BK_FM);
         int n = flash_ok ? st_load(native_fm_obj(b), &native_fm_cache, sizeof native_fm_cache) : -1;
+        native_meta[b].old = (uint8_t)(flash_ok && (n != sizeof native_fm_cache || !native_fm_valid(&native_fm_cache)) && st_exists(native_fm_obj(b)));
         if (n != sizeof native_fm_cache || !native_fm_valid(&native_fm_cache)) {
             memset(&native_fm_cache, 0, sizeof native_fm_cache);
         }
@@ -39,6 +40,7 @@ static cz_bank_t *native_cz_bank(uint32_t b)
     if (native_cz_cached != b) {
         bank_claim(BK_CZ);
         int n = flash_ok ? st_load(OBJ_CZBANK0 + b, &native_cz_cache, sizeof native_cz_cache) : -1;
+        native_meta[b + 4u].old = (uint8_t)(flash_ok && (n != sizeof native_cz_cache || !cz_bank_valid(&native_cz_cache)) && st_exists(OBJ_CZBANK0 + b));
         if (n != sizeof native_cz_cache || !cz_bank_valid(&native_cz_cache)) memset(&native_cz_cache, 0, sizeof native_cz_cache);
         native_cz_cached = (uint8_t)b;
         native_index(ENGI_CZ, b);
@@ -94,10 +96,18 @@ static int native_used(uint32_t e,uint32_t k)
     if (!native_meta[idx].ready) native_index(e, k/16u);
     return (native_meta[idx].used >> (k%16u)) & 1u;
 }
+static int native_old(uint32_t e, uint32_t k)
+{
+    if (e == ENGI_PROPHET || k >= native_limit(e)) return 0;
+    uint32_t idx = k/16u + (e == ENGI_FM6 ? 0u : 4u);
+    if (!native_meta[idx].ready) native_index(e, k/16u);
+    return native_meta[idx].old;
+}
 static const uint8_t *native_raw(uint32_t e,uint32_t k) { return e==ENGI_PROPHET ? (const uint8_t *)&p5_user_bank(k/P5_BANK_SLOTS)->patch[k%P5_BANK_SLOTS] : e==ENGI_FM6 ? native_fm_bank(k/16u)->tone[k%16u] : native_cz_bank(k/16u)->tone[k%16u].raw; }
 static uint32_t native_size(uint32_t e) { return e==ENGI_PROPHET ? sizeof(p5_patch_t) : e==ENGI_FM6 ? FM6_PACKED : CZ_BYTES; }
 static void native_name(uint32_t e,uint32_t k,char *out)
 {
+    if (native_old(e, k)) { str_cpy(out, "OLD FORMAT", 13); return; }
     if(e==ENGI_PROPHET){const char *n=p5_user_name(k);uint32_t i=0;for(;i<12u&&n[i];i++)out[i]=n[i];out[i]=0;return;}
     uint32_t idx = k/16u + (e == ENGI_FM6 ? 0u : 4u);
     if (!native_meta[idx].ready) native_index(e, k/16u);
@@ -115,7 +125,7 @@ static int native_save_bank(uint32_t e,uint32_t b)
                              e==ENGI_FM6?(const void *)native_fm_bank(b):(const void *)native_cz_bank(b),
                              e==ENGI_FM6?sizeof(native_fm_t):sizeof(cz_bank_t)) ? 2 : 0;
 #endif
-    if (rc != 2) native_index(e, b);
+    if (rc != 2) { native_meta[b + (e == ENGI_FM6 ? 0u : 4u)].old = 0; native_index(e, b); }
     return rc;
 }
 /* power-on: every native bank exists; a missing one (a fresh device's, or after the stock firmware) gets its default,
@@ -123,13 +133,13 @@ static int native_save_bank(uint32_t e,uint32_t b)
 static void native_boot(void)
 {
     for (uint32_t b = 0; b < 4u; b++) {
-        if (native_fm_valid(native_fm_bank(b))) continue;
+        if (native_fm_valid(native_fm_bank(b)) || native_old(ENGI_FM6, b * 16u)) continue;
         native_fm_empty(b);
         if (native_save_bank(ENGI_FM6, b) == 2) { ui_message("PRESET SAVE ERROR"); return; }
     }
     for (uint32_t b = 0; b < 8u; b++) {
         cz_bank_t *c = native_cz_bank(b);
-        if (cz_bank_valid(c)) continue;
+        if (cz_bank_valid(c) || native_old(ENGI_CZ, b * 16u)) continue;
         cz_bank_empty(c, b);
         c->ver = 2;
         if (native_save_bank(ENGI_CZ, b) == 2) { ui_message("PRESET SAVE ERROR"); return; }
@@ -145,6 +155,7 @@ static int native_put(uint32_t e,uint32_t k,const uint8_t *raw)
     if(!flash_ok)return 2;
 #endif
     if(transport_busy())return 2;
+    if (native_old(e, k) && !preset_old_write) return 2;
     if(e==ENGI_FM6 && !native_fm_valid(native_fm_bank(k/16u)))native_fm_empty(k/16u);
     if(e==ENGI_CZ && !cz_bank_valid(native_cz_bank(k/16u))){cz_bank_empty(native_cz_bank(k/16u),k/16u);native_cz_bank(k/16u)->ver=2;}
     uint8_t old[CZ_BYTES];memcpy(old,native_raw(e,k),native_size(e));
@@ -168,6 +179,7 @@ static int native_fm_import32(uint32_t first, const uint8_t *raw, uint32_t *save
     if (!flash_ok) return 2;
 #endif
     if (transport_busy()) return 2;
+    if (!preset_old_write && (native_old(ENGI_FM6, first) || native_old(ENGI_FM6, first + 16u))) return 2;
     int result = 0;
     for (uint32_t b = first / 16u; b < first / 16u + 2u; b++) {
         native_fm_t *bank = native_fm_bank(b), old = *bank;
@@ -205,6 +217,8 @@ static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name)
 }
 static uint32_t user_limit(void) { uint32_t n=library_native();return n?n:UP_SLOTS; }
 static int user_used(uint32_t k) { return library_native()?native_used(library_engine(),k):up_used(k); }
+static int user_old(uint32_t k) { return library_native()?native_old(library_engine(),k):up_old(k); }
+static int user_old_bank(uint32_t k) { return library_native()?native_old(library_engine(),k):up_old_bank(k); }
 static void user_name(uint32_t k,char *out) { if(library_native())native_name(library_engine(),k,out);else up_name(k,out); }
 static void user_label(char *out,uint32_t k)
 {
@@ -215,11 +229,13 @@ static void user_ui_named(uint32_t op,uint32_t k,const char *name)
 {
     uint32_t e=TSEL->eng_req;if(!native_limit(e)){up_ui_named(op,k,name);return;}
     int rc;
+    preset_old_write = (uint8_t)(op != 0u);
     if(op==0u)rc=native_load(e,k,song.sel);
     else if(op==1u)rc=native_put(e,k,0);
     else if(op==2u)rc=native_store(e,k,song.sel,name);
     else if(!native_used(e,k))rc=1;
     else {uint8_t raw[CZ_BYTES];memcpy(raw,native_raw(e,k),native_size(e));uint32_t off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u,n=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u;memset(raw+off,' ',n);for(uint32_t i=0;i<n && name && name[i];i++)raw[off+i]=(uint8_t)name[i];rc=native_put(e,k,raw);}
-    if(rc==1)ui_message("EMPTY SLOT");else if(rc==2)ui_message(transport_busy()?"STOP TO SAVE":"SAVE ERROR");else {char label[5];user_label(label,k);ui_say(op==0?"LOADED ":op==1?"ERASED ":op==3?"RENAMED ":"SAVED ",label);}
+    preset_old_write = 0;
+    if(rc==1)ui_message(native_old(e,k)?"OLD FORMAT":"EMPTY SLOT");else if(rc==2)ui_message(transport_busy()?"STOP TO SAVE":"SAVE ERROR");else {char label[5];user_label(label,k);ui_say(op==0?"LOADED ":op==1?"ERASED ":op==3?"RENAMED ":"SAVED ",label);}
     ui.force=1;
 }

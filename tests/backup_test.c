@@ -89,6 +89,7 @@ static void reset(void)
     erase_error = 0;
     erases = 0;
     ed_bk_valid = ed_bk_put = 0;
+    persist_old = tmpl_old = preset_old_write = 0;
 }
 
 static uint32_t call(uint32_t cmd, const uint8_t *a, uint32_t n)
@@ -431,6 +432,22 @@ int main(void)
                  put_all(0, &st, sizeof st, st_crc32(&st, sizeof st)) == 0 && trk[2].step[5].note[0] == 67u &&
                  trk[2].p[P_LEVEL] == 77);
 
+    /* Unsupported banks and settings export their committed bytes, not empty cache defaults. */
+    reset();
+    {
+        uint8_t old[3080]; memset(old, 0x5a, sizeof old);
+        const uint32_t objects[] = {OBJ_SETTINGS, OBJ_UPRESET0, OBJ_NATIVEFM0, OBJ_CZBANK0};
+        const uint32_t ids[] = {1u, 6u, 21u, 9u};
+        int intact = 1;
+        for (uint32_t k = 0; k < NELEM(objects); k++) intact &= st_save(objects[k], old, sizeof old) == 0;
+        up_cache_reset(); native_cache_reset(); persist_old = 1;
+        for (uint32_t k = 0; k < NELEM(ids); k++) {
+            intact &= list(ids[k], &len, &crc) == 0 && len == sizeof old && crc == st_crc32(old, sizeof old);
+            const uint8_t *raw = ed_bk_object(ids[k], &len);
+            intact &= raw && len == sizeof old && !memcmp(raw, old, sizeof old);
+        }
+        bad += check("full backup retains unsupported settings and preset bank bytes", intact);
+    }
     /* user preset banks: unknown record versions are kept as bytes */
     reset();
     {

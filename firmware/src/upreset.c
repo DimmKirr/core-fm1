@@ -11,7 +11,7 @@
  * empty; so does a record with another layout version. Read: UP_VER (4, values as biased bytes), UP_VER_GRID (5,
  * its pattern a drum grid: note[i] step i's lane hits, flags[i] their accents), UP_VER_CZ (8, native CZ-1 bytes),
  * UP_VER_DRUM / UP_VER_DRUM_GRID (9 / 10, the DRUM patch beside the values). Older versions (1..3, the CZ records
- * of before the native CZ-1, the 192-byte banks) were rewritten by 1.2's boot pass. A record keeps np = the
+ * of before the native CZ-1, the 192-byte banks) remain protected and unreadable. A record keeps np = the
  * P_COUNT it was stored with; when that differs from today's it is mapped by count: its last 8 values are
  * P_E0..P_E7, the first np - 8 are P_LEVEL.. in order, and parameters it does not have take their defaults.
  * That holds as long as common parameters are only ever added just before P_E0 (else bump UP_VER and translate).
@@ -55,14 +55,22 @@ static void bank_claim(uint32_t kind);
 static up_bank_t *bank_up(void);
 #define up_cache (*bank_up())
 static uint8_t up_cached = 255;
-static struct { uint8_t ready, used, engine; char name[13]; } up_meta[UP_SLOTS];
+static struct { uint8_t ready, used, engine, old; char name[13]; } up_meta[UP_SLOTS];
+/* Records this firmware does not read (written before 1.0: older record versions, a bank of another shape) stay as
+ * they are: their slots show OLD FORMAT and a write there is refused (up_put) until the device's dialog lets it
+ * (preset_old_write is scoped to that write). A bank of another shape is old as a whole. */
+static uint8_t up_bank_old;
 static up_bank_t *up_cache_bank(uint32_t b);
-static void up_cache_reset(void) { up_cached=255; memset(up_meta,0,sizeof up_meta); }
+static void up_cache_reset(void) { up_cached=255; memset(up_meta,0,sizeof up_meta); up_bank_old=0; }
 #else
 static up_bank_t up_banks_host[UP_SLOTS / UP_PER_BANK] __attribute__((section(".pool")));
 static up_bank_t *up_cache_bank(uint32_t b) { return &up_banks_host[b]; }
 static void up_cache_reset(void) { memset(up_banks_host,0,sizeof up_banks_host); }
 #endif
+
+/* Set only around a confirmed device write; never retained by a cancelled name screen. */
+static uint8_t preset_old_write;
+static void preset_old_allow(uint32_t allow) { preset_old_write = (uint8_t)allow; }
 
 #if !defined(UP_HOST) && MELODEE_FLASH
 static uint32_t up_obj(uint32_t b) { return b < 2u ? OBJ_UPRESET0 + b : OBJ_UPRESET_EXT0 + b - 2u; }
@@ -111,6 +119,28 @@ static int up_used(uint32_t k)
     return up_valid(up_rec(k));
 }
 
+static int up_old(uint32_t k)
+{
+    if (k >= UP_SLOTS) return 0;
+#if MELODEE_FLASH && !defined(UP_HOST)
+    if (!up_meta[k].ready) (void)up_cache_bank(k / UP_PER_BANK);
+    if (up_cached == k / UP_PER_BANK) return ((up_bank_old >> up_cached) & 1u) || (up_rec(k)->used != 0 && !up_valid(up_rec(k)));
+    return up_meta[k].old;
+#else
+    return up_rec(k)->used != 0 && !up_valid(up_rec(k));
+#endif
+}
+static int up_old_bank(uint32_t k)
+{
+#if MELODEE_FLASH && !defined(UP_HOST)
+    if (k >= UP_SLOTS) return 0;
+    (void)up_old(k);
+    return (up_bank_old >> (k / UP_PER_BANK)) & 1u;
+#else
+    (void)k; return 0;
+#endif
+}
+
 static int up_grid(const up_rec_t *r) { return r->ver == UP_VER_GRID || r->ver==UP_VER_DRUM_GRID; }
 static int16_t up_value(const up_rec_t *r, uint32_t k) { return (int16_t)r->packed[k] - 64; }
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
@@ -130,6 +160,7 @@ static void up_cache_index(uint32_t b)
     for(uint32_t j=0;j<UP_PER_BANK;j++){
         uint32_t k=b*UP_PER_BANK+j; const up_rec_t *r=&up_cache.r[j];
         up_meta[k].ready=1;up_meta[k].used=(uint8_t)up_valid(r);
+        up_meta[k].old=(uint8_t)(((up_bank_old >> b) & 1u) || (r->used != 0 && !up_valid(r)));
         up_meta[k].engine=up_native_cz(r)?ENGI_CZ:eng_sound_idx(r->engine);
         uint32_t n=0;
         for(;n<12u && r->name[n];n++)up_meta[k].name[n]=r->name[n]>='a' && r->name[n]<='z'?(char)(r->name[n]-32):r->name[n];
@@ -145,7 +176,10 @@ static up_bank_t *up_cache_bank(uint32_t b)
         memset(&up_cache,0,sizeof up_cache);
         int n=flash_ok?st_load(up_obj(b),b<2u?(void *)&up_cache:(void *)up_cache.r,b<2u?sizeof up_cache:sizeof up_cache.r):-1;
         if(b>=2u && n==sizeof up_cache.r){up_cache.magic=UP_BANK_MAGIC;up_cache.rsize=sizeof(up_rec_t);up_cache.nslot=UP_PER_BANK;n=sizeof up_cache;}
-        up_bank_check(b,n);up_cache_index(b);
+        up_bank_check(b,n);
+        if (up_cache.magic != UP_BANK_MAGIC && flash_ok && st_exists(up_obj(b))) up_bank_old |= (uint8_t)(1u << b);
+        else up_bank_old &= (uint8_t)~(1u << b);
+        up_cache_index(b);
     }
     return &up_cache;
 }
@@ -174,6 +208,7 @@ static int up_name_ok(const uint8_t *s, uint32_t n)   /* 1..12 printable ASCII *
 
 static void up_name(uint32_t k, char *b)       /* upper case, 0-terminated: b holds 13 */
 {
+    if (up_old(k)) { memcpy(b, "OLD FORMAT", 11); return; }
 #if MELODEE_FLASH && !defined(UP_HOST)
     if(up_cached != k/UP_PER_BANK && up_meta[k].ready){memcpy(b,up_meta[k].name,13);return;}
 #endif
@@ -281,22 +316,7 @@ static void up_boot(void)                      /* persist_boot: the banks from f
     up_cache_reset();
 #endif
 #if MELODEE_FLASH
-    uint32_t b;
-    for (b = 0; b < UP_SLOTS / UP_PER_BANK; b++) {
-        int len;
-        if (b < 2u) len = flash_ok ? st_load(up_obj(b), up_cache_bank(b), sizeof (*up_cache_bank(b))) : -1;
-        else {
-            len = flash_ok ? st_load(up_obj(b), up_cache_bank(b)->r, sizeof up_cache_bank(b)->r) : -1;
-            if (len == sizeof up_cache_bank(b)->r) {
-                up_cache_bank(b)->magic = UP_BANK_MAGIC; up_cache_bank(b)->rsize = sizeof(up_rec_t); up_cache_bank(b)->nslot = UP_PER_BANK;
-                len = sizeof (*up_cache_bank(b));
-            } else len = -1;
-        }
-        up_bank_check(b, len);
-#ifndef UP_HOST
-        up_cache_index(b);
-#endif
-    }
+    for (uint32_t b = 0; b < UP_SLOTS / UP_PER_BANK; b++) (void)up_cache_bank(b);
 #endif
     native_cache_reset();
     cz_bank_boot();
@@ -328,6 +348,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
         return 2;
     }
     bk = up_cache_bank(k / UP_PER_BANK);
+    if (up_old(k) && !preset_old_write) return 2;
 #if MELODEE_FLASH
     old = *up_rec(k);
     magic = bk->magic;
@@ -349,6 +370,11 @@ static int up_put(uint32_t k, const up_rec_t *r)
         bk->nslot = nslot;
         return 2;
     }
+#endif
+    /* A successful write replaces a wrong-shape bank; other unknown records in a current bank survive. */
+#if MELODEE_FLASH
+    up_bank_old &= (uint8_t)~(1u << (k / UP_PER_BANK));
+    up_cache_index(k / UP_PER_BANK);
 #endif
     if (!r) {
 #ifdef MELODEE_FAVORITES
@@ -533,8 +559,8 @@ static void up_ui_named(uint32_t op, uint32_t k, const char *name)   /* 0 load, 
     char l[4];
     int rc;
     up_slot_label(l, k);
-    if ((op < 2u || op == 3u) && !up_used(k)) {
-        ui_message("EMPTY SLOT");
+    if ((op < 2u || op == 3u) && !up_used(k) && !(op == 1u && up_old(k))) {
+        ui_message(up_old(k) ? "OLD FORMAT" : "EMPTY SLOT");
         return;
     }
     if (op && (song.playing || chain_busy() || transport_req == 1u)) {    /* (up_put refuses too) */
@@ -546,7 +572,9 @@ static void up_ui_named(uint32_t op, uint32_t k, const char *name)   /* 0 load, 
         ui_say("LOADED ", l);
         return;
     }
+    preset_old_write = 1;
     rc = op == 1u ? up_put(k, 0) : op == 3u ? up_rename(k, name) : up_store(k, name);
+    preset_old_write = 0;
     if (rc == 3)
         ui_message(op == 1u ? "ERASED (RAM)" : op == 3u ? "RENAMED (RAM)" : "SAVED (RAM)");
     else if (rc)

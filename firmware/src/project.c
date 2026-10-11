@@ -93,7 +93,8 @@ _Static_assert(sizeof(project_store_t) == 13212u, "FUN16 size");
 project_store_t proj_slot[4];                 /* host-only cache; hardware reads complete projects from NOR */
 static uint8_t proj_bank_slot[4][PROJ_BANK_BYTES];
 #endif
-static struct { uint8_t used; char name[PROJ_NAME_LEN + 1u]; } proj_meta[4];
+static struct { uint8_t used, old; char name[PROJ_NAME_LEN + 1u]; } proj_meta[4];   /* old: a record this firmware
+                                                     * does not read (written before 1.0): shown, kept, never overwritten unasked */
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 {
@@ -411,6 +412,9 @@ static int proj_read_slot(uint32_t slot)
     }
 #endif
     proj_meta[slot].used = (uint8_t)valid;
+#if MELODEE_FLASH
+    proj_meta[slot].old = (uint8_t)(!valid && flash_ok && st_exists(OBJ_BANK0 + slot));
+#endif
     if (valid) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
     else proj_meta[slot].name[0] = 0;
     proj_saved_hash[slot] = valid && n == BANK_STORE_SIZE ? proj_hash(proj_wire_u.raw, BANK_STORE_SIZE) : 0u;
@@ -429,6 +433,7 @@ static int proj_write_slot(uint32_t slot, const uint8_t *raw, uint32_t len)
     if (len) { memcpy(proj_bank_slot[slot], raw, len); memcpy(&proj_slot[slot], raw + 8u, sizeof proj_slot[slot]); }
 #endif
     proj_meta[slot].used = len != 0;
+    proj_meta[slot].old = 0;
     proj_saved_hash[slot] = len ? proj_hash(raw, len) : 0u;
     if (len) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
     else proj_meta[slot].name[0] = 0;
@@ -546,9 +551,12 @@ static void project_autosave(void)
 static void project_cur_name(char *b) { str_cpy(b, proj_name, PROJ_NAME_LEN + 1u); }   /* b: 13 bytes */
 
 /* slot's name -> b (PROJ_NAME_LEN + 1 bytes); 0 = an empty slot (b ""). Uses proj_scratch */
+static int project_old(uint32_t slot) { return !project_used(slot) && proj_meta[slot & 3u].old; }
+/* the slot's name ("" none): 1 a project, 0 empty; an old record's: OLD FORMAT (1: the slot is taken) */
 static int project_name(uint32_t slot, char *b)
 {
     b[0] = 0;
+    if (project_old(slot)) { str_cpy(b, "OLD FORMAT", PROJ_NAME_LEN + 1u); return 1; }
     if (!project_used(slot)) return 0;
     str_cpy(b, proj_meta[slot & 3u].name, PROJ_NAME_LEN + 1u);
     return 1;
@@ -708,7 +716,7 @@ static int project_restore_runtime(const project_t *input)
 static void project_load(uint32_t slot)
 {
     int n = proj_read_slot(slot);
-    if (!n) { ui_message("EMPTY SLOT"); return; }
+    if (!n) { ui_message(project_old(slot) ? "OLD FORMAT" : "EMPTY SLOT"); return; }
     if (!project_restore_runtime(&proj_scratch)) {
         if (n == BANK_STORE_SIZE) bank_restore(proj_wire_u.raw);
         proj_cur = (uint8_t)(slot & 3u);
@@ -724,7 +732,7 @@ static void project_load(uint32_t slot)
  * from it (every pattern empty, LEN / DIV / SWG / GATE their defaults, no name, SLOT on a free slot), and power-on
  * loads it when BOOT is OFF or its slot empty. No flash sector is free: it follows the settings in their record
  * (set_rec, its size and magic last). P_COUNT, G_COUNT or FM6_PACKED changing changes it (the assert): convert. */
-#define TMPL_MAGIC 0x464C5054u                    /* "TPLF", written since Melodee 1.0.0; older ones: rewritten by 1.2 */
+#define TMPL_MAGIC 0x464C5054u                    /* "TPLF", written since Melodee 1.0.0; older ones: protected */
 typedef struct {
     int16_t g[G_COUNT];
     uint8_t sel, rsv;                             /* (G_COUNT odd: the tracks start on a word) */
@@ -742,6 +750,9 @@ static struct { persist_t p; tmpl_t t; } set_rec __attribute__((section(".pool")
 #define tmpl set_rec.t                                /* the template lives where the settings record stages it */
 _Static_assert(sizeof set_rec == sizeof(persist_t) + sizeof(tmpl_t), "the template follows the settings");
 static uint8_t tmpl_dirty;                        /* saved in RAM, not yet in flash (settings_poll) */
+static uint8_t persist_old, tmpl_old;
+static int template_old(void) { return persist_old || tmpl_old; }
+static void settings_old_accept(void) { persist_old = tmpl_old = 0; }
 
 static int template_used(void) { return tmpl.magic == TMPL_MAGIC && tmpl.size == sizeof tmpl; }
 
@@ -807,6 +818,7 @@ static void template_save(void)
         ui_message("STOP TO SAVE");
         return;
     }
+    if (template_old()) { confirm_open(CF_OLD_TEMPLATE, 0); return; }
     memset(&tmpl, 0, sizeof tmpl);
     for (i = 0; i < G_COUNT; i++)
         tmpl.g[i] = song.g[i];
@@ -840,7 +852,7 @@ static uint32_t project_free_slot(void)
 {
     uint32_t i;
     for (i = 0; i < 4u; i++)
-        if (!project_used(i))
+        if (!project_used(i) && !project_old(i))
             return i;
     return 0;
 }
@@ -996,14 +1008,21 @@ static void persist_boot(void)                    /* before settings_init / pane
 #endif
     {   /* the settings, then a template if one follows them */
         int n = st_load(OBJ_SETTINGS, &proj_wire_u, sizeof proj_wire_u), ns = n;
-        if (n > (int)sizeof set_rec.p &&
-            tmpl_take((const uint8_t *)&proj_wire_u + sizeof set_rec.p, (uint32_t)n - sizeof set_rec.p))
+        persist_old = tmpl_old = 0;
+        if (n > (int)sizeof set_rec.p) {
+            tmpl_old = (uint8_t)!tmpl_take((const uint8_t *)&proj_wire_u + sizeof set_rec.p, (uint32_t)n - sizeof set_rec.p);
             ns = (int)sizeof set_rec.p;
+        }
         memset(&p, 0, sizeof p);
         if (ns > 0)
             memcpy(&p, &proj_wire_u, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);
-        if (settings_import(&p, ns))
+        uint32_t palette = p.palette;
+        const uint8_t *fx = p.favorites.factory[FX_KEYS_ROW];
+        int fx_tagged = fx[28] == 'F' && fx[29] == 'X' && fx[30] == 'K' && fx[31] == 1u;
+        if (settings_import(&p, ns)) {
             persist_saved = p;
+            persist_old = (uint8_t)(!palette_stored_ok(palette) || !fx_tagged);
+        } else persist_old = (uint8_t)st_exists(OBJ_SETTINGS);
     }
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
         uint32_t i;
@@ -1054,6 +1073,13 @@ static void settings_poll(void)
     if (!persist_pending || !flash_ok || transport_busy() ||
         (persist_pending == 2u && (uint32_t)(fm1_ms - persist_retry_ms) < 1000u))
         return;
+    if (template_old()) {
+        if (!ui.confirm && !ui.name_active) {
+            persist_pending = 0;
+            confirm_open(CF_OLD_SETTINGS, 0);
+        }
+        return;
+    }
     p = persist_saved;
     settings_export(&p);
     if (!memcmp(&p, &persist_saved, sizeof p) && !tmpl_dirty) {

@@ -184,6 +184,13 @@ static int st_load(uint32_t obj, void *dst, uint32_t max)
     return (int)h.len;
 }
 
+/* a committed record is there, whatever it holds (st_load: -1 for one too big for its buffer too) */
+static int st_exists(uint32_t obj)
+{
+    st_hdr_t h;
+    return obj < OBJ_COUNT && !st_retired(obj) && st_current(obj, &h) >= 0 && h.len != 0;
+}
+
 static int st_save(uint32_t obj, const void *src, uint32_t len)
 {
     uint32_t seq, base, off;

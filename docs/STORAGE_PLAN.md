@@ -1,7 +1,9 @@
 # Storage savings plan
 
-Status, 2026-10-11: savings and the 1.2 bridge on `feat/storage-savings`; the 2.0 removal on `feat/legacy-removal`
-(on top of it). Both unmerged, unflashed. Started from `next` 2598876.
+Status, 2026-10-11: the full storage savings update, legacy reader and engine removal, shared bank cache,
+and protection for unreadable records are part of **Melodee 1.2.0**. Merge the complete feature history into
+`next`; there is no separate bridge release or 2.0 release for this work. Started from `next` 2598876.
+The flash-map v2 / XIP hardware probe remains parked on `feat/xip-probe`.
 
 ## Decisions (Kerem, 2026-10-11)
 
@@ -25,18 +27,19 @@ Done, full host suite passing:
 | RAM: one scope snapshot, MIDI note owners as nibbles, backup settings and template staged in `set_rec`, update scratch in the project staging | +336 B | −10,432 B |
 | **Total** | **581,340 → 503,836 B (−77,504 B)** | **.data + .bss 97,824 → 87,392 B** |
 
-Bridge (release plan step 2, `feat(storage): rewrite older formats once at boot`, +720 B until 2.0 removes it):
-`persist_boot` writes each slot not stored as FBKK again as today's bank (`proj_normalize`), each user preset bank
-holding a 192-byte shape, a version 1..3 record, an older CZ record or a PHYS MODEL 4 drum in today's record
-versions (`up_normalize`), and queues one settings write when the record is PER1..PER4, has an older template, an
-untagged palette or FX key map, or DIGITAL stars (`persist_stale`). CZ and native FM banks were already rewritten by
-`native_boot`. Tested in `persistence_test` (and that a second boot writes nothing). Not converted: DIGITAL user
-records keep engine 1 and go silent in 2.0, like ANALOG's.
+The original savings branch also implemented a boot-time bridge normalizer. The subsequent legacy reader
+removal supersedes that normalizer in the final 1.2 build; it is retained only in the historical branch.
 
-### 2.0 removal (branch `feat/legacy-removal`, after the bridge has shipped)
+### Reader removal and bank cache (included in 1.2)
 
-Each step one commit, full host suite passing. 2.0 reads only what Melodee 1.0.0 and later write; 1.2 must run
-once first (its boot pass rewrites older records).
+1.2 reads the project, template and preset formats written since Melodee 1.0 and PER5 settings. The deleted
+readers and engine removals are included in the same release as the savings. Unreadable committed records
+stay on flash: projects and presets show OLD FORMAT, preset banks are not formatted at boot, and the device
+asks before replacing them. Replacing a wrong-shape bank warns that all 16 slots are
+replaced. Settings and templates are protected until their replacement dialog is accepted. Direct preset
+protocol writes are refused over protected records; full backups retain the unreadable bytes. Current
+formats retain their existing save, load and backup paths. ANALOG and DIGITAL engine IDs remain reserved;
+those sounds render silence as approved.
 
 | Step | Image | Notes |
 | --- | ---: | --- |
@@ -49,14 +52,15 @@ once first (its boot pass rewrites older records).
 | One bank cache for user, FM6, CZ-1 and Prophet banks (`bank_buf`, `bank_claim`) | +64 B | POOL −7,992 B |
 | List picker over whole columns; Prophet part DC blocker (5 Hz) and regress on the real factory programs | +176 B | |
 
-Image now **485,276 B** (581,340 at the start: −96,064 B; 96,288 B free in the app slot). .data + .bss 87,360 B.
+Final 1.2 image with safeguards: **487,212 B** (581,340 at the start: −94,128 B; 94,352 B free in the app slot).
+.data + .bss 87,472 B (−10,352 B from 97,824 B). The shared bank cache separately reclaims 7,992 B from the pool.
 Audio arena: 163,776 B available, 142,336 B required (21.4 KB of headroom, was 128 B).
 
 Along the way:
 - `fix(backup)`: a settings record with recording preferences (the tagged zoom word) was refused on restore.
-  Present in 1.0.x; worth cherry-picking into 1.2.
-- Backup restore (web): the editor now begins and aborts every object first, so an archive 2.0 cannot read
-  (owned FM6 voices, PER4, FUN6 ..) is refused whole before anything is written. Restore it on 1.2 first.
+  Included in 1.2 with the complete feature history.
+- Backup restore (web): the editor now begins and aborts every object first, so an archive 1.2 cannot read
+  (owned FM6 voices, PER4, FUN6 ..) is refused whole before anything is written.
 - Tests that relied on engine 0 as "a synth" use `HOST_SYNTH` (CZ-1, the generic voice path) or SID.
 
 Kept on purpose:
@@ -155,8 +159,8 @@ Needs an audit, not just deletion:
 
 A catch: legacy *records* can sit inside current containers. A UPB1 bank can still hold version 1–3
 records, and a slot that was never saved again after an upgrade still holds FBKJ or older. Dropping the
-readers outright would make those presets and projects disappear. That is why the bridge release
-(release plan, step 2) rewrites every stored object in today's format before the readers are removed.
+readers makes these records unreadable. The final 1.2 safeguards preserve them until an explicit replacement;
+the original proposal for a separate bridge release below was superseded.
 
 ### 2. Factory banks (computed: about −30 KB)
 
@@ -323,21 +327,10 @@ unless stock, or a revert, is shown not to need them.
 
 ## Release plan
 
-1. **Room first (1.1.x / 1.2):** Part 1 items 2, 3 (bit-exact ones), 4 (2 phases and class kerning)
-   and the safe `minsize` files. No format changes, about 70 KB of headroom, sound goldens unchanged
-   (the UI pictures change with the fonts).
-2. **Bridge (1.2):** a boot-time normalizer that rewrites every object still stored in a legacy format
-   (project slots, UPB1 records older than version 4, legacy CZ records, PER4 settings) in today's
-   format. If option (b) is chosen, it also converts ANALOG tracks and presets to Prophet. It is
-   idempotent and runs once per object. The release notes say to install 1.2 and power on once before
-   2.0. Archives from before 1.0.0 can be restored only through 1.2.
-3. **2.0:** delete every legacy reader and migration (item 1), the ANALOG engine, the retired editor
-   protocol stubs, and the matching tests and fixtures (`tests/project_test.c` and friends). Bump the
-   editor protocol together with the web editor. The stock firmware path stays untouched.
-4. **Hardware probe** (Part 2): grow the app area past `0x93000`, then go back to stock and return. This
-   can run in parallel with steps 1–3.
-5. **2.0 or 2.1, only if the probe passes:** flash map v2 through the loader. The app area grows to
-   720 KB. Every release candidate gets the round trip to stock and back on hardware.
-
-Step 1 does not depend on the others and is low risk. With about 87 KB freed by steps 1–3, the layout
-change can wait until the probe has answered.
+1. **1.2.0:** merge all completed Part 1 changes together: packed factory banks, rebuilt DSP tables,
+   two-phase fonts and class kerning, size optimisation, RAM savings, legacy readers and DIGITAL/ANALOG
+   removal, the shared bank cache, UI picker and Prophet DC fixes, backup validation, and unreadable-data
+   safeguards. The normal firmware version is v1.2.0. There is no prerequisite bridge installation.
+2. Verify the final firmware build and complete host suite before merging into `next`.
+3. **Later:** the flash-map v2 / XIP probe and any partition expansion remain separate until hardware
+   evidence supports them. Keep the stock loader staging area and stock-firmware return path.

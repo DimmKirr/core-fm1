@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Shared PER5 layout: each feature updates only its own fields, preserving
  * the other feature's saved preferences when either is built independently.
- * Only PER5 is read (2.0; 1.2 rewrote PER1..PER4 at boot). Its ext block:
+ * Only PER5 is read (1.2; older records are protected until replacement). Its ext block:
  * usb_off (the USB audio devices left out, USB AUDIO in the menu), boot (BOOT: 0 OFF, 1..4 the project power-on
  * loads), glo (CLK TUNE MIDI ROUT as last used, GLO_KEPT: restored at power-on, a project's own win), drumch
  * (GLO > SYSTEM DRUM: 0 channel 10, 1..16, 17 OFF), lights (the menu's LIGHTS: 0 MID, else OFF..FULL + 1); every
