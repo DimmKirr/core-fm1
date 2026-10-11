@@ -106,6 +106,8 @@ $CC -o "$OUT/audio_worker_test" tests/audio_worker_test.c
 run "audio worker: stalled jobs and wrapping deadlines" "$OUT/audio_worker_test"
 $CC -o "$OUT/cache_ram_test" tests/cache_ram_test.c
 run "cache RAM startup, memory faults and safe fallback" "$OUT/cache_ram_test"
+$CC -O1 -o "$OUT/clock_test" tests/clock_test.c
+run "system clock retune and rollback" "$OUT/clock_test"
 run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
 run "target budget: natural loops and FPU decoding" python3 tests/target_budget_test.py
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/engine_retirement_test" tests/engine_retirement_test.c -lm

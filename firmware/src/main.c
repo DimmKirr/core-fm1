@@ -82,7 +82,7 @@ static void timer5_start(void)                 /* OSC /4 = 6 MHz, PRD 600 -> 10 
     fm1_timer5_start(isr_timer5, 4);   /* above ALNK0 (3): the scan nests into the render (see fm1_timer5_irq) */
 }
 
-int fm1_clock_downclock_undo;                  /* set in fm1_main when the 320 retune timed out */
+int fm1_clock_downclock_undo;                  /* unfamiliar boot clock or settled rollback from the 320 retune */
 
 static void hexs(char *b, uint32_t v)
 {
@@ -160,9 +160,9 @@ static void fm1_main(void)
     {   /* 320 MHz before anything that cares: no audio ISR yet, CPU1 not started, LCD not
          * initialised (it reads the new LSB at fm1_lcd_baud). The switch runs from .ram_text
          * (the system clock wobbles while the PLL restarts), so it is called through its
-         * function pointer. A shape mismatch or a timeout leaves the SPL's known-good 360
-         * in place and only raises the undo flag the editor command 79 reports; the boot
-         * proceeds exactly as at 360. */
+         * function pointer. An unfamiliar boot clock or a settled rollback raises the
+         * undo flag in editor command 79. Failed rollback stays in SRAM on RC16M
+         * for watchdog recovery; it never returns here with an unverified PLL. */
         fm1_clock_downclock_undo = fm1_clock_downclock() != 0;
     }
     lcd_init();
