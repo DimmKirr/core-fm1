@@ -48,7 +48,7 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 }
 static uint32_t irq_save(void) { return 0; }
 static void irq_restore(uint32_t f) { (void)f; }
-static uint32_t fl_jedec_ram(void) { return 0; }
+static uint32_t fl_jedec_ram(void) { return 0x856014u; }   /* (persist_boot: the expected part) */
 static void fl_plain_window_init(void) {}
 #define FL_FAR(fn) (fn)
 #include "../firmware/src/storage.c"
@@ -104,6 +104,68 @@ static int cz_bank_persistence(void)
     fail_after=-1;cz_bank_boot();
     bad+=check("torn CZ bank write keeps previous committed tone",!cz_bank_get(1,0,raw)&&raw[128]=='B');
     bad+=check("CZ bank writes leave neighbouring project objects untouched",st_sector(OBJ_BANK0+3,1)+5u*ST_SECTOR==st_sector(OBJ_CZBANK0,0));
+    return bad;
+}
+/* the bridge (persist_boot: proj_normalize, up_normalize, the settings): what older firmware stored is written once
+ * in today's formats, as it reads; today's objects are left alone, and a second boot writes nothing */
+static int bridge_rewrites_older_formats(void)
+{
+    int bad = 0;
+    static uint8_t raw[BANK_STORE_SIZE];
+    project_store_t wire;
+    up_bank_t bank, back;
+    up_rec_t legacy[2];
+    int16_t want[2][P_COUNT], got[P_COUNT];
+    st_hdr_t h, h1;
+    persist_t p;
+    uint32_t magic = 0, seq1, i, k, ok;
+    reset();
+    settings_init();
+    project_capture(&proj_scratch);
+    memcpy(proj_scratch.name, "BRIDGE", 6);
+    proj_scratch.sum = proj_sum(&proj_scratch);
+    bad += check("bridge fixture: a bare project record in slot 1, today's bank in slot 2",
+                 proj_pack(&wire, &proj_scratch) && !st_save(OBJ_BANK0, &wire, sizeof wire) &&
+                 bank_pack(raw, &proj_scratch, 0) && !st_save(OBJ_BANK0 + 1u, raw, BANK_STORE_SIZE));
+    memset(&bank, 0, sizeof bank);
+    bank.magic = UP_BANK_MAGIC; bank.rsize = sizeof(up_rec_t); bank.nslot = UP_PER_BANK;
+    for (i = 0; i < 2u; i++) {                   /* version 2 (int16 values) and 3 (its drum grid) */
+        up_rec_t *r = &bank.r[i];
+        r->used = UP_USED; r->ver = (uint8_t)(2u + i); r->engine = i ? ENGI_DRUM : 3u; r->np = 69;
+        memcpy(r->name, i ? "GRID" : "OLD SID", i ? 4 : 7);
+        for (k = 0; k < r->np; k++) r->p[k] = (int16_t)((int32_t)(k * 7u % 150u) - 50);
+        for (k = 0; k < 16u; k++) { r->note[k] = (uint8_t)(i ? k % 3u : 60u + k); r->flags[k] = 0; }
+        legacy[i] = *r;
+        up_values(r, want[i]);
+    }
+    bad += check("bridge fixture: a bank of version 2 and 3 records", !st_save(OBJ_UPRESET0, &bank, sizeof bank));
+    p = persist_saved; settings_export(&p); p.magic = PERSIST_MAGIC4;
+    bad += check("bridge fixture: Felucca 1.0's settings record (PER4)", !st_save(OBJ_SETTINGS, &p, PERSIST_LEN4));
+    st_current(OBJ_BANK0 + 1u, &h1); seq1 = h1.seq;
+    up_cache_reset();
+    persist_boot();
+    ok = st_current(OBJ_BANK0, &h) >= 0 && h.len == BANK_STORE_SIZE &&
+         !st_read_range(OBJ_BANK0, (uint32_t)st_current(OBJ_BANK0, &h), 0, &magic, 4) && magic == BANK_MAGIC;
+    bad += check("bridge: the bare project record is stored as today's bank, its name kept",
+                 ok && proj_meta[0].used && !memcmp(proj_meta[0].name, "BRIDGE", 7));
+    bad += check("bridge: today's bank is not written again", st_current(OBJ_BANK0 + 1u, &h1) >= 0 && h1.seq == seq1);
+    ok = st_load(OBJ_UPRESET0, &back, sizeof back) == (int)sizeof back &&
+         back.r[0].ver == UP_VER && back.r[1].ver == UP_VER_GRID && !memcmp(back.r[1].note, legacy[1].note, 16);
+    for (i = 0; ok && i < 2u; i++) {
+        up_values(&back.r[i], got);
+        ok = !memcmp(got, want[i], sizeof got) && !memcmp(back.r[i].name, legacy[i].name, sizeof back.r[i].name);
+    }
+    bad += check("bridge: version 2 / 3 user presets are today's versions 4 / 5, their sounds the same", ok);
+    bad += check("bridge: an older settings record is queued for a rewrite", persist_stale && persist_pending == 1);
+    settings_poll();
+    ok = st_current(OBJ_SETTINGS, &h) >= 0 && h.len == sizeof(persist_t) && !persist_stale &&
+         st_load(OBJ_SETTINGS, &p, sizeof p) == (int)sizeof p && p.magic == PERSIST_MAGIC;
+    bad += check("bridge: the first settings poll writes it as PER5", ok);
+    erases = 0;
+    up_cache_reset();
+    persist_boot();
+    settings_poll();
+    bad += check("bridge: the next boot writes nothing", !erases && !persist_stale);
     return bad;
 }
 #ifndef PERSISTENCE_TEST_NO_MAIN
@@ -352,6 +414,7 @@ int main(void)
                   irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);
     bad += cz_bank_persistence();
     bad += staged_import_persistence();
+    bad += bridge_rewrites_older_formats();
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;
 }

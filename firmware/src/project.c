@@ -869,6 +869,26 @@ static int proj_read_slot(uint32_t slot)
     return valid ? n : 0;
 }
 static void proj_fetch(uint32_t slot) { (void)proj_read_slot(slot); }
+#if MELODEE_FLASH
+/* The bridge to firmware without the readers of older formats (persist_boot): a slot stored in anything but
+ * today's FBKK (an older bank, a bare project record) is written again as today's, as its load reads it */
+static void proj_normalize(void)
+{
+    for (uint32_t slot = 0; slot < 4u; slot++) {
+        st_hdr_t h;
+        uint32_t magic = 0;
+        int copy = st_current(OBJ_BANK0 + slot, &h), n;
+        if (copy < 0 || (h.len == BANK_STORE_SIZE && !st_read_range(OBJ_BANK0 + slot, (uint32_t)copy, 0, &magic, 4) &&
+                         magic == BANK_MAGIC))
+            continue;
+        n = proj_read_slot(slot);
+        if (!n || (n != (int)BANK_STORE_SIZE && !bank_pack(proj_wire_u.raw, &proj_scratch, 0)))
+            continue;
+        if (st_save(OBJ_BANK0 + slot, proj_wire_u.raw, BANK_STORE_SIZE) == 0)
+            proj_saved_hash[slot] = proj_hash(proj_wire_u.raw, BANK_STORE_SIZE);
+    }
+}
+#endif
 static int proj_write_slot(uint32_t slot, const uint8_t *raw, uint32_t len)
 {
     slot &= 3u;
@@ -1490,6 +1510,7 @@ static void project_boot(void)
 #if MELODEE_FLASH
 static persist_t persist_saved;
 static uint8_t persist_pending;                 /* 1 requested, 2 waiting after a flash error */
+static uint8_t persist_stale;                   /* the stored record is in an older format: write it even unchanged */
 static uint32_t persist_retry_ms;
 #endif
 
@@ -1508,15 +1529,23 @@ static void persist_boot(void)                    /* before settings_init / pane
     slc_store_boot();                              /* (the scans read each slot's stored slices) */
 #endif
     {   /* the settings, then a template if one follows them */
-        int n = st_load(OBJ_SETTINGS, &proj_wire_u, sizeof proj_wire_u), ns = n;
+        int n = st_load(OBJ_SETTINGS, &proj_wire_u, sizeof proj_wire_u), ns = n, got;
+        uint32_t stale = 0;
         if (n > (int)sizeof set_rec.p &&
-            tmpl_take((const uint8_t *)&proj_wire_u + sizeof set_rec.p, (uint32_t)n - sizeof set_rec.p))
-            ns = (int)sizeof set_rec.p;               /* (a TPL5 one: its next save writes TPL6) */
+            tmpl_take((const uint8_t *)&proj_wire_u + sizeof set_rec.p, (uint32_t)n - sizeof set_rec.p)) {
+            uint32_t magic;                            /* (a TPL5 one: its next save writes TPL6) */
+            memcpy(&magic, (const uint8_t *)&proj_wire_u + n - 4, 4);
+            stale = (uint32_t)n - sizeof set_rec.p != sizeof(tmpl_t) || magic != TMPL_MAGIC;
+            ns = (int)sizeof set_rec.p;
+        }
         memset(&p, 0, sizeof p);
         if (ns > 0)
             memcpy(&p, &proj_wire_u, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);
-        if (settings_import(&p, ns))
+        stale |= ns == (int)sizeof p && p.magic == PERSIST_MAGIC && settings_stale(&p);
+        if ((got = settings_import(&p, ns)) != 0)
             persist_saved = p;
+        if (got == 2 || (got && stale))               /* an older record: the first settings_poll writes today's */
+            persist_stale = persist_pending = 1;
     }
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
         uint32_t i;
@@ -1525,6 +1554,8 @@ static void persist_boot(void)                    /* before settings_init / pane
                 proj_fetch(i);
     }
     up_boot();                                     /* user presets */
+    proj_normalize();                              /* older formats, once, in today's */
+    up_normalize();
 #ifdef MELODEE_FAVORITES
     fx_keys_settle();                              /* (an old record: map or CZ stars, the native banks known) */
 #endif
@@ -1572,7 +1603,7 @@ static void settings_poll(void)
         return;
     p = persist_saved;
     settings_export(&p);
-    if (!memcmp(&p, &persist_saved, sizeof p) && !tmpl_dirty) {
+    if (!memcmp(&p, &persist_saved, sizeof p) && !tmpl_dirty && !persist_stale) {
         persist_pending = 0;
         return;                                    /* unchanged: no erase cycle */
     }
@@ -1580,7 +1611,7 @@ static void settings_poll(void)
     if (st_save(OBJ_SETTINGS, &set_rec, sizeof set_rec.p + (template_used() ? sizeof set_rec.t : 0u)) == 0) {
         persist_saved = p;
         persist_pending = 0;
-        tmpl_dirty = 0;
+        tmpl_dirty = persist_stale = 0;
     } else {
         persist_pending = 2;
         persist_retry_ms = fm1_ms;

@@ -135,19 +135,22 @@ static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
     if (r->ver >= 4u) r->packed[k] = (uint8_t)(v + 64); else r->p[k] = v;
 }
-/* Legacy PHYS drums map through decoded parameters, not their disk representation. */
-static void up_migrate(up_rec_t *r)
+/* Legacy PHYS drums map through decoded parameters, not their disk representation. 1 = rewritten */
+static int up_migrate(up_rec_t *r)
 {
     int16_t e[8]; uint32_t k;
-    if (!up_valid(r)) return;
-    if (up_native_cz(r) || up_legacy_cz(r)) return;
+    if (!up_valid(r)) return 0;
+    if (up_native_cz(r) || up_legacy_cz(r)) return 0;
     for (k = 0; k < 8u; k++) e[k] = up_value(r, r->np - 8u + k);
     if (drum_from_phys(r->engine, e)) {
         r->engine = ENGI_DRUM;
         for (k = 0; k < 8u; k++) up_set_value(r, r->np - 8u + k, e[k]);
+        return 1;
     }
+    return 0;
 }
 
+static uint8_t up_stale;                        /* bit b: bank b was read from an older shape (up_normalize) */
 static void up_bank_check(uint32_t b, int len)  /* after loading bank b (len bytes, -1 = none): wrong shape -> empty */
 {
     up_bank_t *bk = up_cache_bank(b);
@@ -155,10 +158,10 @@ static void up_bank_check(uint32_t b, int len)  /* after loading bank b (len byt
     if (!up_bank_shape((uint32_t)len,bk->rsize) || bk->magic != UP_BANK_MAGIC ||
         bk->nslot != UP_PER_BANK)
         memset(bk, 0, sizeof *bk);
-    if(len==UP_BANK_LEGACY_SIZE){for(i=UP_PER_BANK;i-- > 0;){uint8_t copy[192];memcpy(copy,(uint8_t *)bk+8u+i*192u,192);memset(&bk->r[i],0,sizeof(up_rec_t));memcpy(&bk->r[i],copy,192);}bk->rsize=sizeof(up_rec_t);}
+    if(len==UP_BANK_LEGACY_SIZE){for(i=UP_PER_BANK;i-- > 0;){uint8_t copy[192];memcpy(copy,(uint8_t *)bk+8u+i*192u,192);memset(&bk->r[i],0,sizeof(up_rec_t));memcpy(&bk->r[i],copy,192);}bk->rsize=sizeof(up_rec_t);up_stale|=(uint8_t)(1u<<b);}
     for (i = 0; i < UP_PER_BANK; i++)
-        if (up_valid(&bk->r[i]))
-            up_migrate(&bk->r[i]);
+        if (up_valid(&bk->r[i]) && up_migrate(&bk->r[i]))
+            up_stale |= (uint8_t)(1u << b);
 }
 #if MELODEE_FLASH && !defined(UP_HOST)
 static void up_cache_index(uint32_t b)
@@ -349,6 +352,52 @@ static void up_boot(void)                      /* persist_boot: the banks from f
         if (!up_used(k)) favorite_set(USER_GENERAL, k, 0);
 #endif
 }
+
+#if MELODEE_FLASH && !defined(UP_HOST)
+/* The bridge to firmware without the readers of older layouts (persist_boot, once per bank): a bank read from
+ * the 192-byte shape, or holding a PHYS MODEL 4 drum, a record of versions 1..3 (int16 values) or a CZ record of
+ * before the native CZ-1 bytes (engine 14, versions 6 / 7; and the native one of version 6), is written again
+ * in today's layouts, each record as today's firmware reads it. Records of retired engines keep their values */
+static void up_normalize(void)
+{
+    for (uint32_t b = 0; b < UP_SLOTS / UP_PER_BANK; b++) {
+        up_bank_t *bk = up_cache_bank(b);
+        uint32_t stale = (up_stale >> b) & 1u;
+        for (uint32_t j = 0; j < UP_PER_BANK; j++) {
+            up_rec_t *r = &bk->r[j];
+            if (!up_valid(r))
+                continue;
+            if (up_legacy_cz(r) || (up_native_cz(r) && r->ver != UP_VER_CZ)) {
+                uint8_t raw[CZ_BYTES];
+                if (!up_cz_raw(r, raw))
+                    continue;
+                memset(r->packed, 0, sizeof r->packed);
+                memset(r->cz_extra, 0, sizeof r->cz_extra);
+                memcpy(r->packed, raw, CZ_BYTES);
+                r->engine = ENGI_CZ;
+                r->ver = UP_VER_CZ;
+                r->np = P_COUNT;
+                stale = 1;
+            } else if (r->ver <= 3u) {
+                int16_t v[UP_PMAX];
+                uint32_t n = r->np, k;
+                for (k = 0; k < n; k++)
+                    v[k] = r->p[k];
+                if (r->ver == 1u && r->engine == ENGI_PHYS)   /* (MODEL 2 was DUST, up_values) */
+                    phys_legacy(&v[n - 8u]);
+                memset(r->packed, 0, sizeof r->packed);
+                for (k = 0; k < n; k++)
+                    r->packed[k] = (uint8_t)(clamp(v[k], -64, 127) + 64);
+                r->ver = r->ver == 3u ? UP_VER_GRID : UP_VER;
+                stale = 1;
+            }
+        }
+        if (stale && flash_ok && up_save_bank(b) == 0)
+            up_stale &= (uint8_t)~(1u << b);
+        up_cache_index(b);
+    }
+}
+#endif
 
 /* record k = *r (0: erase), then the bank to flash: 0 ok, 1 bad slot, 2 flash error or the transport runs (nothing
  * written), 3 no flash (kept in RAM) */

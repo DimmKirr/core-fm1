@@ -29,6 +29,23 @@ static int16_t settings_glo[4];                     /* ext.glo: project.c GLO_KE
 #define RECORD_PREF_TAG 0x52500000u /* RP, high half of the old zoom word */
 #define A4_TAG 0x41340000u                          /* "A4": old spare contents are not tuning */
 
+/* A record of today's magic that settings_import still changes in RAM: an untagged palette id, an untagged FX key
+ * map, DIGITAL's stars (persist_boot writes it once in today's form) */
+static int settings_stale(const persist_t *p)
+{
+    uint32_t digital = 0;
+#if defined(FM4_NPRESETS) && !MELODEE_FM4
+    for (uint32_t i = 0; i < sizeof p->favorites.factory[ENGI_DIGITAL]; i++)
+        digital |= p->favorites.factory[ENGI_DIGITAL][i];
+#endif
+#ifdef MELODEE_FAVORITES
+    const uint8_t *fx = p->favorites.factory[FX_KEYS_ROW];
+    if (!(fx[28] == 'F' && fx[29] == 'X' && fx[30] == 'K' && fx[31] == 1))
+        return 1;
+#endif
+    return p->palette - UI_PAL_TAG >= NPALETTES || digital;
+}
+
 /* Normalize in place; 1 = current, 2 = migrated, 0 = invalid. */
 static int settings_import(persist_t *p, int n)
 {
