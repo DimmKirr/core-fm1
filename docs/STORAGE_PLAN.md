@@ -1,16 +1,18 @@
 # Storage savings plan
 
-Status: investigation, 2026-10-11, on `next` 2598876. Nothing here is implemented yet.
+Status, 2026-10-11: savings and the 1.2 bridge on `feat/storage-savings`; the 2.0 removal on `feat/legacy-removal`
+(on top of it). Both unmerged, unflashed. Started from `next` 2598876.
 
 ## Decisions (Kerem, 2026-10-11)
 
 - **2 sub-pixel phases for the fonts: yes.** Item 4.
-- **ANALOG engine can go: yes.** Item 5. Still open: what happens to tracks already saved with ANALOG.
+- **ANALOG engine can go: yes.** Item 5. Tracks and presets saved with ANALOG keep engine 0 and play silent
+  (no converter). Track 1 powers on with PROPHET FUNK BASS II instead of ANALOG ACID.
 - **Going back to stock firmware must always work.** Users must be able to revert at any time, so the
   official loader's staging area stays at 5 sectors, and every flash layout change has to survive a
   round trip to stock and back. See Part 2.
 
-## Progress (branch `feat/storage-savings`, not committed yet)
+## Progress (branch `feat/storage-savings`)
 
 Done, full host suite passing:
 
@@ -30,6 +32,36 @@ versions (`up_normalize`), and queues one settings write when the record is PER1
 untagged palette or FX key map, or DIGITAL stars (`persist_stale`). CZ and native FM banks were already rewritten by
 `native_boot`. Tested in `persistence_test` (and that a second boot writes nothing). Not converted: DIGITAL user
 records keep engine 1 and go silent in 2.0, like ANALOG's.
+
+### 2.0 removal (branch `feat/legacy-removal`, after the bridge has shipped)
+
+Each step one commit, full host suite passing. 2.0 reads only what Melodee 1.0.0 and later write; 1.2 must run
+once first (its boot pass rewrites older records).
+
+| Step | Image | Notes |
+| --- | ---: | --- |
+| DIGITAL engine and its FM6 conversion (`fm4_convert.c`, `MELODEE_FM4`) | −4,000 B | engine 1 plays silent |
+| Projects, banks, templates of before 1.0 (FUN1..FUN15, FBK9..FBKJ, TPL5..TPLE) | −8,556 B | |
+| User preset versions below 4, the 192-byte bank, UPF owned voices, `fm6_bank.c`, `native_boot`'s migrations, `RES_LEGACY0/1` | −2,848 B | audio arena minimum 152 → 139 KiB |
+| Settings PER1..PER4, untagged palettes, untagged FX keys, SET3 | −800 B | |
+| ANALOG (engine 0 retired), its UI picture and designer recipe | −3,252 B | power-on track 1: PROPHET FUNK BASS II |
+| `cz_legacy.h` → `cz_panel.h` (the live CZ panel model only) | 0 | the removed parts were already dead code |
+
+Image now **485,100 B** (581,340 at the start: −96,240 B; 96,464 B free in the app slot). .data + .bss 87,360 B.
+Audio arena: 155,776 B available, 142,336 B required (13.4 KB of headroom, was 128 B).
+
+Along the way:
+- `fix(backup)`: a settings record with recording preferences (the tagged zoom word) was refused on restore.
+  Present in 1.0.x; worth cherry-picking into 1.2.
+- Backup restore (web): the editor now begins and aborts every object first, so an archive 2.0 cannot read
+  (owned FM6 voices, PER4, FUN6 ..) is refused whole before anything is written. Restore it on 1.2 first.
+- Tests that relied on engine 0 as "a synth" use `HOST_SYNTH` (CZ-1, the generic voice path) or SID.
+
+Kept on purpose:
+- The editor protocol's retired stubs (sample commands, FM6 bank rc 3, font weight): a few dozen bytes, and they
+  keep older editors from timing out.
+- `MELODEE_LEGACY_EXTRAS` engines (PHASE, VOICE, TRIO, WHEEL, PHYS, NOISE): not in the image; reference tests still
+  build them. Deleting them is tree cleanup only.
 
 Sound: only the 909 kit golden changed (2 tanh entries an ULP apart, pot curves within 3e-7). FM6 tables were
 compared value by value with the old generator's.
@@ -107,8 +139,7 @@ Plain deletions (each is a reader or converter of data written before Melodee 1.
 | tests | `project_test` (FUN1..FUN5), `settings_test` (PER1..PER4), `motion_test` (FUN7), `upreset_test` (versions), `fm4_test`, `digital_test`, `ui_test_fm4`, `ui_render_fm4`, `engine_retirement_test`, `backup_test`'s older projects, `performance_tools_test`'s migrations, `tests/frozen_project.h` |
 
 Needs an audit, not just deletion:
-- `cz_legacy.h`: the live CZ editor (`cz_edit.h`) still uses `lcz_sx_encode`, `lcz_sx_unrate` and
-  `lcz_sx_unlevel`. Move those into `cz_edit.h`, then delete the legacy tone readers.
+- `cz_legacy.h`: done as `cz_panel.h` (the live CZ editor's panel model; the legacy tone readers deleted).
 - `favorites.c`: the rows of retired engines (8 GRAIN, 14 OBXF) now carry the FX key map and the scale
   favorites. Keep the layout and drop only the Felucca 1.0 star migration.
 - `up_rec_t`: keep its on-flash layout (`cz_extra[46]` and the rest). Only the readers of old versions go.
