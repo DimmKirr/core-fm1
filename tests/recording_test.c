@@ -130,14 +130,14 @@ static int standalone_and_template(void)
     raw_begin();track_t *t=&trk[0];seq_stop();pattern_switch(t,7);seq_start();seq_advance(0);
     seq_advance(600);input_on(t,60,90);seq_advance(300);input_off(t,60);seq_stop();
     project_capture(&proj_scratch);project_store_t bytes;project_t decoded;
-    int ok=proj_pack(&bytes,&proj_scratch) && proj_import_any(&decoded,bytes.raw,sizeof bytes) && !project_restore_runtime(&decoded);
+    int ok=proj_pack(&bytes,&proj_scratch) && proj_import(&decoded,bytes.raw,sizeof bytes) && !project_restore_runtime(&decoded);
     raw_replay();seq_advance(599);ok &= t->pattern==7 && !gate_note(t,60);seq_advance(1);ok &= gate_note(t,60);
-    int bad=check("standalone FUN13 restores the active bank and original recorded timing",ok);
+    int bad=check("standalone FUN16 restores the active bank and original recorded timing",ok);
     seq_stop();t->p[P_RECQ]=6;template_save();tmpl_t saved=tmpl;
     tmpl_take((const uint8_t *)&saved,sizeof saved);
     bad+=check("new templates preserve per-track timing quantization",tmpl.t[0].p[P_RECQ]==6);
-    saved.magic=TMPL_MAGIC_A;tmpl_take((const uint8_t *)&saved,sizeof saved);
-    bad+=check("legacy templates initialize the repurposed inert parameter to OFF",!tmpl.t[0].p[P_RECQ]);
+    saved.magic=0x414C5054u;
+    bad+=check("a template of an older format (TPLA) is not read",!tmpl_take((const uint8_t *)&saved,sizeof saved) && !template_used());
     bad+=check("playback timing QNT cannot become recorded knob automation",!motion_param(P_RECQ));
     return bad;
 }
@@ -174,38 +174,6 @@ static int slow_precision(void)
     bad+=check("a long pattern replays its late unquantized note at the captured edge",exact);
     return bad;
 }
-static int legacy_recording_migration(void)
-{
-    raw_begin(); track_t *t = &trk[0];
-    seq_advance(606); input_on(t,60,101); seq_advance(1200); input_off(t,60); seq_stop();
-    recorded_note_t saved = recording[0]; t->p[P_RECQ] = 6;
-    project_capture(&proj_scratch); bank_pack(proj_wire_u.raw,&proj_scratch,1);
-    static uint8_t legacy[BANK_SIZE_F];
-    memcpy(legacy,proj_wire_u.raw,8u);
-    frozen_project92(legacy+8u,proj_wire_u.raw+8u,PROJ_REC_OFF-PROJ_PARAM_EXTRA+152u*8u);
-    memcpy(legacy+8u+PROJ_STORE_V12-16u,proj_wire_u.raw+8u+PROJ_STORE_SIZE-16u,12u);
-    frozen_bank_tail(legacy+8u+PROJ_STORE_V12,proj_wire_u.raw+8u+PROJ_STORE_SIZE,BANK_SIZE_F-8u-PROJ_STORE_V12-4u);
-    uint32_t magic=PROJ_MAGIC_V12,size=PROJ_STORE_V12,sum;
-    memcpy(legacy+8,&magic,4);memcpy(legacy+12,&size,4);
-    sum=proj_hash(legacy+8,size-4u);memcpy(legacy+8u+size-4u,&sum,4);
-    magic=BANK_MAGIC_F;size=BANK_SIZE_F;memcpy(legacy,&magic,4);memcpy(legacy+4,&size,4);
-    sum=proj_hash(legacy,size-4u);memcpy(legacy+size-4u,&sum,4);
-    project_t decoded;
-    int ok=proj_import_any(&decoded,legacy+8u,PROJ_STORE_V12) && decoded.t[0].p[P_RECQ]==6 && !memcmp(&decoded.recording[0],&saved,sizeof saved);
-    for(uint32_t i=152;i<RECORD_MAX;i++)ok &= !decoded.recording[i].vel;
-    int bad=check("old FUN12 preserves original timing/QNT and initializes the added capacity",ok);
-    project_store_t padded;memset(&padded,0xFF,sizeof padded);memcpy(padded.raw,legacy+8u,PROJ_STORE_V12);
-    bad+=check("an old FUN12 in an expanded cache still imports by its original validated size",proj_import_any(&decoded,padded.raw,sizeof padded) && !memcmp(&decoded.recording[0],&saved,sizeof saved));
-    memcpy(proj_wire_u.raw,legacy,sizeof legacy);
-    ok=bank_valid(proj_wire_u.raw,sizeof legacy);
-    if(ok){bank_upgrade(proj_wire_u.raw);ok=bank_valid(proj_wire_u.raw,BANK_STORE_SIZE);}
-    if(ok){ok=!project_restore_runtime(&proj_scratch);bank_restore(proj_wire_u.raw);}
-    ok &= t->p[P_RECQ]==6 && !memcmp(recording,&saved,sizeof saved);
-    t->p[P_RECQ]=0;raw_replay();seq_advance(605);ok &= !gate_note(t,60);seq_advance(1);ok &= gate_note(t,60);
-    bad+=check("old FBKF migrates all banks and the original take, then replays unchanged",ok);
-    seq_stop();
-    return bad;
-}
 static int full_recording_replay(void)
 {
     raw_begin();track_t *t=&trk[0];
@@ -231,7 +199,7 @@ static int full_recording_replay(void)
 #ifndef RECORDING_NO_MAIN
 int main(void)
 {
-    int bad=repeated_hits()+independent_lengths()+raw_loop()+raw_storage()+raw_capacity()+copy_and_edit()+slow_precision()+replace_during_replay()+standalone_and_template()+legacy_recording_migration()+full_recording_replay();
+    int bad=repeated_hits()+independent_lengths()+raw_loop()+raw_storage()+raw_capacity()+copy_and_edit()+slow_precision()+replace_during_replay()+standalone_and_template()+full_recording_replay();
     printf("%s\n",bad?"RAW RECORDING TEST FAILED":"Raw recording tests passed");return !!bad;
 }
 #endif

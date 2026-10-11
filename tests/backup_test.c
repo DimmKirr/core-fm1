@@ -262,7 +262,7 @@ int main(void)
     int bad = 0;
     uint32_t len = 0, crc = 0, before;
     static project_store_t st;
-    static project_v6_t v6;
+    static project_store_t v6;
     persist_t ps;
 
     reset();
@@ -371,25 +371,15 @@ int main(void)
     trk[1].step[3] = (step_t){{64}, 1, ST_NOTE, 0, 96, 0, 0};
     project_capture(&proj_scratch);
     proj_pack(&st, &proj_scratch);
-    bad += check("a FUN7 project restores into slot 3 (flash and RAM)",
+    bad += check("a bare FUN16 record restores into slot 3 (flash and RAM) as a bank",
                  put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 0 && project_used(2) &&
                  !memcmp(&proj_slot[2], &st, sizeof st) && st_load(OBJ_BANK0 + 2, proj_wire_u.raw, sizeof proj_wire_u.raw) == BANK_STORE_SIZE);
-    memset(&v6, 0, sizeof v6);                           /* FUN6: 69 parameters, steps out of range */
-    v6.magic = PROJ_MAGIC_V6;
-    v6.size = sizeof v6;
-    for (uint32_t i = 0; i < G_COUNT; i++)
-        v6.g[i] = GP[i].def;
-    for (uint32_t i = 0; i < NTRK; i++)
-        v6.t[i].engine = trk[i].engine;
-    v6.t[0].step[0] = (step10_t){{255, 72}, 9, 7, 0, 96, 0, 0};
-    v6.t[0].p[61] = 3;                                   /* old E0 */
-    chain_defaults(&v6.chain);
-    v6.sum = proj_hash(&v6, sizeof v6 - 4u);
-    bad += check("a FUN6 project restores as FUN7, bounded, its E0 at P_E0",
-                 put_all(5, &v6, sizeof v6, st_crc32(&v6, sizeof v6)) == 0 && ((uint32_t *)proj_slot[3].raw)[0] == PROJ_MAGIC &&
-                 proj_import(&proj_scratch, &proj_slot[3], sizeof st) && proj_scratch.t[0].step[0].n == 4u &&
-                 proj_scratch.t[0].step[0].note[0] == 127u && proj_scratch.t[0].p[P_E0] ==
-                 clamp(3, param_desc_of(trk[0].engine, P_E0)->min, param_desc_of(trk[0].engine, P_E0)->max));
+    {   /* a record of an older format: refused before anything is written (archives of before 1.0.0: 1.2) */
+        static uint8_t old[3388];
+        memset(old, 0, sizeof old);
+        ((uint32_t *)old)[0] = 0x46554E36u; ((uint32_t *)old)[1] = sizeof old;
+        bad += check("a FUN6 project archive is refused (1)", put_begin(5, sizeof old, st_crc32(old, sizeof old)) == 1u);
+    }
     {   /* Selector-based archives are retired; owned-voice backups still restore. */
         static fm6_bank_t bk;
         static upf_t got;

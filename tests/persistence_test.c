@@ -106,68 +106,6 @@ static int cz_bank_persistence(void)
     bad+=check("CZ bank writes leave neighbouring project objects untouched",st_sector(OBJ_BANK0+3,1)+5u*ST_SECTOR==st_sector(OBJ_CZBANK0,0));
     return bad;
 }
-/* the bridge (persist_boot: proj_normalize, up_normalize, the settings): what older firmware stored is written once
- * in today's formats, as it reads; today's objects are left alone, and a second boot writes nothing */
-static int bridge_rewrites_older_formats(void)
-{
-    int bad = 0;
-    static uint8_t raw[BANK_STORE_SIZE];
-    project_store_t wire;
-    up_bank_t bank, back;
-    up_rec_t legacy[2];
-    int16_t want[2][P_COUNT], got[P_COUNT];
-    st_hdr_t h, h1;
-    persist_t p;
-    uint32_t magic = 0, seq1, i, k, ok;
-    reset();
-    settings_init();
-    project_capture(&proj_scratch);
-    memcpy(proj_scratch.name, "BRIDGE", 6);
-    proj_scratch.sum = proj_sum(&proj_scratch);
-    bad += check("bridge fixture: a bare project record in slot 1, today's bank in slot 2",
-                 proj_pack(&wire, &proj_scratch) && !st_save(OBJ_BANK0, &wire, sizeof wire) &&
-                 bank_pack(raw, &proj_scratch, 0) && !st_save(OBJ_BANK0 + 1u, raw, BANK_STORE_SIZE));
-    memset(&bank, 0, sizeof bank);
-    bank.magic = UP_BANK_MAGIC; bank.rsize = sizeof(up_rec_t); bank.nslot = UP_PER_BANK;
-    for (i = 0; i < 2u; i++) {                   /* version 2 (int16 values) and 3 (its drum grid) */
-        up_rec_t *r = &bank.r[i];
-        r->used = UP_USED; r->ver = (uint8_t)(2u + i); r->engine = i ? ENGI_DRUM : 3u; r->np = 69;
-        memcpy(r->name, i ? "GRID" : "OLD SID", i ? 4 : 7);
-        for (k = 0; k < r->np; k++) r->p[k] = (int16_t)((int32_t)(k * 7u % 150u) - 50);
-        for (k = 0; k < 16u; k++) { r->note[k] = (uint8_t)(i ? k % 3u : 60u + k); r->flags[k] = 0; }
-        legacy[i] = *r;
-        up_values(r, want[i]);
-    }
-    bad += check("bridge fixture: a bank of version 2 and 3 records", !st_save(OBJ_UPRESET0, &bank, sizeof bank));
-    p = persist_saved; settings_export(&p); p.magic = PERSIST_MAGIC4;
-    bad += check("bridge fixture: Felucca 1.0's settings record (PER4)", !st_save(OBJ_SETTINGS, &p, PERSIST_LEN4));
-    st_current(OBJ_BANK0 + 1u, &h1); seq1 = h1.seq;
-    up_cache_reset();
-    persist_boot();
-    ok = st_current(OBJ_BANK0, &h) >= 0 && h.len == BANK_STORE_SIZE &&
-         !st_read_range(OBJ_BANK0, (uint32_t)st_current(OBJ_BANK0, &h), 0, &magic, 4) && magic == BANK_MAGIC;
-    bad += check("bridge: the bare project record is stored as today's bank, its name kept",
-                 ok && proj_meta[0].used && !memcmp(proj_meta[0].name, "BRIDGE", 7));
-    bad += check("bridge: today's bank is not written again", st_current(OBJ_BANK0 + 1u, &h1) >= 0 && h1.seq == seq1);
-    ok = st_load(OBJ_UPRESET0, &back, sizeof back) == (int)sizeof back &&
-         back.r[0].ver == UP_VER && back.r[1].ver == UP_VER_GRID && !memcmp(back.r[1].note, legacy[1].note, 16);
-    for (i = 0; ok && i < 2u; i++) {
-        up_values(&back.r[i], got);
-        ok = !memcmp(got, want[i], sizeof got) && !memcmp(back.r[i].name, legacy[i].name, sizeof back.r[i].name);
-    }
-    bad += check("bridge: version 2 / 3 user presets are today's versions 4 / 5, their sounds the same", ok);
-    bad += check("bridge: an older settings record is queued for a rewrite", persist_stale && persist_pending == 1);
-    settings_poll();
-    ok = st_current(OBJ_SETTINGS, &h) >= 0 && h.len == sizeof(persist_t) && !persist_stale &&
-         st_load(OBJ_SETTINGS, &p, sizeof p) == (int)sizeof p && p.magic == PERSIST_MAGIC;
-    bad += check("bridge: the first settings poll writes it as PER5", ok);
-    erases = 0;
-    up_cache_reset();
-    persist_boot();
-    settings_poll();
-    bad += check("bridge: the next boot writes nothing", !erases && !persist_stale);
-    return bad;
-}
 #ifndef PERSISTENCE_TEST_NO_MAIN
 static int staged_import_persistence(void)
 {
@@ -188,7 +126,6 @@ int main(void)
     persist_t p;
     project_store_t old;
     static uint8_t got[BANK_STORE_SIZE];
-    project_v5_t v5;
     up_bank_t bank;
     up_rec_t r;
     reset();
@@ -321,27 +258,8 @@ int main(void)
         bad += check("damaged inactive-bank chord is refused with runtime unchanged", !strcmp(ui.msg,"EMPTY SLOT") &&
             !memcmp(&trk[0].step[0],&keep,sizeof keep));
     }
-    {   /* an older format (FUN5) with values FUN7 cannot pack still loads, bounded */
+    {   /* every parameter range fits the record's byte (FUN16: value + 64, 0..191) */
         uint32_t i;
-        memset(&v5, 0, sizeof v5);
-        v5.magic = PROJ_MAGIC_V5;
-        v5.size = sizeof v5;
-        for (i = 0; i < G_COUNT; i++)
-            v5.g[i] = GP[i].def;
-        for (i = 0; i < NTRK; i++) {
-            v5.t[i].engine = trk[i].engine;
-            memcpy(v5.t[i].p, trk[i].p, sizeof v5.t[i].p);
-        }
-        v5.t[0].p[P_LEVEL] = 900;                                  /* out of range */
-        v5.t[0].step[0] = (step10_t){{255, 128, 160, 200}, 255, 255, 0, 96, 255, 5};
-        v5.sum = proj_hash(&v5, sizeof v5 - 4u);
-        st_save(OBJ_BANK0 + 3u, &v5, sizeof v5);                 /* (an old record in a project slot) */
-        memset(proj_slot[3].raw, 0, 4);
-        project_load(3);
-        bad += check("FUN5 load bounds steps and masks lane accents", trk[0].step[0].n == 4u &&
-                      trk[0].step[0].time == ST_REST && trk[0].step[0].note[0] == 127u &&
-                      !trk[0].step[0].note[1] && trk[0].step[0].acc == 5u && project_used(3));
-        bad += check("FUN5 load clamps a parameter into its range", trk[0].p[P_LEVEL] == TP[P_LEVEL].max);
         for (i = 0; i < P_COUNT; i++) {
             uint32_t e;
             for (e = 0; e < NENGINES; e++)
@@ -414,7 +332,6 @@ int main(void)
                   irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);
     bad += cz_bank_persistence();
     bad += staged_import_persistence();
-    bad += bridge_rewrites_older_formats();
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;
 }

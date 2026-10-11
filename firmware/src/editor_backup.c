@@ -119,7 +119,6 @@ static uint32_t ed_bk_commit_inner(void)
     if (ed_bk_id == 0u || (ed_bk_id >= 2u && ed_bk_id <= 5u)) {
         int full = bank_full(ed_bk_len);
         if (ed_bk_len && !(full ? bank_valid(raw, ed_bk_len) : proj_import(&proj_scratch, raw, (int)ed_bk_len))) return 2;
-        if (full) { bank_upgrade(raw); ed_bk_len = BANK_STORE_SIZE; }
         if (ed_bk_id == 0u) {
             if (!ed_bk_len) return 2;
             if (project_restore_runtime(&proj_scratch)) return 2;
@@ -233,10 +232,9 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
-        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != PROJ_STORE_V15 && len != PROJ_STORE_V14 && len != PROJ_STORE_V13 && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
-            (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set &&
-             len != sizeof(persist_t)+TMPL_SIZE_D && len != sizeof(persist_t)+TMPL_SIZE_C && len != sizeof(persist_t)+TMPL_SIZE_A && len != sizeof(persist_t)+TMPL_CZ_OLD && len != sizeof(persist_t)+TMPL_CZ_NEXT && len != sizeof(persist_t) + TMPL_SIZE5 && len != sizeof(persist_t) + TMPL_SIZE6) ||
-            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V15 && len != PROJ_STORE_V14 && len != PROJ_STORE_V13 && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != sizeof(project_store_t)) ||
+            (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set) ||
+            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != sizeof(project_store_t)) ||
             ((a[1] == 6u || a[1] == 7u || a[1] == 17u || a[1] == 18u) && len && len != sizeof(up_bank_t) && len!=UP_BANK_LEGACY_SIZE) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t)) ||
             (a[1]>=9u && a[1]<=16u && len && len!=sizeof(cz_bank_t)) ||
