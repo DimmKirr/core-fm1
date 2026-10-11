@@ -28,7 +28,7 @@ class NightlySite(unittest.TestCase):
             dual = package(root / "release.fwsc", "FM-1_91010", 1)
             single = package(root / "single.fwsc", "FM-1_91010", 2)
             normal = package(root / "next.fwsc", "FM-1_900", 3)
-            slow = package(root / "slow.fwsc", "FM-1_900", 4)
+            slow = package(root / "slow.fwsc", "FM-1_900", 4)   # (the single-core nightly)
             site = root / "site"
             main(dual, single, "1.1.0", site)
             editor = site / "webapp/editor/index.html"
@@ -43,7 +43,8 @@ class NightlySite(unittest.TestCase):
             self.assertEqual((manifest["product"], manifest["branch"]), ("FM-1_900", "next"))
             # Regenerating a release keeps both published nightly variants.
             main(dual, single, "1.1.0", site, installer_only=True)
-            self.assertIn('"clock320"', (site / "webapp/installer/index.html").read_text())
+            self.assertIn('"single": "../../firmware/melodee-nightly-1core.fwsc"', (site / "webapp/installer/index.html").read_text())
+            self.assertEqual((site / "firmware/melodee-nightly-1core.fwsc").read_bytes(), slow.read_bytes())
             before = hashlib.sha256((site / "webapp/installer/index.html").read_bytes()).digest()
             wrong = package(root / "wrong.fwsc", "FM-1_9010", 5)
             for other in (wrong, normal):
