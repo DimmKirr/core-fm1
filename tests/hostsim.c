@@ -148,6 +148,18 @@ static void host_preset(track_t *t, uint32_t e, uint32_t pi)
     t->engine = t->eng_req;
 }
 
+/* part k's power-on sound (main.c, TRK_DEF): the engine, its preset, the Prophet's program too */
+static void host_power_on_sound(track_t *t, uint32_t k)
+{
+    host_preset(t, TRK_DEF[k][0], TRK_DEF[k][1]);
+    if (TRK_DEF[k][0] == ENGI_PROPHET)
+        p5_preset_loaded(t, TRK_DEF[k][1]);
+}
+
+/* the plain synth a test plays when the engine is not what it tests (ANALOG's place until 2.0 retired it): CZ-1,
+ * on the generic voice path (NPOLY voices, no cap of its own) as ANALOG was */
+#define HOST_SYNTH ENGI_CZ
+
 /* Explicit legacy fixture: hidden from factory browsing, still used by saved GM projects. */
 static void host_808_kit(track_t *t)
 {
@@ -196,8 +208,8 @@ static uint32_t started_since(const track_t *t, uint32_t a0)
     return n;
 }
 
-/* the demo song: T1 ANALOG ACID (16 steps), T2 the power-on pad (TRK_DEF: FM6 PAD; DIGITAL PAD until it was
- * retired) (32 steps, tied chords), T3 SID INIT SID
+/* the demo song: T1 the power-on bass (TRK_DEF: PROPHET FUNK BASS II; ANALOG ACID until 2.0) (16 steps), T2 the
+ * power-on pad (TRK_DEF: FM6 PAD; DIGITAL PAD until it was retired) (32 steps, tied chords), T3 SID INIT SID
  * (12 steps: 3 against 4), T4 808 DRUM drums (16 steps, up to 3 notes a step); 120 BPM, 8 bars. Bars 5..6:
  * live recording: a clap into the drums just before step 4 (quantised onto it, not triggered twice),
  * MIDI ch 3 into the lead, a two-key chord on the keys into an empty pad step. solo: 0 = the mix,
@@ -221,8 +233,8 @@ static int tracks_demo(const char *dir, const char *name, uint32_t solo)
     }
     host_tracks_init();
     song.g[G_BPM] = 120;
-    host_preset(t1, 0, 4);
-    host_preset(t2, TRK_DEF[1][0], TRK_DEF[1][1]);
+    host_power_on_sound(t1, 0);
+    host_power_on_sound(t2, 1);
     host_preset(t3, 3, 0);
     host_808_kit(td);                   /* saved 808 DRUM sound */
     for (i = 0; i < 16u; i++) {
@@ -408,12 +420,8 @@ static int steal_test(const char *dir)
     host_tracks_init();
     for (p = 0; p < NPART; p++) {
         track_t *t = &trk[p];
-        host_preset(t, 0, 5);                      /* ANALOG SINE KEY, as a plain held sine: */
-        t->p[P_E4] = 127;                          /* filter open, no resonance, no drive */
-        t->p[P_E5] = t->p[P_E6] = 0;
+        host_preset(t, HOST_SYNTH, 0);             /* CZ-1 INIT TONE (DCW closed): a plain held sine, no sends */
         t->p[P_ED_FLT] = 0;
-        t->p[P_ATK] = 40;                          /* slow attack, full sustain, no sends */
-        t->p[P_SUS] = 127;
         t->p[P_DIST] = t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
         t->p[P_VOICE] = V_POLY;
         t->p[P_LEVEL] = 90;
@@ -461,7 +469,7 @@ static int steal_test(const char *dir)
 }
 
 /* a preset change across engines while notes sound (the PRESETS knob, the editor's PRESET) must not click:
- * part 1 as a plain sine pad (ANALOG SINE KEY, filter open, slow release, no sends: smooth, so the largest
+ * part 1 as a plain sine pad (CZ-1 INIT TONE, no sends: smooth, so the largest
  * sample step is set by the pitches), (a) a chord held and released, the switch to FM6 (its TINE EP) in its release
  * tail; (b) twice a chord held, the switch to PHASE / SID while it is held (the preset change releases
  * it); (c) a switch to SAMPLE with a note in its second block: that note must sound on the new engine. As ui.c
@@ -471,13 +479,8 @@ static int steal_test(const char *dir)
  * Writes DIR/engine_switch.wav. */
 static void xfade_sine(track_t *t)
 {
-    host_preset(t, 0, 5);                          /* ANALOG SINE KEY, as a plain held sine */
-    t->p[P_E4] = 127;
-    t->p[P_E5] = t->p[P_E6] = 0;
+    host_preset(t, HOST_SYNTH, 0);                 /* CZ-1 INIT TONE (DCW closed): a plain held sine */
     t->p[P_ED_FLT] = 0;
-    t->p[P_ATK] = 40;
-    t->p[P_SUS] = 127;
-    t->p[P_REL] = 100;
     t->p[P_DIST] = t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
     t->p[P_VOICE] = V_POLY;
     t->p[P_LEVEL] = 100;
@@ -543,8 +546,8 @@ static int xfade_test(const char *dir)
         for (i = sw[k]; i < sw[k] + FS / 100u; i++)
             at = abs(L[i] - L[i - 1]) > at ? abs(L[i] - L[i - 1]) : at;
         printf("tracks: engine switch %s -> %s (%s): largest sample step %d in the 10 ms after, %d in the 0.1 s "
-               "before (%.2f x)\n", ENGINES[0]->name, ENGINES[to[k]]->name, k ? "chord held" : "release tail", at,
-               calm, (double)at / calm);
+               "before (%.2f x)\n", ENGINES[HOST_SYNTH]->name, ENGINES[to[k]]->name, k ? "chord held" : "release tail",
+               at, calm, (double)at / calm);
         worst = (double)at / calm > worst ? (double)at / calm : worst;
         bad += at > calm * 3 / 2;
     }
@@ -579,9 +582,9 @@ static int rec_test(void)
     int ok_len, ok_short, ok_half, ok_cap, ok_swing, ok_mono, ok_chord, fail;
     host_tracks_init();
     song.g[G_BPM] = 120;
-    host_preset(t1, 0, 1);                          /* POLY pad */
-    host_preset(t2, 0, 1);
-    host_preset(t3, 0, 0);                          /* SAW LEAD */
+    host_preset(t1, HOST_SYNTH, 4);                 /* POLY pad (CZ-1 STRINGS 1) */
+    host_preset(t2, HOST_SYNTH, 4);
+    host_preset(t3, HOST_SYNTH, 0);                 /* a lead (CZ-1 INIT TONE) */
     t1->p[P_VOICE] = t2->p[P_VOICE] = V_POLY;
     t3->p[P_VOICE] = V_MONO;
     t2->p[P_SLEN] = 4;
@@ -687,7 +690,7 @@ static int trs_test(void)
     int ok_parts, ok_ch10, ok_sel, ok_off, ok_hang, ok_rec;
     host_tracks_init();
     for (i = 0; i < NPART; i++) {
-        host_preset(&trk[i], 0, 1);
+        host_preset(&trk[i], HOST_SYNTH, 4);
         trk[i].p[P_VOICE] = V_POLY;
         trk[i].p[P_SUS] = 127;
     }
@@ -831,7 +834,7 @@ static int tracks_test(const char *dir)
 
 int main(int argc, char **argv)
 {
-    int eng = argc > 1 ? atoi(argv[1]) : 0, preset = argc > 2 ? atoi(argv[2]) : 4;
+    int eng = argc > 1 ? atoi(argv[1]) : (int)HOST_SYNTH, preset = argc > 2 ? atoi(argv[2]) : 0;
     int mono = argc > 3 ? atoi(argv[3]) : 1;
     const char *out = argc > 4 ? argv[4] : "out.wav";
     uint32_t i, frames = FS * (getenv("SWEEP") ? 4 : 2), f, nk = 0;

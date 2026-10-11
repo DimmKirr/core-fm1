@@ -3,7 +3,6 @@
 /* Engine table (order = PRESETS browsing order and the engine numbers of the editor protocol) and the parts'
  * sounds at power-on. */
 #include "dsp.c"
-#include "eng_analog.c"
 #if MELODEE_PROPHET
 #include "eng_prophet_test.c"
 #endif
@@ -95,7 +94,7 @@ static const engine_t *const ENGINES[NENGINES] = {
 #if MELODEE_PROPHET_PROTOTYPE
     &ENG_P5_TEST,                /* test firmware only: RAM patches, NEVER persist */
 #else
-    &ENG_ANALOG,                 /* 0 */
+    &ENG_RETIRED,                /* 0: retired ANALOG; stored ID reserved */
 #endif
     &ENG_RETIRED,                /* 1: retired DIGITAL; stored ID reserved */
 #if MELODEE_LEGACY_EXTRAS
@@ -141,7 +140,7 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_RETIRED,                /* 14: retired OBXF; stored index reserved */
     &ENG_CZ,                     /* 15: native Casio CZ-1 */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, /* 16..18 reserved */
-    &ENG_P5_TEST,                /* 19: Prophet, never reuse ANALOG's ID */
+    &ENG_P5_TEST,                /* 19: Prophet (ANALOG's ID 0 stays reserved) */
 };
 
 /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
@@ -183,10 +182,13 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     10,                          /* DRUM */
 };
 
-/* Retired synth records (DIGITAL since 2.0 too) retain their stored identity and render silence.
+/* Retired synth records (ANALOG and DIGITAL since 2.0 too) retain their stored identity and render silence.
  * Never relabel retired records FM6. */
 static int eng_extra_retired(uint32_t e)
 {
+#if !MELODEE_PROPHET_PROTOTYPE
+    if (e == ENGI_ANALOG) return 1;
+#endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u));
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
@@ -215,6 +217,6 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
 }
 
 /* the parts at power-on (engine, preset; the steps empty): bass, pad, lead, drums */
-static const uint8_t TRK_DEF[NPART][2] = {{0, 4}, {ENGI_FM6, 4}, {3, 0}, {ENGI_DRUM, 0}}; /* ANALOG ACID,
-                                                                       * FM6 PAD (was DIGITAL PAD), SID INIT SID, DRUM KIT */
+static const uint8_t TRK_DEF[NPART][2] = {{ENGI_PROPHET, 4}, {ENGI_FM6, 4}, {3, 0}, {ENGI_DRUM, 0}}; /* PROPHET FUNK
+                                                    * BASS II (was ANALOG ACID), FM6 PAD (was DIGITAL PAD), SID INIT SID, DRUM KIT */
 static uint32_t trk_def_engine(uint32_t i) { return TRK_DEF[i % NPART][0]; }

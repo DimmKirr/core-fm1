@@ -14,7 +14,7 @@ recording, which is one dry instrument and not a hardware calibration.
 ## Engine and performance
 
 PROPHET has persistent engine ID **19** and replaces ANALOG in the new-sound
-browser. ID 0 still renders legacy ANALOG projects and presets. Retired TRIO,
+browser. ID 0 stays reserved: legacy ANALOG projects and presets keep it and play silent (2.0). Retired TRIO,
 WHEEL and PHYS IDs 6, 7 and 9 remain reserved and preserve saved data; they do
 not render audio. IDs 16–18 are reserved. Engine count is 20. General, FM6 and
 CZ favorites retain frozen collection IDs 16, 17 and 18; Prophet users use 20.

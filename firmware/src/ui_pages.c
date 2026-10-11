@@ -6,7 +6,7 @@
  * CURVE (ENV, LFO, LFO 2): the curve is the page (a panel of 160 rows, drawn in two slices: a canvas holds 124 x 240),
  * a value on each of its segments; the knobs as a slim strip under it.
  * RINGS (the pages of plain values: EDIT, DLY, REVERB, CHORUS, the engines' own ..): a ring a knob (its value under it,
- * a dot at the arc's end) over what the page shapes: ANALOG's oscillator, the delay's echoes on the beat, a filter's
+ * a dot at the arc's end) over what the page shapes: the delay's echoes on the beat, a filter's
  * response (a page with a cutoff), FM6's algorithm (its chart), else the sound itself (the scope, smooth, live).
  * FADERS (FX): the four sends as faders.
  * NOTES (SEQ > STEP; a melodic track): the roll the whole height (PR_TOP, PR_H: ui_graph.c, in two slices),
@@ -607,33 +607,6 @@ static uint32_t pv_curve_sig(void)
 }
 
 /* ---------------------------------------------------------- RINGS --- */
-/* ANALOG's oscillator (EDIT 1): three cycles of its wave, the second oscillator (MIX) behind it drifting by DTN, the
- * noise as grain; its name at the top */
-static void pv_osc(void)
-{
-    static const char *const WN[5] = {"Saw", "Square", "Triangle", "Sine", "Pulse"};
-    const int16_t *p = TSEL->p;
-    uint32_t wave = (uint32_t)p[P_E0] % 5u, o;
-    int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3], x, py = 0;
-    for (o = mix ? 0u : 1u; o < 2u; o++) {              /* (the second oscillator first, behind) */
-        uint16_t c = o ? T_THEME : ux_mix(T_PANEL, T_THEME, 25 + mix * 30 / 127);
-        int32_t drift = o ? 0 : 6 + det * 18 / 127;
-        for (x = 0; x < 216; x++) {
-            int32_t ph = ((x + drift * x / 216) % 72) * 1024 / 72, v, y;   /* 0..1023 of a cycle */
-            if (wave == 0u) v = 2 * ph - 1024;
-            else if (wave == 1u || wave == 4u) v = ph < (wave == 4u ? 300 : 512) ? 1024 : -1024;
-            else if (wave == 2u) v = ph < 512 ? -1024 + 4 * ph : 3072 - 4 * ph;
-            else v = ph < 512 ? ph * (512 - ph) / 64 : -((ph - 512) * (1024 - ph) / 64);   /* (a sine as parabolas) */
-            if (o && noise)
-                v += (int32_t)(((uint32_t)x * 2654435761u >> 22) & 255u) * noise / 127 * 3 - 384 * noise / 127;
-            y = (58 * 16) - v * 36 * 16 / 1024;
-            cv_vspan_aa(12 + x, x ? py : y, y, c);
-            py = y;
-        }
-    }
-    cv_rect(12, 96, 216, 1, T_LINE);
-    cv_text_r(228, 6, &AF_S, WN[wave], T_THEME, T_PANEL);
-}
 /* the delay: the dry hit (text), then its echoes at TIME on the beat, each FDBK of the one before, fading with TONE;
  * the beat grid behind; how many echoes are heard */
 static void pv_echo(void)
@@ -671,7 +644,7 @@ static void pv_filter(int32_t cut, int32_t res)
         py = y;
     }
 }
-/* which picture: 1 ANALOG's oscillator, 2 the echoes, 3 a filter (cut: its knob), 4 FM6's chart, 0 the scope */
+/* which picture: 2 the echoes, 3 a filter (cut: its knob), 4 FM6's chart, 0 the scope */
 /* ARP (mock/r6_pages ARP): the notes it plays, a block a step (16 at most): the keys held (else C3 E3 G3) over OCT
  * octaves in MODE's order, low to high bottom to top; the notes and the octaves at the top. OFF: dim */
 static void pv_arp(void)
@@ -764,8 +737,6 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
         return 8u;
     if ((pg->scope == SC_ENGINE || pg->scope == SC_FM6 || pg->scope == SC_FMOP) && e == ENGI_FM6)
         return 4;
-    if (pg->scope == SC_ENGINE && e == 0u && pg->id[0] == P_E0)
-        return 1;
     if ((pg->id[0] == G_DTIME || pg->id[0] == G_DTYPE) && pg->scope == SC_GLOBAL)   /* DLY, DLY 2: the echoes */
         return 2;
     for (c = 0; c < 4u; c++) {
@@ -808,8 +779,7 @@ static void pv_picture(void)
         cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, PV_PIC_H - dy, 6, T_PANEL, T_BG);
         cv_bg = T_PANEL;
         cv_oy = -dy / 2;                                /* (under the tabs: the picture's middle) */
-        if (pic == 1u) pv_osc();
-        else if (pic == 5u) pv_arp();
+        if (pic == 5u) pv_arp();
         else if (pic == 6u) pv_steps();
         else if (pic == 7u) pv_slicer();
         else if (pic == 2u) pv_echo();

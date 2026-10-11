@@ -6,7 +6,7 @@
 
 static void midi_test_reset(void)
 {
-    ui_power_on();
+    ui_power_on(); set_engine_of(&trk[0], HOST_SYNTH);   /* (the generic bend: the Prophet has its own range) */
     memset(midi_ch, 0, sizeof midi_ch); memset(midi_sel_on, 0, sizeof midi_sel_on);
     memset(midi_owners, 0, sizeof midi_owners); memset(midi_bend_q8, 0, sizeof midi_bend_q8);
     memset(midi_bend_target, 0, sizeof midi_bend_target); memset(&midi_clock, 0, sizeof midi_clock);midi_sync_active=0;
@@ -245,7 +245,7 @@ static int drum_channel_test(void)
     int bad = 0;
     midi_test_reset();
     settings_drumch = 10;
-    set_engine_of(&trk[3], 0);                           /* (power-on: track 4 is a DRUM kit) */
+    set_engine_of(&trk[3], HOST_SYNTH);                           /* (power-on: track 4 is a DRUM kit) */
     set_engine_of(&trk[2], ENGI_DRUM);
     song.g[G_ROUTE] = 0;
     queued(0x99, 36, 100, 1);
@@ -258,7 +258,7 @@ static int drum_channel_test(void)
     queued(0x99, 38, 100, 1);
     queued(0x89, 38, 0, 1);
     bad += check("  ROUT SEL: channel 10 still the DRUM track", midi_track(9) == &trk[2] && midi_track(4) == &trk[1]);
-    set_engine_of(&trk[2], 0);
+    set_engine_of(&trk[2], HOST_SYNTH);
     bad += check("  no DRUM track: the selected one", midi_track(9) == &trk[1]);
     set_engine_of(&trk[3], ENGI_DRUM);
     settings_drumch = 2;
@@ -268,7 +268,7 @@ static int drum_channel_test(void)
     settings_drumch = 0;
     bad += check("DRUM OFF: channel 2 track 2 again", midi_track(1) == &trk[1]);
     settings_drumch = 10;
-    set_engine_of(&trk[3], 0);
+    set_engine_of(&trk[3], HOST_SYNTH);
     return bad;
 }
 

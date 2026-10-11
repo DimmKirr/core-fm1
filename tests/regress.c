@@ -210,6 +210,8 @@ static void job_sends(const job_t *j)           /* arg: 0 dry, 1 chorus, 2 delay
     uint32_t i;
     host_tracks_init();
     host_preset(t, j->e, j->pi);
+    if (j->e == ENGI_PROPHET)
+        p5_preset_loaded(t, j->pi);              /* (its program) */
     t->p[P_AMODE] = 0;
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = S[j->arg][i];
@@ -245,7 +247,7 @@ static void job_drums(const job_t *j)           /* every GM note through 808 DRU
     finish();
 }
 
-/* the SLICER on the phrase (its clock free-running, no transport): arg 0 GATE (ANALOG ACID,
+/* the SLICER on the phrase (its clock free-running, no transport): arg 0 GATE (the power-on bass, PROPHET FUNK BASS II,
  * pattern 6, 1/16), 1 STUT (DIGITAL PAD, pattern 7, 1/32, DEPTH 100 %) */
 static void job_slicer(const job_t *j)
 {
@@ -254,16 +256,18 @@ static void job_slicer(const job_t *j)
     uint32_t i;
     host_tracks_init();
     host_preset(t, j->e, j->pi);
+    if (j->e == ENGI_PROPHET)
+        p5_preset_loaded(t, j->pi);              /* (its program) */
     t->p[P_AMODE] = 0;
     for (i = 0; i < 4u; i++)
         t->p[P_SLCR + i] = S[j->arg][i];
     phrase(t, 60);
 }
 
-/* the 4-track mix: T1 ANALOG ACID, T2 the power-on pad (TRK_DEF: FM6 PAD since DIGITAL was retired; DIGITAL PAD
- * before) (tied chords), T3 SID lead (12 steps against 16),
+/* the 4-track mix: T1 the power-on bass (PROPHET FUNK BASS II; ANALOG ACID until 2.0), T2 the power-on pad
+ * (TRK_DEF: FM6 PAD since DIGITAL was retired; DIGITAL PAD before) (tied chords), T3 SID lead (12 steps against 16),
  * T4 808 DRUM drums; 120 BPM, 4 bars (the hostsim TRACKS demo without the recording), stop, the tail.
- * arg 1: with the SLICER (GATE on the pad, STUT on the acid line and the drums, SWING 20 %) */
+ * arg 1: with the SLICER (GATE on the pad, STUT on the bass line and the drums, SWING 20 %) */
 static void job_song(const job_t *j)
 {
     static const uint8_t ACID[16] = {45, 45, 57, 45, 0, 48, 45, 55, 45, 0, 57, 52, 45, 48, 0, 50};
@@ -275,8 +279,8 @@ static void job_song(const job_t *j)
     (void)j;
     host_tracks_init();
     song.g[G_BPM] = 120;
-    host_preset(t1, 0, 4);
-    host_preset(t2, TRK_DEF[1][0], TRK_DEF[1][1]);
+    host_power_on_sound(t1, 0);
+    host_power_on_sound(t2, 1);
     host_preset(t3, 3, 0);
     host_808_kit(td);
     for (i = 0; i < 16u; i++) {
@@ -485,15 +489,15 @@ static void midi_pkt(uint32_t st, uint32_t d1, uint32_t d2)   /* as usb.c: the q
     midi_in_q[mi_w++ % MQ] = (st >> 4) | st << 8 | d1 << 16 | d2 << 24;
 }
 
-/* the shared budget: 4 POLY parts (ANALOG, FM6's BELL (DIGITAL's BELL until DIGITAL was retired), VOICE (retired:
- * SID), 808 DRUM) play random notes on and off for
+/* the shared budget: 4 POLY parts (the host synth (CZ-1; ANALOG until 2.0), FM6's BELL (DIGITAL's BELL until DIGITAL
+ * was retired), VOICE (retired: SID), 808 DRUM) play random notes on and off for
  * 6 s, up to 8 held each; after every block: at most 8 part voices active, none still fading (a stolen voice
  * fades within its one block), the VOICE part at most 4; then all off: every voice free */
 #define VCAP_E (MELODEE_LEGACY_EXTRAS ? 5u : 3u)
 #define VCAP (MELODEE_LEGACY_EXTRAS ? 4u : NVOICE)
 static int chk_budget(char *msg, uint32_t n)
 {
-    static const uint8_t E[NPART][2] = {{0, 1}, {ENGI_FM6, 1}, {VCAP_E, 1}, {4, 4}};
+    static const uint8_t E[NPART][2] = {{HOST_SYNTH, 4}, {ENGI_FM6, 1}, {VCAP_E, 1}, {4, 4}};
     uint8_t held[NPART][128] = {{0}};
     uint32_t p, k, worst = 0, vworst = 0, fading = 0, kills0 = voice_kills;
     host_tracks_init();
@@ -595,7 +599,7 @@ static int chk_cap_mode_budget(char *msg, uint32_t n)
         host_tracks_init();
         for (p = 0; p < NPART; p++) {
             memset(trk[p].v, 0, sizeof trk[p].v);
-            host_preset(&trk[p], 0, 0);
+            host_preset(&trk[p], HOST_SYNTH, 0);
             trk[p].p[P_VOICE] = p ? V_MONO : V_POLY;
             trk[p].p[P_AMODE] = 0;
             trk[p].p[P_SUS] = 127;
@@ -646,7 +650,7 @@ static int chk_mode_budget(char *msg, uint32_t n)
             host_tracks_init();
             for (p = 0; p < NPART; p++) {
                 memset(trk[p].v, 0, sizeof trk[p].v);
-                host_preset(&trk[p], 0, 0);
+                host_preset(&trk[p], HOST_SYNTH, 0);
                 trk[p].p[P_VOICE] = V_MONO;
                 trk[p].p[P_AMODE] = 0;
             }
@@ -804,7 +808,7 @@ static int chk_keep(char *msg, uint32_t n, uint32_t mode)
     static const char *const MN[4] = {"POLY", "MONO", "LEGATO", "UNISON"};
     uint32_t k, lost = 0, kills0 = voice_kills;
     host_tracks_init();
-    host_preset(&trk[0], 0, 0);
+    host_preset(&trk[0], HOST_SYNTH, 0);
     trk[0].p[P_VOICE] = (int16_t)mode;
     trk[0].p[P_AMODE] = 0;
     trk[0].p[P_SUS] = 100;
@@ -997,8 +1001,8 @@ int main(int argc, char **argv)
     uint32_t jobs_at_once = getenv("JOBS") ? (uint32_t)atoi(getenv("JOBS")) : 8u;
     static const char *const MN[4] = {"POLY", "MONO", "LEGATO", "UNISON"};
     static const char *const SN[6] = {"dry", "chorus", "delay", "reverb", "all", "dist"};
-    static const uint8_t MODE_E[3][2] = {{0, 0}, {ENGI_FM6, 1}, {5, 0}};   /* engine, preset */
-    static const uint8_t SEND_E[2][2] = {{0, 3}, {ENGI_FM6, 0}};
+    static const uint8_t MODE_E[3][2] = {{HOST_SYNTH, 0}, {ENGI_FM6, 1}, {5, 0}};   /* engine, preset */
+    static const uint8_t SEND_E[2][2] = {{HOST_SYNTH, 4}, {ENGI_FM6, 0}};
     static uint8_t cpu_parts[MAXJ][NPART][3];
     static kv_t gold[MAXJ], cpu[MAXJ];
     uint32_t ng, nc, e, pi, i, g0, g1, c0, c1, k0, ncpu = 0;
@@ -1042,8 +1046,8 @@ int main(int argc, char **argv)
         }
     add(J_SONG, "song/4track_mix");
     {   /* the SLICER */
-        job_t *j = add(J_SLICER, "slicer/gate/ANALOG_ACID");
-        j->e = 0, j->pi = 4, j->arg = 0;
+        job_t *j = add(J_SLICER, "slicer/gate/PROPHET_FUNK_BASS_II");
+        j->e = TRK_DEF[0][0], j->pi = TRK_DEF[0][1], j->arg = 0;
         add(J_SONG, "slicer/song_gate_stut")->arg = 1;
     }
     g1 = nj;

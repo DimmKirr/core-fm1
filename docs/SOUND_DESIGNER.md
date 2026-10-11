@@ -17,8 +17,7 @@ Three rings over a large panel (the engine, and the choice in words), the keys u
 | OCT- or HOME | Close without changing the sound |
 
 CURRENT keeps the selected sound exactly. INIT starts from the engine's native init patch; a
-recipe also applies a small starting gesture for that kind of sound. ANALOG starts with a neutral
-single saw; DRUM starts with its kit. On another engine CURRENT is not offered: it starts from
+recipe also applies a small starting gesture for that kind of sound. DRUM starts with its kit. On another engine CURRENT is not offered: it starts from
 INIT. The recipes are suggestions for exploration, not claims of reproducing an instrument.
 
 ## Stages

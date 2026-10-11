@@ -5,7 +5,7 @@
 
 static void reset_tools(void)
 {
-    seq_stop(); momentary_restore(); ui_power_on(); recording_reset(); memset(&midi_clock,0,sizeof midi_clock); song.master_q12=4096;
+    seq_stop(); momentary_restore(); ui_power_on(); set_engine_of(&trk[0], 3); recording_reset();   /* (SID: knobs and CC macros on p[]) */ memset(&midi_clock,0,sizeof midi_clock); song.master_q12=4096;
     settings_click=settings_countin=settings_preview=settings_chord_add=0;
     settings_click_level=1; memset(cin_n,0,sizeof cin_n); clk.env=click_req=0;
 }
@@ -90,7 +90,7 @@ static void test_midi_and_levels(void)
     reset_tools();midi_event(0xb0,0,7,127);assert(TSEL->p[P_LEVEL]==127);
     midi_event(0xb0,0,10,64);assert(TSEL->p[P_PAN]==0);
     midi_event(0xb0,0,74,0);assert(TSEL->p[P_E4]==0);
-    midi_event(0xb0,0,71,127);assert(TSEL->p[P_E5]==127);
+    midi_event(0xb0,0,71,127);assert(TSEL->p[P_E5]==ENGINES[TSEL->eng_req]->edit[5].max);   /* (SID's RES: 0..15) */
     song.g[G_ROUTE]=0;midi_event(0xb0,1,91,88);assert(trk[1].p[P_REV]==88 && trk[0].p[P_REV]!=88);
     set_engine_of(TSEL,ENGI_PROPHET);TSEL->engine=TSEL->eng_req;
     midi_event(0xb0,0,73,70);assert(p5_patch_of(TSEL)->raw[P5_ATTACK_AMP]==70);
@@ -113,13 +113,13 @@ static void test_compatibility(void)
     assert(proj_import(&back,&current,PROJ_STORE_SIZE) && back.t[1].p[P_DLY]==77 && back.g[G_DTYPE]==3 && back.g[G_DWEAR]==9 &&
            back.motion.count==1 && back.motion.event[0].value==100);
     {   /* a user preset: a record of today's keeps its delay send, one of before (np 100) has none */
-        up_rec_t r;int16_t v[P_COUNT];memset(&r,0,sizeof r);r.used=UP_USED;r.ver=UP_VER_GRID;r.engine=0;r.np=P_COUNT;memcpy(r.name,"DLY",3);
+        up_rec_t r;int16_t v[P_COUNT];memset(&r,0,sizeof r);r.used=UP_USED;r.ver=UP_VER_GRID;r.engine=3;r.np=P_COUNT;memcpy(r.name,"DLY",3);
         for(uint32_t i=0;i<P_COUNT;i++)up_set_value(&r,i,param_desc_of(0,i)->def);
         up_set_value(&r,P_DLY,77);up_values(&r,v);assert(v[P_DLY]==77);
         r.np=100;up_values(&r,v);assert(v[P_DLY]==0);
     }
     {   /* a factory preset: no delay send (its sends predate the delay coming back) */
-        TSEL->eng_req=0;TSEL->p[P_DLY]=77;apply_preset_to(TSEL,8);assert(TSEL->p[P_DLY]==0 && TSEL->p[P_REV]>0);
+        TSEL->eng_req=3;TSEL->p[P_DLY]=77;apply_preset_to(TSEL,8);assert(TSEL->p[P_DLY]==0 && TSEL->p[P_REV]>0);
     }
 }
 int main(void)

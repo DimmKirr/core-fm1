@@ -185,10 +185,10 @@ ui_renders() {
 }
 dsp_tracks() {
     build hostsim hostsim -O2 $FW || return
-    step "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
+    step "DSP render (CZ-1 preset 0)" "$OUT/hostsim" 15 0 1 "$OUT/render.wav"
     mkdir -p build/tracks_demo
     step "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" \
-        env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
+        env TRACKS=build/tracks_demo "$OUT/hostsim" 15 0 1 "$OUT/tracks.wav"
 }
 prophet() {
     build prophet_test prophet_test -O2 $FW || return

@@ -17,14 +17,14 @@ static int cache_tests(void)
     reset();audio_resources_reset();up_boot();fm6_factory(3,fm);cz_patch_init(cz);
     for(uint32_t b=0;b<4u;b++){fm[118]=(uint8_t)('A'+b);bad+=check("native FM cache writes across bank evictions",!native_put(ENGI_FM6,b*16u,fm));}
     for(uint32_t b=0;b<8u;b++){cz[128]=(uint8_t)('A'+b);bad+=check("native CZ cache writes across bank evictions",!native_put(ENGI_CZ,b*16u,cz));}
-    for(uint32_t b=0;b<4u;b++){set_engine_of(TSEL,0);TSEL->p[P_E0]=(int16_t)b;bad+=check("general cache writes across bank evictions",!up_store(b*16u,"BANK SOUND"));}
+    for(uint32_t b=0;b<4u;b++){set_engine_of(TSEL,3);TSEL->p[P_E1]=(int16_t)b;   /* (SID's WAVE) */bad+=check("general cache writes across bank evictions",!up_store(b*16u,"BANK SOUND"));}
     up_boot();uint32_t reads=preset_reads;
     for(uint32_t k=0;k<64u;k++){up_used(k);up_engine(k);up_name(k,name);native_used(ENGI_FM6,k);native_name(ENGI_FM6,k,name);}
     for(uint32_t k=0;k<128u;k++){native_used(ENGI_CZ,k);native_name(ENGI_CZ,k,name);}
     bad+=check("browsing every preset name/slot does no flash reads",preset_reads==reads);
     for(uint32_t b=0;b<4u;b++)bad+=check("FM cache reload preserves each independent patch",native_raw(ENGI_FM6,b*16u)[118]=='A'+b);
     for(uint32_t b=0;b<8u;b++)bad+=check("CZ cache reload preserves each independent patch",native_raw(ENGI_CZ,b*16u)[128]=='A'+b);
-    for(uint32_t b=0;b<4u;b++)bad+=check("general cache reload preserves parameters",up_value(up_rec(b*16u),P_E0)==(int16_t)b);
+    for(uint32_t b=0;b<4u;b++)bad+=check("general cache reload preserves parameters",up_value(up_rec(b*16u),P_E1)==(int16_t)b);
     bad+=check("resident bank payloads are bounded to one bank per type",sizeof up_cache+sizeof native_fm_cache+sizeof native_cz_cache==8208u);
     flash_ok=0;
     bad+=check("missing flash refuses mutations without evicting committed indexes",native_put(ENGI_FM6,0,fm)==2 && native_put(ENGI_CZ,0,cz)==2 && up_store(0,"NO FLASH")==2 && native_used(ENGI_FM6,0) && native_used(ENGI_CZ,0) && up_used(0));

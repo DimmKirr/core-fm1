@@ -532,9 +532,9 @@ calibration; the FPU conversion does not establish hardware fidelity.
 - **DRUM**: synthesized TR-808 and TR-909 kits with the General MIDI key map. Every drum has its
   own tuning, decay, tone, attack/snappy and level controls; recorded hits can override pitch and length
 
-PHASE, VOICE, NOISE, TRIO, WHEEL and PHYS are retired. Their engine IDs, saved edit values and
-favourite bits remain reserved; old tracks using these engines are silent. PROPHET replaces ANALOG
-in the engine list; ANALOG still renders existing sounds.
+ANALOG, DIGITAL, PHASE, VOICE, NOISE, TRIO, WHEEL and PHYS are retired. Their engine IDs, saved edit
+values and favourite bits remain reserved; old tracks using these engines are silent. PROPHET replaces
+ANALOG in the engine list, and track 1 powers on with PROPHET FUNK BASS II.
 
 PROPHET opens on It's a Prophet 5 (or on user slot P001 once it holds your own program). PRESETS lists
 INIT and Sequential's 200 factory programs, then the native user slots P001–P128. In the web editor,

@@ -28,7 +28,7 @@ int main(int argc,char **argv)
     bad+=check("Prophet favorites survive cache reset without moving old identifiers",favorite_has(USER_NATIVE_P5,127)&&favorite_has(ENGI_PROPHET,0)&&USER_GENERAL==16&&USER_NATIVE_FM==17&&USER_NATIVE_CZ==18);
     favorite_set(0,11,1);favorite_set(ENGI_PROPHET,200,1);settings_save();
     persist_t prefs;int prefs_len=st_load(OBJ_SETTINGS,&prefs,sizeof prefs);memset(&favorites,0,sizeof favorites);
-    bad+=check("all Prophet factory stars persist without overwriting ANALOG stars",prefs_len==(int)sizeof prefs&&settings_import(&prefs,prefs_len)&&favorite_has(ENGI_PROPHET,0)&&favorite_has(ENGI_PROPHET,200)&&favorite_has(0,11)&&favorite_has(USER_NATIVE_P5,127));
+    bad+=check("all Prophet factory stars persist without overwriting retired ANALOG's stars",prefs_len==(int)sizeof prefs&&settings_import(&prefs,prefs_len)&&favorite_has(ENGI_PROPHET,0)&&favorite_has(ENGI_PROPHET,200)&&favorite_has(0,11)&&favorite_has(USER_NATIVE_P5,127));
     track_t *t=&trk[0];t->p[P_CHOR]=t->p[P_DLY]=t->p[P_REV]=0;t->p[P_M1AMT]=43;t->step[2]=(step_t){{64},1,ST_NOTE,0,100,0,0,100};
     bad+=check("native load selects engine 19 and keeps track effects, matrix and sequence",!native_load(ENGI_PROPHET,127,0)&&t->eng_req==19&&t->p[P_M1AMT]==43&&t->step[2].note[0]==64);
     for(uint32_t j=0;j<8u;j++)t->p[P_E0+j]=17;

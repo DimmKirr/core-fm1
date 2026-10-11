@@ -65,7 +65,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 SID (LOFI before this change), 4 reserved (SAMPLE retired), 5 VOICE, 6 reserved (TRIO retired), 7 reserved (WHEEL retired), 8 reserved (GRAIN retired), 9 reserved (PHYS retired), 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 reserved (OBXF retired), 15 CZ-1, 16–18 reserved, 19 PROPHET (NENGINES 20). The new-sound browser order is PROPHET FM6 PHASE CZ-1 SID VOICE NOISE DRUM (`ENGINE_ORDER`). ANALOG 0 remains playable for legacy data; the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 reserved (ANALOG before 2.0), 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 SID (LOFI before this change), 4 reserved (SAMPLE retired), 5 VOICE, 6 reserved (TRIO retired), 7 reserved (WHEEL retired), 8 reserved (GRAIN retired), 9 reserved (PHYS retired), 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 reserved (OBXF retired), 15 CZ-1, 16–18 reserved, 19 PROPHET (NENGINES 20). The new-sound browser order is PROPHET FM6 PHASE CZ-1 SID VOICE NOISE DRUM (`ENGINE_ORDER`). 0 ANALOG is retired since 2.0 (its stored sounds keep the number and play silent); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (83..90), and `INFO` gives `P_E0`.
 Their meaning, range and names depend on the current engine, so re-read `DESC` for them
@@ -246,7 +246,7 @@ numbered 0..63 (the device shows U01..U64).
   TONE, DECY, SNAP, ACC, KICK 0 PUNCH / 1 ROUND (old ≥ 64), DRV 0}), and `UP_GET` / `UP_LIST` give it so.
   Projects do the same. PHYS's MODEL is 0..3 (MODAL STRNG MEMB SYMP) now.
 - `UP_STORE`: name "" stores with the automatic name the device uses (engine name + slot number,
-  "ANALOG 07"). rc 1 for a bad slot or name.
+  "SID 07"). rc 1 for a bad slot or name.
 - rc 2 = the flash write failed or there is no flash. A failed flash write keeps the previous
   record in RAM and flash, including its name. Without flash, a valid change is RAM-only until power-off.
   (`UP_PUT` / `UP_STORE` / `UP_ERASE` stop the transport first, see "Saves while playing"; a device

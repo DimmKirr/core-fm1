@@ -248,7 +248,7 @@ static int native_motion_test(void)
     song.rec = 1; seq_start(); seq_tick(TSEL, CTL); turn(EN_K1, -1);
     bad += check("FM6 operator page records its native patch through UI", motion.count && (uint32_t)motion.event[0].value >> 8 == MO_TAG_FM6);
     seq_stop();
-    ui_power_on(); uint32_t page = 0;
+    ui_power_on(); set_engine_of(TSEL, ENGI_FM6); uint32_t page = 0;   /* (not the Prophet: its events below are another's) */
     for (uint32_t p = 0; p < NPAGES; p++) if (PAGES[p].graph == GR_MOTION) page = p;
     bad += check("empty motion page is hidden", !page_visible(page));
     motion_set_event(TSEL, 0, P_REV, 50);
