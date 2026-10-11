@@ -34,6 +34,16 @@ takes P_COUNT and P_E0 from `INFO` keeps working (see "The chord keys" below).
 
 ## Framing
 
+The device USER sheet also exports general Melodee presets as `F0 7D 4D 4C 01 <packed record>
+<checksum> F7`. This is a preset file rather than an editor request. The record is the complete
+238-byte `up_rec_t`, including its twelve-byte name and stored pattern. Pack groups of seven
+raw bytes as one high-bit mask (bit j is byte j's bit 7), followed by seven low-seven-bit bytes.
+The final shorter group uses only its corresponding mask bits. The checksum makes the sum of
+all bytes between F0 and F7 zero modulo 128. Version, exact length, 7-bit encoding, checksum and
+record validity are checked before staging. Imports open the general USER list for choosing a
+slot and confirming replacement. FM6, CZ-1 and Prophet slot exports use their native single-voice
+formats instead. Bulk export concatenates a frame for each used selected slot.
+
 A request is `F0 7D 46 4C <cmd> <args...> F7`:
 
 - `7D` is the non-commercial SysEx ID.
@@ -897,7 +907,9 @@ unused mask bits must be zero. Length, embedded status bytes and addresses
 are checked before mutation. Exact GET/export preserves original model,
 length, command, address and all unused bytes. Native dump send uses command 3.
 
-Direct USB native command 2/3 loads the selected RAM track without a flash
+Direct USB native command 2/3 stages the validated named patch and opens the Prophet USER list for
+destination selection. OCT+ > Import here commits it while stopped; occupied slots ask first.
+Command 95 PUT still loads the selected RAM track without a flash
 save. Native command 6 requests its edit dump. Command 5 plus group/program
 requests a used user slot at `group * 40 + program`, limited to 0–127.
 Unsupported/empty program requests have no native reply. Native NRPN/CC

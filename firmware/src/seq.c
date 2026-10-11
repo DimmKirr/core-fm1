@@ -256,7 +256,7 @@ static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
         return;
     if (t->arp_pos >= 0xFFFFFFFu)
         t->arp_pos = 0;
-    else if (song.g[G_CLOCK])
+    else if (midi_sync_active)
         t->arp_pos -= period + (uint32_t)((t->arp_idx & 1u) ? sw : -sw);
     else
         t->arp_pos = 0;
@@ -808,6 +808,7 @@ static __attribute__((noinline)) void audition_tick(uint32_t n)
 /* -------------------------------------------------------- sequencer --- */
 static void seq_start(void)
 {
+    cin_left = 0; /* MIDI Start also cancels a pending local count-in. */
     uint32_t i;
     seq_erase_request = 0;
     seq_erase_transport++;
@@ -854,7 +855,7 @@ static void seq_stop(void)
     seq_erase_request = 0;
     seq_erase_transport++;
     song.playing = 0;
-    if (song.g[G_CLOCK])                           /* external clock: the arp stops with the transport, */
+    if (midi_sync_active)                           /* external clock: the arp stops with the transport, */
         for (i = 0; i < NPART; i++)                /* its sounding note too (HOLD keeps the latched chord) */
             if (trk[i].arp_note)
                 arp_off(&trk[i]);
@@ -1039,7 +1040,7 @@ static void seq_advance(uint32_t n)
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], n);
     for (i = 0; i < NPART; i++)
-        arp_step(&trk[i], n, n);
+        arp_step(&trk[i], song.playing || !song.g[G_CLOCK] ? n : 0u, n);
     beat_pos += n;
     while (beat_pos >= beat) {
         beat_pos -= beat;
@@ -1052,29 +1053,16 @@ static void seq_advance(uint32_t n)
 static void events_block(uint32_t n)
 {
     uint32_t i, pr;
-    uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
-    if (midi_clock.mode != clock_mode) {
-        uint32_t internal_beat = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM];
-        uint32_t old_beat = midi_clock.mode ? MIDI_BEAT_UNITS : internal_beat;
-        uint32_t new_beat = clock_mode ? MIDI_BEAT_UNITS : internal_beat;
-        song.g[G_CLOCK] = (int16_t)midi_clock.mode;
+    if(song.playing || transport_req==1u)resource_release(RES_NOTE_HISTORY);
+    uint32_t selected_clock = (uint32_t)song.g[G_CLOCK];
+    if (midi_clock.selected != selected_clock) {
         seq_stop();
-        song.g[G_CLOCK] = (int16_t)clock_mode;
-        /* Continue and a latched ARP preserve their fractional phase when
-         * crossing between sample time and MIDI musical units. */
-        for (i = 0; i < NTRK; i++) {
-            track_t *t = &trk[i];
-            if (t->seq_pos < 0x7FFFFFFFu)
-                t->seq_pos = (uint32_t)((uint64_t)t->seq_pos * new_beat / old_beat);
-            if (t->arp_pos < 0xFFFFFFFu)
-                t->arp_pos = (uint32_t)((uint64_t)t->arp_pos * new_beat / old_beat);
-            t->arp_off = (uint32_t)((uint64_t)t->arp_off * new_beat / old_beat);
-        }
-        beat_pos = (uint32_t)((uint64_t)beat_pos * new_beat / old_beat);
+        midi_clock_mode(0);
         memset(&midi_clock, 0, sizeof midi_clock);
-        midi_clock.mode = (uint8_t)clock_mode;
+        midi_clock.selected = (uint8_t)selected_clock;
         midi_beat_samples = 0;
     }
+    uint32_t clock_mode = midi_clock.mode;
     if (transport_req == 1u) {
         if (clock_mode)
             midi_clock_transport(0xFAu, fm1_ms);
@@ -1146,7 +1134,12 @@ static void events_block(uint32_t n)
             break;
         mi_r++;
         if (status >= 0xF8u) {
-            if (clock_mode == source) {
+            if (selected_clock == source) {
+                if (status == 0xFAu || status == 0xFBu || status == 0xFCu) {
+                    if (!clock_mode) midi_clock_mode(source);
+                    clock_mode = source;
+                }
+                if (!clock_mode) continue; /* clocks alone cannot claim local transport */
                 if (status == 0xF8u)
                     midi_clock_pulse(ms, time);
                 else {
@@ -1163,6 +1156,7 @@ static void events_block(uint32_t n)
             midi_event(st, ch, d1, d2);
         }
     }
+    if(song.playing)resource_release(RES_NOTE_HISTORY);
     if (clock_mode) {
         if (song.playing) {
             uint32_t last = midi_clock.have_pulse ? midi_clock.last_ms : midi_clock.start_ms;

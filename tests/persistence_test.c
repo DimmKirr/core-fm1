@@ -107,6 +107,18 @@ static int cz_bank_persistence(void)
     return bad;
 }
 #ifndef PERSISTENCE_TEST_NO_MAIN
+static int staged_import_persistence(void)
+{
+    int bad=0;reset();memset(&sx_import,0,sizeof sx_import);fm6_rx_ready=0;
+    fail_after=100000;native_put(ENGI_FM6,4,FM6_INIT);uint32_t writes=100000u-(uint32_t)fail_after;
+    reset();for(uint32_t i=0;i<32;i++){memcpy(fm6_rx+6+i*FM6_PACKED,FM6_INIT,FM6_PACKED);fm6_rx[6+i*FM6_PACKED+118]=(uint8_t)('A'+i%26);}
+    sysex_stage(ENGI_FM6,fm6_rx+6,32,FM6_PACKED);ui.uslot=4;fail_after=(int)writes;sysex_choose();
+    bad+=check("partial SysEx write retains only unsaved tones for retry",sx_import.count==31&&sx_import.first==5&&sx_import.data==fm6_rx+6+FM6_PACKED&&fm6_rx_ready==2&&native_used(ENGI_FM6,4)&&!native_used(ENGI_FM6,5));
+    native_cache_reset();bad+=check("committed import prefix survives cache reset and torn next slot",native_used(ENGI_FM6,4)&&native_raw(ENGI_FM6,4)[118]=='A'&&!native_used(ENGI_FM6,5));
+    fail_after=-1;sysex_choose();
+    bad+=check("retry starts after committed prefix and unlocks the receive buffer",!sx_import.count&&!fm6_rx_ready&&native_used(ENGI_FM6,35)&&native_raw(ENGI_FM6,5)[118]=='B'&&native_raw(ENGI_FM6,4)[118]=='A');
+    return bad;
+}
 int main(void)
 {
     int bad = 0, ok;
@@ -339,6 +351,7 @@ int main(void)
     bad += check("PLAY consumed before the settings snapshot defers the write",
                   irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);
     bad += cz_bank_persistence();
+    bad += staged_import_persistence();
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;
 }

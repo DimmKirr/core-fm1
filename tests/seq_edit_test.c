@@ -77,9 +77,9 @@ static int test_note_edits(void)
     hold(B_SAVE);
     bad += check("whole-note deletion is one undo with its tail cursor", step_note_length(t, 1) == 3 && ui.cursor == 2);
     cursor_set(4); turn(EN_K3, 1);
-    bad += check("LENGTH grows the selected note directly", step_note_length(t, 4) == 2);
+    bad += check("LENGTH snaps the selected note to 1.25 steps", notes_selected(t)<RECORD_MAX && recording[notes_selected(t)].duration*(1u<<(recording[notes_selected(t)].owner>>5))==5u*RECORD_UNIT/4u);
     turn(EN_K3, 1);
-    bad += check("LENGTH keeps the onset while extending its tie tail", step_note_length(t, 4) == 3 && t->step[4].time == ST_NOTE);
+    bad += check("LENGTH snaps to 1.50 without moving the onset", notes_selected(t)<RECORD_MAX && recording[notes_selected(t)].duration*(1u<<(recording[notes_selected(t)].owner>>5))==3u*RECORD_UNIT/2u && recording[notes_selected(t)].on==0 && (recording[notes_selected(t)].step&63u)==4u);
     t = edit_setup();
     put_note(t, 0, 60, 1); t->step[2].time = ST_TIE;
     bad += check("resize cannot attach an orphan tie chain", step_note_resize(t, 0, 16) == 1);

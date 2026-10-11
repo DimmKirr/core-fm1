@@ -31,7 +31,8 @@ static void test_recording_tools(void)
     assert(TSEL->rh_n==1);input_off(TSEL,60);seq_stop();
     transport_req=1;events_block(0);assert(seq_counting());transport_req=2;events_block(1);assert(!seq_counting() && !song.playing);
     settings_countin=2;transport_req=1;events_block(0);advance(8*beat-1);assert(seq_counting());advance(1);assert(song.playing);
-    seq_stop();song.g[G_CLOCK]=1;transport_req=1;events_block(0);assert(!seq_counting() && song.playing);seq_stop();
+    seq_stop();song.g[G_CLOCK]=1;transport_req=1;events_block(0);assert(seq_counting() && !song.playing);
+    midi_enqueue(0xfau<<8|15u,1);events_block(0);assert(!seq_counting() && song.playing);seq_stop();
     reset_tools();settings_click=CLICK_ON;seq_start();assert(click_req==2);
     int32_t audio[2*CTL]={0};click_render(audio,CTL);int energy=0;
     for(uint32_t i=0;i<2*CTL;i++)energy|=audio[i];assert(energy);

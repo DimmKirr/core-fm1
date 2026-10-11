@@ -277,13 +277,13 @@ static int native_import_owned(uint32_t group)
     }
     return 0;
 }
-static uint32_t user_limit(void) { uint32_t n=native_limit(TSEL->eng_req);return n?n:UP_SLOTS; }
-static int user_used(uint32_t k) { return native_limit(TSEL->eng_req)?native_used(TSEL->eng_req,k):up_used(k); }
-static void user_name(uint32_t k,char *out) { if(native_limit(TSEL->eng_req))native_name(TSEL->eng_req,k,out);else up_name(k,out); }
+static uint32_t user_limit(void) { uint32_t n=library_native();return n?n:UP_SLOTS; }
+static int user_used(uint32_t k) { return library_native()?native_used(library_engine(),k):up_used(k); }
+static void user_name(uint32_t k,char *out) { if(library_native())native_name(library_engine(),k,out);else up_name(k,out); }
 static void user_label(char *out,uint32_t k)
 {
-    if(!native_limit(TSEL->eng_req)){up_slot_label(out,k);return;}
-    out[0]=TSEL->eng_req==ENGI_PROPHET?'P':TSEL->eng_req==ENGI_FM6?'F':'Z';out[1]=(char)('0'+(k+1u)/100u);out[2]=(char)('0'+(k+1u)/10u%10u);out[3]=(char)('0'+(k+1u)%10u);out[4]=0;
+    if(!library_native()){up_slot_label(out,k);return;}
+    out[0]=library_engine()==ENGI_PROPHET?'P':library_engine()==ENGI_FM6?'F':'Z';out[1]=(char)('0'+(k+1u)/100u);out[2]=(char)('0'+(k+1u)/10u%10u);out[3]=(char)('0'+(k+1u)%10u);out[4]=0;
 }
 static void user_ui_named(uint32_t op,uint32_t k,const char *name)
 {

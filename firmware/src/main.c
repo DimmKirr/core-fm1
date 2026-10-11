@@ -151,6 +151,7 @@ static void melodee_init(void)
 static void fm1_main(void)
 {
     int32_t knob = 512 * 16;
+    fm1__pc_out(6,0);                         /* codec held quiet before flash, PLL and splash */
     persist_boot();
 #if MELODEE_OTA
     if (flash_ok)

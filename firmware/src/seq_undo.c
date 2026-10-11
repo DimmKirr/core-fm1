@@ -92,8 +92,8 @@ static void step_history_finish(void)
         step_history.state[at].selection = ui.note_pick;
         step_history.state[at].note_slot = ui.note_slot;
         step_history.state[at].has_removed = step_history.has_removed;
-        step_history.state[at].removed = step_history.removed;
-        step_history.state[at].replacement = step_history.replacement;
+        note_assign(&step_history.state[at].removed,&step_history.removed);
+        note_assign(&step_history.state[at].replacement,&step_history.replacement);
         step_history.state[at].removed_index = step_history.removed_index;
     }
     step_history.has_removed = 0;
@@ -132,6 +132,7 @@ static void step_history_end(void)
 static int step_history_apply(int redo)
 {
     uint32_t at;
+    if(note_tools_history(redo))return 1;
     fm1_irq_off();
     step_history_finish();                       /* a gesture still held is an edit too */
     if (!step_history_context() || (redo ? step_history.pos + 1u >= step_history.count : !step_history.pos)) {

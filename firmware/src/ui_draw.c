@@ -568,7 +568,7 @@ static void draw_foot(void)
     }
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
-    if (pg->graph == GR_ROLL) sig += (uint32_t)seq_erase_active(t) * 8191u + (uint32_t)live_rec_sel() * 113u + recording_generation * 7919u + ui.note_pick * 40503u + ui.note_zoom * 937u + ui.step_mods * 613u;
+    if (pg->graph == GR_ROLL) sig += (uint32_t)seq_erase_active(t) * 8191u + (uint32_t)live_rec_sel() * 113u + recording_generation * 7919u + ui.note_pick * 40503u + ui.note_zoom * 937u + ui.step_mods * 613u + bulk.on * 521u + ui.note_move * 197u + ui.note_copy * 317u;
     if (!ui.force && sig == ui.foot_sig)
         return;
     ui.foot_sig = sig;
@@ -582,7 +582,7 @@ static void draw_foot(void)
         cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
     } else if (pg->graph == GR_ROLL && !ui.home && !grid_on()) {
         char detail[24];
-        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : "K1 NOTE  PRE ZOOM", sizeof detail);
+        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : ui.note_copy?"Copying..":bulk.on||ui.note_move?"Moving..":"K1 NOTE  PRE ZOOM", sizeof detail);
         cv_text_on(8, 2, &AF_S, detail, T_THEME, T_BG);
         fmt_int(detail, (int32_t)notes_span());
         str_cpy(detail + str_len(detail), " ST", 4);
@@ -629,7 +629,8 @@ static void draw_foot(void)
     if (!ui.home && pg->graph == GR_ROLL && !grid_on()) {
         uint32_t start = notes_manual_start(t);
         int selected = notes_selected(t) < RECORD_MAX || (start < NSTEP && t->step[start].n);
-        khint_t hints[2] = {{selected ? KC_SCL : KC_KEYS, selected ? "MOVE" : "ADD"}, {KC_EDIT, "DELETE"}};
+        int moving=bulk.on||ui.note_move||ui.note_copy;
+        khint_t hints[2] = {{selected||moving ? KC_OCTUP : KC_KEYS, selected||moving ? "NOTE MENU" : "ADD"}, {moving?KC_OCTDN:KC_EDIT, moving?"DONE":"DELETE"}};
         cv_key_row(8, 232, 19, hints, 2, 3u, T_BG);
         cv_blit(0, Y_FOOT);
         return;
@@ -755,7 +756,7 @@ static void draw_columns(void)
         int selected = chosen < RECORD_MAX || (st && st->n);
         char sn[12], u[12];
         fmt_int(sn, (int32_t)ui.cursor + 1); u[0] = '/'; fmt_int(u + 1, TSEL->p[P_SLEN]);
-        draw_column(0, "STEP", sn, u, VAL(0u), -1, ICON_AUTO);
+        draw_column(0, ui.note_copy?"COPY":bulk.on||ui.note_move?"MOVE":"STEP", sn, bulk.on||ui.note_move?"":u, VAL(0u), -1, ICON_AUTO);
         uint32_t pitch = chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note;
         note_name(sn, pitch);
         if(chosen<RECORD_MAX && drum_track(TSEL))fmt_int(sn,recording[chosen].pitch);
@@ -970,6 +971,12 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "DISCARD THE DESIGN?", 24);
         str_cpy(b, "The original sound returns", 32);
         break;
+    case CF_IMPORT:
+        str_cpy(a,"OVERWRITE USER SLOTS?",24);
+        fmt_int(b,sx_import.count);str_cpy(b+str_len(b)," incoming patches",20);break;
+    case CF_BULK_ERASE:
+        str_cpy(a,"ERASE SELECTED PRESETS?",24);
+        str_cpy(b,"Selected slots will be empty",32);break;
     case CF_ERASE_USER:
         str_cpy(a, "ERASE ", 24);
         user_label(a + str_len(a), k);

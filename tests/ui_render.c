@@ -1684,6 +1684,33 @@ static void designer_sweep(const char *out)
     }
     cur_name=0;
 }
+static void library_note_sweep(const char *out)
+{
+    static const char *const names[]={"sysex_import_fm6","sysex_import_cz","sysex_import_p5","preset_bulk","notes_bulk","notes_fractional","preset_bulk_confirm","sysex_import_confirm","notes_bulk_menu","notes_quantize_pattern","notes_quantize_selected","notes_move_single","notes_copy_single","notes_menu_manual"};
+    for(uint32_t p=0;p<UI_PAL_ENTRIES;p++)for(uint32_t scene=0;scene<NELEM(names);scene++){
+        char title[64];state();song.playing=0;pal(p);
+        if(scene<3u){
+            uint8_t raw[CZ_BYTES];uint32_t e,size;
+            if(scene==0){e=ENGI_FM6;size=FM6_PACKED;memcpy(raw,FM6_INIT,size);}
+            else if(scene==1){e=ENGI_CZ;size=CZ_BYTES;cz_patch_init(raw);memcpy(raw+128,"FULL IMPORT NAME",16);}
+            else {e=ENGI_PROPHET;size=sizeof(p5_patch_t);p5_patch_t patch;p5_patch_init(&patch);memcpy(patch.raw+P5_NAME,"TWENTY IMPORT BYTES!!",20);memcpy(raw,&patch,size);}
+            sysex_stage(e,raw,1,size);ui.uslot=15;ui.msg_t=0;slot_enter();
+        } else if(scene==3u){eng(ENGI_CZ);go_page(GR_USER);ui.uslot=15;bulk=(typeof(bulk)){.on=1,.engine=ENGI_CZ,.anchor=12,.end=15};slot_enter();}
+        else if(scene==6u||scene==7u){eng(ENGI_FM6);go_page(GR_USER);sx_import.count=32;confirm_open(scene==6u?CF_BULK_ERASE:CF_IMPORT,0);}
+        else {go_page(GR_ROLL);cursor_set(2);TSEL->step[2]=(step_t){{60},1,ST_NOTE,0,96};TSEL->step[5]=(step_t){{64},1,ST_NOTE,0,96};
+            if(scene==4u)bulk=(typeof(bulk)){.on=1,.anchor=2,.end=5};
+            else if(scene==5u)note_manual_length(1,RECORD_UNIT/4u);
+            else if(scene==8u||scene==10u){bulk=(typeof(bulk)){.on=1,.anchor=2,.end=5};notes_bulk_sheet_open();if(scene==10u){pop.sel=2;ui.note_grid=2;}}
+            else if(scene==9u){page_sheet_open();ui.note_grid=1;}
+            else if(scene==11u)note_move_arm();
+            else if(scene==12u)note_copy_arm();
+            else step_enter();
+        }
+        snprintf(title,sizeof title,"%s/%s",UI_PALETTES[p].name,names[scene]);cur_name=title;draw(-1);lint();
+        if(p==UI_GRAY_INDEX)mono_check();
+        if(p==0u)write_ppm(out,"NIGHT",names[scene]);
+    }
+}
 int main(int argc, char **argv)
 {
     const char *out = argc > 1 ? argv[1] : "build/ui_new";
@@ -1732,6 +1759,7 @@ int main(int argc, char **argv)
             for (k = 0; k < 3u; k++)
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
+    library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */
         uint32_t a, e, c0 = fmp_charts;

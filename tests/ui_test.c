@@ -131,6 +131,8 @@ static void ui_power_on(void)
     pattern_init();
     memset(&ui, 0, sizeof ui);
     memset(&step_history, 0, sizeof step_history);
+    memset(&sx_import,0,sizeof sx_import);memset(&bulk,0,sizeof bulk);resource_release(RES_NOTE_HISTORY);note_transaction_ptr=0;
+    midi_sync_active=0;memset(&midi_clock,0,sizeof midi_clock);
     seq_midi_reset();
     memset(&nm, 0, sizeof nm);                    /* NAME closed, no project name */
     memset(&nw, 0, sizeof nw);                    /* NEW SONG closed */
@@ -1731,7 +1733,7 @@ static int test_step_sheets(void)
     bad += check("..OCT+ on the note: its sheet (Length, Velocity, Chance, Slide, Delete note)", pop.on == POP_SHEET &&
                  pop.rows == SHEET_NOTE && !memcmp(pop.title, "Note ", 5));
     turn(EN_K1, 1);
-    bad += check("..KNOB 1 on Length: 2 steps", step_note_length(t, 4) == 2u && pop.on == POP_SHEET);
+    bad += check("..KNOB 1 on Length snaps to 1.25 steps", notes_selected(t)<RECORD_MAX && recording[notes_selected(t)].duration*(1u<<(recording[notes_selected(t)].owner>>5))==5u*RECORD_UNIT/4u && pop.on == POP_SHEET);
     turn(EN_K2, 1); turn(EN_K2, 1); turn(EN_K1, -10);
     bad += check("..Chance: 90 %", step_chance(&t->step[4]) == 90u);
     sheet_do("Slide");

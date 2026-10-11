@@ -9,7 +9,7 @@ static void midi_test_reset(void)
     ui_power_on();
     memset(midi_ch, 0, sizeof midi_ch); memset(midi_notes, 0, sizeof midi_notes);
     memset(midi_owners, 0, sizeof midi_owners); memset(midi_bend_q8, 0, sizeof midi_bend_q8);
-    memset(midi_bend_target, 0, sizeof midi_bend_target); memset(&midi_clock, 0, sizeof midi_clock);
+    memset(midi_bend_target, 0, sizeof midi_bend_target); memset(&midi_clock, 0, sizeof midi_clock);midi_sync_active=0;
     memset(&um, 0, sizeof um); memset(midi_in_source, 0, sizeof midi_in_source);
     mi_r = mi_w = 0; midi_in_overflow = 0; midi_beat_samples = 0;
     fm1_in.notes = kb_prev = 0; fm1_ms = 0; song.sel = 0;
@@ -153,8 +153,15 @@ static int clock_arp_and_boundaries(void)
     clock_setup(1); clock_packet(1, 0xFA, 0xFFFFFFF0u); clock_packet(1, 0xF8, 0xFFFFFFF0u);
     clock_packet(1, 0xF8, 5u); fm1_ms = 10; events_block(CTL);
     bad += check("external clock timestamps survive uint32 millisecond wrap", song.playing && midi_clock.last_ms == 5u);
-    clock_setup(1); transport_req = 1; events_block(CTL); fm1_ms = 501; events_block(CTL);
-    bad += check("local PLAY waiting for missing external clock also times out", !song.playing);
+    clock_setup(1);transport_req=1;events_block(CTL);uint32_t local=trk[0].seq_pos;
+    clock_packet(1,0xF8,10);clock_packet(2,0xFA,20);
+    bad+=check("clock pulses and wrong-source transport cannot take over local PLAY",song.playing&&!midi_sync_active&&trk[0].seq_pos>local&&!midi_beat_samples);
+    fm1_ms=501;events_block(CTL);
+    bad += check("local PLAY runs internally before MIDI transport is received",song.playing&&!midi_sync_active);
+    clock_packet(1,0xFC,502);
+    bad+=check("selected-source Stop arms sync and stops locally started playback",!song.playing&&midi_sync_active==1u);
+    transport_req=1;events_block(CTL);fm1_ms=1003;events_block(CTL);
+    bad+=check("after external transport claims playback, missing clocks still time out",!song.playing);
     return bad;
 }
 /* ARP HOLD latched on an external clock: a Stop, a lost clock or a tap while stopped must not leave the arp note

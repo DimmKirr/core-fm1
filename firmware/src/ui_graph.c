@@ -295,7 +295,7 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
         int32_t xe = notes_x(recording_prefix(t, period, si + 1u), a, b);
         for (uint32_t j = 0; j < st->n; j++) {
             int32_t y = pr_row_y(st->note[j]);
-            int selected = chosen >= RECORD_MAX && source == selected_start && (j == notes_manual_slot(st) || (st->n > 1u && ui.hot_t && (ui.hot_col == 2u || ui.hot_col == 3u)));
+            int selected = (bulk.on&&bulk_has(source)) || (chosen >= RECORD_MAX && source == selected_start && (j == notes_manual_slot(st) || (st->n > 1u && ui.hot_t && (ui.hot_col == 2u || ui.hot_col == 3u))));
             /* (a note tied on: no gap at its column's end, one bar) */
             int32_t lead = source == si ? 2 : 0, cont = si + 1u < end && pr_src(t, si + 1u, step_pattern_len(t)) == source;
             if (y < PR_Y0 || y >= bottom) { cv_rect(x + 1, y < PR_Y0 ? PR_Y0 : bottom - 1, xe - x - 1, 1, c); continue; }
@@ -310,7 +310,7 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
         }
     }
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
-        if (i != chosen && recording_active(t, i)) notes_bar(t, i, period, a, b, c, 0);
+        if (i != chosen && recording_active(t, i)) notes_bar(t, i, period, a, b, bulk.on&&bulk_note_has(i)?T_ACCENT:c, bulk.on&&bulk_note_has(i));
     if (chosen < RECORD_MAX) notes_bar(t, chosen, period, a, b, T_ACCENT, 1);
     if (ui.cursor >= base && ui.cursor < end) {         /* the cursor's column, last: its right side is the next step's
                                                          * line, its left a tied note's bar (both drawn over it before) */
@@ -817,6 +817,7 @@ static uint32_t graph_sig(int play)
     if (pg->graph == GR_ROLL && !grid_on()) {
         uint32_t chosen = notes_selected(t);
         notes_follow(t);
+        h ^= bulk.on*37u + bulk.anchor*41u + bulk.end*43u;
         h ^= recording_generation * 7919u + chosen * 40503u + ui.note_zoom * 104729u + ui.cursor * 613u + ui.note_slot * 937u + proll.lo * 3001u + (ui.hot_t && (ui.hot_col == 2u || ui.hot_col == 3u) ? 8191u : 0u);
         if (song.playing && (song.rec & (1u << trk_index(t)))) h ^= ui.frame / 2u;
         h = (h ^ steps_hash(t)) * 16777619u;

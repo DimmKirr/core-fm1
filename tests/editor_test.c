@@ -74,6 +74,7 @@ static void reset(void)
     memset(&song, 0, sizeof song); memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain); chain_defaults(&chain_config);
     pattern_init();
+    memset(&sx_import,0,sizeof sx_import);memset(&bulk,0,sizeof bulk);resource_release(RES_NOTE_HISTORY);note_transaction_ptr=0;fm6_rx_ready=0;
     memset(&ed_w, 0, sizeof ed_w); memset(&ui, 0, sizeof ui);
     memset(&favorites, 0, sizeof favorites); memset(&settings, 0, sizeof settings); settings_init();
     memset(proj_slot, 0, sizeof proj_slot); up_cache_reset(); native_cache_reset();
@@ -438,7 +439,8 @@ static int cz_casio_sysex(void)
     int bad=0;reset();cz_init();trk[0].eng_req=ENGI_CZ;uint8_t raw[CZ_BYTES],frame[296],got[CZ_BYTES];cz_patch_init(raw);raw[16]=0x42;raw[17]=17;raw[18]=5;raw[19]=83;raw[128]='S';
     const uint8_t head[]={0xf0,0x44,0,0,0x70,0x21,0x60};memcpy(frame,head,7);for(uint32_t j=0;j<CZ_BYTES;j++){frame[7+2*j]=raw[j]&15;frame[8+2*j]=raw[j]>>4;}frame[295]=0xf7;
     for(uint32_t j=0;j<sizeof frame;j++)sysex_byte(frame[j]);cz_service();host_drain();
-    bad+=check("direct Casio MIDI SysEx preserves complete native tone",!memcmp(cz_patch[0].raw,raw,CZ_BYTES));memcpy(got,cz_patch[0].raw,CZ_BYTES);
+    bad+=check("direct Casio MIDI SysEx stages exact named tone in the CZ user list",sx_import.count==1 && library_engine()==ENGI_CZ && !memcmp(sx_import.data,raw,CZ_BYTES) && cur_page()->graph==GR_USER);
+    ui.uslot=7;sysex_choose();native_load(ENGI_CZ,7,0);memcpy(got,cz_patch[0].raw,CZ_BYTES);
     frame[10]=16;for(uint32_t j=0;j<sizeof frame;j++)sysex_byte(frame[j]);cz_service();
     bad+=check("invalid direct Casio SysEx leaves the native tone intact",!memcmp(cz_patch[0].raw,got,CZ_BYTES));
     const uint8_t request[]={0xf0,0x44,0,0,0x70,0x11,0x60,0xf7};host_wire_n=0;for(uint32_t j=0;j<sizeof request;j++)sysex_byte(request[j]);cz_service();host_drain();
@@ -634,9 +636,44 @@ static int native_motion_protocol(void)
     return bad;
 }
 #ifndef EDITOR_TEST_NO_MAIN
+#include "../firmware/src/fm6_store.c"
+static void receive_library(const uint8_t *frame,uint32_t n)
+{
+    for(uint32_t i=0;i<n;i++)midi_in_event(15u|(uint32_t)frame[i]<<8);
+    fm6_service();cz_service();ed_service();host_drain();ota_frame_done();
+}
+static int library_transfers(void)
+{
+    int bad=0;uint8_t frame[320],raw[CZ_BYTES];uint32_t n;
+    reset();up_store(2,"NAMED GENERAL");up_rec_t saved=*up_rec(2);int16_t level=TSEL->p[P_LEVEL];
+    bad+=check("general slot exports a complete 7-bit USB frame",!library_send(TSEL->eng_req,2));host_drain();
+    n=host_wire_n;memcpy(frame,host_wire,n);
+    bad+=check("general export has a valid checksum and exact bounded length",n==279u&&frame[0]==240&&frame[n-1]==247&&!sx_checksum(frame+1,n-2));
+    frame[15]^=1;receive_library(frame,n);
+    bad+=check("bad general checksum cannot stage or mutate a saved preset",!sx_import.count&&!memcmp(up_rec(2),&saved,sizeof saved));
+    frame[15]^=1;receive_library(frame,n);
+    bad+=check("named general import opens its pool without loading the track",sx_import.count==1&&sx_import.general&&!library_native()&&cur_page()->graph==GR_USER&&TSEL->p[P_LEVEL]==level&&!memcmp(sx_import.data,&saved,sizeof saved));
+    ui.uslot=5;sysex_choose();bad+=check("chosen general slot retains the entire record and name",!sx_import.count&&up_used(5)&&!memcmp(up_rec(5),&saved,sizeof saved));
+    bulk=(typeof(bulk)){.on=1,.engine=TSEL->eng_req,.anchor=2,.end=5};host_wire_n=0;bulk_send();host_drain();
+    bad+=check("general bulk export sends used selected slots and skips empty slots",host_wire_n==2*n&&!memcmp(host_wire,frame,n)&&!memcmp(host_wire+n,frame,n));
+    reset();p5_patch_t p;p5_patch_init(&p);memcpy(p.raw+P5_NAME,"TWENTY NAME BYTES XYZ",20);p.raw[97]=255;
+    n=p5_patch_encode(&p,frame,sizeof frame);receive_library(frame,n);
+    bad+=check("Prophet import keeps all twenty name bytes and opens P slots from another engine",sx_import.count==1&&library_engine()==ENGI_PROPHET&&user_limit()==128&&TSEL->eng_req!=ENGI_PROPHET&&!memcmp(sx_import.data,&p,sizeof p));
+    ui.uslot=127;sysex_choose();host_wire_n=0;library_send(ENGI_PROPHET,127);host_drain();
+    bad+=check("Prophet export reproduces the received frame and opaque bytes",!sx_import.count&&host_wire_n==n&&!memcmp(host_wire,frame,n));
+    reset();cz_patch_init(raw);memcpy(raw+128,"FULL CZ NAME XYZ!",16);native_put(ENGI_CZ,7,raw);host_wire_n=0;
+    library_send(ENGI_CZ,7);host_drain();n=host_wire_n;memcpy(frame,host_wire,n);receive_library(frame,n);
+    bad+=check("CZ USB export/import retains all sixteen name bytes",n==295&&sx_import.count==1&&library_engine()==ENGI_CZ&&!memcmp(sx_import.data,raw,CZ_BYTES));sysex_cancel();
+    reset();memcpy(raw,FM6_INIT,FM6_PACKED);memcpy(raw+118,"FULL DX7!!",10);native_put(ENGI_FM6,3,raw);native_put(ENGI_FM6,4,raw);
+    bulk=(typeof(bulk)){.on=1,.engine=ENGI_FM6,.anchor=3,.end=4};bulk_send();host_drain();n=163;memcpy(frame,host_wire,n);
+    bad+=check("FM6 bulk export sends two independently valid named voice frames",host_wire_n==326&&!memcmp(host_wire,host_wire+n,n)&&!sx_checksum(frame+6,156));
+    receive_library(frame,n);bad+=check("DX7 voice import retains packed bytes without loading or overwriting",sx_import.count==1&&library_engine()==ENGI_FM6&&!memcmp(sx_import.data,raw,FM6_PACKED)&&TSEL->eng_req!=ENGI_FM6);
+    sysex_cancel();bad+=check("cancel releases a pending import without changing its destination",!sx_import.count&&native_used(ENGI_FM6,3));
+    return bad;
+}
 int main(void)
 {
-    int bad = native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex() + concert_pitch() + scale_catalogue();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

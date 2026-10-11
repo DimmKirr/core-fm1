@@ -198,7 +198,7 @@ Microtonal MIDI OUT sends degree addresses, so an external synth needs the same 
 - **Every tone value on the device:** 38 EDIT pages for the lines, detune, vibrato, windows and the six
   envelopes, and CZ TOOLS (NAME, copy line 1 > 2 or 2 > 1, COMPARE). A value that has no effect on the
   tone as it is (line 2 in LINE1, steps after END, vibrato without DEPTH) is drawn dim
-- **Casio SysEx over MIDI:** CZ editors and librarians can send tones to a CZ-1 track and request them
+- **Casio SysEx over MIDI:** CZ editors and librarians can send named tones to the CZ-1 user slots and request track tones
 - **PHASE** keeps its own six presets and gains LINK / SPLIT: separate native DCO, DCW and DCA envelopes
 - **Installer:** **Return to official V15** can skip the backup when the firmware cannot export one
 - **Removed:** the SAMPLE, GRAIN and SLICE engines and the custom drum kit (DRUM plays the 808)
@@ -287,6 +287,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
   GLO > SYSTEM KNOB 1 shows the USB or the TRS input's status (RX while it receives; both always play)
+  Local PLAY uses the internal tempo until the selected input sends Start, Continue or Stop. Clock
+  pulses alone do not take over. Changing the clock source clears this transport selection.
 - **Web:** editor for every parameter (with a 6-operator FM patch editor), step grid, mixer,
   preset library and FM6 voice editor; full backup and restore; return to the official firmware
 
@@ -314,6 +316,13 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   confirms and OCT− goes back. During synth step editing they move the step cursor
 - Save a sound: stop, tap SAVE, choose USER and a slot, press OCT+ to open its sheet with
   **Save here** selected, then OCT+ again (name it with the keys)
+- **Import SysEx:** a valid USB DX7, CZ-1, Prophet or Melodee preset opens its matching USER list,
+  preserving the full native name. Choose a destination with KNOB 1, press OCT+ and choose **Import here**.
+  A DX7 cartridge needs 32 consecutive slots starting there. Occupied slots ask before replacement;
+  saving requires stopped playback. **Cancel import** leaves the slots unchanged. Imports do not load a track.
+- **Bulk presets:** hold OCT+ and turn SELECT, KNOB 1 or KNOB 2 to select a contiguous range in USER
+  or STORE. Release, then tap OCT+ for **Send selected** over USB SysEx, **Erase selected** (one confirmation),
+  or **Clear selection**. Empty slots are skipped. Single-slot **Send** is also available in USER.
 - **New song:** SAVE > PROJECT, turn KNOB 1 past TMPL to **NEW**, KNOB 3 to pick it and OCT+ (unsaved changes ask
   first). Set the key (KNOB 1 ROOT, 2 SCALE) and tempo (KNOB 3), OCT+; give each track a role with KNOB 1–4 (KEEP,
   DRUMS, BASS, CHORDS, LEAD, PAD), OCT+ creates it: your template's sounds (none saved: the power-on ones), a role's
@@ -383,20 +392,27 @@ The highlighted note has a bright outline; the playhead is a separate moving lin
 - **KNOB 2 PITCH** changes the highlighted pitch. On an empty manual step, it inserts a note;
   playing keys or MIDI enters a note or chord, then advances when released. Playing on a recorded
   interval auditions without replacing the take. During live recording, keys and MIDI record normally.
-- **KNOB 3 LENGTH** extends or shortens a note. Recorded durations change by one nominal step,
-  preserving their fractional length; hold **ENV** for fine adjustments of 1/16 step. Ordinary step
-  notes resize their tie tails and stop before another note. Entered chord pitches share a step's
-  length and velocity (marked **ALL** on those cards); recorded chord pitches have independent lengths
-  and velocities. Adjusting a shared property highlights the affected chord.
+- **KNOB 3 LENGTH** extends or shortens a note at hard quarter-step boundaries (0.25, 0.50, 0.75,
+  1.00, 1.25…); hold **ENV** for 1/16-step boundaries. Adjusting an ordinary step note while stopped
+  converts its chord and ties into precise timed notes, retaining their pitches and velocities.
+  Recorded chord pitches then have independent lengths. Held-key entry and ENV + SELECT retain
+  their whole-step tie controls for manual notes.
 - **KNOB 4 VEL** adjusts velocity from 1 to 127. Turning it on an accented manual note makes the
   displayed velocity its playback velocity. Hold **ENV** and turn KNOB 4 to switch a manual note's
   **SLIDE** on or off; the card changes to SLIDE while ENV is held.
 - **PRESETS** zooms around the selected interval from 16 steps down to one. Selection stays put.
 - **OCT+** places a note or drum hit in empty space, or opens the selected note/hit's sheet for
-  Length, Velocity, Chance, Slide and Delete. OCT− closes it or goes back.
-- Hold **SCL** and turn **SELECT** or **KNOB 1** to move the selected note. Recorded notes keep their
-  fractional onset, duration and velocity; manual notes move with their ties. Moving into an occupied
-  manual note or tie is blocked. Hold **ENV** and turn SELECT or KNOB 1 to resize instead.
+  Length, Velocity, Chance, Slide, Move, Copy and Delete. OCT− closes it or goes back.
+- Choose **Move note** from the note's sheet, then turn **KNOB 1** to move it while stopped.
+  Note durations and velocities stay intact; moving into an unselected manual note or tie is blocked.
+  Hold **ENV** and turn SELECT or KNOB 1 to resize instead.
+- Hold **OCT+** and turn SELECT, KNOB 1 or KNOB 2 to select a range; turn **KNOB 1** to move its notes
+  at quarter-step boundaries, preserving relative timing, durations and velocities. Tap or hold OCT+ for
+  **Copy: KNOB 1**, **Quantize**, or **Clear selection**. A single note's sheet offers **Move note** and **Copy note**;
+  choose either, then turn KNOB 1. After copying, KNOB 1 moves the duplicate; OCT- finishes the move.
+  Copies and moves wrap around the loop. Hold OCT+ without a range to open the pattern tools: **Quantize** snaps
+  the pattern's note onsets, or only the selected range when one exists. On the Quantize row, KNOB 1 chooses
+  **1**, **0.5**, or **0.25 step**, and OCT+ applies it. Durations and velocities stay intact; SAVE held undoes it.
 - Tap **EDIT** to delete the highlighted pitch. Recorded deletion affects just that hit; manual
   chords retain their other pitches and ties. Deleting the final manual pitch clears its tie tail.
   Using another control while EDIT is held consumes the tap.
@@ -410,6 +426,8 @@ The highlighted note has a bright outline; the playhead is a separate moving lin
 - Hold **SAVE** to undo. **EDIT/SAVE + OCT− / OCT+** undo/redo up to eight edits, restoring note data
   and focus. A new edit clears redo. Recording, external edits, changing track, bank or loop length
   start a fresh history. With no manual edit to undo, held SAVE retains sound/pattern-load undo.
+  Fractional manual conversions and grouped moves/copies have one complete undo/redo snapshot.
+  Starting playback releases that temporary snapshot; these transforms require stopped playback.
 
 Recorded properties and deletion are editable during playback; stop live recording before editing
 those notes. Live recording follows the playhead; ordinary playback leaves the editing focus alone.

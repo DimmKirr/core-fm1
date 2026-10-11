@@ -287,10 +287,13 @@ if core && [ $TABLES = 1 ]; then
     t "Sound designer: native recipes, dependencies, compare, discard and save" designer_test -O2 -DMELODEE_USB_AUDIO=1 $FW
     t "Sequencer: tied length/move/delete, eight-level undo/redo, MIDI step entry and playing-step recording" seq_edit_test \
         -DMELODEE_USB_AUDIO=1 $FW
+    t "Note/library gestures: quarter snapping, range moves/copies, undo and bulk preset erase" note_tools_test \
+        -O1 -DMELODEE_USB_AUDIO=1 $FW
     job ui_renders
     t "UI built with MELODEE_FM4=1 (DIGITAL, kept in the tree): its OP pages, EDIT cycle, algorithm charts" \
         ui_test_fm4:ui_test -DMELODEE_FM4=1 $FW
     job ui_renders_fm4
+    t "boot audio: codec waits for settled silent DMA and shuts down before I2S" audio_boot_test -w
     t "audio: overload protection, bounded fades and DMA diagnostics" audio_test $FW
     t "audio: silent bench keeps synthesis running and silences physical output" audio_silent_test:audio_test \
         -DMELODEE_BENCH_SILENT=1 $FW

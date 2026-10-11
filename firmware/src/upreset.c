@@ -615,3 +615,39 @@ static void up_ui(uint32_t op, uint32_t k) { up_ui_named(op, k, 0); }
 #include "prophet_user.c"
 #include "native_presets.c"
 #endif
+
+#ifndef UP_HOST
+/* Melodee user-preset files: F0 7D 4D 4C 01 pack7(record) checksum F7.
+ * Native engines export their manufacturer's voice format instead. */
+static int general_sysex_save(uint32_t k,const uint8_t *raw)
+{
+    up_rec_t r;memcpy(&r,raw,sizeof r);
+    if(!up_valid(&r))return 1;
+    return up_put(k,&r);
+}
+static int general_sysex_send(uint32_t k)
+{
+#if MELODEE_OTA
+    if(!usb.config || !up_used(k))return 1;
+    up_rec_t r=*up_rec(k);const uint8_t *raw=(const uint8_t *)&r;
+    uint8_t frame[280];memcpy(frame,(uint8_t[]){0xf0,0x7d,0x4d,0x4c,1},5);uint32_t n=5;
+    for(uint32_t pos=0;pos<sizeof r;){uint32_t count=sizeof r-pos;if(count>7u)count=7;uint32_t mask=n++;frame[mask]=0;for(uint32_t j=0;j<count;j++,pos++){frame[mask]|=(raw[pos]>>7)<<j;frame[n++]=raw[pos]&127u;}}
+    frame[n]=sx_checksum(frame+1,n-1u);n++;frame[n++]=0xf7;
+    return ota_wire_send(frame,n);
+#else
+    (void)k;return 1;
+#endif
+}
+static int general_sysex_frame(const uint8_t *body,uint32_t n)
+{
+    if(n<4u || body[0]!=0x7d || body[1]!=0x4d || body[2]!=0x4c)return 0;
+    if(body[3]!=1u || n!=4u+sizeof(up_rec_t)+(sizeof(up_rec_t)+6u)/7u+1u){ui_message("INVALID PRESET SYSEX");return 1;}
+    for(uint32_t i=0;i<n;i++)if(body[i]>127u){ui_message("INVALID PRESET SYSEX");return 1;}
+    if(sx_checksum(body,n)){ui_message("INVALID PRESET SYSEX");return 1;}
+    up_rec_t r;uint8_t *raw=(uint8_t *)&r;uint32_t pos=0;
+    for(uint32_t i=4;i<n-1u;){uint32_t count=sizeof r-pos;if(count>7u)count=7;uint32_t mask=body[i++];if(!count || mask>>count){ui_message("INVALID PRESET SYSEX");return 1;}for(uint32_t j=0;j<count;j++)raw[pos++]=(uint8_t)(body[i++]|((mask>>j)&1u)<<7);}
+    if(!up_valid(&r)){ui_message("INVALID PRESET SYSEX");return 1;}
+    sysex_stage(r.engine,(const uint8_t *)&r,1,sizeof r);return 1;
+}
+
+#endif

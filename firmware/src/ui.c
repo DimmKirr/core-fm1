@@ -39,6 +39,12 @@ static void p5_send(uint32_t tr);
 static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name);
 static int native_put(uint32_t e, uint32_t k, const uint8_t *raw);
 static int native_fm_active(void);
+static uint32_t native_size(uint32_t e);
+static int general_sysex_send(uint32_t k);
+static int general_sysex_save(uint32_t k,const uint8_t *raw);
+static uint32_t library_native(void);
+static void confirm_open(uint32_t kind,uint32_t track);
+static uint32_t library_engine(void);
 static uint32_t user_limit(void);
 static int user_used(uint32_t k);
 static void user_name(uint32_t k, char *out);
@@ -108,6 +114,10 @@ static struct {
     uint16_t step_mods, step_used; /* STEP's ENV/SCL/FX buttons awaiting release, and the gestures consumed */
     uint8_t lane;                /* SEQ > STEP on a DRUM track (the grid): the lane the keys and KNOB 3 / 4 edit */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
+    uint8_t import_refresh, new_active;
+    uint8_t name_active;
+    uint8_t bulk_hold;
+    uint8_t note_copy, note_move, note_grid;
     uint8_t menu;                /* 0 off, 1 list, 2 about + credits (HOME held) */
     uint8_t menu_sel;
     uint16_t menu_scroll;        /* continuous ABOUT + CREDITS position, pixels */
@@ -166,7 +176,7 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
-       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
+       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
                                       * over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to over a
                                       * pattern in use */
 
@@ -314,6 +324,7 @@ static void page_entered(void)
     ui.entry_open = 0;
     ui.note_pick = 0;
     ui.note_slot = 0;
+    ui.note_copy = ui.note_move = 0;
     seq_midi_reset();
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = 0;
@@ -1133,6 +1144,7 @@ static void track_select(uint32_t i)
     momentary_restore();
     song.sel = (uint8_t)i;
     ui.entry_open = 0;
+    ui.note_copy = ui.note_move = 0;
     seq_midi_reset();                            /* (MIDI notes held for the other track enter nothing here) */
     ui.hot_t = 0;
     ui.cursor = 0;
@@ -1195,4 +1207,18 @@ static int act_ready(void)
 
 #include "seq_edit.c"                             /* SEQ > STEP: a note's length, its move, its deletion */
 #include "seq_notes.c"                            /* NOTES: select original hits without snapping them */
+static int note_tools_history(int redo);
 #include "seq_undo.c"                             /* .. and the eight edits SAVE held undoes */
+
+static void confirm_open(uint32_t kind, uint32_t trk)
+{
+    ui.confirm = (uint8_t)kind;
+    ui.confirm_trk = (uint8_t)trk;
+    ui.act = 0;
+    ui.force = 1;
+}
+
+
+#include "sysex_library.c"                       /* staged imports and USB library exports */
+
+#include "note_tools.c"

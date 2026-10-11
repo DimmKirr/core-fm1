@@ -117,6 +117,7 @@ static int timeline_test(void)
     }
     bad += check("24 MHz timer wrap preserves the exact six-clock step boundary", trk[0].seq_idx == 1 && trk[0].seq_pos == 0);
     timing_reset(2, 24000000u);
+    timing_packet(24000000u, 0xFA, 0, 0, 2); events_block(0);
     trk[0].seq_pos = 3072;
     trk[0].arp_pos = 2048;
     song.g[G_CLOCK] = 0;
@@ -289,6 +290,7 @@ static int old_formats_and_overdub_test(void)
           *(uint32_t *)(proj_wire_u.raw + 8) == PROJ_MAGIC;
     bad += check("existing FUN10/FBKD projects migrate while retaining legacy GATE behavior", ok && !step_gate(&proj_scratch.t[0].step[0]));
     timing_reset(2, 24000000u);
+    timing_packet(24000000u, 0xFA, 0, 0, 2); events_block(0);
     track_t *t = &trk[0]; seq_start(); seq_advance(0);
     input_on(t, 60, 111); seq_advance(14000); input_off(t, 60);
     seq_stop(); seq_start(); seq_advance(0);

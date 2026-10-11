@@ -226,10 +226,11 @@ static inline void master_out(int32_t *l, int32_t *r)
 
 /* length of one division (N_DIV order) in samples at the song tempo */
 static const uint8_t DIV_DEN[6] = {1, 2, 4, 8, 3, 6};    /* original IDs stay fixed; slow rates append */
+static uint8_t midi_sync_active;                 /* armed by an incoming Start/Continue/Stop, never a clock pulse */
 static uint32_t midi_beat_samples;                    /* zero until an external clock has a measured tempo */
 static uint32_t beat_samples(void)
 {
-    return song.g[G_CLOCK] && midi_beat_samples ? midi_beat_samples : (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM];
+    return midi_sync_active && midi_beat_samples ? midi_beat_samples : (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM];
 }
 static uint32_t div_samples(uint32_t div)
 {
@@ -243,7 +244,7 @@ static uint32_t div_samples(uint32_t div)
 #define MIDI_BEAT_UNITS 24576u
 static uint32_t seq_beat_samples(void)
 {
-    return song.g[G_CLOCK] ? MIDI_BEAT_UNITS : beat_samples();
+    return midi_sync_active ? MIDI_BEAT_UNITS : beat_samples();
 }
 static uint32_t seq_div_samples(uint32_t div)
 {
