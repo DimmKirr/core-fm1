@@ -302,6 +302,11 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   **Melodee In** records four mono tracks (one channel per track, after level and before pan and
   master gain/output protection). Both support 16/24-bit audio at 44.1 kHz; each can be disabled in the
   HOME-held menu's USB AUDIO setting. No driver needed
+- **Overclock:** the HOME-held menu's OVERCLOCK sets the clock the FM-1 starts at: **320 MHz** (the default, JieLi's
+  own clock table) or **360 MHz** (M-VAVE's clock, what Melodee ran at before). 360 MHz gives more voices with the
+  second core (18 budget units instead of 16). A new clock needs a restart: closing the menu offers one (unsaved song
+  changes are lost), or it applies at the next power-on. If a 360 MHz session crashes, hangs or loses its second
+  core, the FM-1 goes back to 320 MHz and says **CPU FAULT: 320 MHZ**
 - **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4, channel 10 the first DRUM track (GLO >
   SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
@@ -673,7 +678,8 @@ You can leave a tip with [ko-fi](https://ko-fi.com/keremimo).
 - Contributions: [Charles Vestal](https://github.com/charlesvestal) (knob acceleration and 808/909 models),
   [keremimo](https://github.com/keremimo) (white-key scales, #2), [ChanceTheMaker](https://github.com/ChanceTheMaker)
   (TRS MIDI, bend, sustain and clock, palettes, favourites, editor display settings: #8, #10, #11, #12),
-  [andreahaku](https://github.com/andreahaku) (sample recording and trim, #29; SLICE manual slices and tests, #27, #22)
+  [andreahaku](https://github.com/andreahaku) (sample recording and trim, #29; SLICE manual slices and tests, #27, #22),
+  [johnskiller](https://github.com/johnskiller) (the boot-time SYS clock retune behind OVERCLOCK, keremimo/melodee#27)
 
 ## Licence
 

@@ -61,18 +61,20 @@ def main(pkg, single, version, out, nightly=None, installer_only=False):
     if nightly is None and (out / "firmware/nightly.json").exists():
         nightly = json.loads((out / "firmware/nightly.json").read_text())
         nightly["pkg"] = {k: str(out / "firmware" / Path(v).name) for k, v in nightly["pkg"].items()}
+        if set(nightly["pkg"]) != {"dual", "single"}:   # an older manifest (the 320 MHz variant): until the next run
+            nightly = None
     nightly_files = {}
     nightly_meta = None
     if nightly:
         if not re.fullmatch(r"[0-9a-f]{40}", nightly["commit"]):
             raise SystemExit("nightly commit must be a full Git SHA")
-        for key, suffix in (("dual", ""), ("clock320", "-320")):
+        for key, suffix in (("dual", ""), ("single", "-1core")):
             path = Path(nightly["pkg"][key])
             data, identity = check_package(path)
             nightly_files[key] = (path, data, identity, f"melodee-nightly{suffix}.fwsc")
-        if nightly_files["dual"][2] != nightly_files["clock320"][2]:
+        if nightly_files["dual"][2] != nightly_files["single"][2]:
             raise SystemExit("nightly variants must have the same package identity")
-        if nightly_files["dual"][1] == nightly_files["clock320"][1]:
+        if nightly_files["dual"][1] == nightly_files["single"][1]:
             raise SystemExit("nightly variants must be distinct builds")
         nightly_meta = {"version": nightly["version"], "product": nightly_files["dual"][2],
                         "branch": "next", "commit": nightly["commit"], "builtAt": nightly["builtAt"],
@@ -93,7 +95,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False):
     inst, ed, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "firmware"
     for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
-    keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-320.fwsc"}
+    keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-1core.fwsc"}
     for old in fw.glob("melodee-*.fwsc"):
         if old.name not in keep:
             old.unlink()

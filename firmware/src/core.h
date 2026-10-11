@@ -16,7 +16,8 @@
 #define MELODEE_RAM_AUDIO 0       /* resident audio profile: full dry audio graph executes in SRAM */
 #endif
 #ifndef VBUDGET
-#define VBUDGET (MELODEE_RAM_AUDIO ? 18u : 16u) /* shared weighted voices; RAM profile uses 18 with CPU1 online */
+#define VBUDGET (MELODEE_RAM_AUDIO ? 18u : 16u) /* shared weighted voices; RAM profile uses 18 with CPU1 online
+                                                 * at 360 MHz (voice.c voice_budget: scaled with the clock) */
 #endif
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
 #define NSTEP 64
@@ -431,6 +432,15 @@ static volatile uint32_t fm1_ms;  /* milliseconds since boot (TIMER4-based, TIME
 /* boot-loop guard (main.c): two boots in a row that die in the first 30 s -> UBOOT */
 #define BOOTGUARD_MAGIC 0x42475244u
 struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".noinit")));
+/* OVERCLOCK (main.c oc_boot): live, a session above OFF that has not ended in an intended reset (a crash, the
+ * watchdog or a failed clock switch leave it set: the next boot goes back to OFF). Gone at power-off. */
+#define OC_GUARD_MAGIC 0x4F43474Bu
+struct { uint32_t magic, live; } oc_guard __attribute__((section(".noinit")));
+static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an update): not a failed boot */
+{
+    bootguard.pending = 0;
+    oc_guard.live = 0;
+}
 
 /* GLO solo belongs to the mixer, independently of quick-layer effects. */
 static volatile uint8_t track_solo;

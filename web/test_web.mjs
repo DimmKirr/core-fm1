@@ -1468,7 +1468,7 @@ async function installerBuilds() {
     .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",
       pkg:{dual:"melodee-1.0.2.fwsc",single:"melodee-1.0.2-1core.fwsc"},
       nightly:{version:"next-abcdef0",product:"FM-1_900",commit:"abcdef0123456789abcdef0123456789abcdef0123",builtAt:"2026-10-11T02:00:00Z",
-        pkg:{dual:"melodee-nightly.fwsc",clock320:"melodee-nightly-320.fwsc"}}}));
+        pkg:{dual:"melodee-nightly.fwsc",single:"melodee-nightly-1core.fwsc"}}}));
   const fetched = [], installed = [], elements = new Map();
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, {checked:id === "build-dual", disabled:false, textContent:"", value:0, listeners:{},
@@ -1498,8 +1498,8 @@ async function installerBuilds() {
   await element("go").listeners.click();
   ok(fetched.length === 2 && installed[1][0] === "melodee-1.0.2.fwsc", "installer: back to standard, each package fetched once");
   const revision = "abcdef0123456789abcdef0123456789abcdef0123";
-  for (const [kind, file, tag] of [["nightly-dual", "melodee-nightly.fwsc", "360 MHz"], ["nightly-320", "melodee-nightly-320.fwsc", "320 MHz"]]) {
-    for (const k of ["dual", "single", "nightly-dual", "nightly-320"]) element("build-" + k).checked = k === kind;
+  for (const [kind, file, tag] of [["nightly-dual", "melodee-nightly.fwsc", "dual core"], ["nightly-single", "melodee-nightly-1core.fwsc", "single core"]]) {
+    for (const k of ["dual", "single", "nightly-dual", "nightly-single"]) element("build-" + k).checked = k === kind;
     await element("build-" + kind).listeners.change();
     ok(element("status").textContent === `Melodee next-abcdef0 (nightly, ${tag})`, "installer: nightly label uses its own source version");
     await element("go").listeners.click();
@@ -1507,7 +1507,7 @@ async function installerBuilds() {
     ok(image === file + "?commit=" + revision && product === "FM-1_900", "installer: each nightly installs the chosen package with its own identity");
   }
   ok(!element("nightly-options").hidden && element("nightly-info").textContent.includes("abcdef0"), "installer: nightly source and build timestamp are visible");
-  for (const k of ["dual", "single", "nightly-dual", "nightly-320"]) element("build-" + k).checked = k === "dual";
+  for (const k of ["dual", "single", "nightly-dual", "nightly-single"]) element("build-" + k).checked = k === "dual";
   await element("build-dual").listeners.change();
   await element("go").listeners.click();
   ok(installed.at(-1)[1] === "FM-1_91002" && fetched.length === 4, "installer: returning from nightly restores release identity without refetching");

@@ -1,11 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Optional boot-time SYS PLL retune, with IRQs off and CPU1 held.
+/* Boot-time SYS PLL retune (PR #27, @johnskiller), with IRQs off and CPU1 held.
  * Live FM-1 readings in PR #27 identify PLL2_CON1 (0x119AC), not PLL_CON1
  * (0x119A4), as the SYS VCO multiplier: FBDS = multiplier - 2. The SPL's
  * 268 means 24 MHz / 12 * 270 = 540 MHz, with CLK_CON2 selecting 2/3 = 360.
- * A multiplier of 240 gives VCO 480 / SYS 320 MHz. Existing post-dividers
- * then give HSB 160, LSB 53.3 and SFC 80 MHz. TIMER4 uses the crystal;
- * audio I2S, USB and UART use separate clock domains.
+ * The OVERCLOCK menu (overclock.c) picks the multiplier: 240 gives VCO 480 /
+ * SYS 320 MHz (HSB 160, LSB 53.3, SFC 80), 270 the SPL's 360 (HSB 180, LSB 60,
+ * SFC 90). 297 (VCO 594 / SYS 396, an unreleased test) is never chosen, only
+ * recognised at boot and switched away from. Any of these may be found at
+ * boot (a soft reset can keep the last one). TIMER4 uses the crystal; audio
+ * I2S, USB and UART use separate clock domains.
  *
  * CACHE_CON bit 14 is CACHE_WAIT's handshake, NOT a PLL lock indication.
  * No verified PLL lock bit is available here. Stay on RC16M for a fixed
@@ -35,11 +38,12 @@
 #define FCLK_SFC_CON   0x40200u
 #define FCLK_TICKS     0x10804u
 
-#ifndef MELODEE_SYS_CLK
-#define MELODEE_SYS_CLK 0
-#endif
+#define FCLK_MULT_320 240u
+#define FCLK_MULT_360 270u
+#define FCLK_MULT_396 297u
+/* the SYS clock of a multiplier: 2 MHz a step, 2/3 of the VCO */
+static inline uint32_t fm1_clock_mhz_of(uint32_t mult) { return mult * 4u / 3u; }
 
-#if MELODEE_SYS_CLK == 320
 /* SRAM only: TIMER4 keeps counting on RC16M. Both the elapsed-time and
  * spin limits bound a missing handshake or stopped timer. A ready cache
  * bit alone never skips the settling interval. */
@@ -70,27 +74,35 @@ static inline __attribute__((always_inline)) int fm1_clock_settle_ram(void)
     }
     return 0;
 }
-#endif
 
-/* Returns 0 after retuning (or when disabled), 1 for an unfamiliar boot
- * multiplier left untouched, 2 after a settled rollback. A failed rollback
- * stays in SRAM on RC16M until watchdog recovery, rather than returning to
- * the caller with an unverified PLL selected. */
-static FCLK_RAM int fm1_clock_downclock_ram(void)
+/* The multiplier running now (FCLK_MULT_*), 0 for one this file does not know */
+static inline uint32_t fm1_clock_mult(void)
 {
-#if MELODEE_SYS_CLK == 320
-    uint32_t original = FCLK_READ(FCLK_PLL2_CON1);
+    uint32_t m = (FCLK_READ(FCLK_PLL2_CON1) & 0xFFFu) + 2u;
+    return m == FCLK_MULT_320 || m == FCLK_MULT_360 || m == FCLK_MULT_396 ? m : 0u;
+}
+
+/* To multiplier mult (FCLK_MULT_*). Returns 0 after retuning (or when it
+ * already runs there), 1 for an unfamiliar boot multiplier left untouched, 2
+ * after a settled rollback. A failed rollback stays in SRAM on RC16M until
+ * watchdog recovery, rather than returning to the caller with an unverified
+ * PLL selected. */
+static FCLK_RAM int fm1_clock_set_ram(uint32_t mult)
+{
+    uint32_t original = FCLK_READ(FCLK_PLL2_CON1), now = (original & 0xFFFu) + 2u;
     uint32_t con0 = FCLK_READ(FCLK_CLK_CON0);
     int result = 0;
-    if ((original & 0xFFFu) != 268u || !(con0 & (1u << 8)))
+    if ((now != FCLK_MULT_320 && now != FCLK_MULT_360 && now != FCLK_MULT_396) || !(con0 & (1u << 8)))
         return 1;
+    if (now == mult)
+        return 0;
     if (!fm1_clock_idle_ram())
         return 1;
     /* CLK_CON0 bit 1 enables RC16M; clearing bit 8 gates the SYS source,
      * following the SDK's sys_clk_source_rc_clk_on sequence. */
     FCLK_WRITE(FCLK_CLK_CON0, (con0 | (1u << 1)) & ~(1u << 8));
     FCLK_SYNC();
-    FCLK_WRITE(FCLK_PLL2_CON1, (original & ~0xFFFu) | 238u);
+    FCLK_WRITE(FCLK_PLL2_CON1, (original & ~0xFFFu) | (mult - 2u));
     if (!fm1_clock_settle_ram()) {
         FCLK_WRITE(FCLK_PLL2_CON1, original);
         FCLK_SYNC();
@@ -103,14 +115,11 @@ static FCLK_RAM int fm1_clock_downclock_ram(void)
     FCLK_WRITE(FCLK_CLK_CON0, con0);
     FCLK_SYNC();
     return result;
-#else
-    return 0;
-#endif
 }
 
 /* SRAM is beyond XIP's 23-bit call range: force the indirect call. */
 #ifndef FM1_CLOCK_HOST_TEST
-#define fm1_clock_downclock() FL_FAR(fm1_clock_downclock_ram)()
+#define fm1_clock_set(mult) FL_FAR(fm1_clock_set_ram)(mult)
 #else
-#define fm1_clock_downclock() fm1_clock_downclock_ram()
+#define fm1_clock_set(mult) fm1_clock_set_ram(mult)
 #endif

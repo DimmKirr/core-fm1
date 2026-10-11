@@ -42,7 +42,7 @@
   <section id="nightly-options" hidden>
     <p><strong data-t="nightlyTitle"></strong></p>
     <p><label><input type="radio" name="build" id="build-nightly-dual"> <span data-t="nightly-dual"></span></label><br>
-      <label><input type="radio" name="build" id="build-nightly-320"> <span data-t="nightly-320"></span></label></p>
+      <label><input type="radio" name="build" id="build-nightly-single"> <span data-t="nightly-single"></span></label></p>
     <p class="small" data-t="nightlyWhy"></p>
     <p class="small" id="nightly-info"></p>
   </section>
@@ -76,9 +76,9 @@ const TEXT = {
     intro: "FM-1 を USB で接続してください。（Chrome か Edge で使えます）",
     warn: "書き込み中は USB を抜かないでください。",
     install: "インストール", other: "English",
-    nightlyTitle: "Nightly（next）", "nightly-dual": "Nightly（通常のデュアルコア・360 MHz）",
-    "nightly-320": "Nightly（実験用デュアルコア・320 MHz）", "nightly-dualTag": "nightly・360 MHz", "nightly-320Tag": "nightly・320 MHz",
-    nightlyWhy: "next の開発版です。320 MHz 版はクラッシュする FM-1 向けの実験用です。安定性の改善は未確認で、処理速度は通常版より約 11% 低くなります。インストール前にエディタで全体バックアップを保存してください。標準版を選ぶとリリース版へ戻せます。",
+    nightlyTitle: "Nightly（next）", "nightly-dual": "Nightly（デュアルコア）",
+    "nightly-single": "Nightly（シングルコア）", "nightly-dualTag": "nightly・デュアルコア", "nightly-singleTag": "nightly・シングルコア",
+    nightlyWhy: "next の開発版です。動作クロックは本体の HOME 長押しメニュー「OVERCLOCK」で選べます（初期値 320 MHz）。インストール前にエディタで全体バックアップを保存してください。標準版を選ぶとリリース版へ戻せます。",
     dual: "標準（デュアルコア）", single: "シングルコア", dualTag: "標準", singleTag: "シングルコア",
     singleWhy: "シングルコア版は、標準版でクラッシュする FM-1 のためのものです（赤い MELODEE CRASH 画面、フリーズ、書き込みモードでの再起動）。FM-1 の 2 つ目のコアを起動しません（公式ファームウェアも使っていません）。PROPHET の最大発音数は 8 から 5 になり、重い FM6・PROPHET の音色は早めに処理の上限に達します。標準版に戻すには、標準を選んでインストールしてください。",
     editor: "エディタ（インストール後、パソコンから音色やシーケンスを編集）",
@@ -115,9 +115,9 @@ const TEXT = {
     intro: "Connect the FM-1 by USB. (Works in Chrome or Edge.)",
     warn: "Do not unplug the USB cable while writing.",
     install: "Install", other: "日本語",
-    nightlyTitle: "Nightly (next)", "nightly-dual": "Nightly — normal dual core, 360 MHz",
-    "nightly-320": "Nightly — experimental dual core, 320 MHz", "nightly-dualTag": "nightly, 360 MHz", "nightly-320Tag": "nightly, 320 MHz",
-    nightlyWhy: "Development builds from next. The 320 MHz variant is an experiment for FM-1s that crash: a stability improvement is still unverified, and CPU speed is about 11% lower. Save a complete backup in the editor before installing. Choose Standard to return to the release.",
+    nightlyTitle: "Nightly (next)", "nightly-dual": "Nightly — dual core",
+    "nightly-single": "Nightly — single core", "nightly-dualTag": "nightly, dual core", "nightly-singleTag": "nightly, single core",
+    nightlyWhy: "Development builds from next. Pick the clock on the FM-1 in the HOME-held menu's OVERCLOCK (320 MHz by default). Save a complete backup in the editor before installing. Choose Standard to return to the release.",
     dual: "Standard (dual core)", single: "Single core", dualTag: "standard", singleTag: "single core",
     singleWhy: "The single-core build is for FM-1s that crash with the standard build (a red MELODEE CRASH screen, freezes, or restarts into update mode). It never starts the FM-1's second core, which the official firmware does not use either. PROPHET then plays up to five voices instead of eight, and heavy FM6 and PROPHET sounds reach the CPU limit sooner. To go back, choose Standard and install again.",
     editor: "Editor (after installing: edit sounds and sequences from the computer)",
@@ -167,12 +167,12 @@ applyLang();
 $("stock-skip-backup").addEventListener("change", applyLang);
 const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; };
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
-const buildIds = ["dual", "single", "nightly-dual", "nightly-320"];
+const buildIds = ["dual", "single", "nightly-dual", "nightly-single"];
 const build = () => buildIds.find(k => $("build-" + k).checked) || "dual";
 const selection = () => {
   const kind = build(), nightly = kind.startsWith("nightly-");
   return {kind, channel: nightly ? meta.nightly : meta,
-    key: nightly ? (kind === "nightly-320" ? "clock320" : "dual") : kind};
+    key: nightly ? kind.slice(8) : kind};
 };
 const ready = () => { lastKey = "ready"; $("status").textContent = `Melodee ${selection().channel.version} (${t(build() + "Tag")})`; };
 const log = (t) => { $("log").textContent += t + "\n"; };
