@@ -143,7 +143,7 @@ static uint32_t ed_bk_commit_inner(void)
               ed_bk_len>=sizeof *p && ed_bk_len<=sizeof ed_bk_set && p->magic==PERSIST_MAGIC &&
               p->ext.usb_off<=3u && p->ext.boot<=4u &&
               (ed_bk_len==sizeof *p || tmpl_blob_valid(t,tl))) || !palette_stored_ok(p->palette) ||
-            p->lowcut > 2u || p->zoom > 1u || !hold_stored_ok(p->bold) || p->favorites.filter > 1u || !ed_bk_panel_valid(&p->panel)) return 2;
+            p->lowcut > 2u || (p->zoom & 0xFFu) > 1u || (p->zoom > 0xFFu && (p->zoom & 0xFFFF0000u) != RECORD_PREF_TAG) || !hold_stored_ok(p->bold) || p->favorites.filter > 1u || !ed_bk_panel_valid(&p->panel)) return 2;
         if(tl && ed_bk_len>sizeof *p && !tmpl_blob_valid(t,tl))return 2;
         obj = OBJ_SETTINGS;
     } else if (ed_bk_id == 6u || ed_bk_id == 7u || ed_bk_id == 17u || ed_bk_id == 18u) {

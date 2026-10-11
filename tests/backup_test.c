@@ -294,6 +294,14 @@ int main(void)
     bad += check("settings of a Melodee 0.13 backup restore with the palette migrated",
                  put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 && settings.palette == 2u);
     ps.palette = palette_to_stored(2);
+    settings_click = 1; settings_countin = 2;
+    settings_export(&ps);                                /* (the record prefs, tagged in the zoom word) */
+    settings_click = settings_countin = 0;
+    bad += check("settings with a click and a count-in restore",
+                 put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 && settings_click == 1u && settings_countin == 2u);
+    ps.zoom = 0x12340100u;
+    bad += check("settings with an untagged zoom word are refused", put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 2u);
+    ps.zoom = 0;
     before = erases;
     ps.lowcut = 3;
     bad += check("settings with an unknown SPEAKER value are refused, nothing written",
