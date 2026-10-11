@@ -175,7 +175,7 @@ static void ui_power_on(void)
     memset(midi_sel_on, 0, sizeof midi_sel_on);
     memset(midi_ch, 0, sizeof midi_ch);
     memset(midi_owners, 0, sizeof midi_owners);
-    memset(midi_notes, 0, sizeof midi_notes);
+    memset(midi_sel_on, 0, sizeof midi_sel_on);
     kb_prev = 0;
     memset(live_held, 0, sizeof live_held);
     memset(live_last, 0, sizeof live_last);
@@ -543,15 +543,15 @@ static int test_midi(void)
     midi_hint = 0;
     midi_event(0x90, 0, 60, 100); midi_event(0x90, 10, 61, 100);
     bad += check("ROUT CH1-4 (default): channel 1 -> part 1, channel 11 -> selected, channel 10 -> the DRUM track 4",
-                 song.g[G_ROUTE] == 0 && midi_sel_on[0][60] == 1u && midi_sel_on[10][61] == 3u && midi_track(9) == &trk[3]);
+                 song.g[G_ROUTE] == 0 && mn_get(0, 60) == 1u && mn_get(10, 61) == 3u && midi_track(9) == &trk[3]);
     bad += check("a note into another track tells the UI", midi_hint == 1u);
     frame(); bad += check("MIDI IN -> T1 shown", msg_is("MIDI IN -> T1"));
     song.g[G_ROUTE] = 1;
     midi_event(0x80, 0, 60, 0); midi_event(0x90, 0, 62, 100);
     bad += check("ROUT changes: note-off releases original owner, new note uses selection",
-                 !gated_notes(&trk[0]) && midi_sel_on[0][62] == 3u && midi_track(3) == &trk[2]);
+                 !gated_notes(&trk[0]) && mn_get(0, 62) == 3u && midi_track(3) == &trk[2]);
     song.sel = 1; midi_event(0x80, 0, 62, 0);
-    bad += check("note-off after selection follows the note-on's track", !midi_sel_on[0][62]);
+    bad += check("note-off after selection follows the note-on's track", !mn_get(0, 62));
     midi_event(0x80, 9, 61, 0);
     ui_power_on();
     song.g[G_ROUTE] = 1;
@@ -559,11 +559,11 @@ static int test_midi(void)
     song.sel = 1;
     midi_event(0x90, 0, 60, 100);
     bad += check("same MIDI channel/pitch on a new selected track releases its old owner",
-                 !gated_notes(&trk[0]) && gated_notes(&trk[1]) && midi_sel_on[0][60] == 2u);
+                 !gated_notes(&trk[0]) && gated_notes(&trk[1]) && mn_get(0, 60) == 2u);
     midi_event(0x80, 0, 60, 0);
     midi_event(0x80, 0, 60, 0);
     bad += check("both note-offs after a MIDI ownership change leave neither track held",
-                 !gated_notes(&trk[0]) && !gated_notes(&trk[1]) && !midi_sel_on[0][60]);
+                 !gated_notes(&trk[0]) && !gated_notes(&trk[1]) && !mn_get(0, 60));
     ui_power_on();
     song.sel = 2; song.g[G_ROUTE] = 1;
     midi_event(0x90, 0, 61, 100);
@@ -571,7 +571,7 @@ static int test_midi(void)
     midi_event(0x90, 0, 61, 100);
     midi_event(0x80, 0, 61, 0);
     bad += check("same channel/pitch across a ROUT change cannot leave its previous part held",
-                 !gated_notes(&trk[2]) && !gated_notes(&trk[0]) && !midi_sel_on[0][61]);
+                 !gated_notes(&trk[2]) && !gated_notes(&trk[0]) && !mn_get(0, 61));
     {
         uint32_t hold;
         for (hold = 0; hold < 2u; hold++) {
@@ -582,7 +582,7 @@ static int test_midi(void)
             song.sel = 1;
             midi_event(0x90, 0, 60, 100);
             bad += check("MIDI ownership transfer releases old ARP keys and respects explicit HOLD",
-                         !trk[0].arp_phys && trk[0].nheld == hold && midi_sel_on[0][60] == 2u);
+                         !trk[0].arp_phys && trk[0].nheld == hold && mn_get(0, 60) == 2u);
         }
     }
     ui_power_on();
@@ -597,11 +597,11 @@ static int test_midi(void)
         events_block(CTL);
         for (i = 0; i < NTRK * NVOICE; i++) held += trk[i / NVOICE].v[i % NVOICE].gate;
         bad += check("MIDI overflow releases held notes and latched ARP, keeps transport running",
-                     !held && !trk[1].nheld && !trk[1].arp_phys && !midi_sel_on[0][60] &&
-                     !midi_sel_on[1][64] && !midi_in_overflow && mi_r == mi_w && song.playing);
+                     !held && !trk[1].nheld && !trk[1].arp_phys && !mn_get(0, 60) &&
+                     !mn_get(1, 64) && !midi_in_overflow && mi_r == mi_w && song.playing);
         midi_in_event(0x643D9009u);
         events_block(CTL);
-        bad += check("MIDI accepts a fresh note after overflow recovery", midi_sel_on[0][61] == 1u && trk[0].v[0].gate);
+        bad += check("MIDI accepts a fresh note after overflow recovery", mn_get(0, 61) == 1u && trk[0].v[0].gate);
     }
     {
         const page_t *pg = &PAGES[page_first(FAM_GLO) + 1u];

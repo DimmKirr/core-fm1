@@ -801,6 +801,7 @@ static union {                               /* serialized main-loop work, also 
 } proj_wire_u __attribute__((section(".pool")));
 #define proj_wire proj_wire_u.p
 static uint8_t proj_wire_gen;                /* +1 whenever proj_wire is rewritten (a backup's runtime copy lives there) */
+static uint8_t *proj_wire_borrow(void) { proj_wire_gen++; return proj_wire_u.raw; }   /* scratch for another job */
 
 static void proj_steps(step_t *s)            /* a loaded sequence stays inside its fixed fields */
 {
@@ -1209,8 +1210,8 @@ typedef struct {
 _Static_assert(sizeof(tmpl_t) == 2u * G_COUNT + 2u + NTRK * (2u + 2u * P_COUNT) + NTRK * (FM6_PACKED + FM6_NFN) + PROJ_CZ_BYTES + PROJ_P5_BYTES + NTRK*sizeof(drum_patch_t) + 8u &&
                sizeof(tmpl_t) == TMPL_SIZE_E + NTRK*sizeof(drum_patch_t),
                "template layout (P_COUNT, G_COUNT, FM6_PACKED: a conversion)");
-static tmpl_t tmpl; /* balance the new recording state across RAM and POOL */
 static struct { persist_t p; tmpl_t t; } set_rec __attribute__((section(".pool")));   /* the settings record */
+#define tmpl set_rec.t                                /* the template lives where the settings record stages it */
 _Static_assert(sizeof set_rec == sizeof(persist_t) + sizeof(tmpl_t), "the template follows the settings");
 static uint8_t tmpl_dirty;                        /* saved in RAM, not yet in flash (settings_poll) */
 
@@ -1575,8 +1576,7 @@ static void settings_poll(void)
         persist_pending = 0;
         return;                                    /* unchanged: no erase cycle */
     }
-    set_rec.p = p;                                 /* the record: the settings, the template after them */
-    set_rec.t = tmpl;
+    set_rec.p = p;                                 /* the record: the settings, the template (tmpl) after them */
     if (st_save(OBJ_SETTINGS, &set_rec, sizeof set_rec.p + (template_used() ? sizeof set_rec.t : 0u)) == 0) {
         persist_saved = p;
         persist_pending = 0;

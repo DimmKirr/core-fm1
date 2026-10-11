@@ -7,7 +7,7 @@
 static void midi_test_reset(void)
 {
     ui_power_on();
-    memset(midi_ch, 0, sizeof midi_ch); memset(midi_notes, 0, sizeof midi_notes);
+    memset(midi_ch, 0, sizeof midi_ch); memset(midi_sel_on, 0, sizeof midi_sel_on);
     memset(midi_owners, 0, sizeof midi_owners); memset(midi_bend_q8, 0, sizeof midi_bend_q8);
     memset(midi_bend_target, 0, sizeof midi_bend_target); memset(&midi_clock, 0, sizeof midi_clock);midi_sync_active=0;
     memset(&um, 0, sizeof um); memset(midi_in_source, 0, sizeof midi_in_source);
@@ -56,17 +56,17 @@ static int sustain_test(void)
 {
     int bad = 0; midi_test_reset(); track_t *t = &trk[0];
     queued(0x90, 60, 100, 1); queued(0xB0, 64, 127, 1); queued(0x80, 60, 0, 1);
-    bad += check("pedal holds a released synth note and its owner", gate_note(t, 60) && midi_notes[0][60] == (1u | MIDI_PEDAL_NOTE));
+    bad += check("pedal holds a released synth note and its owner", gate_note(t, 60) && mn_get(0, 60) == (1u | MIDI_PEDAL_NOTE));
     queued(0xB0, 64, 0, 1);
-    bad += check("pedal release releases its held note", !gate_note(t, 60) && !midi_notes[0][60] && !midi_owners[0]);
+    bad += check("pedal release releases its held note", !gate_note(t, 60) && !mn_get(0, 60) && !midi_owners[0]);
     queued(0x90, 62, 100, 1); queued(0xB0, 64, 127, 1); queued(0xB0, 123, 0, 1);
-    bad += check("All Notes Off honours sustain rather than hard-killing", gate_note(t, 62) && (midi_notes[0][62] & MIDI_PEDAL_NOTE));
+    bad += check("All Notes Off honours sustain rather than hard-killing", gate_note(t, 62) && (mn_get(0, 62) & MIDI_PEDAL_NOTE));
     queued(0xB0, 121, 0, 1);
-    bad += check("Reset Controllers releases pedal-held notes", !gate_note(t, 62) && !midi_notes[0][62]);
+    bad += check("Reset Controllers releases pedal-held notes", !gate_note(t, 62) && !mn_get(0, 62));
     queued(0x93, 36, 100, 1); queued(0xB3, 64, 127, 1); queued(0x83, 36, 0, 1);
-    bad += check("drum note-offs do not accumulate pedal-held owners", !midi_notes[3][36] && !midi_owners[3]);
+    bad += check("drum note-offs do not accumulate pedal-held owners", !mn_get(3, 36) && !midi_owners[3]);
     queued(0x90, 67, 100, 1); queued(0xB0, 64, 127, 1); queued(0x80, 67, 0, 1); queued(0xB0, 120, 0, 1);
-    bad += check("All Sound Off ignores pedal and discards all track ownership", !midi_notes[0][67] && !midi_owners[0] && !t->nheld && !gate_note(t, 67));
+    bad += check("All Sound Off ignores pedal and discards all track ownership", !mn_get(0, 67) && !midi_owners[0] && !t->nheld && !gate_note(t, 67));
     return bad;
 }
 static int ownership_test(void)
@@ -84,11 +84,11 @@ static int ownership_test(void)
     fm1_in.notes = 0; events_block(CTL);
     bad += check("local release after MIDI release ends the shared note", !gate_note(t, local));
     queued(0x94, 65, 100, 1); song.sel = 1; queued(0x84, 65, 0, 1);
-    bad += check("note-off follows its note-on across selected-track changes", !gate_note(&trk[0], 65) && !midi_notes[4][65]);
+    bad += check("note-off follows its note-on across selected-track changes", !gate_note(&trk[0], 65) && !mn_get(4, 65));
     song.sel = 0; queued(0x94, 67, 100, 1); queued(0xB4, 64, 127, 1); queued(0x84, 67, 0, 1);
     panic_req |= 1u; events_block(CTL);
     queued(0x90, 67, 100, 1); queued(0xB4, 64, 0, 1);
-    bad += check("preset panic forgets old pedal owners so later pedal-up preserves new notes", !midi_notes[4][67] && gate_note(&trk[0], 67));
+    bad += check("preset panic forgets old pedal owners so later pedal-up preserves new notes", !mn_get(4, 67) && gate_note(&trk[0], 67));
     for (uint32_t i = 0; i <= MQ; i++) midi_enqueue(0x09u | 0x90u << 8 | 70u << 16 | 100u << 24, 1);
     events_block(CTL);
     bad += check("queue overflow recovers ownership and releases stuck notes", !midi_in_overflow && mi_r == mi_w && !midi_owners[0] && !gate_note(&trk[0], 67));

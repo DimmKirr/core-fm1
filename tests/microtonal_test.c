@@ -12,7 +12,7 @@ static track_t *setup(const char *name)
 {
     ui_power_on();
     memset(live_held, 0, sizeof live_held);
-    memset(midi_ch, 0, sizeof midi_ch); memset(midi_notes, 0, sizeof midi_notes);
+    memset(midi_ch, 0, sizeof midi_ch); memset(midi_sel_on, 0, sizeof midi_sel_on);
     memset(midi_owners, 0, sizeof midi_owners); memset(mchord, 0, sizeof mchord);
     mi_r = mi_w = 0; fm1_in.notes = kb_prev = 0;
     TSEL->p[P_SCALE] = scale_id(name); TSEL->p[P_QUANT] = Q_ALL;

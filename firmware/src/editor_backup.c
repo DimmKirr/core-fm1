@@ -12,8 +12,8 @@ static const uint8_t ED_BK_IDS[28] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,1
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
 #define ED_BK_MAX ((uint32_t)sizeof proj_wire_u)
 #define ED_BK_RAW ((uint8_t *)&proj_wire_u)  /* reuse the existing serialized main-loop scratch */
-static struct { persist_t p; tmpl_t t; } ed_bk_set;   /* id 1: the settings
-                                                                                          * record (+ the template) */
+#define ed_bk_set set_rec    /* id 1: the settings record (+ the template), in the settings save's staging (project.c):
+                             * a save while a backup runs rewrites it, and the archive's CRC then fails */
 static uint32_t ed_bk_set_len;
 static uint8_t ed_bk_valid, ed_bk_put, ed_bk_id, ed_bk_gen;
 static uint32_t ed_bk_len, ed_bk_crc, ed_bk_pos, ed_bk_ms, ed_bk_usb;
@@ -92,8 +92,7 @@ static uint32_t ed_bk_capture(void)
 #else
     memset(&ed_bk_set.p, 0, sizeof ed_bk_set.p);
 #endif
-    settings_export(&ed_bk_set.p);
-    ed_bk_set.t = tmpl;                             /* the record as it is stored: the template after the settings */
+    settings_export(&ed_bk_set.p);                  /* the record as it is stored: the template (tmpl) after the settings */
     ed_bk_set_len = sizeof ed_bk_set.p + (template_used() ? sizeof ed_bk_set.t : 0u);
     ed_bk_put = 0; ed_bk_valid = 1; ed_bk_usb = usb.resets;
     return 0;
@@ -204,7 +203,6 @@ static uint32_t ed_bk_commit_inner(void)
         fx_keys_settle();                               /* (the banks came first: fm1backup.js restoreBackup) */
 #endif
         tmpl_take(raw + ns, ed_bk_len - ns);            /* (none in the backup: none now; TPL5: converted) */
-        ed_bk_set.t = tmpl;
         tmpl_dirty = 0;
         panel_init(); settings_init(); palette_set(settings.palette);
 #if MELODEE_FLASH
