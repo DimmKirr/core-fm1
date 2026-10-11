@@ -158,9 +158,11 @@ static void fm1_main(void)
 #endif
     settings_init();
     {   /* 320 MHz before anything that cares: no audio ISR yet, CPU1 not started, LCD not
-         * initialised (it reads the new LSB at fm1_lcd_baud). A shape mismatch or a lock
-         * timeout leaves the SPL's known-good 360 in place and only raises the undo flag
-         * the editor command 79 reports; the boot proceeds exactly as at 360. */
+         * initialised (it reads the new LSB at fm1_lcd_baud). The switch runs from .ram_text
+         * (the system clock wobbles while the PLL restarts), so it is called through its
+         * function pointer. A shape mismatch or a timeout leaves the SPL's known-good 360
+         * in place and only raises the undo flag the editor command 79 reports; the boot
+         * proceeds exactly as at 360. */
         fm1_clock_downclock_undo = fm1_clock_downclock() != 0;
     }
     lcd_init();
