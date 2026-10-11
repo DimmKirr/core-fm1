@@ -48,6 +48,7 @@
 #include "fm1_time.h"
 #include "fm1_sys.h"
 #include "fm1_power.h"
+#include "fm1_clock.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
 #include "fm1_cache.h"

@@ -60,6 +60,7 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/build_options.
 | `MELODEE_CDC` | 0 (1 without USB audio) | USB serial console; it shares EP2 / EP3 with USB audio, so `MELODEE_USB_AUDIO=0` |
 | `MELODEE_UART` | 1 | TRS MIDI IN |
 | `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; `0` builds serial-only firmware |
+| `MELODEE_SYS_CLK` | 0 | `320`: retune the SYS PLL at boot, before CPU1 and the audio ISR (hal/fm1_clock.h). JieLi's 320 MHz profile against M-VAVE's 360 one: the same post-div chain at 8/9 of the VCO (sys 360→320, HSB 180→160, LSB 60→53.3, SFC 90→80). TIMER4 (24 MHz crystal), the audio I2S (its own ALNK PLL) and USB/UART (PLL48M) do not move. For the units whose CPU1 misreads SRAM at 360 (below): on those, editor command 79 `count-only` at 320 against 360 is the experiment. A shape mismatch or a lock timeout keeps 360 and raises the undo flag editor command 79 reports (v[5]); nothing else changes |
 | `MELODEE_SLICE` | 1 | the SLICE engine |
 | `MELODEE_ICONS` | 1 | parameter icons on the knob cards |
 | `MELODEE_FM4` | 0 | the retired DIGITAL engine (4-operator FM) instead of its FM6 conversion |
