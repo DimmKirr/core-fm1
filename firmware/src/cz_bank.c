@@ -6,7 +6,12 @@
 #define CZ_BANK_SLOTS 16u
 typedef struct { uint32_t magic; uint16_t ver, slots; uint32_t used; char name[16]; cz_patch_t tone[16]; } cz_bank_t;
 _Static_assert(sizeof(cz_bank_t)==2332u && sizeof(cz_bank_t)<=3840u,"CZ bank sector");
+#if MELODEE_FLASH
+static cz_bank_t *bank_cz(void);                     /* (the shared bank cache: upreset.c bank_claim) */
+#define cz_bank_cache (*bank_cz())
+#else
 static cz_bank_t cz_bank_cache __attribute__((section(".pool")));
+#endif
 static uint8_t native_cz_cached=255; /* native and historical views share one main-loop buffer */
 static uint8_t cz_bank_cached=255,cz_bank_saved;   /* the cached bank was saved (not its default) */
 #if !MELODEE_FLASH
@@ -39,6 +44,7 @@ static cz_bank_t *cz_bank_load(uint32_t k)
     if(cz_bank_cached!=k){
         native_cz_cached=255;
 #if MELODEE_FLASH
+        bank_claim(BK_CZOLD);
         int n=flash_ok?st_load(OBJ_CZBANK0+k,&cz_bank_cache,sizeof cz_bank_cache):-1;
         cz_bank_saved=n==(int)sizeof cz_bank_cache && cz_bank_valid(&cz_bank_cache);
 #else

@@ -25,7 +25,23 @@ static int cache_tests(void)
     for(uint32_t b=0;b<4u;b++)bad+=check("FM cache reload preserves each independent patch",native_raw(ENGI_FM6,b*16u)[118]=='A'+b);
     for(uint32_t b=0;b<8u;b++)bad+=check("CZ cache reload preserves each independent patch",native_raw(ENGI_CZ,b*16u)[128]=='A'+b);
     for(uint32_t b=0;b<4u;b++)bad+=check("general cache reload preserves parameters",up_value(up_rec(b*16u),P_E1)==(int16_t)b);
-    bad+=check("resident bank payloads are bounded to one bank per type",sizeof up_cache+sizeof native_fm_cache+sizeof native_cz_cache==8208u);
+    {   /* one bank cache for every kind (upreset.c bank_buf): interleaved reads load the bank asked for and find each
+         * kind's contents intact; an edit made while a user bank was the cached one reaches its index on eviction */
+        p5_patch_t p5,got;p5_patch_init(&p5);memcpy(p5.raw+P5_NAME,"SHARED BANK P5      ",20);
+        uint8_t old[CZ_BYTES];int ok=!native_put(ENGI_PROPHET,30,(const uint8_t *)&p5);
+        for(uint32_t r=0;r<3u;r++)for(uint32_t b=0;b<4u;b++){
+            ok&=up_value(up_rec(b*16u),P_E1)==(int16_t)b && native_raw(ENGI_FM6,b*16u)[118]=='A'+b &&
+                native_raw(ENGI_CZ,(b+4u)*16u)[128]=='A'+b+4u && !cz_bank_get(b,0,old) && old[128]=='A'+b &&
+                !p5_user_get(30,&got) && !memcmp(got.raw+P5_NAME,"SHARED BANK P5",14);
+        }
+        bad+=check("one bank cache: user, FM6, CZ-1 (both views) and Prophet banks interleaved read back intact",ok);
+        set_engine_of(TSEL,3);up_store(5,"AFTER EDIT");native_raw(ENGI_FM6,16u);up_name(5,name);
+        bad+=check("one bank cache: a user bank evicted after an edit keeps its index (the new name, no reload)",
+                   up_cached==255u && !strcmp(name,"AFTER EDIT"));
+        bad+=check("one bank cache: the largest bank's size, not the sum (8208 + 3600 B before)",
+                   sizeof bank_buf==sizeof(up_bank_t) && sizeof(up_bank_t)>=sizeof(p5_bank_t) &&
+                   sizeof(up_bank_t)>=sizeof(cz_bank_t) && sizeof(up_bank_t)>=sizeof(native_fm_t));
+    }
     flash_ok=0;
     bad+=check("missing flash refuses mutations without evicting committed indexes",native_put(ENGI_FM6,0,fm)==2 && native_put(ENGI_CZ,0,cz)==2 && up_store(0,"NO FLASH")==2 && native_used(ENGI_FM6,0) && native_used(ENGI_CZ,0) && up_used(0));
     flash_ok=1;

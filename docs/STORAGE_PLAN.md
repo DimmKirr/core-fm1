@@ -46,9 +46,11 @@ once first (its boot pass rewrites older records).
 | Settings PER1..PER4, untagged palettes, untagged FX keys, SET3 | −800 B | |
 | ANALOG (engine 0 retired), its UI picture and designer recipe | −3,252 B | power-on track 1: PROPHET FUNK BASS II |
 | `cz_legacy.h` → `cz_panel.h` (the live CZ panel model only) | 0 | the removed parts were already dead code |
+| One bank cache for user, FM6, CZ-1 and Prophet banks (`bank_buf`, `bank_claim`) | +64 B | POOL −7,992 B |
+| List picker over whole columns; Prophet part DC blocker (5 Hz) and regress on the real factory programs | +176 B | |
 
-Image now **485,100 B** (581,340 at the start: −96,240 B; 96,464 B free in the app slot). .data + .bss 87,360 B.
-Audio arena: 155,776 B available, 142,336 B required (13.4 KB of headroom, was 128 B).
+Image now **485,276 B** (581,340 at the start: −96,064 B; 96,288 B free in the app slot). .data + .bss 87,360 B.
+Audio arena: 163,776 B available, 142,336 B required (21.4 KB of headroom, was 128 B).
 
 Along the way:
 - `fix(backup)`: a settings record with recording preferences (the tagged zoom word) was refused on restore.

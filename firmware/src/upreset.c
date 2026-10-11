@@ -45,7 +45,15 @@ typedef struct {
 _Static_assert(sizeof(up_rec_t) == 238, "user preset record layout");
 _Static_assert(P_COUNT <= UP_PMAX * 2u && P_COUNT < 128, "user preset record: P_COUNT");
 #if MELODEE_FLASH && !defined(UP_HOST)
-static up_bank_t up_cache __attribute__((section(".pool")));
+/* One main-loop bank cache holds whichever bank was asked for last: a user preset bank, a native FM6 or CZ-1 bank
+ * (or the CZ-1 bank's older view, cz_bank_load) or a Prophet user bank (bank_buf, after native_presets.c). Each owner
+ * keeps its own cached-bank byte; bank_claim(kind) before a load forgets the others' (a user bank is indexed first,
+ * up_meta). Names, used masks and favourites stay in the owners' indexes, so browsing never reloads. A pointer into a
+ * bank is good until the next call that may load another kind: copy what outlives it. */
+enum { BK_UP, BK_FM, BK_CZ, BK_CZOLD, BK_P5 };
+static void bank_claim(uint32_t kind);
+static up_bank_t *bank_up(void);
+#define up_cache (*bank_up())
 static uint8_t up_cached = 255;
 static struct { uint8_t ready, used, engine; char name[13]; } up_meta[UP_SLOTS];
 static up_bank_t *up_cache_bank(uint32_t b);
@@ -132,6 +140,7 @@ static up_bank_t *up_cache_bank(uint32_t b)
 {
     if(up_cached != b){
         if(up_cached<UP_SLOTS/UP_PER_BANK)up_cache_index(up_cached);
+        bank_claim(BK_UP);
         up_cached=(uint8_t)b;
         memset(&up_cache,0,sizeof up_cache);
         int n=flash_ok?st_load(up_obj(b),b<2u?(void *)&up_cache:(void *)up_cache.r,b<2u?sizeof up_cache:sizeof up_cache.r):-1;
@@ -450,13 +459,14 @@ static int up_rename(uint32_t k, const char *name)
  * never loaded (the phrases are gone). 0 ok, 1 empty */
 static int up_load(uint32_t k)
 {
-    const up_rec_t *r;
+    up_rec_t rec;                                       /* (a copy: native_used below may load another bank) */
+    const up_rec_t *r = &rec;
     int16_t v[P_COUNT];
     uint32_t i;
     track_t *t = TSEL;
     if (!up_used(k))
         return 1;
-    r = up_rec(k);
+    rec = *up_rec(k);
     up_values(r, v);
     load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
     panic_req |= (uint8_t)(1u << song.sel);
@@ -548,6 +558,23 @@ static void up_ui_named(uint32_t op, uint32_t k, const char *name)   /* 0 load, 
 static void up_ui(uint32_t op, uint32_t k) { up_ui_named(op, k, 0); }
 #include "prophet_user.c"
 #include "native_presets.c"
+#if MELODEE_FLASH
+static union { up_bank_t up; native_fm_t fm; cz_bank_t cz; p5_bank_t p5; } bank_buf __attribute__((section(".pool")));
+static up_bank_t *bank_up(void) { return &bank_buf.up; }
+static native_fm_t *bank_fm(void) { return &bank_buf.fm; }
+static cz_bank_t *bank_cz(void) { return &bank_buf.cz; }
+static p5_bank_t *bank_p5(void) { return &bank_buf.p5; }
+static void bank_claim(uint32_t kind)
+{
+    if (kind != BK_UP && up_cached < UP_SLOTS / UP_PER_BANK)
+        up_cache_index(up_cached);
+    if (kind != BK_UP) up_cached = 255;
+    if (kind != BK_FM) native_fm_cached = 255;
+    if (kind != BK_CZ) native_cz_cached = 255;
+    if (kind != BK_CZOLD) cz_bank_cached = 255;
+    if (kind != BK_P5) p5_cached = 255;
+}
+#endif
 #endif
 
 #ifndef UP_HOST

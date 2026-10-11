@@ -17,12 +17,14 @@ static void native_index(uint32_t e, uint32_t b);
  * only main-loop loading/editing touches these single-bank caches. */
 static struct { uint16_t used; uint8_t ready, valid; char name[16][13]; } native_meta[12];
 #if MELODEE_FLASH
-static native_fm_t native_fm_cache __attribute__((section(".pool")));
+static native_fm_t *bank_fm(void);                     /* (the shared bank cache: upreset.c bank_claim) */
+#define native_fm_cache (*bank_fm())
 #define native_cz_cache cz_bank_cache
 static uint8_t native_fm_cached = 255;
 static native_fm_t *native_fm_bank(uint32_t b)
 {
     if (native_fm_cached != b) {
+        bank_claim(BK_FM);
         int n = flash_ok ? st_load(native_fm_obj(b), &native_fm_cache, sizeof native_fm_cache) : -1;
         if (n != sizeof native_fm_cache || !native_fm_valid(&native_fm_cache)) {
             memset(&native_fm_cache, 0, sizeof native_fm_cache);
@@ -35,7 +37,7 @@ static native_fm_t *native_fm_bank(uint32_t b)
 static cz_bank_t *native_cz_bank(uint32_t b)
 {
     if (native_cz_cached != b) {
-        cz_bank_cached=255;
+        bank_claim(BK_CZ);
         int n = flash_ok ? st_load(OBJ_CZBANK0 + b, &native_cz_cache, sizeof native_cz_cache) : -1;
         if (n != sizeof native_cz_cache || !cz_bank_valid(&native_cz_cache)) memset(&native_cz_cache, 0, sizeof native_cz_cache);
         native_cz_cached = (uint8_t)b;

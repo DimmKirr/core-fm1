@@ -81,8 +81,8 @@ track, while GATE needs no recording buffer. Performance loops reuse the same
 32 KiB capacity as the four stutters. Chorus and reverb retain their tails before
 releasing their delay lines; silent buses skip the delay processing.
 
-Preset browsing keeps names and slot indexes in RAM, with one bank cache for
-general presets, one for FM6 and one shared with the CZ bank reader. Melodee 2.0
+Preset browsing keeps names and slot indexes in RAM, with one bank cache shared by
+the general presets and the native FM6, CZ-1 and Prophet banks (the last bank asked for). Melodee 2.0
 reads only the formats written since 1.0; 1.2 rewrote older records at boot.
 
 The build reports both permanent POOL usage and the available working arena,
