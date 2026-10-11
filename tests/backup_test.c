@@ -470,7 +470,7 @@ int main(void)
         bad += check("CZ-1: a never-saved BANK A (its factory default) lists as length 0",
                      list(9, &len, &crc) == 0 && len == 0 && cz_bank_load(0)->used == 0xFFFFu);
         cz_bank_empty(&cb, 0);
-        memcpy(cb.tone[3].raw, CZ_FACTORY[7], CZ_BYTES);
+        memcpy(cb.tone[3].raw, cz_fac(7), CZ_BYTES);
         cb.used = 1u << 3;
         bad += check("CZ-1: a saved BANK A restores and lists with its 2332 B",
                      put_all(9, &cb, sizeof cb, st_crc32(&cb, sizeof cb)) == 0 && list(9, &len, &crc) == 0 &&

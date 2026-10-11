@@ -59,7 +59,7 @@ static uint32_t preset_by_name(uint32_t e, const char *n)
 {
     uint32_t k;
     for (k = 0; k < ENGINES[e]->npresets; k++)
-        if (str_eq(ENGINES[e]->presets[k].name, n))
+        if (str_eq(eng_preset(ENGINES[e], k)->name, n))
             return k;
     return 0;
 }

@@ -1015,7 +1015,7 @@ int main(int argc, char **argv)
     for (e = 0; e < NENGINES; e++)
         for (pi = 0; pi < ENGINES[e]->npresets; pi++) {
             job_t *j;
-            slug(s, ENGINES[e]->presets[pi].name, sizeof s);
+            slug(s, eng_preset(ENGINES[e], pi)->name, sizeof s);
             snprintf(name, sizeof name, "preset/%s/%02u_%s", ENGINES[e]->name, pi, s);
             j = add(J_PRESET, name);
             j->e = (uint8_t)e;
@@ -1078,7 +1078,7 @@ int main(int argc, char **argv)
     for (e = 0; e < NENGINES; e++)
         for (pi = 0; pi < ENGINES[e]->npresets; pi++) {
             job_t *j;
-            slug(s, ENGINES[e]->presets[pi].name, sizeof s);
+            slug(s, eng_preset(ENGINES[e], pi)->name, sizeof s);
             snprintf(name, sizeof name, "cpu/%s/%02u_%s", ENGINES[e]->name, pi, s);
             j = add(J_CPU, name);
             memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
@@ -1257,7 +1257,7 @@ int main(int argc, char **argv)
     printf("regress: CPU, one part with 8 notes held (VOICE 4), heaviest preset per engine (instructions / ns per sample):\n");
     for (e = 0; e < NENGINES; e++)
         if (eng_ok(e))
-            printf("regress:   %-8s %-14s %6.0f instr  %6.1f ns\n", ENGINES[e]->name, ENGINES[e]->presets[heavy_p[e]].name,
+            printf("regress:   %-8s %-14s %6.0f instr  %6.1f ns\n", ENGINES[e]->name, eng_preset(ENGINES[e], heavy_p[e])->name,
                    heavy[e], heavy_ns[e]);
     for (i = c1 - 3u; i < c1; i++)
         printf("regress:   %-23s %6.0f instr  %6.1f ns\n", J[i].name + 8, J[i].r.ipc, J[i].r.ns);

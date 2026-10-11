@@ -1111,8 +1111,10 @@ static int project_restore_runtime(const project_t *input)
                 }else if(!t->preset){
                     /* Older projects have no origin. Locate an unchanged
                      * factory or saved user sound by its complete patch. */
-                    for(slot=0;slot<P5_FACTORY_N;slot++)
-                        if(!memcmp(&p->p5[k],&P5_FACTORY[slot],sizeof(p5_patch_t))){t->preset=(uint8_t)(slot+1u);break;}
+                    for(slot=0;slot<P5_FACTORY_N;slot++){
+                        p5_patch_t f;p5_factory(slot,&f);
+                        if(!memcmp(&p->p5[k],&f,sizeof f)){t->preset=(uint8_t)(slot+1u);break;}
+                    }
                     if(slot==P5_FACTORY_N)for(slot=0;slot<P5_USER_SLOTS;slot++){
                         p5_patch_t saved;
                         if(!p5_user_get(slot,&saved) && !memcmp(&p->p5[k],&saved,sizeof saved)){

@@ -553,7 +553,7 @@ static int names_whole(void)
             ok = n >= 12u && n <= sizeof ed_out && host_wire[5] == e && count <= 127u;
             for (k = 0; ok && k < count; k++) {
                 char want[21];
-                str_cpy(want, ENGINES[e]->presets[got + k].name, 21);
+                str_cpy(want, eng_preset(ENGINES[e], got + k)->name, 21);
                 ok = got + k < ENGINES[e]->npresets && !strcmp((const char *)host_wire + i, want);
                 while (i < n && host_wire[i++]) ;
             }

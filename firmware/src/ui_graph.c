@@ -924,7 +924,7 @@ static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
         up_name(k, nm);
     } else {
         str_cpy(tag, eng_abbr(ENGINES[e % NENGINES]->name), 6);
-        str_cpy(nm, ENGINES[e % NENGINES]->presets[k].name, 13);
+        str_cpy(nm, eng_preset(ENGINES[e % NENGINES], k)->name, 13);
     }
 }
 /* the EDIT layer (ui_layer.c): the sound loaded, as the browser's selected row: "03" (its place in KNOB 2's list,
@@ -947,7 +947,7 @@ static void engine_sound_row(int32_t y)
         tag[0] = (char)('0' + (cur + 1u) / 10u % 10u);
         tag[1] = (char)('0' + (cur + 1u) % 10u);
         tag[2] = 0;
-        str_cpy(nm, e->npresets ? e->presets[TSEL->preset % e->npresets].name : "", sizeof nm);
+        str_cpy(nm, e->npresets ? eng_preset(e, TSEL->preset % e->npresets)->name : "", sizeof nm);
     }
     if(TSEL->eng_req==ENGI_PROPHET)p5_short_name(TSEL,nm,sizeof nm);
     list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232);
@@ -1033,7 +1033,7 @@ static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b hol
     else if(user_of(t)<USER_NONE && t->user_native)native_name(t->eng_req,user_of(t),b);
     else if (user_of(t) < UP_SLOTS)up_name(user_of(t), b);
     else if (e->npresets)
-        str_cpy(b, e->presets[t->preset % e->npresets].name, 13);
+        str_cpy(b, eng_preset(e, t->preset % e->npresets)->name, 13);
     else
         str_cpy(b, e->name, 13);
 }

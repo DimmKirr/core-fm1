@@ -71,7 +71,7 @@ static uint32_t preset_by_name(uint32_t e, const char *n)
 {
     uint32_t k;
     for (k = 0; k < ENGINES[e]->npresets; k++)
-        if (str_eq(ENGINES[e]->presets[k].name, n))
+        if (str_eq(eng_preset(ENGINES[e], k)->name, n))
             return k;
     return 0;
 }
@@ -484,7 +484,7 @@ static void test_cost(void)
     m0 = cost(mix, 0);
     m1 = cost(mix, 1);
     printf("mod: cost: PHYS %s (plays 4 voices): %.0f -> %.0f instructions / sample with 4 slots (+%.0f, +%.1f %% of "
-           "the part over the idle mix %.0f)\n", ENGINES[e_phys]->presets[pp].name, c0, c1, c1 - c0,
+           "the part over the idle mix %.0f)\n", eng_preset(ENGINES[e_phys], pp)->name, c0, c1, c1 - c0,
            (c1 - c0) * 100 / (c0 - c_idle), c_idle);
     printf("mod: cost: 4 parts (DIGITAL / its FM6 conversion 8 + PHASE 8 + PHYS 4 + TRIO 4 asked, the budget plays 8), every slot of "
            "every part active: %.0f -> %.0f (+%.1f %%)\n", m0, m1, (m1 - m0) * 100 / m0);

@@ -622,7 +622,7 @@ static uint32_t preset_named(uint32_t e, const char *n)
 {
     uint32_t k;
     for (k = 0; k < ENGINES[e]->npresets; k++)
-        if (!strcmp(ENGINES[e]->presets[k].name, n)) return k;
+        if (!strcmp(eng_preset(ENGINES[e], k)->name, n)) return k;
     return 0;
 }
 /* Stage's knobs out (a knob just turned), dropped in all the way */

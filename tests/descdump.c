@@ -87,7 +87,7 @@ int main(void)
         js_descs(en->edit, 8);
         printf(",\"presets\":[");
         for (k = 0; k < en->npresets; k++) {
-            const preset_t *p = &en->presets[k];
+            const preset_t *p = eng_preset(en, k);
             printf("%s\n  {\"name\":", k ? "," : "");
             js_str(p->name);
             for (i = 0; i < 8u; i++)

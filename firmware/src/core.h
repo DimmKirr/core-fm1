@@ -240,6 +240,8 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
     uint32_t (*cap)(const struct track *t);
     /* optional: the voice budget units one of its voices takes now  */
     uint32_t (*units)(const struct track *t);
+    /* with presets 0: preset k (< npresets) made on demand, its name into name (21 bytes); engines.c eng_preset */
+    void (*preset_make)(uint32_t k, preset_t *p, char *name);
 } engine_t;
 /* voice_start: what the voice it starts did just before (0 free, 1 released, 2 its key down: a steal or a move);
  * engine_t.note_on may read it  */

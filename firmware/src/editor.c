@@ -660,7 +660,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         room = sizeof ed_out - ed_n - 2u - 18u - 4u - 1u;
         for (i = s0; i < en->npresets && n < 127u; i++, n++) {
             uint32_t len = 0;
-            while (len < 20u && en->presets[i].name[len])
+            const char *nm = eng_preset(en, i)->name;
+            while (len < 20u && nm[len])
                 len++;
             if (len + 1u > room)
                 break;
@@ -669,7 +670,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(a[0]);
         ed_b(n);
         for (i = 0; i < n; i++)
-            ed_str(en->presets[s0 + i].name, 20);
+            ed_str(eng_preset(en, s0 + i)->name, 20);
         for (i = 0; i < 2u; i++)                           /* then the two edit-page titles */
             ed_str(en->page_title[i], 8);
         ed_b(en->npresets);                                /* then all presets and this page's first: the */

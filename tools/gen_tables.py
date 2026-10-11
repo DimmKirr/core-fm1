@@ -184,10 +184,11 @@ def sid_spline(points):
     return y
 
 
-def sid_lz(t):
-    """eng_sid.c sid_unpack's format: c < 0x80: c + 1 bytes follow; c >= 0x80: (c & 0x7f) + 3 bytes copied from
-    d + 1 back, d in the next two bytes (little endian). Greedy longest match within the table"""
-    out, lit, i = bytearray(), bytearray(), 0
+def lz_pack(t, start=0):
+    """dsp.c lz_unpack's format: c < 0x80: c + 1 bytes follow; c >= 0x80: (c & 0x7f) + 3 bytes copied from
+    d + 1 back, d in the next two bytes (little endian). Greedy longest match. t[:start] is a dictionary the
+    decoder has in place before its output: only t[start:] is coded, its copies may reach back into it"""
+    out, lit, i = bytearray(), bytearray(), start
 
     def flush():
         while lit:
@@ -216,9 +217,9 @@ def sid_lz(t):
     return bytes(out)
 
 
-def sid_unlz(b, n):
-    o, i = bytearray(), 0
-    while len(o) < n:
+def lz_unpack(b, n, dictionary=b""):
+    o, i = bytearray(dictionary), 0
+    while len(o) < len(dictionary) + n:
         c = b[i]
         if c < 0x80:
             o += b[i + 1:i + c + 2]
@@ -228,7 +229,7 @@ def sid_unlz(b, n):
             for _ in range((c & 0x7f) + 3):
                 o.append(o[-d])
             i += 3
-    return bytes(o)
+    return bytes(o[len(dictionary):])
 
 
 def sid_tables():
@@ -285,13 +286,13 @@ def sid_tables():
              [near(att, math.log(10 ** (4 * v / 127) / 1000)) | near(dr, math.log(10 ** (4 * v / 127) / 1000)) << 4
               for v in range(128)], 16)
     # combined waveforms: reSID's samples of a real 6581 and 8580 (assets/resid/README.md), the top 8 of 12 output
-    # bits by accumulator >> 12 for TRI+SAW, TRI+PULSE, SAW+PULSE, all three; packed (sid_lz, checked here)
+    # bits by accumulator >> 12 for TRI+SAW, TRI+PULSE, SAW+PULSE, all three; packed (lz_pack, checked here)
     packed, at = bytearray(), []
     for m in ("6581", "8580"):
         for w in ("_ST", "P_T", "PS_", "PST"):
             t = (SID_WAVES / f"wave{m}_{w}.dat").read_bytes()
-            e = sid_lz(t)
-            assert len(t) == 4096 and sid_unlz(e, 4096) == t
+            e = lz_pack(t)
+            assert len(t) == 4096 and lz_unpack(e, 4096) == t
             at.append(len(packed))
             packed += e
     L += arr("SID_WAVE_LZ", "uint8_t", list(packed), 24)

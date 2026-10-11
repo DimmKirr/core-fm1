@@ -330,7 +330,7 @@ static int test_sound_loads(void)
                  t->p[P_TRANS] == 5 && t->p[P_SLCR] == SL_GATE && t->p[P_SLPAT] == 4 && t->p[P_LEVEL] == 90);
     bad += check("..and no warning about the sequence", !msg_is("T1 SEQ REPLACED"));
     for (i = 0; i < ENGINES[3]->npresets; i++)
-        if (str_eq(ENGINES[3]->presets[i].name, "ARP BASS"))
+        if (str_eq(eng_preset(ENGINES[3], i)->name, "ARP BASS"))
             break;
     t->p[P_AMODE] = 0;
     t->preset = (uint8_t)(i - 1u);
@@ -1067,7 +1067,7 @@ static uint32_t find_preset(uint32_t e, const char *name)
 {
     uint32_t k;
     for (k = 0; k < ENGINES[e]->npresets; k++)
-        if (str_eq(ENGINES[e]->presets[k].name, name))
+        if (str_eq(eng_preset(ENGINES[e], k)->name, name))
             return k;
     return 0xFFFFu;
 }
@@ -2902,18 +2902,18 @@ static int test_cz1_factory(void)
     stop_transport();
     tr = song.sel % NTRK;
     bad += check("CZ-1 PRESETS: INIT TONE, then Casio's 64 CZ-1 tones", e->npresets == 65u && CZ_FACTORY_N == 64u &&
-                 str_eq(e->presets[1].name, "BRASS 1") && str_eq(e->presets[64].name, "TYPHOON"));
+                 str_eq(eng_preset(e, 1)->name, "BRASS 1") && str_eq(eng_preset(e, 64)->name, "TYPHOON"));
     for (i = 1; i <= 64u; i++) {
         set_engine_of(TSEL, ENGI_CZ);
         apply_preset_to(TSEL, i);
         ok &= TSEL->preset == i && TSEL->p[P_E0] == (int16_t)((i - 1u) / 16u) && TSEL->p[P_E1] == (int16_t)((i - 1u) % 16u + 1u) &&
-              !memcmp(cz_patch[tr].raw, CZ_FACTORY[i - 1u], CZ_BYTES) && cz_patch_valid(cz_patch[tr].raw);
+              !memcmp(cz_patch[tr].raw, cz_fac(i - 1u), CZ_BYTES) && cz_patch_valid(cz_patch[tr].raw);
         frame();                                         /* (cz_bank_poll: the tone stays, BANK / PTCH already its) */
-        ok &= !memcmp(cz_patch[tr].raw, CZ_FACTORY[i - 1u], CZ_BYTES);
+        ok &= !memcmp(cz_patch[tr].raw, cz_fac(i - 1u), CZ_BYTES);
     }
     bad += check("CZ-1 each factory preset loads its native tone and shows its BANK / PTCH", ok);
     bad += check("CZ-1 factory tones keep the CZ-1's own LCD names",
-                 !memcmp(CZ_FACTORY[0] + 128, "    BRASS 1     ", 16) && !memcmp(CZ_FACTORY[45] + 128, "AFRO-PERCUSSION ", 16));
+                 !memcmp(cz_fac(0) + 128, "    BRASS 1     ", 16) && !memcmp(cz_fac(45) + 128, "AFRO-PERCUSSION ", 16));
     apply_preset_to(TSEL, 0);
     bad += check("CZ-1 INIT TONE is still the init voice", !memcmp(cz_patch[tr].raw + 128, "INIT", 4) && TSEL->p[P_E1] == 0);
     ok = 1;
@@ -2921,7 +2921,7 @@ static int test_cz1_factory(void)
         cz_bank_import(n, 0, 0);
         b = cz_bank_load(n);
         ok &= !cz_bank_saved && b->used == (n < 4u ? 0xFFFFu : 0u);
-        for (i = 0; n < 4u && i < 16u; i++) ok &= !memcmp(b->tone[i].raw, CZ_FACTORY[n * 16u + i], CZ_BYTES);
+        for (i = 0; n < 4u && i < 16u; i++) ok &= !memcmp(b->tone[i].raw, cz_fac(n * 16u + i), CZ_BYTES);
     }
     b = cz_bank_load(1);
     bad += check("CZ-1 never-saved BANK A..D hold Casio's A-1 .. H-8, E..H empty", ok && !memcmp(b->name, "CZ-1 C1-D8", 10));
@@ -2931,10 +2931,10 @@ static int test_cz1_factory(void)
     bad += check("CZ-1 retired BANK / PTCH values cannot replace the current tone",
                  !memcmp(cz_patch[tr].raw + 128,"INIT",4));
     cz_bank_empty(&mine, 0);
-    memcpy(mine.tone[0].raw, CZ_FACTORY[63], CZ_BYTES); mine.used = 1u;
+    memcpy(mine.tone[0].raw, cz_fac(63), CZ_BYTES); mine.used = 1u;
     cz_bank_import(0, (const uint8_t *)&mine, sizeof mine);
     b = cz_bank_load(0);
-    ok = cz_bank_saved && b->used == 1u && !memcmp(b->tone[0].raw, CZ_FACTORY[63], CZ_BYTES);
+    ok = cz_bank_saved && b->used == 1u && !memcmp(b->tone[0].raw, cz_fac(63), CZ_BYTES);
     bad += check("CZ-1 a saved BANK A wins over the factory one", ok);
     cz_bank_import(0, 0, 0);
     bad += check("CZ-1 a restore without BANK A brings Casio's back", cz_bank_load(0)->used == 0xFFFFu && !cz_bank_saved);
@@ -4765,14 +4765,14 @@ static int test_new_song(void)
 static int test_prophet_pages(void)
 {
     ui_power_on();set_engine_of(TSEL,ENGI_PROPHET);int bad=0,visible=0;
-    bad+=check("selecting Prophet starts on its first factory program",!TSEL->user&&TSEL->preset==1u&&!memcmp(p5_patch_of(TSEL),&P5_FACTORY[0],sizeof(p5_patch_t)));
+    bad+=check("selecting Prophet starts on its first factory program",!TSEL->user&&TSEL->preset==1u&&!memcmp(p5_patch_of(TSEL),p5_fac(0),sizeof(p5_patch_t)));
     uint32_t count,slot,source=preset_all_at(200u,&slot);
     bad+=check("all 201 Prophet factory entries precede empty user slots in both browsers",eng_list_pos(&count)==1u&&count==201u&&source==ENGI_PROPHET&&slot==200u);
     int factory=ENGINES[ENGI_PROPHET]->npresets==P5_FACTORY_N+1u;
     for(uint32_t k=1;k<=P5_FACTORY_N;k++){
-        apply_preset_to(TSEL,k);char name[21];p5_patch_name(name,&P5_FACTORY[k-1u]);
-        factory &= TSEL->preset==k&&!TSEL->user&&!memcmp(p5_patch_of(TSEL),&P5_FACTORY[k-1u],sizeof(p5_patch_t))&&
-                   !strcmp(ENGINES[ENGI_PROPHET]->presets[k].name,name)&&!TSEL->p[P_DIST]&&!TSEL->p[P_REV];
+        apply_preset_to(TSEL,k);char name[21];p5_patch_name(name,p5_fac(k-1u));
+        factory &= TSEL->preset==k&&!TSEL->user&&!memcmp(p5_patch_of(TSEL),p5_fac(k-1u),sizeof(p5_patch_t))&&
+                   !strcmp(eng_preset(ENGINES[ENGI_PROPHET], k)->name,name)&&!TSEL->p[P_DIST]&&!TSEL->p[P_REV];
     }
     bad+=check("all 200 Sequential programs are dry factory presets with exact native bytes, whatever the user bank holds",factory);
     apply_preset_to(TSEL,0);

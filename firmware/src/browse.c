@@ -110,7 +110,7 @@ static uint32_t cat_guess(uint32_t e, const char *nm)
     if (e == ENGI_DRUM || e == 11u)
         return cat_of_engine(e);
     for (k = 0; k < en->npresets; k++)
-        if (name_same(en->presets[k].name, nm))
+        if (name_same(eng_preset(en, k)->name, nm))
             return preset_cat(e % NENGINES, k);
     for (k = 0; k < NELEM(CAT_WORDS); k++)
         if (name_has_word(nm, CAT_WORDS[k].w))

@@ -129,7 +129,7 @@ static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
         return;
     }
     pi %= n;
-    host_preset_values(t, e, pi, &ENGINES[e]->presets[pi]);
+    host_preset_values(t, e, pi, eng_preset(ENGINES[e], pi));
 }
 static void host_preset(track_t *t, uint32_t e, uint32_t pi)
 {
@@ -790,7 +790,7 @@ static int tracks_test(const char *dir)
     printf("tracks: one part, 8 notes held (host -O2, ns per sample, heaviest preset per engine):");
     for (e = 0; e < NENGINES; e++)
         if (eng_ok(e))
-            printf(" %s %s %.1f%s", ENGINES[e]->name, ENGINES[e]->presets[heavy[e]].name, best_e[e],
+            printf(" %s %s %.1f%s", ENGINES[e]->name, eng_preset(ENGINES[e], heavy[e])->name, best_e[e],
                    e + 1u < NENGINES ? "," : "\n");
     {   /* FM (DIGITAL with MELODEE_FM4, else FM6), PHASE, VOICE (their heaviest presets) and drums on part 4 at once:
          * 3 + 3 + 2 notes and the hits in the budget of 8 */
@@ -807,7 +807,7 @@ static int tracks_test(const char *dir)
         four_full = tracks_cost(full, &bm2);
         two_voice = tracks_cost(vv, &bm3);
         none = tracks_cost(idle, 0);
-        printf("tracks: worst single part: %s %s %.1f ns\n", ENGINES[worst_e]->name, ENGINES[worst_e]->presets[worst_p].name, worst);
+        printf("tracks: worst single part: %s %s %.1f ns\n", ENGINES[worst_e]->name, eng_preset(ENGINES[worst_e], worst_p)->name, worst);
         printf("tracks: %s + PHASE + VOICE + drums, 3 + 3 + 2 notes: %.1f ns (%.2f x the worst single part), "
                "%u voices\n", ENGINES[fm]->name, four, four / worst, bm);
         printf("tracks: the same, 8 + 8 + 4 notes asked for (budget keeps %u): %.1f ns (%.2f x)\n", bm2, four_full,
@@ -838,7 +838,7 @@ int main(int argc, char **argv)
     inst.eng_req = inst.engine = (uint8_t)eng;
     for (i = 0; i < 8; i++) inst.p[P_E0 + i] = ENGINES[eng]->edit[i].def;
     if (ENGINES[eng]->npresets) {
-        const preset_t *p = &ENGINES[eng]->presets[preset % ENGINES[eng]->npresets];
+        const preset_t *p = eng_preset(ENGINES[eng], preset % ENGINES[eng]->npresets);
         for (i = 0; i < 8; i++) inst.p[P_E0 + i] = p->e[i];
         inst.p[P_ATK] = p->env[0]; inst.p[P_DEC] = p->env[1];
         inst.p[P_SUS] = p->env[2]; inst.p[P_REL] = p->env[3]; inst.p[P_ED_FLT] = p->fenv;

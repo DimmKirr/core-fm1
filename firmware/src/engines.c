@@ -155,6 +155,23 @@ static const engine_t *const ENGINES[NENGINES] = {
 /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
 static inline uint32_t eng_idx(uint32_t e) { return e < NENGINES ? e : 0u; }
 
+/* preset k (< npresets) of e: its row, or one made on demand (Prophet, CZ-1: their names live in the native data).
+ * Made presets take turns in two slots: two can be held at once (main loop only) */
+static const preset_t *eng_preset(const engine_t *e, uint32_t k)
+{
+    static preset_t made[2];
+    static char made_name[2][21];
+    static uint8_t turn;
+    if (e->presets)
+        return &e->presets[k];
+    turn ^= 1u;
+    memset(&made[turn], 0, sizeof made[turn]);
+    made_name[turn][0] = 0;
+    made[turn].name = made_name[turn];
+    e->preset_make(k, &made[turn], made_name[turn]);
+    return &made[turn];
+}
+
 /* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
  * engine indices, never DIGITAL's reserved 1 (with MELODEE_FM4 it follows FM6). The indices stay as they are (the
  * stores and the protocol hold them); only this table orders them */

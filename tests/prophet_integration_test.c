@@ -10,10 +10,10 @@ int main(int argc,char **argv)
     uint32_t default_erases=erases;int defaults=1;
     for(uint32_t slot=0;slot<128u;slot++)defaults &= !p5_user_used(slot);
     bad+=check("fresh Prophet user storage is empty without erasing flash",defaults&&erases==default_erases);
-    bad+=check("Sequential's first factory program remains separate",!memcmp(P5_FACTORY[0].raw+P5_NAME,"It's a Prophet 5",15)&&P5_FACTORY[0].model==0x32);
+    bad+=check("Sequential's first factory program remains separate",!memcmp(p5_fac(0)->raw+P5_NAME,"It's a Prophet 5",15)&&p5_fac(0)->model==0x32);
     p5_bank_t empty;memset(&empty,0,sizeof empty);empty.magic=P5_BANK_MAGIC;
     bad+=check("an existing intentionally empty saved bank keeps its empty collection",!st_save(OBJ_P5BANK0,&empty,sizeof empty)&&(p5_user_reset(),!p5_user_used(0)&&!p5_user_used(25)&&!p5_user_used(26)));
-    bad+=check("an explicitly saved copy remains in its user slot",!p5_user_put(0,&P5_FACTORY[0])&&(p5_user_reset(),p5_user_used(0)));
+    bad+=check("an explicitly saved copy remains in its user slot",!p5_user_put(0,p5_fac(0))&&(p5_user_reset(),p5_user_used(0)));
     reset();up_boot();
     p5_patch_init(&p);for(uint32_t i=88;i<133;i++)p.raw[i]=(uint8_t)(i*179u);
     int all=1;for(uint32_t slot=0;slot<128;slot++){p.raw[65]=(uint8_t)('A'+slot%26);all &= !native_put(ENGI_PROPHET,slot,(const uint8_t *)&p);}
@@ -44,7 +44,7 @@ int main(int argc,char **argv)
     bad+=check("new projects retain a native origin even after the live patch was edited",proj_pack(&wire,&saved)&&proj_import(&readback,&wire,sizeof wire)&&!project_restore_runtime(&readback)&&t->user_native&&t->user==128u);
     apply_preset_to(t,200u);project_capture(&saved);
     bad+=check("project restore resumes at the last of all 200 factory programs",proj_pack(&wire,&saved)&&proj_import(&readback,&wire,sizeof wire)&&!project_restore_runtime(&readback)&&!t->user&&t->preset==200u&&eng_list_pos(&total)==200u);
-    apply_preset_to(t,0u);project_capture(&saved);saved.p5[0]=P5_FACTORY[199];saved.t[0].preset=0;*proj_p5_origin(&saved,0)=0;saved.sum=proj_sum(&saved);
+    apply_preset_to(t,0u);project_capture(&saved);saved.p5[0]=*p5_fac(199);saved.t[0].preset=0;*proj_p5_origin(&saved,0)=0;saved.sum=proj_sum(&saved);
     uint32_t origin_at=68u+NTRK*(P_COUNT+2u+NSTEP*9u)+sizeof saved.chain+sizeof saved.motion;
     proj_pack(&wire,&saved);wire.raw[origin_at]=wire.raw[origin_at+1u]=0u;
     uint32_t checksum=proj_hash(wire.raw,PROJ_STORE_SIZE-4u);memcpy(wire.raw+PROJ_STORE_SIZE-4u,&checksum,4u);

@@ -31,7 +31,7 @@ static void cz_bank_default(cz_bank_t *b,uint32_t k)
     if(k>=CZ_FACTORY_N/CZ_BANK_SLOTS)return;
     memcpy(b->name,"CZ-1 A1-B8",10);b->name[5]=(char)('A'+2u*k);b->name[8]=(char)('B'+2u*k);
     b->used=0xFFFFu;
-    for(uint32_t i=0;i<CZ_BANK_SLOTS;i++)memcpy(b->tone[i].raw,CZ_FACTORY[k*CZ_BANK_SLOTS+i],CZ_BYTES);
+    for(uint32_t i=0;i<CZ_BANK_SLOTS;i++)cz_factory(k*CZ_BANK_SLOTS+i,b->tone[i].raw);
 }
 static cz_bank_t *cz_bank_load(uint32_t k)
 {

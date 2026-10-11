@@ -480,19 +480,32 @@ static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
     run(s,p,out,n,m,&c);
 }
 
+/* Sequential's factory program k (0..P5_FACTORY_N-1), unpacked (tools/gen_prophet_factory.py pack) */
+static void p5_factory(uint32_t k,p5_patch_t *p)
+{
+    const uint8_t *b=P5_FPACK+k*P5_FACTORY_BYTES;
+    uint32_t pos=0;
+    for(uint32_t i=0;i<P5_RAW_MAX;i++){
+        uint32_t v=0;
+        for(uint32_t j=0;j<P5_FWIDTH[i];j++,pos++)v|=(uint32_t)(b[pos>>3]>>(pos&7u)&1u)<<j;
+        p->raw[i]=(uint8_t)(P5_FBASE[i]+v);
+    }
+    p->size=P5_RAW_MAX;p->model=0x32;p->command=2;p->group=(uint8_t)(k/40u);p->program=(uint8_t)(k%40u);
+}
 /* INIT, then Sequential's factory programs in their order (111..588 on the
- * Prophet: preset k is program k-1 of the v1.03 bank). Dry, as the Prophet. */
-#define P5_FACTORY_PRESET(n) {n,{0,0,0,0,0,0,0,0},{0,0,127,0},0,0,FX(0,0,0,0)},
-static const preset_t P5_TEST_PRESETS[] = {
-    {"INIT PROPHET",{0,0,0,0,0,0,0,0},{0,0,127,0},0,0,FX(0,0,0,0)},
-    P5_FACTORY_PRESETS(P5_FACTORY_PRESET)
-};
-_Static_assert(NELEM(P5_TEST_PRESETS)==P5_FACTORY_N+1u, "Prophet factory presets");
+ * Prophet: preset k is program k-1 of the v1.03 bank), named as the programs are. Dry, as the Prophet. */
+static void p5_preset_make(uint32_t k,preset_t *pr,char *name)
+{
+    p5_patch_t p;
+    pr->env[2]=127;memset(pr->fx,1,sizeof pr->fx);                 /* dry: sends 0 (stored + 1) */
+    if(!k){str_cpy(name,"INIT PROPHET",21);return;}
+    p5_factory(k-1u,&p);p5_patch_name(name,&p);
+}
 /* A factory preset's native program; preset 0 is INIT. */
 static void p5_preset_loaded(track_t *t,uint32_t pi)
 {
     p5_patch_t *p=p5_patch_of(t);
-    if(pi && pi<=P5_FACTORY_N)*p=P5_FACTORY[pi-1u];else p5_patch_init(p);
+    if(pi && pi<=P5_FACTORY_N)p5_factory(pi-1u,p);else p5_patch_init(p);
     p5_track_accept(t);
 }
 /* Serial hardware measurements justify three units per voice. The opt-in
@@ -505,7 +518,7 @@ static const engine_t ENG_P5_TEST = {
            {"TUNA",F_SEMI,-24,24,0,0,0},{"TUNB",F_SEMI,-24,24,0,0,0},
            {"PWA",F_INT,-63,63,0,0,0},{"PWB",F_INT,-63,63,0,0,0},
            {"MIXA",F_INT,-63,63,0,0,0},{"MIXB",F_INT,-63,63,0,0,0}},
-    .presets=P5_TEST_PRESETS,.npresets=NELEM(P5_TEST_PRESETS),.poly=P5_POLY,.ownenv=1,
+    .preset_make=p5_preset_make,.npresets=P5_FACTORY_N+1u,.poly=P5_POLY,.ownenv=1,
     .note_on=p5_note_on,.render=p5_render,.done=p5_done,.block=p5_block,.units=p5_units,.cap=p5_cap,.legato=p5_legato,
 #if MELODEE_DUAL_CORE
     .post=p5_post,
