@@ -12,7 +12,7 @@ It saves a complete backup first. If your firmware cannot export one, you can se
 **Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.1.0** ([what's new](#whats-new-in-110)).
+**Melodee 1.2.1** ([what's new](#whats-new-in-121)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -23,6 +23,34 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.2.1
+
+This release makes room for more voices. External effects are gone, the audio engine runs from fast
+internal RAM, and the firmware is about 115 KB smaller. Standard (dual-core) and Single core firmware
+are both available in the installer and release downloads.
+
+- **No external effects:** distortion, the SLICER, chorus, delay, reverb and the FX layer (repeat,
+  reverse, filter sweeps, tape stop, freeze, harmonizer, flanger, phaser, FX LATCH and punch-in) are
+  removed. The panel's FX button has no action and CC91 / CC93 do nothing. Older songs and presets
+  still load; their former effect settings and automation are ignored, so they play dry.
+- **Fewer cut notes:** the whole audio path runs from internal RAM, and the shared voice budget rises
+  from 16 to 18 units while the second core is online. Per-engine caps and overload protection remain.
+- **ANALOG and DIGITAL retired:** track 1 now powers on with PROPHET FUNK BASS II. Saved ANALOG and
+  DIGITAL sounds keep their place but play silent.
+- **Older formats:** projects, templates and presets saved by Melodee 1.0 or later load as before.
+  Anything older shows OLD FORMAT and stays untouched until you choose to replace it; the device asks
+  first. A backup the device cannot read is refused before anything is written. If you still have
+  projects or presets from before 1.0, open and save them with 1.1.0 before updating.
+- **Import SysEx:** a DX7, CZ-1, Prophet or Melodee preset sent over USB opens its USER list. Pick the
+  destination and choose **Import here**; occupied slots ask before they are replaced.
+- **Bulk presets:** hold OCT+ and turn a knob to select a range of USER or STORE slots, then send or
+  erase them together.
+- **Note tools:** move and copy notes or ranges at quarter-step boundaries, and quantize a pattern or
+  a selection to 1, 0.5 or 0.25 step, each with one undo.
+- **Fixes:** local PLAY keeps running until MIDI Start, Continue or Stop takes over; no pop at power-on;
+  a list picker no longer covers half of a neighbouring value; Prophet parts no longer add a DC offset
+  to the mix and USB stems; settings backups with recording preferences restore again.
 
 ## What's new in 1.1.0
 
