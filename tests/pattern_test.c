@@ -132,21 +132,7 @@ static int replaced_motion(void)
 }
 static int migrated_bank_rename(void)
 {
-#if !MELODEE_FM4
-    ui_power_on();
-    motion_set_event(TSEL, 0, P_E0, 40);
-    pattern_request(TSEL, 3); motion_set_event(TSEL, 0, P_REV, 80);
-    project_capture(&proj_scratch); proj_scratch.t[0].engine = ENGI_DIGITAL;
-    if (!bank_pack(proj_wire_u.raw, &proj_scratch, 1)) return check("DIGITAL bank fixture packs", 0);
-    memcpy(proj_bank_slot[0], proj_wire_u.raw, BANK_STORE_SIZE);
-    memcpy(&proj_slot[0], proj_wire_u.raw + 8u, sizeof proj_slot[0]);
-    int ok = !project_rename(0, "MIGRATED"); project_load(0);
-    ok &= trk[0].eng_req == ENGI_FM6 && motion.count == 1 && motion_pattern[0] == 3 && motion.event[0].param == P_REV;
-    motion_begin(); motion_step(TSEL, 0, &motion); ok &= TSEL->p[P_REV] == 80; motion_end();
-    return check("renaming a migrated DIGITAL bank keeps surviving automation on its bank", ok);
-#else
     return 0;
-#endif
 }
 int main(void)
 {

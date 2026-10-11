@@ -20,9 +20,6 @@ static const uint8_t CAT_ORDER[] = {CAT_BASS, CAT_LEAD, CAT_PAD, CAT_KEYS, CAT_O
 /* the factory presets' categories, a letter per preset in its engine's order; tests/ui_test.c checks each string's
  * length against its engine's preset count. An engine without one: cat_of_engine */
 static const char *const PRESET_CAT[NENGINES] = {
-#if MELODEE_FM4
-    [ENGI_DIGITAL] = "KEBRGPEK",                        /* DIGITAL (MELODEE_FM4 builds): E.PIANO .. FUNK KEY */
-#endif
 #if MELODEE_LEGACY_EXTRAS                                /* (retired: PHASE VOICE NOISE) */
     [2] = "RGSLEU",                                     /* PHASE: BRASS ORGAN STRING RESO BELL WIRE */
     [5] = "PLBF",                                       /* VOICE: CHOIR AAH, VOX LEAD, WOW BASS, WHISPER */

@@ -1630,11 +1630,6 @@ static void ui_input(void)
     } else {
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
     }
-#if !MELODEE_FM4
-    for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
-        if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */
-            fm4_track(&trk[k]);
-#endif
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     layer_arm(pressed, now);
     layer_masks();                                      /* seq.c: keys pressed with a layer's button are its own */

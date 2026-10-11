@@ -39,9 +39,7 @@
  * Legacy single-pattern flash records load into bank 1; their old project-based
  * arrangement is cleared rather than interpreted as bank assignments.
  *
- * DIGITAL (engine 1) was retired in 1.0 (fm4_convert.c): a track of it, in any format, loads as FM6 with the
- * patch converted from its values as the track's own (proj_fm4, on every import; the stored record keeps what it
- * holds until saved again). Its motion events on the EDIT or OP ENV values are dropped.
+ * DIGITAL (engine 1) was retired in 1.0; since 2.0 a track of it plays silent, as any retired engine's.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
@@ -315,46 +313,6 @@ static void proj_phys(project_t *q)
     q->sum = proj_sum(q);
 }
 
-/* DIGITAL tracks (engine 1; without MELODEE_FM4) -> FM6 with the converted patch as the track's own (fm4_convert.c,
- * whatever format the project is: the conversion runs on every load, the stored record keeps what it holds until it
- * is saved again). Their motion events on the EDIT values or the OP ENV values go: DIGITAL's meanings do not carry
- * over to FM6's macros. Idempotent */
-static void proj_fm4(project_t *q)
-{
-#if !MELODEE_FM4
-    uint32_t k, i, n, hit = 0;
-    for (k = 0; k < NTRK; k++) {
-        proj_trk_t *d = &q->t[k];
-        uint8_t v[FP_SIZE + 1u];
-        uint32_t pr;
-        if (d->engine != ENGI_DIGITAL)
-            continue;
-        for (i = 0; i < P_COUNT; i++)
-            d->p[i] = (int16_t)clamp(d->p[i], param_desc_of(ENGI_DIGITAL, i)->min, param_desc_of(ENGI_DIGITAL, i)->max);
-        pr = fm4_convert(d->p, v);
-        fm6_pack(v, q->fm6[k]);
-        d->engine = ENGI_FM6;
-        if (d->preset < PROJ_DEF_KEEP)
-            d->preset = (uint8_t)pr;
-        hit |= 1u << k;
-    }
-    if (!hit)
-        return;
-    for (i = n = 0; i < q->motion.count && i < MOTION_MAX; i++) {
-        const motion_event_t *e = &q->motion.event[i];
-        if (((hit >> (e->place >> 6)) & 1u) && (e->param >= P_E0 || (e->param >= P_FM1_ATK && e->param <= P_FM4_LEVEL)))
-            continue;
-        q->motion.event[n++] = *e;
-    }
-    for (i = n; i < q->motion.count && i < MOTION_MAX; i++)
-        memset(&q->motion.event[i], 0, sizeof q->motion.event[i]);
-    q->motion.count = (uint8_t)n;
-    q->sum = proj_sum(q);
-#else
-    (void)q;
-#endif
-}
-
 /* a format 4 project (n bytes in *v4) -> slot q as format 6 */
 static int proj_from_v4(project_t *q, const project_v4_t *v4, int n)
 {
@@ -459,13 +417,10 @@ static void proj_fm6_init(project_t *q)
 }
 static int proj_import_old(project_t *q, const void *b, int n);
 static int proj_import_any(project_t *q, const void *b, int n);
-/* n bytes of a stored project (any format) -> q as today's, DIGITAL tracks converted; 0 = not a project */
+/* n bytes of a stored project (any format) -> q as today's; 0 = not a project */
 static int proj_import(project_t *q, const void *b, int n)
 {
-    if (!proj_import_any(q, b, n))
-        return 0;
-    proj_fm4(q);
-    return 1;
+    return proj_import_any(q, b, n);
 }
 /* a project from before the delay came back (FUN16, delay.c; Melodee 0.13's 1024 notes had retired the bus): its
  * delay sends and their automation were inert all that time, so 0 now (nothing echoes until a send is turned up), the
@@ -1087,7 +1042,6 @@ static int project_restore_runtime(const project_t *input)
     if (p != input) memcpy(p, input, sizeof *p);
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */
     proj_phys(p);                                       /* .. before PHYS lost DUST and DRUM */
-    proj_fm4(p);                                        /* .. that had DIGITAL tracks */
     transport_req = 2;
     panic_req = (1u << NTRK) - 1u;
     fm1_irq_off();                                      /* the audio ISR must not see half a project */

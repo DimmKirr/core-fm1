@@ -4,8 +4,8 @@
  * define, so the order matters. */
 
 /* ---------------------------------------------------- build options --- */
-/* build.py: MELODEE_<NAME>=0 / 1 in the environment overrides these. Elsewhere: MELODEE_SLICE, MELODEE_FM4
- * (core.h: the SLICE engine, the DIGITAL engine), MELODEE_ICONS (icons.c, the parameter icons; on by default),
+/* build.py: MELODEE_<NAME>=0 / 1 in the environment overrides these. Elsewhere: MELODEE_SLICE
+ * (core.h: the SLICE engine), MELODEE_ICONS (icons.c, the parameter icons; on by default),
  * MELODEE_OTA_RAMONLY (ota.c). */
 #include "build_options.h"      /* defaults shared with crt0.S */
 #ifndef MELODEE_CACHE_RAM

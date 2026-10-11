@@ -23,10 +23,6 @@
 #undef MELODEE_SLICE
 #endif
 #define MELODEE_SLICE 0
-#ifndef MELODEE_FM4
-#define MELODEE_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
-                                  * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
-#endif
 #ifndef P5_OVERSAMPLE
 #define P5_OVERSAMPLE 1 /* prototype: benchmark base rate before enabling optional 2x */
 #endif
@@ -42,8 +38,8 @@
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
 #define USER_NONE 256u
-#define ENGI_DIGITAL 1u          /* reserved without MELODEE_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - 7u - !MELODEE_FM4 - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS)   /* the engines one can pick: PRESETS, the EDIT
+#define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
+#define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS)   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #ifdef SMP_USER_SLOTS

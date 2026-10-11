@@ -422,9 +422,9 @@ static void drum(uint32_t kit)
     trk[3].p[P_SLEN] = 32;
 }
 static void eng(uint32_t e) { set_engine_of(TSEL, e); }
-/* the FM engine of the FM screens: DIGITAL with MELODEE_FM4, else FM6 (DIGITAL retired: its own screens, the OP ENV /
- * OP LEVEL pages and the algorithm charts, exist only there: fm4_screen) */
-#define E_FM (MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6)
+/* the FM engine of the FM screens: FM6 (DIGITAL's own screens, the OP ENV / OP LEVEL pages and the algorithm charts,
+ * went with it: skipped) */
+#define E_FM ENGI_FM6
 
 enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_PRESETS_CAT, S_PRESETS_PENDING, S_PRESETS_RECENT, S_USER, S_PROJECT, S_PROJECT_BOOT, S_TEMPO,
        S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_MOTION, S_DRUM, S_MIXER, S_MIXER_PAN,
@@ -455,7 +455,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
-    "voice", "global", "system", "edit_analog", MELODEE_FM4 ? "edit_digital" : "edit_fm6", "op_env", "edit_wheel",
+    "voice", "global", "system", "edit_analog", "edit_fm6", "op_env", "edit_wheel",
     "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "fm6_freq", "fm6_eg", "fm6_peg", "fm6_store", "cz1_env", "confirm_seq", "confirm_project", "confirm_user",
     "confirm_motion", "confirm_erase", "menu", "menu_speaker", "about", "about_rec", "about_credits", "about_end", "uboot", "calibration",
     "batt_0", "batt_1", "batt_2", "batt_3", "batt_usb", "motion_rec", "motion_off", "song_home",
@@ -1300,7 +1300,7 @@ static void sweep_columns(void)
     char name[64];
     for (e = 0; e < NENGINES; e++) {
         if (!eng_ok(e))
-            continue;                                    /* (DIGITAL without MELODEE_FM4: no track has it) */
+            continue;                                    /* (DIGITAL, retired: no track has it) */
         for (i = 0; i < NPAGES; i++) {
             state();
             pal(UI_GRAY_INDEX);
@@ -1746,8 +1746,8 @@ int main(int argc, char **argv)
         for (s = 0; s < S_COUNT; s++) {
             char name[64];
             uint32_t k;
-            if (!MELODEE_FM4 && (s == S_OP_ENV || (s >= S_ALG1 && s <= S_OP_LEVEL)))
-                continue;                           /* (DIGITAL's own screens: MELODEE_FM4=1 only) */
+            if (s == S_OP_ENV || (s >= S_ALG1 && s <= S_OP_LEVEL))
+                continue;                           /* (DIGITAL's own screens: retired) */
             snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, S_NAME[s]);
             cur_name = name;
             setup((int)s);
@@ -1876,6 +1876,6 @@ int main(int argc, char **argv)
             "%u FM6 charts linted\n", nfind, nfree, mono_bad, nsweep, fmp_charts);
     fclose(rep);
     printf("ui_render: %u screens x %u palettes + the page/value sweep; %u lint findings, %u ellipsised free texts (%u distinct), "
-           "%u MONO pixels off gray; report %s\n", (unsigned)(S_COUNT - (MELODEE_FM4 ? 0 : 1 + S_OP_LEVEL - S_ALG1 + 1)), (unsigned)NPALETTES, nfind, nfree, nfree_seen, mono_bad, path);
+           "%u MONO pixels off gray; report %s\n", (unsigned)(S_COUNT - (1 + S_OP_LEVEL - S_ALG1 + 1)), (unsigned)NPALETTES, nfind, nfree, nfree_seen, mono_bad, path);
     return nfind || mono_bad ? 1 : 0;
 }

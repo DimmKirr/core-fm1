@@ -30,20 +30,15 @@ static int16_t settings_glo[4];                     /* ext.glo: project.c GLO_KE
 #define A4_TAG 0x41340000u                          /* "A4": old spare contents are not tuning */
 
 /* A record of today's magic that settings_import still changes in RAM: an untagged palette id, an untagged FX key
- * map, DIGITAL's stars (persist_boot writes it once in today's form) */
+ * map (persist_boot writes it once in today's form) */
 static int settings_stale(const persist_t *p)
 {
-    uint32_t digital = 0;
-#if defined(FM4_NPRESETS) && !MELODEE_FM4
-    for (uint32_t i = 0; i < sizeof p->favorites.factory[ENGI_DIGITAL]; i++)
-        digital |= p->favorites.factory[ENGI_DIGITAL][i];
-#endif
 #ifdef MELODEE_FAVORITES
     const uint8_t *fx = p->favorites.factory[FX_KEYS_ROW];
     if (!(fx[28] == 'F' && fx[29] == 'X' && fx[30] == 'K' && fx[31] == 1))
         return 1;
 #endif
-    return p->palette - UI_PAL_TAG >= NPALETTES || digital;
+    return p->palette - UI_PAL_TAG >= NPALETTES;
 }
 
 /* Normalize in place; 1 = current, 2 = migrated, 0 = invalid. */
@@ -102,15 +97,6 @@ static int settings_import(persist_t *p, int n)
     fx_keys_take();                                     /* (an old record: settled after up_boot, favorites.c) */
     favorites_user_hi = p->ext.spare[0];
     favorites.filter = favorites.filter == 1u;
-#if defined(FM4_NPRESETS) && !MELODEE_FM4
-    {   /* DIGITAL's starred presets (engine 1, retired) -> the FM6 presets that cover them (fm4_convert.c) */
-        uint32_t k;
-        for (k = 0; k < FM4_NPRESETS; k++)
-            if ((favorites.factory[ENGI_DIGITAL][0] >> k) & 1u)
-                favorites.factory[ENGI_FM6][FM4_TO_FM6[k] / 8u] |= (uint8_t)(1u << (FM4_TO_FM6[k] % 8u));
-        memset(favorites.factory[ENGI_DIGITAL], 0, sizeof favorites.factory[ENGI_DIGITAL]);
-    }
-#endif
 #endif
     if (p->panel.magic == PANEL_MAGIC) panel = p->panel;
     return current ? 1 : 2;

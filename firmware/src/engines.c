@@ -17,10 +17,6 @@
 #include "eng_drum.c"           /* DRUM: synthesized 808 circuits (drum_808.c) */
 #include "eng_noise.c"
 #include "eng_fm6.c"            /* FM6: 6-operator FM rendered as Dexed renders it (fm6_core.c) */
-#include "fm4_convert.c"        /* DIGITAL's tables, and its sounds -> FM6 */
-#if MELODEE_FM4
-#include "eng_digital.c"        /* DIGITAL: four-operator FM (retired; MELODEE_FM4=1 builds it) */
-#endif
 #if MELODEE_SLICE
 #include "eng_slice.c"
 #else
@@ -101,11 +97,7 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_ANALOG,                 /* 0 */
 #endif
-#if MELODEE_FM4
-    &ENG_DIGITAL,                /* 1 (ENGI_DIGITAL) */
-#else
-    &ENG_FM4_GONE,               /* 1: reserved (DIGITAL, retired: its sounds convert to FM6, fm4_convert.c) */
-#endif
+    &ENG_RETIRED,                /* 1: retired DIGITAL; stored ID reserved */
 #if MELODEE_LEGACY_EXTRAS
     &ENG_PHASE,                  /* 2 */
 #else
@@ -173,14 +165,11 @@ static const preset_t *eng_preset(const engine_t *e, uint32_t k)
 }
 
 /* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
- * engine indices, never DIGITAL's reserved 1 (with MELODEE_FM4 it follows FM6). The indices stay as they are (the
+ * engine indices, never a retired one. The indices stay as they are (the
  * stores and the protocol hold them); only this table orders them */
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     ENGI_PROPHET,                /* Prophet replaces ANALOG in new-sound browsing */
     12,                          /* FM6 */
-#if MELODEE_FM4
-    1,                           /* DIGITAL */
-#endif
 #if MELODEE_LEGACY_EXTRAS
     2, ENGI_CZ, 3, 5,             /* PHASE CZ-1 SID VOICE */
     6, 7, 9,
@@ -194,28 +183,28 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     10,                          /* DRUM */
 };
 
-/* Retired extra synth records retain their stored identity and render silence.
- * DIGITAL keeps its existing FM6 conversion. Never relabel retired records FM6. */
+/* Retired synth records (DIGITAL since 2.0 too) retain their stored identity and render silence.
+ * Never relabel retired records FM6. */
 static int eng_extra_retired(uint32_t e)
 {
-    return !MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u);
+    return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u));
 }
-/* the engines one can pick (engine 1 only with MELODEE_FM4), in ENGINE_ORDER: eng_ok(e), the n-th of them
+/* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
 static int eng_ok(uint32_t e)
 {
-    return e < NENGINES && !(e >= 16u && e <= 18u) && !eng_extra_retired(e) && e != 4u && e != 8u && e != 14u && (MELODEE_FM4 || e != ENGI_DIGITAL) && (MELODEE_SLICE || e != ENGI_SLICE);
+    return e < NENGINES && !(e >= 16u && e <= 18u) && !eng_extra_retired(e) && e != 4u && e != 8u && e != 14u && (MELODEE_SLICE || e != ENGI_SLICE);
 }
 static uint32_t eng_sound_idx(uint32_t e)
 {
-    return e == 2u || e == 5u || e == 6u || e == 7u || e == 9u || e == 11u ? e : eng_ok(e) ? e : ENGI_FM6;
+    return eng_extra_retired(e) || eng_ok(e) ? e : ENGI_FM6;
 }
 static uint32_t eng_vis(uint32_t n) { return ENGINE_ORDER[n % NENG_SHOWN]; }
 static uint32_t eng_rank(uint32_t e)
 {
     uint32_t n;
     if (!eng_ok(e))
-        e = ENGI_FM6;                            /* (DIGITAL without MELODEE_FM4: its sounds play as FM6) */
+        e = ENGI_FM6;                            /* (a retired or reserved engine: FM6's place) */
     for (n = 0; n < NENG_SHOWN && ENGINE_ORDER[n] != e; n++)
         ;
     return n < NENG_SHOWN ? n : 0u;

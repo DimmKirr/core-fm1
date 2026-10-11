@@ -162,11 +162,6 @@ static int bank_valid(const uint8_t *raw, uint32_t len)
     memset(bank_import_tags, 0, sizeof bank_import_tags);
     uint32_t n = 0;
     for (uint32_t i = 0; i < proj_scratch.motion.count; i++) {
-#if !MELODEE_FM4
-        const motion_event_t *e = &proj_scratch.motion.event[i];
-        if (proj_scratch.t[e->place >> 6].engine == ENGI_DIGITAL &&
-            (e->param >= P_E0 || (e->param >= P_FM1_ATK && e->param <= P_FM4_LEVEL))) continue;
-#endif
         bank_import_tags[n++] = raw[BANK_MOTION_OFF + i];
     }
     {   /* the FM6 function settings (an FBK9 record of before: none, Dexed's) */
@@ -182,7 +177,6 @@ static int bank_valid(const uint8_t *raw, uint32_t len)
             proj_scratch.sum = proj_sum(&proj_scratch);
         }
     }
-    proj_fm4(&proj_scratch);
     return 1;
 }
 /* Only after bank_valid and project_restore_runtime. */

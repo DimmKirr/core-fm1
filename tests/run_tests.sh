@@ -6,7 +6,7 @@
 #   SOUND=0 tests/run_tests.sh       everything but the sound tests
 #   SOUND=only tests/run_tests.sh    the sound tests alone
 # Sound tests: the regression suite, the DSP render and TRACKS, and every test of an engine's or an effect's rendered
-#   signal (native fp32, Prophet, SPEAKER, DIGITAL, MOD, SLICER, the FX layer, REVERB, DELAY, MOD / SPREAD, CZ, SID,
+#   signal (native fp32, Prophet, SPEAKER, MOD, SLICER, the FX layer, REVERB, DELAY, MOD / SPREAD, CZ, SID,
 #   CZ-1 knobs, PHYS, DRUM, NOISE, FM6, the dual-core pairing). The rest (storage, UI, MIDI, USB, editor, web) always runs.
 # Each test (its compile and its runs) is a job; PARALLEL=n jobs run at once (default: the CPU count; 1: one by one).
 # A job's output goes to build/host/log/<n>.log and is printed in the order of this file as the jobs end; the
@@ -27,7 +27,6 @@
 #                   ellipsised), MONO gray, the draw cost, the text audit (build/ui_new/text_audit.tsv);
 #                   PNGs of MONO GREEN PAPER in build/ui_new (tests/ui_render.py), the findings in build/ui_new/report.txt;
 #                   FM6's 32 algorithm charts as drawn (no box overlapping, no route through a box or crossing another);
-#                   DIGITAL's screens (its algorithm charts, OP ENV) with MELODEE_FM4=1 too (build/ui_fm4: lint, MONO);
 #                   every frame of the rolling digits (lint, MONO), their filmstrips in build/ui_slot.
 # UI (tests/ui_test.c): the UI sources against stub display / buttons / knobs: sound loads keep the steps and
 #                   the track's ARP / SCL / SLICER, the SEQ > PATTERNS loader and its REPLACE? dialog, the
@@ -76,10 +75,6 @@
 # NOISE (tests/noise_test.c): the engine (src/eng_noise.c): COLR's slope (white, pink, brown), the filter and the
 #                   register clock following the key, META periodic at the key, no DC, no clipping at the
 #                   corners, a note from silence the same twice, the cost per voice; demos in build/noise_demo/.
-# DIGITAL -> FM6 (tests/fm4_test.c, built with MELODEE_FM4=1): the retired four-operator engine against its conversion
-#                   (src/fm4_convert.c): routes and carriers per algorithm, the converted presets, and the sound (pitch,
-#                   centroid, RMS envelope) of its presets and algorithms; demos in build/fm4_demo/. tests/digital_test.c
-#                   (MELODEE_FM4=1 too): DIGITAL's operator envelopes. Default builds have no DIGITAL (engine 1 reserved).
 # FM6 (tests/fm6_test.c): the 6-operator FM engine (src/eng_fm6.c, src/fm6_core.c) against the DX7: the 32 algorithms
 #                   against its diagrams, pitch, levels, envelopes, modulation; no DC / clipping over the factory
 #                   patches, the macros (neutral at 0, their directions), factory presets, pack / unpack and the SysEx layouts,
@@ -188,12 +183,6 @@ ui_renders() {
         python3 tools/ui_mockcmp.py build/ui_new build/ui_mock || fail "tools/ui_mockcmp.py" # redesign parity (docs/design): a report, no gate yet
     fi
 }
-ui_renders_fm4() {
-    build ui_render_fm4 ui_render -O1 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -Itests || return
-    mkdir -p build/ui_fm4/ppm build/ui_fm4_slot
-    step "UI renders with MELODEE_FM4=1: DIGITAL's screens (EDIT, OP ENV, the 8 algorithm charts), lint, MONO gray" \
-        "$OUT/ui_render_fm4" build/ui_fm4 build/ui_fm4_slot
-}
 dsp_tracks() {
     build hostsim hostsim -O2 $FW || return
     step "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
@@ -242,7 +231,7 @@ if core; then
     t "retired synth identities, project/user patch preservation and favorites" engine_retirement_test -O2 $FW
     t "capture gating, derived caches and silent-track clocks" performance_test -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW
     t "canvas drawing overlaps DMA without changing pending pixels" lcd_overlap_test -O1 -w -Ibuild/gen
-    t "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM -> DRUM, grid records, DIGITAL kept)" upreset_test
+    t "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM -> DRUM, grid records)" upreset_test
     t "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders, fast spins" input_test
     t "LED hardware PWM: pin ownership, duty per scan, overlapping planes, blanking" led_pwm_test
     t "TRS MIDI parser" midi_uart_test
@@ -260,7 +249,7 @@ if core && [ $TABLES = 1 ]; then
     t "microtonal: catalogue, layouts, note ownership, recordings and rendered pitch" microtonal_test -O2 $FW
     t "scale picker: families, favorites, empty lists, shared settings and navigation" scale_picker_test -O1 $FW
     t "chord keys: diatonic and fixed chords, voicings, MONO root, releases, recording, ARP, MIDI IN, kits" chord_test $FW
-    t "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6)" project_test $FW
+    t "project formats (FUN1..FUN5 -> FUN6, the grid and song chain)" project_test $FW
     t "motion, whole-step chance, FUN7 migration, song restore and ARP repeat" motion_test -O1 $FW
     t "32 pattern banks: chords, ties, independent loop switching, copy and persistence" pattern_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW
@@ -290,9 +279,6 @@ if core && [ $TABLES = 1 ]; then
     t "Note/library gestures: quarter snapping, range moves/copies, undo and bulk preset erase" note_tools_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW
     job ui_renders
-    t "UI built with MELODEE_FM4=1 (DIGITAL, kept in the tree): its OP pages, EDIT cycle, algorithm charts" \
-        ui_test_fm4:ui_test -DMELODEE_FM4=1 $FW
-    job ui_renders_fm4
     t "boot audio: codec waits for settled silent DMA and shuts down before I2S" audio_boot_test -w
     t "audio: overload protection, bounded fades and DMA diagnostics" audio_test $FW
     t "audio: silent bench keeps synthesis running and silences physical output" audio_silent_test:audio_test \
@@ -310,7 +296,7 @@ if core && [ $TABLES = 1 ]; then
 fi
 
 if sound && [ $TABLES = 1 ]; then
-    mkdir -p build/fm4_demo build/mod_demo build/slicer_demo build/perform_demo build/fx_demo build/delay_demo \
+    mkdir -p build/mod_demo build/slicer_demo build/perform_demo build/fx_demo build/delay_demo \
         build/phys_demo build/drum_demo build/noise_demo build/fm6_demo
     t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
@@ -323,9 +309,6 @@ if sound && [ $TABLES = 1 ]; then
         -O2 $FW
     job prophet
     t "SPEAKER BASS+: harmonics of the bass, the sub cut, no offset after" speaker_test -O2 $FW
-    t "DIGITAL (retired, built here with MELODEE_FM4=1): operator envelopes/levels" digital_test -O1 -DMELODEE_FM4=1 $FW
-    t "DIGITAL -> FM6: the conversion against DIGITAL (MELODEE_FM4=1): pitch, centroid, RMS envelope; demos" fm4_test \
-        -O2 -DMELODEE_FM4=1 $FW -- "$OUT/fm4_test" build/fm4_demo
     t "modulation matrix: off = bit-identical, the math, MIDI CC1 / CC11 / aftertouch, cost, demos" mod_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/mod_test" build/mod_demo
     t "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" slicer_test -O2 $FW -- \

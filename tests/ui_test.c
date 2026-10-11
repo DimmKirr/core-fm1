@@ -1424,7 +1424,7 @@ static int test_mono_screens(void)
     uint32_t e, i, n = 0;
     for (e = 0; e < NENGINES; e++) {
         if (!eng_ok(e))
-            continue;                               /* (DIGITAL without MELODEE_FM4: never a track's) */
+            continue;                               /* (DIGITAL, retired: never a track's) */
         for (i = 0; i < NPAGES; i++) {
             ui_power_on(); set_engine_of(TSEL, e); song.playing = 1; song.rec = 1;
             ui.home = 0; ui.page = (uint8_t)i; page_entered();
@@ -2179,7 +2179,7 @@ static int test_product_ux(void)
     int bad = 0, ok = 1;
     uint32_t i, p, b;
     for (i = 0; i < NPAGES; i++) {
-        ui_power_on(); set_engine_of(TSEL, 1);         /* (DIGITAL; without MELODEE_FM4 FM6: no OP pages) */
+        ui_power_on(); set_engine_of(TSEL, 1);         /* (DIGITAL, retired: no OP pages) */
         ui.home = 0; ui.page = (uint8_t)i; page_entered();
         if (!page_visible(i))
             continue;
@@ -2214,22 +2214,12 @@ static int test_product_ux(void)
     ok = 1;
     for (i = 0; i < 8u; i++) { open_family(FAM_EDIT); ok &= page_visible(ui.page) && !(cur_page()->id[0] >= P_FM1_ATK && cur_page()->id[0] <= P_FM4_LEVEL); }
     bad += check("operator envelope pages are hidden on non-DIGITAL instruments", ok);
-#if MELODEE_FM4
-    set_engine_of(TSEL, 1); open_family(FAM_EDIT); ok = 0;
-    for (i = 0; i < 12u; i++) { if (cur_page()->id[0] == P_FM1_ATK) ok = 1; open_family(FAM_EDIT); }
-    bad += check("DIGITAL exposes four envelopes and independent operator levels", ok);
-    go_title("OP1 ENV"); turn(EN_K1, 4);
-    bad += check("operator envelope K1 edits only OP1 attack", TSEL->p[P_FM1_ATK] == 4 && !TSEL->p[P_FM2_ATK]);
-    track_select(2); frame();
-    bad += check("changing to a non-FM track leaves the stale operator page", page_visible(ui.page) && cur_page()->id[0] == P_E0);
-#else
-    set_engine_of(TSEL, ENGI_DIGITAL); open_family(FAM_EDIT); ok = TSEL->eng_req == ENGI_FM6;
+    set_engine_of(TSEL, ENGI_DIGITAL); open_family(FAM_EDIT); ok = TSEL->eng_req == ENGI_DIGITAL;   /* (retired: silent) */
     for (i = 0; i < 12u; i++) { ok &= !(cur_page()->id[0] >= P_FM1_ATK && cur_page()->id[0] <= P_FM4_LEVEL); open_family(FAM_EDIT); }
     for (i = 0; i < NPAGES; i++)
         if (PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK && PAGES[i].id[0] <= P_FM4_LEVEL)
             ok &= !page_visible(i);
     bad += check("DIGITAL retired: engine 1 asked for loads FM6; the OP ENV / OP LEVEL pages never show", ok);
-#endif
     ui_power_on(); track_defaults_steps(TSEL); go_title("NOTES"); cursor_set(0); frame();
     press(B_OCTUP); press(B_OCTUP); turn(EN_K2, 1); turn(EN_K2, 1); turn(EN_K1, -35);   /* (a note placed; its sheet: Chance) */
     bad += check("CHANCE (the note's sheet) is per step and starts at backward-compatible 100 percent", step_chance(&TSEL->step[0]) == 65 && step_chance(&TSEL->step[1]) == 100);
@@ -2971,16 +2961,10 @@ static int test_edit_cycle(void)
     go_title("DCW1 ENV"); TSEL->p[P_FM1_ATK] = 0; turn(EN_K1, 1);
     bad += check("PHASE DCW1 knob edits its saved parameter", TSEL->p[P_FM1_ATK] > 0);
 #endif
-#if MELODEE_FM4
-    set_engine_of(TSEL, 1);
-    bad += check("EDIT cycle (DIGITAL): EDIT 1 EDIT 2 OP1..OP4 ENV OP LEVEL VOICE VOICE 2 EDIT 1",
-                 engine_cycle(CYC_D, NELEM(CYC_D)));
-#else
-    set_engine_of(TSEL, ENGI_DIGITAL);
-    bad += check("EDIT cycle (engine 1 asked for: FM6, DIGITAL retired): EDIT 1 EDIT 2, FM6's 16 pages, VOICE VOICE 2",
+    set_engine_of(TSEL, ENGI_FM6);
+    bad += check("EDIT cycle (FM6): EDIT 1 EDIT 2, FM6's 16 pages, VOICE VOICE 2",
                  TSEL->eng_req == ENGI_FM6 && engine_cycle(CYC_F, NELEM(CYC_F)));
     (void)CYC_D;
-#endif
     go_title("OP2 ENV"); ui.fam_last[FAM_EDIT] = ui.page;
     set_engine_of(TSEL, 0); frame();
     bad += check("an OP page of a track no longer DIGITAL falls back to EDIT 1", str_eq(cur_page()->title, "EDIT 1"));
@@ -4230,48 +4214,6 @@ static int test_large_face(void)
     return check("the L face holds every glyph of the strings drawn in it", !missing);
 }
 
-#if MELODEE_FM4
-/* The DIGITAL algorithm charts (ui_graph.c FM_CELL / FM_MOD) against the DSP: src/eng_digital.c's switch (alg)
- * in digital_render_legacy and digital_render_custom, written out here as "source>destination" routes and the
- * operators mixed to the output. Op 4's feedback is on every algorithm (drawn always). Also: the carriers sit
- * on the bottom row and only they, a modulator one row above what it modulates, no two operators in a cell,
- * every operator heard, and the eight charts distinct. */
-static int test_fm_charts(void)
-{
-    static const char *const DSP[8][2] = {
-        {"4>3 3>2 2>1", "1"},          /* o3 = op(o4), o2 = op(o3), s = op(o2) */
-        {"3>2 4>2 2>1", "1"},          /* o2 = op((o3 + o4) / 2), s = op(o2) */
-        {"3>2 2>1 4>1", "1"},          /* o2 = op(o3), s = op((o2 + o4) / 2) */
-        {"4>3 2>1 3>1", "1"},          /* o3 = op(o4), s = op((o2 + o3) / 2) */
-        {"4>3 2>1", "13"},             /* o3 = op(o4), o1 = op(o2), s = (o1 + o3) / 2 */
-        {"4>1 4>2 4>3", "123"},        /* o1, o2, o3 = op(o4), s = (o1 + o2 + o3) / 3 */
-        {"4>3", "123"},                /* o3 = op(o4), s = (o1 + o2 + o3) / 3 */
-        {"", "1234"}};                 /* s = (o1 + o2 + o3 + o4) / 4 */
-    uint32_t a, b, k, j, routes = 1, layout = 1, distinct = 1;
-    for (a = 0; a < 8u; a++) {
-        uint32_t want = 0, car = 0, ok = 1;
-        const char *s;
-        for (s = DSP[a][0]; *s; s++)
-            if (*s == '>') want |= 1u << (4u * (uint32_t)(s[1] - '1') + (uint32_t)(s[-1] - '1'));
-        for (s = DSP[a][1]; *s; s++) car |= 1u << (*s - '1');
-        if (FM_MOD[a] != want) { printf("ui: algorithm %u: routes %04x, the DSP %04x\n", a + 1u, FM_MOD[a], want); routes = 0; }
-        for (k = 0; k < 4u; k++) {
-            uint32_t row = FM_CELL[a][k] >> 4, outs = 0;
-            if ((row == 0u) != ((car >> k) & 1u)) ok = 0;
-            for (j = 0; j < 4u; j++) {
-                if (j != k && FM_CELL[a][j] == FM_CELL[a][k]) ok = 0;
-                if (FM_MOD[a] >> (4u * j + k) & 1u) { outs++; if (row != (FM_CELL[a][j] >> 4) + 1u) ok = 0; }
-            }
-            if (!outs && !((car >> k) & 1u)) ok = 0;
-        }
-        if (!ok) { printf("ui: algorithm %u: the chart's layout is off\n", a + 1u); layout = 0; }
-        for (b = 0; b < a; b++)
-            if (FM_MOD[a] == FM_MOD[b] && !memcmp(FM_CELL[a], FM_CELL[b], 4)) distinct = 0;
-    }
-    return check("DIGITAL charts: the 8 algorithms' routes and carriers equal eng_digital.c's", routes) +
-           check("DIGITAL charts: carriers on the bottom row, modulators a row up, one per cell, distinct", layout && distinct);
-}
-#endif
 
 /* The FM6 algorithm charts (ui_graph.c graph_fm6: FM6_CELL, its routes fm6_routes and feedback operator
  * fm6_fb_op read from fm6_core.c FM6_ALG) against the 32 algorithms of 6-operator FM written out here as
@@ -4332,122 +4274,6 @@ static int test_fm6_charts(void)
            check("FM6 charts: MARK I returns OP4 / OP5 in 4 / 6; MODERN and OPL return the feedback operator", feedback);
 }
 
-#if !MELODEE_FM4
-/* DIGITAL retired (src/fm4_convert.c): engine 1 is on no track and in no list; its sounds arrive as FM6 with a patch
- * of their own: a user preset of it, its preset numbers (set_engine_of / apply_preset_to), a track that got engine 1
- * any other way (the main loop's net); the favourites of its presets move to FM6's; the power-on pad is FM6 PAD */
-static int test_fm4_retired(void)
-{
-    int bad = 0, ok = 1;
-    uint32_t i, k, e, total, seen = 0, all = 0;
-    for(uint32_t eng=0;eng<NENGINES;eng++) if(eng_ok(eng)&&eng!=0)all |= 1u<<eng;
-    int16_t p[P_COUNT];
-    uint8_t v[FP_SIZE + 1u];
-    ui_power_on();
-    bad += check("power-on: track 2 is FM6 PAD (TRK_DEF, was DIGITAL PAD)", trk[1].eng_req == ENGI_FM6 &&
-                 str_eq(ENGINES[ENGI_FM6]->presets[trk[1].preset].name, "PAD"));
-    preset_all_pos(&total);
-    for (i = 0; i < total; i++) {
-        e = preset_all_at(i, &k);
-        if (e < NENGINES)
-            seen |= 1u << e;
-    }
-    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == NENGINES - 9u - 6u * !MELODEE_LEGACY_EXTRAS);
-    go_page(GR_BROWSE);
-    set_engine_of(TSEL, 0);
-    for (i = 0, seen = 0; i < NENG_SHOWN; i++) {
-        turn(EN_K4, 1);
-        seen |= 1u << TSEL->eng_req;
-    }
-    bad += check("PRESETS KNOB 4: the engines in order, DIGITAL skipped, back to the first",
-                 seen == all && TSEL->eng_req == ENGI_PROPHET && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == (MELODEE_LEGACY_EXTRAS ? 2u : ENGI_CZ) &&
-                 eng_step(ENGI_FM6, -1) == ENGI_PROPHET && eng_step(0, -1) == ENGI_DRUM);
-    {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
-        static const char *const ORDER[] = {"PROPHET", "FM6",
-#if MELODEE_LEGACY_EXTRAS
-                                            "PHASE",
-#endif
-                                            "CZ-1", "SID",
-#if MELODEE_LEGACY_EXTRAS
-                                            "VOICE", "TRIO", "WHEEL", "PHYS", "NOISE",
-#endif
-                                            "DRUM"};
-        uint32_t last = 0xFFu, r = 0, n = 0;
-        ok = NENG_SHOWN == NELEM(ORDER);
-        for (i = 0; ok && i < NENG_SHOWN; i++)
-            ok &= str_eq(ENGINES[eng_vis(i)]->name, ORDER[i]) && eng_rank(eng_vis(i)) == i && eng_ok(eng_vis(i));
-        preset_all_pos(&total);
-        for (i = 0; i < total; i++) {                  /* the list's engines, each once, in that order */
-            e = preset_all_at(i, &k);
-            if (e >= NENGINES || e == last)
-                continue;
-            ok &= n < NENG_SHOWN && e == eng_vis(n);
-            n++;
-            last = e;
-            r++;
-        }
-        bad += check("engines shown PROPHET FM6 CZ-1 SID ... DRUM (ENGINE_ORDER); PRESETS lists them so",
-                     ok && r == NENG_SHOWN);
-    }
-    /* a user preset stored with engine 1: kept as it is, it loads as FM6 with the converted patch */
-    for (i = 0; i < P_COUNT; i++)
-        p[i] = param_desc_of(ENGI_DIGITAL, i)->def;
-    fm4_preset_values(p, 5);                           /* DIGITAL PAD */
-    {
-        up_rec_t r;
-        memset(&r, 0, sizeof r);
-        r.used = UP_USED;
-        r.ver = UP_VER;
-        r.engine = ENGI_DIGITAL;
-        r.np = P_COUNT;
-        memcpy(r.name, "OLD PAD", 7);
-        for (i = 0; i < P_COUNT; i++)
-            up_set_value(&r, i, p[i]);
-        up_put(7, &r);
-    }
-    fm4_convert(p, v);
-    up_load(7);
-    bad += check("a DIGITAL user preset loads as FM6: the converted patch and preset = FM6 PAD",
-                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 4u && TSEL->p[P_E7] == 0 && !TSEL->p[P_E0] &&
-                 !memcmp(fm6_patch[song.sel], v, FP_SIZE) && TSEL->user == 8u);
-    frame();
-    bad += check("  .. and the main loop keeps that patch after load", !memcmp(fm6_patch[song.sel], v, FP_SIZE));
-    eng_list_pos(&total);
-    bad += check("  the record stays DIGITAL in the bank, listed with FM6's sounds (EDIT KNOB 2)",
-                 up_rec(7)->engine == ENGI_DIGITAL && up_engine(7) == ENGI_FM6 &&
-                 total == ENGINES[ENGI_FM6]->npresets + 1u);
-    up_store(8, "AGAIN");
-    bad += check("  saved again: an FM6 user preset (unused macro stays zero)", up_rec(8)->engine == ENGI_FM6 &&
-                 up_value(up_rec(8), P_E7) == 0);
-    /* preset numbers of engine 1 */
-    set_engine_of(TSEL, ENGI_DIGITAL);
-    bad += check("engine 1 asked for: DIGITAL E.PIANO converted (FM6, preset TINE EP, the patch named E.PIANO)",
-                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 0u && !memcmp(fm6_patch[song.sel] + FP_NAME, "E.PIANO", 7));
-    TSEL->eng_req = ENGI_DIGITAL;                      /* (the ISR's view: no other path does this) */
-    apply_preset_to(TSEL, 1);
-    bad += check("a DIGITAL preset number (apply_preset_to): its sound converted (BELL)",
-                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 1u && !memcmp(fm6_patch[song.sel] + FP_NAME, "BELL", 4));
-    for (i = 0; i < P_COUNT; i++)
-        trk[2].p[i] = param_desc_of(ENGI_DIGITAL, i)->def;
-    fm4_preset_values(trk[2].p, 2);
-    trk[2].eng_req = ENGI_DIGITAL;
-    frame();
-    bad += check("a track left on engine 1 any other way: the main loop converts it (BASS -> FM BASS)",
-                 trk[2].eng_req == ENGI_FM6 && trk[2].preset == 2u);
-    {   /* favourites of DIGITAL presets (settings PER4) -> the FM6 presets that cover them */
-        persist_t pe;
-        memset(&pe, 0, sizeof pe);
-        pe.magic = PERSIST_MAGIC;
-        pe.panel = PANEL_DEFAULT;
-        pe.favorites.factory[ENGI_DIGITAL][0] = 1u << 5 | 1u << 7;   /* PAD, FUNK KEY */
-        settings_import(&pe, (int)sizeof pe);
-        bad += check("favourites: DIGITAL PAD / FUNK KEY -> FM6 PAD / PLUCK, engine 1's cleared",
-                     favorite_has(ENGI_FM6, 4) && favorite_has(ENGI_FM6, 7) && !favorites.factory[ENGI_DIGITAL][0]);
-        memset(&favorites, 0, sizeof favorites);
-    }
-    return bad;
-}
-#endif
 
 static int test_home_notes(void)
 {
@@ -4850,11 +4676,6 @@ int main(void)
     bad += test_bughunt_ui2();
     bad += test_piano_roll();
     bad += test_fm6_charts();
-#if MELODEE_FM4
-    bad += test_fm_charts();                        /* (DIGITAL's charts: built with MELODEE_FM4=1 only) */
-#else
-    bad += test_fm4_retired();
-#endif
 
     if (getenv("UI_SCREEN_DIR")) chain_screens(getenv("UI_SCREEN_DIR"));
     printf(bad ? "ui: %d FAILED\n" : "ui: all passed\n", bad);

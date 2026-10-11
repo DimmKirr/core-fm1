@@ -25,9 +25,7 @@
  * step i's lane hits (bit l = lane l), flags[i] their accents. A DRUM track whose first 16 steps strike a
  * lane is stored so (its notes on their lanes); every other sound as version 2, which older firmware reads.
  * Older firmware shows a version 3 record as empty and keeps its bytes.
- * A record of engine 1 (DIGITAL, retired in 1.0) stays as it is (UP_PUT takes it too): its values are DIGITAL's,
- * and every load converts them to an FM6 sound with its own patch (ui.c fm4_apply, fm4_convert.c); lists count it
- * with FM6's (up_engine).
+ * A record of engine 1 (DIGITAL, retired) stays as it is and plays silent, as any retired engine's.
  *
  * With -DUP_HOST (host test) only the part above #ifndef UP_HOST is built;
  * it needs nothing but core.h. */
@@ -471,7 +469,7 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k)
 {
     char l[4];
     e %= NENGINES;
-    str_cpy(b, ENGINES[eng_sound_idx(e)]->name, 9);   /* (a DIGITAL record plays as FM6) */
+    str_cpy(b, ENGINES[eng_sound_idx(e)]->name, 9);
     up_slot_label(l, k);
     str_cpy(b + str_len(b), " ", 2);
     str_cpy(b + str_len(b), l + 1, 3);
@@ -571,14 +569,6 @@ static int up_load(uint32_t k)
     up_values(r, v);
     load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
     panic_req |= (uint8_t)(1u << song.sel);
-#if !MELODEE_FM4
-    if (r->engine == ENGI_DIGITAL) {                    /* a DIGITAL sound (kept as it was stored): FM6 */
-        int16_t p[P_COUNT];
-        for (i = 0; i < P_COUNT; i++)
-            p[i] = param_kept(i) ? t->p[i] : v[i];
-        fm4_apply(t, p);
-    } else
-#endif
     {
         fm1_irq_off();                                  /* the audio ISR must not see half a sound */
         t->eng_req = up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine;
@@ -600,7 +590,7 @@ static int up_load(uint32_t k)
     return 0;
 }
 
-/* the engine a used slot's sound plays on (a DIGITAL record: FM6, without MELODEE_FM4) */
+/* the engine a used slot's sound plays on */
 static uint32_t up_engine(uint32_t k) {
 #if MELODEE_FLASH && !defined(UP_HOST)
     if(up_cached != k/UP_PER_BANK && up_meta[k].ready)return up_meta[k].engine;

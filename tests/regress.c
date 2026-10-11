@@ -485,7 +485,7 @@ static void midi_pkt(uint32_t st, uint32_t d1, uint32_t d2)   /* as usb.c: the q
     midi_in_q[mi_w++ % MQ] = (st >> 4) | st << 8 | d1 << 16 | d2 << 24;
 }
 
-/* the shared budget: 4 POLY parts (ANALOG, DIGITAL (without MELODEE_FM4 its BELL converted: FM6), VOICE (retired:
+/* the shared budget: 4 POLY parts (ANALOG, FM6's BELL (DIGITAL's BELL until DIGITAL was retired), VOICE (retired:
  * SID), 808 DRUM) play random notes on and off for
  * 6 s, up to 8 held each; after every block: at most 8 part voices active, none still fading (a stolen voice
  * fades within its one block), the VOICE part at most 4; then all off: every voice free */
@@ -493,7 +493,7 @@ static void midi_pkt(uint32_t st, uint32_t d1, uint32_t d2)   /* as usb.c: the q
 #define VCAP (MELODEE_LEGACY_EXTRAS ? 4u : NVOICE)
 static int chk_budget(char *msg, uint32_t n)
 {
-    static const uint8_t E[NPART][2] = {{0, 1}, {1, 1}, {VCAP_E, 1}, {4, 4}};
+    static const uint8_t E[NPART][2] = {{0, 1}, {ENGI_FM6, 1}, {VCAP_E, 1}, {4, 4}};
     uint8_t held[NPART][128] = {{0}};
     uint32_t p, k, worst = 0, vworst = 0, fading = 0, kills0 = voice_kills;
     host_tracks_init();
@@ -809,7 +809,7 @@ static int chk_keep(char *msg, uint32_t n, uint32_t mode)
     trk[0].p[P_AMODE] = 0;
     trk[0].p[P_SUS] = 100;
     for (k = 1; k < NPART; k++) {
-        host_preset(&trk[k], 1, 1);
+        host_preset(&trk[k], ENGI_FM6, 1);
         trk[k].p[P_VOICE] = V_POLY;
         trk[k].p[P_AMODE] = 0;
         trk[k].p[P_SUS] = 100;
@@ -997,8 +997,8 @@ int main(int argc, char **argv)
     uint32_t jobs_at_once = getenv("JOBS") ? (uint32_t)atoi(getenv("JOBS")) : 8u;
     static const char *const MN[4] = {"POLY", "MONO", "LEGATO", "UNISON"};
     static const char *const SN[6] = {"dry", "chorus", "delay", "reverb", "all", "dist"};
-    static const uint8_t MODE_E[3][2] = {{0, 0}, {1, 1}, {5, 0}};   /* engine, preset (DIGITAL: MELODEE_FM4 only) */
-    static const uint8_t SEND_E[2][2] = {{0, 3}, {1, 0}};
+    static const uint8_t MODE_E[3][2] = {{0, 0}, {ENGI_FM6, 1}, {5, 0}};   /* engine, preset */
+    static const uint8_t SEND_E[2][2] = {{0, 3}, {ENGI_FM6, 0}};
     static uint8_t cpu_parts[MAXJ][NPART][3];
     static kv_t gold[MAXJ], cpu[MAXJ];
     uint32_t ng, nc, e, pi, i, g0, g1, c0, c1, k0, ncpu = 0;
@@ -1044,10 +1044,6 @@ int main(int argc, char **argv)
     {   /* the SLICER */
         job_t *j = add(J_SLICER, "slicer/gate/ANALOG_ACID");
         j->e = 0, j->pi = 4, j->arg = 0;
-#if MELODEE_FM4                                     /* (DIGITAL: retired, built with MELODEE_FM4=1 only) */
-        j = add(J_SLICER, "slicer/stut/DIGITAL_PAD");
-        j->e = 1, j->pi = 5, j->arg = 1;
-#endif
         add(J_SONG, "slicer/song_gate_stut")->arg = 1;
     }
     g1 = nj;
@@ -1089,8 +1085,8 @@ int main(int argc, char **argv)
             j->e = (uint8_t)e;
             j->pi = (uint8_t)pi;
         }
-    {   /* mixes: idle (subtracted from the presets' counts), idle + drums (part 4 808 DRUM), FM (DIGITAL with
-         * MELODEE_FM4, else FM6) + PHASE + VOICE asking 8 + 8 + 4 + the drums (the budget keeps 8; FM6 plays 6) */
+    {   /* mixes: idle (subtracted from the presets' counts), idle + drums (part 4 808 DRUM), FM6 + PHASE + VOICE
+         * asking 8 + 8 + 4 + the drums (the budget keeps 8; FM6 plays 6) */
         job_t *j = add(J_CPU, "cpu/mix/idle");
         memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
         j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
@@ -1102,7 +1098,7 @@ int main(int argc, char **argv)
         j->e = 0xFF;
         j = add(J_CPU, "cpu/mix/3parts_full_drums");
         memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
-        cpu_parts[ncpu][0][0] = MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6, cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+        cpu_parts[ncpu][0][0] = ENGI_FM6, cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
         cpu_parts[ncpu][1][0] = 2, cpu_parts[ncpu][1][1] = 0, cpu_parts[ncpu][1][2] = 8;
         cpu_parts[ncpu][2][0] = 5, cpu_parts[ncpu][2][1] = 0, cpu_parts[ncpu][2][2] = 4;
         cpu_parts[ncpu][3][0] = 4, cpu_parts[ncpu][3][1] = 4, cpu_parts[ncpu][3][2] = DRUM_HITS;

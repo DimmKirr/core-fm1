@@ -438,15 +438,16 @@ function mockTables() {
 }
 
 /* ------------------------------------------------------------------ DIGITAL retired --- */
-/* DIGITAL (engine 1, four-operator FM) was replaced by FM6 (src/fm4_convert.c): the editor's conversion == the
-   firmware's (build/host/desc.json "FM4": its presets and 48 sounds), engine 1 is "-" with no presets, G_ENGSEL 1 and
+/* DIGITAL (engine 1, four-operator FM) was replaced by FM6; the firmware's converter (src/fm4_convert.c) is gone since 2.0,
+   the editor keeps converting library files. The editor's conversion == the last firmware's (tests/fm4_reference.json:
+   its presets and 48 sounds, from build/host/desc.json "FM4" of 1.1), engine 1 is "-" with no presets, G_ENGSEL 1 and
    PRESET 1 k load the converted sound (FM6, its own patch), library files of DIGITAL sounds (91, 89 and 69 parameters,
    single-patch files too) import as FM6 with the converted patch, a converted sound put to the device keeps its
    DIGITAL values in an engine 1 slot (UP_LOAD converts it), the device's DIGITAL slot reads back as FM6 */
 async function editorFm4() {
-  const dj = join(HERE, "../build/host/desc.json");
+  const dj = join(HERE, "../tests/fm4_reference.json");
   if (existsSync(dj)) {
-    const fw = JSON.parse(readFileSync(dj, "utf8")).FM4;
+    const fw = JSON.parse(readFileSync(dj, "utf8"));
     let bad = 0;
     for (const c of fw.cases) {
       const r = E.FM4.convert(c.p, c.p.length - 8);
@@ -461,7 +462,7 @@ async function editorFm4() {
         eq(q.fx, p.fx.map((x) => x - 1));
     }), "DIGITAL -> FM6: its presets and the FM6 presets covering them == the firmware's");
   } else {
-    console.log("DIGITAL -> FM6: == the firmware's (no build/host/desc.json)        skip");
+    console.log("DIGITAL -> FM6: == the firmware's (no tests/fm4_reference.json)    skip");
   }
   const { m, rq, done } = attachMock({});
   const C = E.CMD;
@@ -472,21 +473,13 @@ async function editorFm4() {
   for (let i = 0; i < info.pcount; i++) pdesc.push(E.parse[C.DESC](await rq(E.req.desc(0, i))));
   const keys = E.paramKeys(pdesc, info.pe0, info.pcount);
   const fm6Of = async () => E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0))).packed;
-  /* the DIGITAL values of preset k on top of the track's: what the device converts */
-  const digital = (k, base) => E.FM4.presetValues(base.map((v, i) => (i < info.pe0 && ![0, 39, 40].includes(i) && !(i >= 17 && i <= 32) &&
-    !(i >= 45 && i <= 48) && i !== 81 && i !== 82 && i !== 83 ? pdesc[i].def : v)), k, info.pe0);
-  let d0 = E.parse[C.DUMP](await rq(E.req.dump()), info);
+  /* the device no longer converts (2.0): engine 1 asked for is engine 1, retired, silent */
   await rq(E.req.set(1, 20, 1));
   let d = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  let want = E.FM4.convert(digital(0, d0.p), info.pe0);
-  ok(d.engine === 12 && d.preset === 0 && eq(d.p, want.p) && eq(await fm6Of(), E.FM6.pack(want.voice)),
-    "DIGITAL retired: SET G_ENGSEL 1 -> FM6 with E.PIANO converted (its own patch, preset TINE EP)");
-  d0 = d;
+  ok(d.engine === 1 && d.preset === 0, "DIGITAL retired: SET G_ENGSEL 1 -> engine 1 as asked (silent), no conversion");
   await rq(E.req.preset(1, 5));
   d = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  want = E.FM4.convert(digital(5, d0.p), info.pe0);
-  ok(d.engine === 12 && d.preset === 4 && eq(d.p, want.p) && E.FM6.name(E.FM6.unpack(await fm6Of())) === "PAD",
-    "DIGITAL retired: PRESET 1 5 (its PAD) -> FM6, the converted patch named PAD, preset FM6 PAD");
+  ok(d.engine === 1 && d.preset === 0, "DIGITAL retired: PRESET 1 5 -> engine 1, no presets, no conversion");
   /* library files of DIGITAL sounds: today's 92 parameters, 89 (P_E0 81), 69 (P_E0 61, no OP ENV) */
   const base = Array.from({ length: 92 }, (_, i) => (i < 84 ? pdesc[i].def : 0));
   const pad = E.FM4.presetValues(base.slice(), 5, 84);
@@ -535,13 +528,13 @@ async function editorFm4() {
     await L.libAdopt(dv);
     ok(isFm6(L.lib()[0], pad) && L.written().length === 1, "library: .. also when the layout is unchanged (only those written)");
   }
-  /* put to the device: its DIGITAL values as engine 1 (the device converts them on load); read back as FM6 */
+  /* put to the device: its DIGITAL values as engine 1 (kept; the device loads it as engine 1, silent) */
   let rc = await E.bank.put(rq, 9, { ...r91, engine: 1, p: r91.fm4 });
   const u = await E.bank.get(rq, info, 9);
   await rq(E.req.upLoad(9));
   d = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  ok(rc === 0 && u.engine === 1 && eq([...u.p.slice(0,84),...u.p.slice(info.pe0)], pad) && d.engine === 12 && eq(await fm6Of(), r91.fm6),
-    "device slot of a DIGITAL sound (engine 1, its values kept): UP_LOAD plays the converted FM6 patch");
+  ok(rc === 0 && u.engine === 1 && eq([...u.p.slice(0,84),...u.p.slice(info.pe0)], pad) && d.engine === 1,
+    "device slot of a DIGITAL sound (engine 1, its values kept): UP_LOAD loads engine 1 (retired, silent)");
   done();
 }
 

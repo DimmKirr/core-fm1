@@ -1964,10 +1964,7 @@ function makeMockDevice(opt = {}) {
         P("RAVE", [4, 30, 64, 0, 85, 20, 30, 64], [20, 80, 110, 60], 1), P("SUB BASS", [3, 0, 0, 0, 40, 0, 20, 0], [0, 60, 100, 20], 1),
         P("PLUCK", [0, 8, 50, 0, 30, 40, 0, 64], [0, 88, 0, 60], 0), P("BRASS", [0, 10, 64, 0, 45, 20, 10, 64], [35, 70, 90, 45], 0),
         P("WIND", [0, 0, 0, 90, 30, 90, 0, 0], [60, 90, 60, 80], 0), P("STRINGS", [0, 25, 64, 0, 70, 10, 0, 32], [70, 90, 115, 90], 0)] },
-    /* 1: reserved (DIGITAL, retired: src/fm4_convert.c ENG_FM4_GONE; its sounds load as FM6, FM4 above) */
-    { name: "-", titles: ["-", "-"], edit: [D("-", F.INT, 0, 7, 0), D("-", F.INT, 0, 14, 1), D("-", F.INT, 0, 14, 1),
-        D("-", F.INT, 0, 14, 1), D("-", F.PCT, 0, 127, 60), D("-", F.INT, 0, 127, 60), D("-", F.PCT, 0, 127, 0), NONE],
-      presets: [] },
+    {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},   /* 1: retired DIGITAL; stored ID reserved (the editor converts its sounds: FM4 above) */
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},   /* 2: retired PHASE; stored ID reserved */
     { name: "SID", titles: ["CHIP", "FILTER"], edit: [E("MODEL", ["6581", "8580"], 0), E("WAVE", ["TRI", "SAW", "PULSE", "NOISE", "TRI+SAW", "TRI+PLS", "SAW+PLS", "T+S+P"], 1),
         E("STACK", ["ONE", "DETUNE", "OCT", "FIFTH", "MAJOR", "SYNC", "RING", "SUB"], 0), D("PW", F.PCT, 0, 127, 64), D("CUT", F.PCT, 0, 127, 127),
@@ -2117,20 +2114,9 @@ function makeMockDevice(opt = {}) {
     if(st.engine===19){st.tracks[st.sel].p5=pi?P5_FACTORY[pi-1].slice():P5.init();st.p[33]=st.p[34]=st.p[35]=st.p[36]=0;}   /* dry (ui.c p5_preset_loaded) */
   }
   function setEngine(ei) {
-    if (ei % ENG.length === 1) { fm4Load(0); return; }   /* DIGITAL (retired): its first preset, as FM6 (ui.c set_engine_of) */
     st.engine = ei % ENG.length;
     for (let i = 0; i < 8; i++) st.p[P_E0 + i] = ENG[st.engine].edit[i].def;
     applyPreset(st.engine===19?1:0);   /* PROPHET: the first factory program */
-  }
-  /* the selected track's sound = p, DIGITAL's values, converted (ui.c fm4_apply) */
-  function fm4Apply(p) {
-    const r = FM4.convert(p, P_E0);
-    st.engine = FM6_E; st.preset = r.preset; st.p = r.p;
-    st.tracks[st.sel].fm6 = FM6.pack(r.voice);
-  }
-  function fm4Load(k) {                           /* a DIGITAL preset number (ui.c fm4_load_preset) */
-    const p = st.p.map((x, i) => (i < P_E0 && !trackOwn(i, P_E0) ? TP[i].def : x));
-    fm4Apply(FM4.presetValues(p, k, P_E0));
   }
   const snapshot = (name) => {                   /* (upreset.c up_store: a DRUM track that strikes a lane: its grid) */
     const grid = isDrum() ? gridFromSteps(st.step) : null;
@@ -2219,7 +2205,8 @@ function makeMockDevice(opt = {}) {
           else {
             const saved = st.engine;                /* values clamped to the ranges of that engine */
             st.engine = engine;
-            st.bank[slot] = { engine, name, p: p.map((x, i) => { const d = desc(0, i); return clamp(x, d.min, d.max); }), pattern, grid };
+            st.bank[slot] = { engine, name, p: p.map((x, i) => {   /* (a retired engine's EDIT values: kept, upreset.c up_values) */
+              const d = desc(0, i); return i >= P_E0 && ENG[engine].name === "-" ? x : clamp(x, d.min, d.max); }), pattern, grid };
             st.engine = saved;
           }
         } catch (e) { rc = 1; }
@@ -2240,8 +2227,7 @@ function makeMockDevice(opt = {}) {
         if (u) {                                    /* the sound only (upreset.c up_load): the steps and the track's own */
           const own = st.p.slice();                 /* parameters (TRACK_OWN: mix, ARP, SCL, LEN.., SLICER) stay */
           const p = u.p.map((x, i) => (trackOwn(i, P_E0) ? own[i] : x));
-          if (u.engine === 1) fm4Apply(p);          /* a DIGITAL record (kept as it is): FM6 */
-          else { st.engine = u.engine; st.preset = 0; st.p = p; if(u.cz)st.tracks[st.sel].cz=u.cz.slice(); if(st.engine===FM6_E) { st.tracks[st.sel].fm6=(u.fm6 || FM6.INIT_PK).slice(); } }
+          { st.engine = u.engine; st.preset = 0; st.p = p; if(u.cz)st.tracks[st.sel].cz=u.cz.slice(); if(st.engine===FM6_E) { st.tracks[st.sel].fm6=(u.fm6 || FM6.INIT_PK).slice(); } }
         }
         b(a[0]); b(u ? 0 : 1);
         break;
@@ -2456,11 +2442,8 @@ function makeMockDevice(opt = {}) {
       }
       case CMD.PRESET:
         if (a.length < 2 || a[0] >= ENG.length) return null;
-        if (a[0] === 1) fm4Load(a[1]);              /* a DIGITAL preset: its sound, as FM6 */
-        else {
-          if (a[0] !== st.engine) setEngine(a[0]);
-          applyPreset(a[1] | (a.length > 2 ? a[2] << 7 : 0));
-        }
+        if (a[0] !== st.engine) setEngine(a[0]);
+        applyPreset(a[1] | (a.length > 2 ? a[2] << 7 : 0));
         b(st.engine); b(st.preset); b(st.preset >> 7);
         break;
       case CMD.PATTERN: {

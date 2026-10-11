@@ -109,7 +109,7 @@ int main(void)
     bad += check("UP_PUT past last slot -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 0, NENGINES, "X", 0);
     bad += check("UP_PUT bad engine -> args", up_parse(a, n, &r, &slot) == 1);
-    n = put_frame(a, 3, ENGI_DIGITAL, "OLD FM", 0);   /* (DIGITAL, retired: a record keeps it, its load converts) */
+    n = put_frame(a, 3, ENGI_DIGITAL, "OLD FM", 0);   /* (DIGITAL, retired: a record keeps it, it loads silent) */
     bad += check("UP_PUT engine 1 (DIGITAL): kept as it is", up_parse(a, n, &r, &slot) == 0 && slot == 3u &&
                                                         r.engine == ENGI_DIGITAL && up_valid(&r));
     up_migrate(&r);

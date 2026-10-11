@@ -472,7 +472,7 @@ static void test_cost(void)
 {
     uint32_t e_phys = eng_by_name("PHYS"), pp = preset_by_name(e_phys, "BOWED METAL");
     uint8_t phys[NPART][3] = {{(uint8_t)e_phys, (uint8_t)pp, 8}}, idle[NPART][3] = {{0}};
-    uint8_t mix[NPART][3] = {{1, 0, 8}, {2, 0, 8}, {(uint8_t)e_phys, (uint8_t)pp, 4}, {6, 0, 4}};
+    uint8_t mix[NPART][3] = {{ENGI_FM6, 0, 8}, {2, 0, 8}, {(uint8_t)e_phys, (uint8_t)pp, 4}, {6, 0, 4}};
     double c_idle, c0, c1, m0, m1;
     if (!instr_now()) {
         printf("mod: cost: no instruction counter on this host (proc_pid_rusage), skipped\n");
@@ -486,7 +486,7 @@ static void test_cost(void)
     printf("mod: cost: PHYS %s (plays 4 voices): %.0f -> %.0f instructions / sample with 4 slots (+%.0f, +%.1f %% of "
            "the part over the idle mix %.0f)\n", eng_preset(ENGINES[e_phys], pp)->name, c0, c1, c1 - c0,
            (c1 - c0) * 100 / (c0 - c_idle), c_idle);
-    printf("mod: cost: 4 parts (DIGITAL / its FM6 conversion 8 + PHASE 8 + PHYS 4 + TRIO 4 asked, the budget plays 8), every slot of "
+    printf("mod: cost: 4 parts (FM6 8 + PHASE 8 + PHYS 4 + TRIO 4 asked, the budget plays 8), every slot of "
            "every part active: %.0f -> %.0f (+%.1f %%)\n", m0, m1, (m1 - m0) * 100 / m0);
     check("cost: 4 active slots add at most a few percent (PHYS part, the 4-part mix)",
           (c1 - c0) * 100 / (c0 - c_idle) <= MOD_COST_MAX && (m1 - m0) * 100 / m0 <= MOD_COST_MAX);
@@ -534,8 +534,8 @@ static int demos(const char *dir)
         fclose(f);
         n++;
     }
-    /* VEL -> AMP: DIGITAL E.PIANO (without MELODEE_FM4: converted, FM6), the same note at velocities 10 .. 127, twice as much dynamics */
-    fresh(1, 0);
+    /* VEL -> AMP: FM6's TINE EP, the same note at velocities 10 .. 127, twice as much dynamics */
+    fresh(ENGI_FM6, 0);
     slot(t, 0, MS_VEL, MD_AMP, 63);
     slot(t, 1, MS_VEL, MD_CUT, 30);
     if ((f = demo_open(dir, "vel_amp", 16u * (FS / 4u / CTL) * CTL + FS / CTL * CTL))) {

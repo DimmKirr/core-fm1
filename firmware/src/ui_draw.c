@@ -1046,8 +1046,7 @@ static int own_screen(void)                             /* a page drawn whole by
 /* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
 static void draw_page(void)
 {
-    if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
-                                                         * MELODEE_FM4: any track): EDIT 1 */
+    if (!ui.home && !page_visible(ui.page)) {          /* an OP page (DIGITAL's, retired): EDIT 1 */
         ui.page = (uint8_t)page_first(FAM_EDIT);
         page_entered();
     }
