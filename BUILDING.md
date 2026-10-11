@@ -120,6 +120,12 @@ cost (`tests/cpu_baseline.txt`, `tests/target_budget.txt`). After an intended ch
 the sound, `GOLDEN_UPDATE=1 sh tests/run_tests.sh` rewrites the hashes; `BUDGET_UPDATE=1`
 does the same for the cost files.
 
+The tests run in parallel, one job per test, as many at once as the CPU has cores
+(`PARALLEL=n` sets the count, `PARALLEL=1` runs them one by one); each job's output is printed
+in order as it ends and the failures are listed again at the end. `SOUND=0` leaves out the
+sound tests (the regression suite, TRACKS and the tests of every engine's and effect's rendered
+signal), `SOUND=only` runs them alone.
+
 ## Install
 
 Use the web installer in Chrome or Edge:

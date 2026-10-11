@@ -59,7 +59,8 @@ static uint32_t pv_kind(void)
     if ((pg->graph == GR_ADSR && pg->scope == SC_TRACK) || pg->graph == GR_LFO || pg->graph == GR_FMEG ||
         pg->graph == GR_FMPEG)
         return PV_CURVE;
-    if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_SLCR)
+    if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_SLCR ||
+        pg->graph == GR_CHORD)
         return PV_RINGS;
     if (pg->graph == GR_FX)
         return PV_FADERS;
@@ -307,20 +308,24 @@ static void pv_column(uint32_t c, const char *label0, const char *val0, const ch
 }
 
 /* ---------------------------------------------------------- parts --- */
-/* the sound being edited: its engine (the track's colour), its name */
+/* the sound being edited: its track (the numeral, filled in the track's colour), its engine (the track's colour), its
+ * name */
 static void pv_sound(void)
 {
     char nm[20];
     const char *en = ENGINES[eng_idx(TSEL->eng_req)]->name;
     uint32_t sig;
     int32_t x;
+    if (designer_on() && designer_foot())                /* the sound designer: its keys (ui_designer.c) */
+        return;
     sound_name(TSEL, nm);
     sig = str_hash(str_hash(song.sel * 7u + ux.gen * 977u + ux.pal * 31u, en), nm);
     if (!ui.force && sig == pv.sound)
         return;
     pv.sound = sig;
     cv_begin(240, 240 - PV_SOUND_Y, T_BG);
-    x = cv_text_on(8, 3, &AF_X, en, T_THEME, T_BG);
+    cv_icon_mid(6, 8, 16, trk_icon(song.sel, 1), T_THEME, T_BG);   /* (its ink at x 8, as the text was) */
+    x = cv_text_on(26, 3, &AF_X, en, T_THEME, T_BG);
     cv_free_text(x + 6, 1, &AF_S, nm, T_SEC, T_BG, 232 - x - 6);
     cv_blit(0, PV_SOUND_Y);
 }
@@ -753,11 +758,15 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
     *res = 0;
     if (pg->graph == GR_ARP || pg->graph == GR_STEPS || pg->graph == GR_SLCR)
         return pg->graph == GR_ARP ? 5u : pg->graph == GR_STEPS ? 6u : 7u;
+    if (pg->fam == FAM_ARP)                             /* ARP 2: the notes it plays too */
+        return 5u;
+    if (pg->graph == GR_CHORD)                          /* CHORD: its name, its notes (ui_graph.c) */
+        return 8u;
     if ((pg->scope == SC_ENGINE || pg->scope == SC_FM6 || pg->scope == SC_FMOP) && e == ENGI_FM6)
         return 4;
     if (pg->scope == SC_ENGINE && e == 0u && pg->id[0] == P_E0)
         return 1;
-    if (pg->id[0] == G_DTIME && pg->scope == SC_GLOBAL)
+    if ((pg->id[0] == G_DTIME || pg->id[0] == G_DTYPE) && pg->scope == SC_GLOBAL)   /* DLY, DLY 2: the echoes */
         return 2;
     for (c = 0; c < 4u; c++) {
         int16_t *vp;
@@ -781,7 +790,7 @@ static void pv_picture(void)
             sig = (sig ^ TSEL->held[i]) * 16777619u;
         sig ^= TSEL->nheld * 131u + (uint32_t)TSEL->p[P_SLPAT] * 977u + (uint32_t)TSEL->p[P_SLCR] * 7u;
     }
-    if (pic == 4u) {                                    /* FM6: its chart, drawn as the panel draws it */
+    if (pic == 4u || pic == 8u) {                       /* FM6: its chart, CHORD: its chord, as the panel draws them */
         graph_y = PV_PIC_Y;
         graph_h = PV_PIC_H;
         draw_graph();
@@ -1003,14 +1012,16 @@ static void pv_draw(void)
             pv_strip(k);
         return;
     }
-    pv_tab_h = kind == PV_RINGS && sec_on() ? SEC_TAB_H : 0;
+    pv_tab_h = kind == PV_RINGS && (sec_on() || (designer_on() && designer_tabs_on())) ? SEC_TAB_H : 0;
     if (kind != PV_CURVE) {                             /* RINGS, FADERS */
         if (ui.force) {                                 /* (the parts then cover what they draw) */
             lcd_fill(0, H_HEAD, 240, PV_SOUND_Y - H_HEAD, T_BG);
             ui.graph_sig = 0;
         }
         draw_head();
-        if (pv_tab_h) {                                 /* an engine in sections: its tabs, the page noted */
+        if (pv_tab_h && designer_on()) {                /* the sound designer: its stages */
+            designer_tabs();
+        } else if (pv_tab_h) {                          /* an engine in sections: its tabs, the page noted */
             sec_note();
             sec_tabs();
         }

@@ -1062,6 +1062,7 @@ static int project_restore_runtime(const project_t *input)
     project_t *p = &proj_scratch;
     uint32_t i, k;
     if (!proj_ok(input)) return 1;
+    if(designer_on() && designer_quit)designer_quit(0);   /* a loaded project owns the new sound */
     if (p != input) memcpy(p, input, sizeof *p);
     proj_drums_to_part(p);                              /* a RAM slot of firmware before 1.0 */
     proj_phys(p);                                       /* .. before PHYS lost DUST and DRUM */

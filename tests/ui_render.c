@@ -201,8 +201,14 @@ static void cover(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
         int touch = b->x0 < x1 && x0 < b->x1 && b->y0 < y1 && y0 < b->y1;
         if (in) continue;
         if (touch && !(b->flags & 48u)) finding("hidden in part by a later draw", b, 0);
-        if (touch && (b->flags & 48u)) scr[k++] = *b;   /* split across bands / scrolled: drawn on purpose */
-        else scr[k++] = *b;
+        scr[k] = *b;
+        if (touch && (b->flags & 48u) && x0 <= b->x0 && b->x1 <= x1) {   /* split across bands / scrolled / dimmed
+                                                         * under a popup: drawn on purpose; what is left of it (a sheet
+                                                         * drawn in slices covers it in turn) */
+            if (y0 <= b->y0) scr[k].y0 = (int16_t)y1;
+            else if (b->y1 <= y1) scr[k].y1 = (int16_t)y0;
+        }
+        k++;
     }
     nscr = k;
 }
@@ -1306,7 +1312,9 @@ static void sweep_columns(void)
             for (c = 0; c < 4u; c++) {
                 int16_t *vp;
                 int fm6 = PAGES[i].scope == SC_FM6 || PAGES[i].scope == SC_FMOP;   /* (a copy: written back) */
-                const param_desc_t *d = PAGES[i].scope == SC_GLOBAL || PAGES[i].scope == SC_TRACK || PAGES[i].scope == SC_ENGINE || fm6
+                int p5 = PAGES[i].scope == SC_P5;
+                p5_patch_t p5_before=*p5_patch_of(TSEL);
+                const param_desc_t *d = PAGES[i].scope == SC_GLOBAL || PAGES[i].scope == SC_TRACK || PAGES[i].scope == SC_ENGINE || fm6 || p5
                                         ? page_desc(cur_page(), c, &vp) : 0;
                 int32_t v, v0;
                 if (!d || !d->label || d->label[0] == '-' || PAGES[i].graph == GR_MOD) continue;
@@ -1314,6 +1322,8 @@ static void sweep_columns(void)
                 for (v = d->min; v <= d->max; v++) {
                     if (fm6)
                         fm6_page_put(cur_page(), c, v);
+                    else if (p5)
+                        p5_edit_value(TSEL,PAGES[i].id[c],p5_panel_raw(TSEL,PAGES[i].id[c],v));
                     else
                         *vp = (int16_t)v;
                     nscr = npend = 0;
@@ -1325,6 +1335,10 @@ static void sweep_columns(void)
                 }
                 if (fm6)
                     fm6_page_put(cur_page(), c, v0);
+                else if (p5) {
+                    *p5_patch_of(TSEL)=p5_before;
+                    p5_track_accept(TSEL);
+                }
                 else
                     *vp = (int16_t)v0;
             }
@@ -1623,6 +1637,53 @@ static void roll_cost(void)
             t_full / CLOCKS_PER_SEC / N * 1e6, (unsigned long long)(px_full / N), (unsigned long long)(bl_full / N));
 }
 
+static void designer_sweep(const char *out)
+{
+    char name[96],file[64];
+    for(uint32_t palid=0;palid<UI_PAL_ENTRIES;palid++)for(uint32_t eng=0;eng<NENG_SHOWN;eng++){
+        int night=str_eq(UI_PALETTES[palid].name,"NIGHT");
+        state();sound_init_of(TSEL,eng_vis(eng));pal(palid);designer_open();
+        snprintf(name,sizeof name,"%s/designer %s START",UI_PALETTES[palid].name,ENGINES[TSEL->eng_req]->name);cur_name=name;
+        nscr=npend=0;ui.force=1;ui_draw();lint();if(palid==UI_GRAY_INDEX)mono_check();
+        if(TSEL->eng_req==ENGI_PROPHET && night)write_ppm(out,"NIGHT","designer_start");
+        ds.expert=1;designer_begin();
+        for(uint32_t i=0;i<ds.n;i++){
+            ds.at=(uint8_t)i;designer_page();
+            if(designer_feat_on()){                     /* FEATURES: every row lifted in turn */
+                uint32_t n;designer_feats(&n);
+                for(uint32_t r=0;r<n;r++){
+                    ds.row=(uint8_t)r;
+                    snprintf(name,sizeof name,"%s/designer %s FEATURES row %u",UI_PALETTES[palid].name,ENGINES[TSEL->eng_req]->name,r+1);cur_name=name;
+                    nscr=npend=0;ui.force=1;ui_draw();lint();if(palid==UI_GRAY_INDEX)mono_check();
+                }
+                ds.row=0;ui.force=1;ui_draw();
+                if(night){snprintf(file,sizeof file,"designer_features_%u",TSEL->eng_req);write_ppm(out,"NIGHT",file);}
+                continue;
+            }
+            snprintf(name,sizeof name,"%s/designer %s %s OP%u",UI_PALETTES[palid].name,ENGINES[TSEL->eng_req]->name,cur_page()->title,fm6_opsel+1);cur_name=name;
+            nscr=npend=0;ui.force=1;ui_draw();lint();if(palid==UI_GRAY_INDEX)mono_check();
+            if(night && ((TSEL->eng_req==ENGI_PROPHET && str_eq(cur_page()->title,"P5 POLYMOD")) ||
+                (TSEL->eng_req==ENGI_FM6 && str_eq(cur_page()->title,"FREQ") && fm6_opsel==0) ||
+                (TSEL->eng_req==ENGI_CZ && str_eq(cur_page()->title,"CZ1 WAVE")))){
+                snprintf(file,sizeof file,"designer_%u",TSEL->eng_req);write_ppm(out,"NIGHT",file);
+            }
+        }
+        designer_compare();                             /* the original, its chip */
+        snprintf(name,sizeof name,"%s/designer %s ORIGINAL",UI_PALETTES[palid].name,ENGINES[TSEL->eng_req]->name);cur_name=name;
+        nscr=npend=0;ui.force=1;ui_draw();lint();if(palid==UI_GRAY_INDEX)mono_check();
+        designer_compare();
+        designer_finish();                              /* its sheet, the question */
+        snprintf(name,sizeof name,"%s/designer %s sheet",UI_PALETTES[palid].name,ENGINES[TSEL->eng_req]->name);cur_name=name;
+        nscr=npend=0;ui.force=1;ui_draw();lint();if(palid==UI_GRAY_INDEX)mono_check();
+        if(TSEL->eng_req==ENGI_PROPHET && night)write_ppm(out,"NIGHT","designer_sheet");
+        pop_close();confirm_open(CF_DISCARD_DESIGN,song.sel);
+        snprintf(name,sizeof name,"%s/designer %s discard",UI_PALETTES[palid].name,ENGINES[TSEL->eng_req]->name);cur_name=name;
+        nscr=npend=0;ui.force=1;ui_draw();lint();if(palid==UI_GRAY_INDEX)mono_check();
+        if(TSEL->eng_req==ENGI_PROPHET && night)write_ppm(out,"NIGHT","designer_discard");
+        ui.confirm=0;designer_close(1);
+    }
+    cur_name=0;
+}
 int main(int argc, char **argv)
 {
     const char *out = argc > 1 ? argv[1] : "build/ui_new";
@@ -1671,6 +1732,7 @@ int main(int argc, char **argv)
             for (k = 0; k < 3u; k++)
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
+    designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */
         uint32_t a, e, c0 = fmp_charts;
         for (e = FM6_MODERN; e <= FM6_OPL; e++)

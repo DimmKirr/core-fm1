@@ -640,7 +640,7 @@ static void layer_edit(void)
 static void layer_glo_keys(int32_t h)
 {
     static const char *const WL[8][2] = {{"Solo", "1"}, {"Solo", "2"}, {"Solo", "3"}, {"Solo", "4"}, {"Mute", "all"},
-                                         {"", ""}, {"", ""}, {"Tap", "tempo"}};
+                                         {"", ""}, {"", ""}, {"Tap", "bpm"}};
     static const uint8_t BX[NTRK] = {0, 1, 2, 4};       /* black key t: between white BX and BX + 1 (F# G# A# C#) */
     const int32_t kw = 28, x0 = 1, wy = 68, by = 24, bh = 38;
     uint32_t i;

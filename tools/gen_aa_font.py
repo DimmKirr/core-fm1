@@ -8,8 +8,9 @@ tools/build.py generate() with --preset rubik).
   gen_aa_font.py OUT.h --face NAME=FONT[#index]:PX:FIRST-LAST[+0xNN,...] ...   (explicit faces)
 
 Faces of the presets (S labels, M values/headers, L big numerals / titles):
-  rubik       assets/fonts/Rubik[wght].ttf (SIL OFL 1.1, Google Fonts): Melodee's face, at 9 / 11 / 15 / 30 px and weights
-              400 / 500 / 600 (its tall x-height reads as Inter Tight's 12 / 15 / 28 at about the same width).
+  rubik       assets/fonts/Rubik[wght].ttf (SIL OFL 1.1, Google Fonts): Melodee's face, at 10 / 12 / 15 / 30 px and weights
+              400 / 500 / 600 (its tall x-height reads as Inter Tight's 12 / 15 / 28 at about the same width); X and S
+              on the line metrics of 9 / 11 px (lifted a row).
   standin     an installed Inter (~/Library/Fonts/Inter.ttc, else Inter in fonts/ next to tools/) with
               -2.5 % tracking: a stand-in for Inter Tight, for previews only.
   inter-tight assets/fonts/InterTight[wght].ttf (SIL OFL 1.1, Google Fonts) at weights 400 / 500 / 600.
@@ -53,8 +54,11 @@ L_CHARS = " #+./-_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 def preset(name):
     if name == "rubik":
         v = str(FONTS.parent / "assets" / "fonts" / "Rubik[wght].ttf")       # SIL OFL 1.1, Google Fonts
-        return [("X", v + "@500", 9, (32, 126), EXTRAS, 0.0, PHASES),     # the redesign's labels (docs/design)
-                ("S", v + "@400", 11, (32, 126), EXTRAS, 0.0, PHASES),
+        # X and S: a pixel larger than the layout's 9 / 11 px, lifted a row so their baselines and line heights stay
+        # the 9 / 11 px faces' (every y and every baseline shared with M and L as it was; the ink grows upwards).
+        # X at 490: at 500 its 'li' lands 0.28 px off (tests/text_spacing_test.py allows 0.25)
+        return [("X", v + "@490", 10, (32, 126), EXTRAS, 0.0, PHASES, 1),     # the redesign's labels (docs/design)
+                ("S", v + "@400", 12, (32, 126), EXTRAS, 0.0, PHASES, 1),
                 ("M", v + "@500", 15, (32, 126), EXTRAS, 0.0, PHASES),
                 ("L", v + "@500", 30, (32, 32), [ord(c) for c in L_CHARS[1:]], 0.0, PHASES_L)]
     if name == "inter-tight":
@@ -168,9 +172,16 @@ def huff_unpack(hc, data, n):
 
 
 def emit(face, tracking, gamma, kern_min):
-    name, font, px, (first, last), extras, ftrack, phases = face
+    name, font, px, (first, last), extras, ftrack, phases, *lift = face
+    lift = lift[0] if lift else 0              # rows the glyphs move up in the line box (and off its baseline, height)
     chars = [chr(c) for c in range(first, last + 1)] + [chr(c) for c in extras]
     r = ar.raster_font(font, px, chars, tracking if ftrack is None else ftrack, gamma, True, kern_min, phases)
+    if lift:
+        for ch, (adv16, ph) in r["glyphs"].items():
+            assert all(by >= lift for bx, by, bw, bh, b in ph if bh), f"{name} {ch!r}: no room above to lift it"
+            r["glyphs"][ch] = (adv16, [(bx, by - lift if bh else by, bw, bh, b) for bx, by, bw, bh, b in ph])
+        r["asc"] -= lift
+        r["h"] -= lift
     data, table, lines = bytearray(), [], []
     for ch in chars:
         adv16, ph = r["glyphs"][ch]

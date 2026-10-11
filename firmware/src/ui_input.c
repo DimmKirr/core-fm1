@@ -46,7 +46,7 @@ static int layer_set_open(void);                       /* (ui_layer.c) */
  * they are Esc / Enter (docs/design/README.md, Navigation) */
 static int oct_nav(void)
 {
-    return !ui.home || ui.menu || ui.confirm || name_on() || new_on() || layer_set_open() || pop.on || smap.on;
+    return designer_on() || !ui.home || ui.menu || ui.confirm || name_on() || new_on() || layer_set_open() || pop.on || smap.on;
 }
 static int oct_enter_ok(void)                           /* OCT+ would do something here */
 {
@@ -58,6 +58,7 @@ static int oct_enter_ok(void)                           /* OCT+ would do somethi
  * they show the octave shift */
 static uint32_t oct_leds(void)
 {
+    if (designer_on() && !name_on() && !ui.confirm) return 3u;
     uint32_t blink = ((fm1_ms / 250u) & 1u) == 0u;
     if ((name_on() || new_on()) && !ui.confirm && !ui.menu)   /* NAME, NEW SONG: OCT- cancels, OCT+ (blinking) goes on */
         return 1u | (blink ? 2u : 0u);
@@ -167,8 +168,8 @@ static uint32_t play_key_led(const track_t *t, uint32_t k)
     return KL_DIM;
 }
 
-static const uint8_t LIGHTS_MASK[LIGHTS_N] = {0, 7, 3, 1, 0};   /* the dim keys' frames: -, 1/8, 1/4, 1/2, all */
-#define BTN_DIM_MASK 3u                                         /* idle buttons: 1/4 of the frames */
+static const uint8_t LIGHTS_MASK[LIGHTS_N] = {0, 7, 3, 1, 0};   /* the dim keys' duty: -, 1/8, 1/4, 1/2, all */
+#define BTN_DIM_MASK 3u                                         /* idle buttons: 1/4 duty each scan */
 /* The lights' grammar, keys and buttons alike: dark nothing there, dim something there, bright happening now, breathing
  * waiting (a pattern for the bar, REC armed before the transport runs, PLAY counting in). Breathing: the third dim plane,
  * its level swept full .. 1/8 .. dark .. 1/8 .. full over a second (BREATH, 125 ms a step; 0xFF: dark) */
@@ -484,7 +485,7 @@ static void autosave_poll(uint32_t active)
     uint32_t r = usb.rx_pkts;
 #endif
     if (active || r != rx || transport_busy() || ui.menu || ui.confirm || name_on() || new_on() || ui.layer || momentary.active ||
-        browse_pending() || qsave_req) {
+        browse_pending() || qsave_req || designer_on()) {
         t0 = fm1_ms;
         rx = r;
         done = 0;
@@ -713,7 +714,7 @@ static void motion_unplayed(void)
 /* an edit of the engine's own patch (its bytes before: old, under motion_guard): its motion (motion.c) */
 static void native_motion(const uint8_t *old)
 {
-    if (!momentary.active && motion_native_edited(TSEL, old))
+    if (!designer_on() && !momentary.active && motion_native_edited(TSEL, old))
         motion_unplayed();
 }
 static void edit_param(uint32_t slot, int32_t steps)
@@ -831,7 +832,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     *vp = (int16_t)v;
     if(pg->scope==SC_P5){
         uint8_t old[MO_NATIVE_N];uint32_t f=motion_guard();
-        motion_native_peek(TSEL,old);p5_edit_value(TSEL,pg->id[slot],v-(pg->id[slot]==P5_BEND?1:0));native_motion(old);
+        motion_native_peek(TSEL,old);p5_edit_value(TSEL,pg->id[slot],p5_panel_raw(TSEL,pg->id[slot],v));native_motion(old);
         motion_unguard(f);return;
     }
     if(pg->scope==SC_P5STORE){p5_store_slot=(int16_t)v;return;}
@@ -870,7 +871,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         settings_save();
         return;
     }
-    if (pg->scope != SC_GLOBAL && !momentary.active) {
+    if (pg->scope != SC_GLOBAL && !momentary.active && !designer_on()) {
         motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
         if (motion_param((uint32_t)(vp - TSEL->p)))
             motion_unplayed();
@@ -1480,10 +1481,50 @@ static void seq_erase_update(uint32_t pressed)
     if (!(fm1_in.buttons & ed)) { ui.erase_gesture = ui.erase_owner = 0; }
 }
 
+/* KNOB k turned s on the page shown (the sound designer's pages too): what it edits there, its card hot */
+static void page_knob(uint32_t k, int32_t s)
+{
+    const page_t *pg = cur_page();
+    int16_t *hv;
+    if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || ((pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
+        (pg->graph == GR_USER && k == 0u) || (pg->graph == GR_MOD && k == 1u)
+        || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
+        || (pg->graph == GR_SLICES && k < 2u)) {       /* (not an empty column) */
+        ui.hot_col = (uint8_t)k;
+        ui.hot_t = 40;
+    }
+    if (list_on()) {                                    /* a list page: KNOB 2 the row, KNOB 1 its value (ui_list.c) */
+        list_knob(k, s);
+        return;
+    }
+    if (slot_kind()) {                                  /* a slot page: KNOB 1 / 2 the slot (ui_slots.c) */
+        if (k < 2u)
+            edit_param(0, s);
+        return;
+    }
+    if (motion_page()) {                                /* MOTION: KNOB 2 the lane, KNOB 1 Play (ui_motion.c) */
+        motion_knob(k, s);
+        return;
+    }
+    momentary_take(k);
+    if (ui.home) {                                      /* Stage: the selected track's engine's four, as its pages; they
+                                                         * drop in */
+        stage_knob_touch();
+        page_over = stage_page();
+        edit_param(k, s);
+        page_over = 0;
+    } else {
+        edit_param(k, s);
+        pick_touch(k);                                  /* a name from a long list: its picker (ui_popup.c) */
+    }
+}
+
+#include "ui_designer_input.c"
 static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
     if (scr_input(pressed, notes)) return;
+    if (designer_on() && !name_on() && !ui.confirm && designer_input(pressed, notes)) return;
     if (notes)
         browse_commit();                              /* a key played while browsing: hear the sound shown */
     browse_poll();
@@ -1675,6 +1716,8 @@ static void ui_input(void)
             } else if (kind == CF_PASTE_PAT) {          /* PATTERNS' Copy to over a pattern in use */
                 if (ui.ptc_on && ui.ptc_trk == ui.confirm_trk)
                     ptc_paste(1);
+            } else if (kind == CF_DISCARD_DESIGN) {    /* the sound designer's original back */
+                if (designer_on() && designer_quit) { designer_quit(1); ui_message("SOUND RESTORED"); }
             } else if (kind == CF_INIT_SOUND) {
                 if (!chain_busy()) { sound_init_of(TSEL, TSEL->eng_req); ui_message("SOUND INIT"); }
             } else {
@@ -1944,43 +1987,13 @@ static void ui_input(void)
         }
     }
     for (k = 0; !knob_layer && k < 4u; k++) {
-        const page_t *pg = cur_page();
-        int16_t *hv;
         if ((s = panel_enc(EN_K1 + k)) == 0)
             continue;
         step_edit_combo();
-        if (k == 0u && pg->graph == GR_ROLL && step_gesture(s))   /* KNOB 1 too, as SELECT (ENV / SCL / a key held) */
+        if (k == 0u && cur_page()->graph == GR_ROLL && step_gesture(s))   /* KNOB 1 too, as SELECT (ENV / SCL / a key
+                                                                         * held) */
             continue;
-        if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || ((pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
-            (pg->graph == GR_USER && k == 0u) || (pg->graph == GR_MOD && k == 1u)
-            || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
-            || (pg->graph == GR_SLICES && k < 2u)) {   /* (not an empty column) */
-            ui.hot_col = (uint8_t)k;
-            ui.hot_t = 40;
-        }
-        if (list_on()) {                                /* a list page: KNOB 2 the row, KNOB 1 its value (ui_list.c) */
-            list_knob(k, s);
-            continue;
-        }
-        if (slot_kind()) {                              /* a slot page: KNOB 1 / 2 the slot (ui_slots.c) */
-            if (k < 2u)
-                edit_param(0, s);
-            continue;
-        }
-        if (motion_page()) {                            /* MOTION: KNOB 2 the lane, KNOB 1 Play (ui_motion.c) */
-            motion_knob(k, s);
-            continue;
-        }
-        momentary_take(k);
-        if (ui.home) {                                  /* Stage: the selected track's engine's four, as its pages; they drop in */
-            stage_knob_touch();
-            page_over = stage_page();
-            edit_param(k, s);
-            page_over = 0;
-        } else {
-            edit_param(k, s);
-            pick_touch(k);                              /* a name from a long list: its picker (ui_popup.c) */
-        }
+        page_knob(k, s);
     }
     if (step_modifier_context()) {
         uint32_t ed = 1u << panel.btn[B_EDIT], octmask = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);

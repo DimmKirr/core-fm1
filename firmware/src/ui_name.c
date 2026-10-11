@@ -57,7 +57,7 @@ static void name_close(void)
     nm.kind = NK_NONE;
 }
 /* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads song.grid) */
-static uint32_t keys_mode(void) { return name_on() ? 2u : (uint32_t)grid_on(); }
+static uint32_t keys_mode(void) { return name_on() ? 2u : designer_on() ? 0u : (uint32_t)grid_on(); }
 
 static const char *nm_group(uint32_t p)                /* white key place p's characters */
 {

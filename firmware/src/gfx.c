@@ -22,7 +22,7 @@ typedef struct {
 } aafont_t;
 typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4]; } ui_pal_t;
 typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
-#include "ui_fonts.h"                   /* AF_X 9 px / 500 (labels), AF_S 11 px / 400, AF_M 15 px / 500, AF_L 30 px / 500 */
+#include "ui_fonts.h"                   /* AF_X 10 px / 500 (labels), AF_S 12 px / 400, AF_M 15 px / 500, AF_L 30 px / 500 */
 #include "ui_palettes.h"
 #include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
 #define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
@@ -214,10 +214,10 @@ static void cv_dim_rows(uint32_t r0)
 }
 /* ------------------------------------------------------------- diff --- */
 /* The SPI (12 MHz) is the UI's bottleneck: the whole screen takes ~77 ms. So a big canvas sent where it was sent
- * before (the same x, y, w, h) sends only what changed: DF_N such places keep 16-bit hashes of their 4-row bands and
+ * before (the same x, y, w, h) sends only what changed: DF_N such places keep 32-bit hashes of their 4-row bands and
  * 8-column blocks as last sent, and a blit sends the dirty band runs x the dirty block runs. Anything else written
  * over a place (another canvas, a fill: gfx_fill) marks the bands and blocks it covered dirty: sent again next time */
-#define DF_N 14u
+#define DF_N 9u                                         /* (tests/ui_render.c's LCD audit: as much sent as with 14) */
 #ifndef DF_MIN
 #define DF_MIN 2048u                                    /* (smaller canvases: sent whole) */
 #endif
@@ -225,10 +225,13 @@ static void cv_dim_rows(uint32_t r0)
 #define DF_BLK 8u
 #define DF_NB (240u / DF_BAND)
 #define DF_NK (240u / DF_BLK)
+#define DF_SLOTS 76u                                    /* a canvas's bands, then its blocks: at most 60 + 16 (CV_MAX) */
+#define DF_FITS() ((cv_h + DF_BAND - 1u) / DF_BAND + (cv_w + DF_BLK - 1u) / DF_BLK <= DF_SLOTS)
 static struct { uint64_t pb; uint32_t pk; uint8_t x, y, w, h, on; uint16_t use; } df_key[DF_N];   /* pb, pk: bands and
                                                                                     * blocks drawn over since (dirty) */
-static uint16_t df_sum[DF_N][DF_NB + DF_NK] __attribute__((section(".pool")));
-static uint16_t df_now[DF_NB + DF_NK] __attribute__((section(".pool")));
+static uint32_t df_sum[DF_N][DF_SLOTS] __attribute__((section(".pool")));   /* (16 bits: one changed block in 65536
+                                                                             * collided, left stale) */
+static uint32_t df_now[DF_SLOTS] __attribute__((section(".pool")));
 static uint16_t df_clock;
 
 static void df_damage(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t keep)   /* (keep: a place spared) */
@@ -262,7 +265,8 @@ static uint32_t df_find(uint32_t x, uint32_t y)        /* the canvas's place (DF
 }
 static void df_hash(void)                               /* the canvas's bands, then its blocks, into df_now */
 {
-    uint32_t nk = (cv_w + DF_BLK - 1u) / DF_BLK, r, k, i, band = 2166136261u, blk[DF_NK];
+    uint32_t nb = (cv_h + DF_BAND - 1u) / DF_BAND, nk = (cv_w + DF_BLK - 1u) / DF_BLK, r, k, i, band = 2166136261u;
+    uint32_t blk[DF_NK];
     for (k = 0; k < nk; k++)
         blk[k] = 2166136261u;
     for (r = 0; r < cv_h; r++) {
@@ -275,12 +279,12 @@ static void df_hash(void)                               /* the canvas's bands, t
             band = (band ^ h) * 16777619u;
         }
         if (r % DF_BAND == DF_BAND - 1u || r + 1u == cv_h) {
-            df_now[r / DF_BAND] = (uint16_t)(band ^ band >> 16);
+            df_now[r / DF_BAND] = band;
             band = 2166136261u;
         }
     }
     for (k = 0; k < nk; k++)
-        df_now[DF_NB + k] = (uint16_t)(blk[k] ^ blk[k] >> 16);
+        df_now[nb + k] = blk[k];
 }
 static void df_keep(uint32_t x, uint32_t y)             /* the canvas just sent whole: its place remembered */
 {
@@ -298,7 +302,7 @@ static void df_keep(uint32_t x, uint32_t y)             /* the canvas just sent 
     df_key[at].pb = 0;
     df_key[at].pk = 0;
     df_key[at].use = ++df_clock;
-    for (i = 0; i < DF_NB + DF_NK; i++)
+    for (i = 0; i < DF_SLOTS; i++)
         df_sum[at][i] = df_now[i];
 }
 /* canvas columns c0 .. c0+w-1 of rows r0 .. r0+h-1 to the screen: whole rows straight from the canvas, else gathered
@@ -354,7 +358,7 @@ static int df_diff(uint32_t x, uint32_t y)
     for (i = 0; i < nb; i++)
         anyb |= db[i] = df_now[i] != df_sum[e][i] || ((df_key[e].pb >> i) & 1u);
     for (i = 0; i < nk; i++)
-        anyk |= dk[i] = df_now[DF_NB + i] != df_sum[e][DF_NB + i] || ((df_key[e].pk >> i) & 1u);
+        anyk |= dk[i] = df_now[nb + i] != df_sum[e][nb + i] || ((df_key[e].pk >> i) & 1u);
     df_key[e].use = ++df_clock;
     df_key[e].pb = 0;
     df_key[e].pk = 0;
@@ -364,7 +368,7 @@ static int df_diff(uint32_t x, uint32_t y)
         db[i] = 1;
     for (i = 0; i < nk && !anyk; i++)
         dk[i] = 1;
-    for (i = 0; i < DF_NB + DF_NK; i++)
+    for (i = 0; i < DF_SLOTS; i++)
         df_sum[e][i] = df_now[i];
     nr = df_runs(db, nb, 1u, ra, rb);
     nc = df_runs(dk, nk, 2u, ca, cb);
@@ -453,7 +457,7 @@ static void gfx_forget(void)                            /* the panel's memory no
 
 static void cv_blit(uint32_t x, uint32_t y)
 {
-    uint32_t big = cv_w * cv_h >= DF_MIN;
+    uint32_t big = cv_w * cv_h >= DF_MIN && DF_FITS();
     if (fq_n)
         fq_cover(x, y, cv_w, cv_h);
     GFX_HOOK_BLIT(x, y, 0u);
@@ -493,7 +497,7 @@ static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
 static void cv_blit_spans(uint32_t x, uint32_t y, uint32_t a0, uint32_t aw, uint32_t b0, uint32_t bw)
 {
     uint32_t e;
-    if (cv_dim || cv_w * cv_h < DF_MIN) {
+    if (cv_dim || cv_w * cv_h < DF_MIN || !DF_FITS()) {
         cv_blit(x, y);
         return;
     }
@@ -515,7 +519,7 @@ static void cv_blit_spans(uint32_t x, uint32_t y, uint32_t a0, uint32_t aw, uint
         df_diff(x, y);
         return;
     }
-    for (uint32_t i = 0; i < DF_NB + DF_NK; i++)
+    for (uint32_t i = 0; i < DF_SLOTS; i++)
         df_sum[e][i] = df_now[i];
     df_key[e].use = ++df_clock;
     if (a0 < cv_w && aw)

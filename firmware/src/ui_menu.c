@@ -10,14 +10,14 @@ enum { MI_COLOR, MI_LOWCUT, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB,
 #endif
-       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_LATCH, MI_ACCEL, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_BACK,
+       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_LATCH, MI_ACCEL, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "SPEAKER", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO",
 #endif
                                               "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY", "FX LATCH",
-                                              "KNOB ACCEL", "SCREEN OFF", "CALIBRATION", "ABOUT", "BACK"};
+                                              "KNOB ACCEL", "SCREEN OFF", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
 static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
@@ -205,7 +205,7 @@ static void menu_head(void)
 /* "AUDIO CLICK" -> "Audio click", "P5 OSC A" -> "Osc A" (acronyms and a letter alone stay capitals) */
 static void menu_words(char *d, const char *s, uint32_t n)
 {
-    static const char *const AC[] = {"USB", "FX", "MIDI", "LFO", "EG", "FM", "OP", "PW", "DCW", "DCA", "DCO"};
+    static const char *const AC[] = {"USB", "FX", "MIDI", "LFO", "EG", "FM", "OP", "PW", "DCW", "DCA", "DCO", "MPC"};
     uint32_t i, w = 0, a;
     str_cpy(d, s, n);
     for (i = 0; d[i]; i++) {
@@ -414,6 +414,9 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         case MI_PANEL:
             panel_setup();
             ui.force = 1;
+            break;
+        case MI_DESIGNER:
+            menu_close();designer_open();
             break;
         case MI_ABOUT:
             ui.menu = 2;

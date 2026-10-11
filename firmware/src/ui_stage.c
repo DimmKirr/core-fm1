@@ -59,7 +59,8 @@ static void stage_columns(void)
         const char *unit;
         char val[12];
         const param_desc_t *d = page_desc(sp, c, &vp);
-        int dim = sp->scope == SC_CZ1 && !cz_ed_active(cz_patch[song.sel % NTRK].raw, sp->id[c]);
+        int dim = (sp->scope == SC_CZ1 && !cz_ed_active(cz_patch[song.sel % NTRK].raw, sp->id[c])) ||
+                  (sp->scope == SC_P5 && !p5_ed_active(TSEL, sp->id[c]));
         if (!d || !vp || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
             continue;

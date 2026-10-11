@@ -82,6 +82,69 @@ check passes. Hardware timing, rather than host speed, decides capacity.
 
 ## Subsequent fidelity corrections and current limits
 
+### Tone control audit (2026-10-10)
+
+`tests/prophet_knob_test.c` drives the real UI encoder path for all **57**
+native tone controls, verifies that each detent changes only its own patch
+byte, and compares two seconds of rendered notes and releases. Every control
+changes PCM when its required path is enabled. Another probe edits all **46**
+controls applicable to an already held note. Waveform difference energy is a
+functional check, not a listening verdict or a calibrated fidelity measure.
+
+The editor now dims controls whose required signal path is disabled. Dimmed
+controls remain editable: enable the required waveform, destination or switch
+to hear them. Hints remain conservative when track modulation or a manual
+voice-mode override can alter the native routing. INIT and eight factory sounds
+have byte-identical audio checks for every control the hints mark inactive.
+The UI layout sweep also covers every Prophet tone control value.
+
+Keyed **FREQ A/B** now display semitones (`-12` through `+36`), with one
+semitone per slow detent. Previously the editor exposed 0–127 raw bytes:
+adjacent values selected the same pitch and values 96–127 all selected the
+highest pitch. Keyboard-off B keeps its continuous 0–127 range. Viewing
+presets preserves their exact odd and upper raw tuning bytes; only turning a
+tuning control writes a new detent. Native SysEx/editor field values stay raw.
+The native zero unison-count byte now displays its actual default of five
+voices, so the first downward turn selects four instead of jumping to one.
+
+| Tone page | Four knobs, left to right | When to listen / required setup |
+| --- | --- | --- |
+| OSC A | FREQ A, SAW A, PULSE A, WIDTH A | Raise OSC A in Mixer; WIDTH needs PULSE A on. |
+| OSC B | FREQ B, FINE B, WIDTH B, KEY B | Raise OSC B or use B as a Poly-Mod source. WIDTH needs PULSE B on. KEY B makes B follow played notes. |
+| B WAVES | SAW B, TRI B, PULSE B, LOW B | B must reach the mixer or Poly-Mod. LOW B moves B into the modulation-rate range. |
+| MIXER | OSC A, OSC B, NOISE, SYNC | Enable each oscillator's waveform. For obvious sync, hear A and tune A above B. |
+| FILTER | CUTOFF, RES, KEY, MODEL | Sweep CUTOFF broadly. KEY is clearest across different notes; a large envelope amount can hold the filter open. |
+| FLT ENV | ATK, DEC, SUS, REL | Set ENV AMT on ENV MOD, or route the filter envelope through Poly-Mod. Play new notes for ATK; release notes for REL. |
+| AMP ENV | ATK, DEC, SUS, REL | Play new notes for ATK, hold for DEC/SUS, release for REL. REL needs RELEASE on. |
+| ENV MOD | ENV AMT, VEL FLT, VEL AMP, RELEASE | ENV AMT controls filter movement. Velocity switches need different note velocities; VEL FLT also needs ENV AMT. RELEASE enables the native release times. |
+| POLYMOD | ENV AMT, OSC B, FREQ A, PW A | The first two are source amounts, the last two destination switches. PW A needs PULSE A. B can modulate even when its mixer level is zero. |
+| MOD FLT | FILTER, VINTAGE, AT FLT, AT LFO | FILTER routes Poly-Mod to cutoff. VINTAGE mismatch is set on new notes. AT controls need MIDI aftertouch; AT LFO also needs a wheel destination. |
+| LFO | RATE, SAW, TRI, SQUARE | Choose a waveform, a destination on WHEEL/WHEEL 2, and INITIAL depth. A NOISE-only source mix bypasses LFO rate/waveforms. |
+| WHEEL | INITIAL, N MIX, FREQ A, FREQ B | INITIAL supplies modulation without a MIDI mod wheel. N MIX blends LFO to noise. FREQ switches enable pitch destinations. |
+| WHEEL 2 | PW A, PW B, FILTER, GLIDE | Pulse-width routes need pulse waves. FILTER enables LFO/noise cutoff movement. GLIDE is heard when changing notes. |
+| UNISON | UNISON, VOICES, DETUNE, PRIORITY | Play new notes after voice assignment edits. VOICES/DETUNE need UNISON; detune needs multiple voices. PRIORITY is heard with overlapping held notes. |
+| BEND | BEND | Sets range for MIDI pitch bend; changing range without a bend input does not alter the note. |
+| STORE | SLOT, STORE, SEND, INIT | SLOT chooses the user slot; action knobs select an action for OCT+ to confirm. INIT resets the tone; saving and sending preserve its sound. |
+
+For a clear first experiment, select **INIT PROPHET**, hold a note, and sweep
+FILTER **CUTOFF** from 127 to about 30. Then on OSC A turn **SAW A off** and
+**PULSE A on** and sweep **WIDTH A**. For vibrato, turn **TRI on** on LFO,
+set **RATE around 90**, then on WHEEL turn **FREQ A on**, set **N MIX to 0**,
+and raise **INITIAL to 40–70**. These use the current firmware's native 0–127
+amounts, not the physical Prophet's printed 0–10 scale.
+
+The dependency explanations follow the
+[Sequential user guide](https://www.sequential.com/wp-content/uploads/2021/02/Prophet-5-Users-Guide-1.3.pdf).
+The audit verifies the current source/UI/render paths; physical encoder,
+installed-firmware and speaker/headphone listening checks remain separate.
+Final validation: `ALL HOST TESTS PASSED`, 351 golden renders with zero changes,
+zero layout findings in both UI configurations, and zero failures in the
+AddressSanitizer/UndefinedBehaviorSanitizer knob audit. The local package is
+`build/melodee.fwsc` (FM-1_900); the connected FM-1 remains on FM-1_91010.
+A read-only patch query confirmed that its track 2 is **It's a Prophet 5**, with
+both pulse waves, all Poly-Mod source amounts/destinations and unison disabled.
+No installation or persistent device write was performed.
+
 The coarse tuning, keyboard tracking, wheel-pitch symmetry and arithmetic
 endpoint repairs above are covered by host playback and strict ASan/UBSan.
 The wheel depth, envelope times and filter mapping were later fitted to the

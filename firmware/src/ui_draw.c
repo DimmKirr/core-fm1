@@ -3,7 +3,7 @@
 /* Melodee UI drawing: the header, the four knob cards, the footer (steps + engine / preset / page)
  * and the frame; the panel between the cards and the footer is ui_graph.c. The layout: SURF cards and panels on
  * BG, rounded corners, no rules, colours from the theme tokens only (gfx.c T_*); THEME is the selected track's
- * colour (labels, gauges, curves), values in TEXT. Type: Rubik, S (11 px) labels, M (14 px) values and the header,
+ * colour (labels, gauges, curves), values in TEXT. Type: Rubik, S (12 px) labels, M (15 px) values and the header,
  * L (26 px) big numerals. A card value too wide for M is set in S; free text (names, messages) is ellipsised. */
 static void draw_menu(void);
 static int name_on(void);                              /* NAME (ui_name.c) */
@@ -145,10 +145,11 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
     return x + text_w(f, s);
 }
 
-/* the header (docs/design, 18 px): the transport (a song playing: its disc) at x 8, the BPM at x 20, a dot per track
- * (the selected one in text, one armed in REC's red, the others dim), the octave shift or the song row; at the right a
- * chip in the track's colour naming where you are (Stage: the engine; a page: its title), or a message in its place
- * (a layer: its name); a battery glyph only while it runs low */
+/* the header (docs/design, 18 px): the transport (a song playing: its disc) at x 8, the BPM at x 20, the REC mark
+ * (filled: the selected track armed; a ring: another one), the octave shift ("+2") and the song's row, then the
+ * page's dots; at the right a chip in the track's colour naming where you are (Stage: the engine; a page: its title),
+ * or a message in its place (a layer: its name); a battery glyph only while it runs low. Which track: Stage's
+ * columns, the pages' sound bar (pv_sound: its numeral) */
 static uint32_t page_sheet(void);                       /* ui_popup.c */
 static void list_words(char *d, const char *label, uint32_t n);   /* ui_list.c */
 static int sec_on(void);                                /* ui_sections.c */
@@ -161,7 +162,8 @@ static void head_chip_text(char *b)
 {
     const page_t *pg = cur_page();
     uint32_t e = TSEL->eng_req % NENGINES;
-    if (new_on()) {                                     /* NEW SONG */
+    if (designer_on() && !name_on() && designer_head_chip(b)) {   /* the designer's START, FEATURES, original */
+    } else if (new_on()) {                                     /* NEW SONG */
         str_cpy(b, "NEW SONG", 16);
     } else if (ptc_on()) {                              /* PATTERNS' Copy to: "copy 3 to 5" */
         str_cpy(b, "copy 1 to 1", 16);
@@ -186,12 +188,14 @@ static void head_chip_text(char *b)
     }
 }
 /* the page's place in its family: a dot a page, the page's a pill in the track's colour (no room: "3/12") */
-static void head_pages(int32_t x1)                     /* (x1: where the chip, or the battery, starts) */
+static void head_pages(int32_t x, int32_t x1)          /* (x: after the transport's marks; x1: where the chip, or the
+                                                         * battery, starts) */
 {
     const page_t *pg = cur_page();
     uint32_t i, n = 0, k = 0, sc = sec_on() ? sec_of(ui.page) + 1u : 0u;
-    int32_t x = 96;
-    for (i = 0; i < NPAGES; i++)                        /* (an engine in sections: the section's pages) */
+    if (designer_on() && !name_on())                    /* the designer: its stage's pages */
+        designer_pages(&n, &k);
+    else for (i = 0; i < NPAGES; i++)                   /* (an engine in sections: the section's pages) */
         if (PAGES[i].fam == pg->fam && page_visible(i) &&
             (!sc || (PAGES[i].scope == SC_FMOP ? PAGES[ui.page].scope == SC_FMOP : sec_of(i) + 1u == sc))) {
             if (i == ui.page)
@@ -218,25 +222,28 @@ static void head_pages(int32_t x1)                     /* (x1: where the chip, o
 static void draw_head(void)
 {
     char b[16], chip[16];
-    uint32_t k, low = !(usb.config && !usb.suspended) && batt_level() <= 1, msg = ui.msg_t || ui.layer;
-    uint32_t sig;
+    int32_t x;
+    uint32_t low = !(usb.config && !usb.suspended) && batt_level() <= 1, msg = ui.msg_t || ui.layer;
+    uint32_t sig, moved = 0;
+    int16_t bpm = song.g[G_BPM];                        /* (read once: what is noted is what is drawn) */
     head_chip_text(chip);
     sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
           (ui.home ? 0u : ui.page * 2654435761u) + page_sheet() * 524287u;
-    if (song.g[G_BPM] != ui.roll_bpm) {
+    if (bpm != ui.roll_bpm) {
         char a[8];
         fmt_int(a, ui.roll_bpm);
-        fmt_int(b, song.g[G_BPM]);
+        fmt_int(b, bpm);
         roll_note(ROLL_BPM, a, b, ui.force);
-        ui.roll_bpm = song.g[G_BPM];
+        ui.roll_bpm = bpm;
+        moved = 1;
     } else if (ui.force) {
         ui.roll[ROLL_BPM].from[0] = 0;
     }
-    fmt_int(b, song.g[G_BPM]);
+    fmt_int(b, bpm);
     if (!ui.force && sig == ui.head_sig) {
-        if (ui.roll[ROLL_BPM].from[0]) {                /* rolling: the BPM's strip only */
+        if (ui.roll[ROLL_BPM].from[0] || moved) {       /* rolling, or snapped to the new value: the BPM's strip only */
             cv_begin(BPM_W, H_HEAD, T_BG);
             roll_text(ROLL_BPM, 0, 3, b, ui.bpm_t ? T_ACCENT : T_TEXT);
             cv_blit(BPM_X, Y_HEAD);
@@ -248,22 +255,35 @@ static void draw_head(void)
     cv_icon_mid(8, H_HEAD / 2, 12, chain.running ? ICON_X_SONG : song.playing ? ICON_X_PLAY : ICON_X_STOP,
                 song.playing ? T_TEXT : T_MID, T_BG);
     roll_text(ROLL_BPM, BPM_X, 3, b, ui.bpm_t ? T_ACCENT : T_TEXT);
-    for (k = 0; k < NTRK; k++)                          /* the tracks: selected, armed, the others */
-        cv_circle(54 + 8 * (int32_t)k, H_HEAD / 2, 5, (song.rec >> k) & 1u ? T_REC : k == song.sel ? T_TEXT : T_DIM, T_BG);
+    x = BPM_X + BPM_W + 2;                              /* (past the widest BPM) */
+    if (song.rec) {                                     /* (12 px, as the transport) */
+        cv_icon_mid(x, H_HEAD / 2, 12, (song.rec >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, T_BG);
+        x += 14;
+    }
     if (seq_erase_active(TSEL)) {
         cv_text_r(232, 3, &AF_S, "ERASING", T_REC, T_BG);
     } else if (msg) {                                   /* a message, or the layer's name (may hold a keycap) */
-        cv_free_hint(88, 3, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 88);
+        cv_free_hint(x + 6, 3, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - x - 6);
     } else {
         int32_t cw = text_w(&AF_X, chip) + 16;
         if (cw < (ui.home ? 82 : 46)) cw = ui.home ? 82 : 46;   /* (a page: its name's, the dots beside it) */
-        if (!ui.home && !song.octave && !chain.running)   /* a page: where it is in its family */
-            head_pages(232 - cw - (low ? 20 : 0) - (page_sheet() ? 16 : 0));
-        if (song.octave || chain.running) {             /* the octave shift, or the song's row */
-            if (chain.running) { str_cpy(b, "ROW ", 8); fmt_int(b + 4, (int32_t)chain.row + 1); }
-            else { str_cpy(b, song.octave > 0 ? "OCT +" : "OCT ", 8); fmt_int(b + str_len(b), song.octave); }
-            cv_text_on(88, 4, &AF_X, b, T_MID, T_BG);
+        if (song.octave) {                              /* the octave shift, signed, in an outlined pill ("+2") */
+            int32_t w;
+            b[0] = song.octave > 0 ? '+' : '-';
+            fmt_int(b + 1, song.octave < 0 ? -song.octave : song.octave);
+            w = text_w(&AF_X, b) + 10;
+            cv_rrect(x + 2, 3, w, 12, 4, T_MID, T_BG);
+            cv_rrect(x + 3, 4, w - 2, 10, 3, T_BG, T_MID);
+            cv_text_c(x + 2 + w / 2, 3, &AF_X, b, T_TEXT, T_BG);
+            x += w + 8;
         }
+        if (chain.running) {                            /* the song's row */
+            str_cpy(b, "ROW ", 8);
+            fmt_int(b + 4, (int32_t)chain.row + 1);
+            x = cv_text_on(x + 2, 4, &AF_X, b, T_MID, T_BG) + 6;
+        }
+        if (!ui.home)                                   /* a page: where it is in its family */
+            head_pages(x + 6, 232 - cw - (low ? 20 : 0) - (page_sheet() ? 16 : 0));
         if (low)                                        /* the battery, only when it runs low */
             cv_icon_mid(232 - cw - 18, H_HEAD / 2, 12, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
         if (page_sheet())                               /* the page has a sheet (OCT+ held) */
@@ -614,8 +634,9 @@ static void draw_foot(void)
         cv_blit(0, Y_FOOT);
         return;
     }
-    x = 8;
-    if (MELODEE_ICONS)                                /* row 2: engine icon + name, sound, page */
+    cv_icon_mid(6, 25, 16, trk_icon(song.sel, 1), T_THEME, T_BG);   /* row 2: the track's numeral, engine icon + */
+    x = 26;                                           /* name, sound, page */
+    if (MELODEE_ICONS)
         x += cv_icon_on(x, 20, 12, engine_icon(ename), T_MID, T_BG) + 5;
     x = cv_text_fit(x, 19, &AF_S, ename, T_THEME, T_BG, 80);
     {   /* the page title at the right, its icon before it (MIXER, SONG, MOTION) */
@@ -848,6 +869,7 @@ static void draw_columns(void)
         }
         draw_column(c, d->label, val, unit, (cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
                     !cz_ed_active(cz_patch[song.sel % NTRK].raw, cur_page()->id[c])) ||
+                    (cur_page()->scope == SC_P5 && !p5_ed_active(TSEL, cur_page()->id[c])) ||
                     (vp == &TSEL->p[P_LRATE] && TSEL->p[P_LSYNC]) ? T_DIM : VAL(c),   /* LFO 2 SYNC on: RATE does nothing */
                     d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, *vp), param_icon(d, *vp));
     }
@@ -944,6 +966,10 @@ static void confirm_text(char *a, char *b)
         str_cpy(a + str_len(a), "?", 2);
         user_name(k, b);                             /* the sound stored there */
         break;
+    case CF_DISCARD_DESIGN:
+        str_cpy(a, "DISCARD THE DESIGN?", 24);
+        str_cpy(b, "The original sound returns", 32);
+        break;
     case CF_ERASE_USER:
         str_cpy(a, "ERASE ", 24);
         user_label(a + str_len(a), k);
@@ -1004,6 +1030,7 @@ static void draw_confirm(void)
 #include "ui_slots.c"                                   /* PROJECT, USER, the STOREs: their slots */
 #include "ui_motion.c"                                  /* MOTION: its lanes */
 #include "ui_scales.c"                                  /* SCALES: a screen of its own */
+#include "ui_designer.c"                                /* guided native sound creation */
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
@@ -1018,7 +1045,9 @@ static void draw_page(void)
         page_entered();
     }
     cursor_fix();
-    if (!own_screen() && slot_kind()) {                 /* a slot page (ui_slots.c) */
+    if (designer_screen()) {                            /* the sound designer's START, FEATURES (ui_designer.c) */
+        designer_draw();
+    } else if (!own_screen() && slot_kind()) {          /* a slot page (ui_slots.c) */
         slot_draw();
     } else if (!own_screen() && motion_page()) {        /* MOTION's lanes (ui_motion.c) */
         motion_draw();
