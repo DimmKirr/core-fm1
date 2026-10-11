@@ -357,7 +357,9 @@ def mmio_check():
 def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_9XY[Z], version string vX.Y[.Z]")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--nightly", action="store_true", help="development package from the current next commit")
+    mode.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_9XY[Z], version string vX.Y[.Z]")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     name = "melodee.fwsc"
@@ -369,6 +371,10 @@ def main():
         PRODUCT = "FM-1_9" + m[1] + (m[2].zfill(2) + m[3] if m[3] else m[2])
         VERSION = "v" + a.release.lower()      # e.g. v1.0, v1.1-rc1
         name = f"melodee-{a.release}{variant}.fwsc"
+    if a.nightly:
+        revision = subprocess.check_output(["git", "rev-parse", "--short=7", "HEAD"], cwd=SRC, text=True).strip()
+        VERSION = "next-" + revision
+        name = f"melodee-nightly{variant}.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:

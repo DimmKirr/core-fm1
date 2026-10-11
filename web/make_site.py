@@ -50,7 +50,7 @@ def check_package(pkg):
     return raw, product
 
 
-def main(pkg, single, version, out):
+def main(pkg, single, version, out, nightly=None, installer_only=False):
     pkg, single, out = Path(pkg), Path(single), Path(out)
     raw, product = check_package(pkg)
     raw1, product1 = check_package(single)
@@ -58,14 +58,34 @@ def main(pkg, single, version, out):
         raise SystemExit(f"{single}: identity {product1}, {pkg} is {product}: build both from one release")
     if raw1 == raw:
         raise SystemExit(f"{single} is {pkg}: the single-core package is built with MELODEE_DUAL_CORE=0")
+    if nightly is None and (out / "firmware/nightly.json").exists():
+        nightly = json.loads((out / "firmware/nightly.json").read_text())
+        nightly["pkg"] = {k: str(out / "firmware" / Path(v).name) for k, v in nightly["pkg"].items()}
+    nightly_files = {}
+    nightly_meta = None
+    if nightly:
+        if not re.fullmatch(r"[0-9a-f]{40}", nightly["commit"]):
+            raise SystemExit("nightly commit must be a full Git SHA")
+        for key, suffix in (("dual", ""), ("clock320", "-320")):
+            path = Path(nightly["pkg"][key])
+            data, identity = check_package(path)
+            nightly_files[key] = (path, data, identity, f"melodee-nightly{suffix}.fwsc")
+        if nightly_files["dual"][2] != nightly_files["clock320"][2]:
+            raise SystemExit("nightly variants must have the same package identity")
+        if nightly_files["dual"][1] == nightly_files["clock320"][1]:
+            raise SystemExit("nightly variants must be distinct builds")
+        nightly_meta = {"version": nightly["version"], "product": nightly_files["dual"][2],
+                        "branch": "next", "commit": nightly["commit"], "builtAt": nightly["builtAt"],
+                        "pkg": {k: "../../firmware/" + f[3] for k, f in nightly_files.items()}}
     html = (HERE / "index_pkg.html").read_text(encoding="utf-8")
     lib = strip_module((HERE / "fm1pkg.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1ota.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1backup.js").read_text(encoding="utf-8"))
     v = re.sub(r'[^A-Za-z0-9.-]', '-', version)
     name, name1 = f"melodee-{v}.fwsc", f"melodee-{v}-1core.fwsc"
-    meta = json.dumps({"version": version, "product": product,
-                       "pkg": {"dual": "../../firmware/" + name, "single": "../../firmware/" + name1}})
+    release_meta = {"version": version, "product": product,
+                    "pkg": {"dual": "../../firmware/" + name, "single": "../../firmware/" + name1}}
+    meta = json.dumps({**release_meta, "nightly": nightly_meta})
     for mark in ("/*LIB*/", "/*META*/"):
         if html.count(mark) != 1:
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
@@ -73,11 +93,19 @@ def main(pkg, single, version, out):
     inst, ed, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "firmware"
     for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
-    for old in fw.glob("melodee-*.fwsc"):          # one release: the current one, both builds
-        old.unlink()
+    keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-320.fwsc"}
+    for old in fw.glob("melodee-*.fwsc"):
+        if old.name not in keep:
+            old.unlink()
     (inst / "index.html").write_text(html, encoding="utf-8")
-    shutil.copy(pkg, fw / name)
-    shutil.copy(single, fw / name1)
+    for src, dest in ((pkg, fw / name), (single, fw / name1)):
+        if src.resolve() != dest.resolve():
+            shutil.copy(src, dest)
+    (fw / "release.json").write_text(json.dumps(release_meta, indent=2) + "\n")
+    if nightly_meta:
+        for path, data, identity, filename in nightly_files.values():
+            (fw / filename).write_bytes(data)
+        (fw / "nightly.json").write_text(json.dumps(nightly_meta, indent=2) + "\n")
     lic = HERE.parent / "LICENSES"                  # the packages hold JieLi SDK files (Apache-2.0): their
     (fw / "LICENSES").mkdir(exist_ok=True)          # licence travels next to it, with Melodee's own
     names = sorted(f.name for f in lic.glob("*.txt"))
@@ -90,11 +118,13 @@ def main(pkg, single, version, out):
         encoding="utf-8")
     for doc in ("LICENSE", "LICENSING.md"):
         shutil.copy(HERE.parent / doc, fw / doc)
-    shutil.copy(HERE / "editor.html", ed / "index.html")
+    if not installer_only:
+        shutil.copy(HERE / "editor.html", ed / "index.html")
     for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
-        if (HERE / f).exists():
+        if not installer_only and (HERE / f).exists():
             shutil.copy(HERE / f, ed / f)
-    (out / "index.html").write_text(
+    if not installer_only:
+        (out / "index.html").write_text(
         '<!doctype html><meta charset="utf-8"><title>Melodee</title>'
         '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
         '<a href="webapp/installer/">Melodee installer</a>\n', encoding="utf-8")

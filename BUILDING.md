@@ -335,3 +335,28 @@ build. Verify controls, MIDI timing, audio, patch changes, persistence and updat
 entry on hardware before enabling this in a release. The eight-voice Prophet cap
 is enabled only in this experimental build; validate worst-case patches and
 release tails before adopting it in a release.
+
+## Nightly builds from `next`
+
+The web installer keeps the released standard and single-core packages and
+adds two development builds from `next`: normal dual core at the SPL clock
+(360 MHz), and experimental dual core with `MELODEE_SYS_CLK=320`. The latter
+is a test for crashing units; a stability improvement remains unverified.
+Save a complete backup in the editor before trying a nightly. Selecting
+Standard in the installer returns to the released firmware.
+
+`./build.sh --nightly` stamps the current Git commit into the firmware version
+(`next-<commit>`) and uses development identity `FM-1_900`. Build both variants
+from the same commit; `MELODEE_SYS_CLK=320 ./build.sh --nightly` produces
+`build/melodee-nightly-320.fwsc`, while the normal package is
+`build/melodee-nightly.fwsc`. The installer shows the source commit and UTC
+build time, verifies the selected channel's identity, and locks all choices
+while installing.
+
+The Nightly builds workflow runs on pushes to `next`, manually, and daily at
+02:00 UTC. Its scheduled definition must also exist on GitHub's default branch.
+It checks out `next`, builds both dual-core variants, runs the host/web suite,
+and publishes only after successful checks. Packages, checksums and source
+metadata are available as an Actions artifact and in `gh-pages/firmware`.
+`web/publish_nightly.py` updates the existing Pages checkout while keeping its
+published release packages and editor.
