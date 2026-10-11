@@ -21,7 +21,6 @@
  * it needs nothing but core.h. */
 #define UP_PER_BANK 16u
 #include "cz_patch.h"
-#include "cz_legacy.h"
 #define UP_VER_CZ 8u                            /* native CZ-1 bytes in the 144-byte payload */
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
 #define UP_USED 0xA5u

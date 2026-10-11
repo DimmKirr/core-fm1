@@ -23,7 +23,7 @@ SIZE_FILES = ["ui.c", "gfx.c", "favorites.c", "icons.c", "ui_graph.c", "ui_draw.
               # main-loop only too: the boot and the main loop (main.c, not its ISR), parameters and their text, the
               # browser, the screen saver, calibration, the CZ / Prophet editing helpers, the update entry
               "main.c", "params.c", "browse.c", "screen.c", "panel.c", "cz_edit.h", "prophet_edit.h", "ota.c", "favorites.c",
-              "cz_legacy.h"]
+              "cz_panel.h"]
 DEF = re.compile(r"^(?:static|void|int|uint\w*|int\w*|const)\b[^;=(]*?\b([A-Za-z_]\w*)\s*\(", re.M)
 # Stopped note transforms are infrequent main-loop work.
 # Keep their callers' common input/render paths compact as well as the helpers.
