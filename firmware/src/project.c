@@ -977,7 +977,6 @@ static void project_boot(void)
 #if MELODEE_FLASH
 static persist_t persist_saved;
 static uint8_t persist_pending;                 /* 1 requested, 2 waiting after a flash error */
-static uint8_t persist_stale;                   /* the stored record is in an older format: write it even unchanged */
 static uint32_t persist_retry_ms;
 #endif
 
@@ -996,23 +995,15 @@ static void persist_boot(void)                    /* before settings_init / pane
     slc_store_boot();                              /* (the scans read each slot's stored slices) */
 #endif
     {   /* the settings, then a template if one follows them */
-        int n = st_load(OBJ_SETTINGS, &proj_wire_u, sizeof proj_wire_u), ns = n, got;
-        uint32_t stale = 0;
+        int n = st_load(OBJ_SETTINGS, &proj_wire_u, sizeof proj_wire_u), ns = n;
         if (n > (int)sizeof set_rec.p &&
-            tmpl_take((const uint8_t *)&proj_wire_u + sizeof set_rec.p, (uint32_t)n - sizeof set_rec.p)) {
-            uint32_t magic;                            /* (a TPL5 one: its next save writes TPL6) */
-            memcpy(&magic, (const uint8_t *)&proj_wire_u + n - 4, 4);
-            stale = (uint32_t)n - sizeof set_rec.p != sizeof(tmpl_t) || magic != TMPL_MAGIC;
+            tmpl_take((const uint8_t *)&proj_wire_u + sizeof set_rec.p, (uint32_t)n - sizeof set_rec.p))
             ns = (int)sizeof set_rec.p;
-        }
         memset(&p, 0, sizeof p);
         if (ns > 0)
             memcpy(&p, &proj_wire_u, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);
-        stale |= ns == (int)sizeof p && p.magic == PERSIST_MAGIC && settings_stale(&p);
-        if ((got = settings_import(&p, ns)) != 0)
+        if (settings_import(&p, ns))
             persist_saved = p;
-        if (got == 2 || (got && stale))               /* an older record: the first settings_poll writes today's */
-            persist_stale = persist_pending = 1;
     }
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
         uint32_t i;
@@ -1021,9 +1012,6 @@ static void persist_boot(void)                    /* before settings_init / pane
                 proj_fetch(i);
     }
     up_boot();                                     /* user presets */
-#ifdef MELODEE_FAVORITES
-    fx_keys_settle();                              /* (an old record: map or CZ stars, the native banks known) */
-#endif
 #endif
 }
 
@@ -1068,7 +1056,7 @@ static void settings_poll(void)
         return;
     p = persist_saved;
     settings_export(&p);
-    if (!memcmp(&p, &persist_saved, sizeof p) && !tmpl_dirty && !persist_stale) {
+    if (!memcmp(&p, &persist_saved, sizeof p) && !tmpl_dirty) {
         persist_pending = 0;
         return;                                    /* unchanged: no erase cycle */
     }
@@ -1076,7 +1064,7 @@ static void settings_poll(void)
     if (st_save(OBJ_SETTINGS, &set_rec, sizeof set_rec.p + (template_used() ? sizeof set_rec.t : 0u)) == 0) {
         persist_saved = p;
         persist_pending = 0;
-        tmpl_dirty = persist_stale = 0;
+        tmpl_dirty = 0;
     } else {
         persist_pending = 2;
         persist_retry_ms = fm1_ms;

@@ -162,19 +162,10 @@ static int palette_track(uint32_t t)
     return 1;
 }
 
-/* settings store a tagged id (UI_PAL_TAG + index); 64..71 are Melodee 0.13's eight palettes, ids below 20
- * Felucca's twenty: both map to the nearest of today's */
-static uint32_t palette_from_stored(uint32_t v)
-{
-    if (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) return v - UI_PAL_TAG;
-    if (v >= 64u && v < 72u) return UI_PALETTE_MIGRATE64[v - 64u];
-    return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_DEFAULT_INDEX;
-}
+/* settings store a tagged id (UI_PAL_TAG + index); any other id reads as the default */
+static int palette_stored_ok(uint32_t v) { return v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES; }
+static uint32_t palette_from_stored(uint32_t v) { return palette_stored_ok(v) ? v - UI_PAL_TAG : UI_DEFAULT_INDEX; }
 static uint32_t palette_to_stored(uint32_t i) { return UI_PAL_TAG + i % NPALETTES; }
-static int palette_stored_ok(uint32_t v)
-{
-    return v < 20u || (v >= 64u && v < 72u) || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES);
-}
 
 static inline uint16_t swap16(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu) | ((c & 0xFFu) << 8)); }
 

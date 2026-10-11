@@ -287,12 +287,10 @@ int main(void)
     ps.palette = palette_to_stored(2);
     bad += check("settings with SPEAKER BASS+ restore", put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 &&
                  settings.lowcut == 2u && fx_lowcut == 2u && settings.palette == 2u);
-    ps.palette = 13;                                     /* an older backup: its PAPER (Felucca's id 13): DAY */
-    bad += check("settings of an older backup restore with the palette migrated",
-                 put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 && settings.palette == 1u);
-    ps.palette = 64u + 7u;                               /* Melodee 0.13's HI-CON: CONTRAST */
-    bad += check("settings of a Melodee 0.13 backup restore with the palette migrated",
-                 put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 && settings.palette == 2u);
+    before = erases;
+    ps.palette = 13;                                     /* an untagged id (before 1.0; 1.2 rewrote them) */
+    bad += check("settings with an untagged palette id are refused, nothing written",
+                 put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 2u && erases == before && settings.palette == 2u);
     ps.palette = palette_to_stored(2);
     settings_click = 1; settings_countin = 2;
     settings_export(&ps);                                /* (the record prefs, tagged in the zoom word) */

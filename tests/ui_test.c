@@ -2336,9 +2336,6 @@ static int test_layer(void)
         bad += check("menu USB AUDIO (KNOB 1 twice: OUT only): wanted at once, the settings keep it",
                      ok && p.ext.usb_off == UA_OFF_IN && settings_import(&p, sizeof p) && ua_off == UA_OFF_IN &&
                      ua_off_want == UA_OFF_IN);
-        p.magic = PERSIST_MAGIC4;                    /* Felucca 1.0's record: both devices */
-        bad += check("  a PER4 record (Felucca 1.0) reads with both devices on", settings_import(&p, (int)PERSIST_LEN4) == 2 &&
-                     !ua_off && !ua_off_want && p.magic == PERSIST_MAGIC && !p.ext.usb_off);
     }
     ua_off = ua_off_want = 0;
 #endif
