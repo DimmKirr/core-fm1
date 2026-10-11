@@ -48,13 +48,13 @@ static int slot_row(uint32_t k, uint32_t r, char *tag, char *nm)
         }
         tag[0] = (char)(r + 1u == (uint32_t)PROJ_TMPL ? 'T' : 'A' + r);
         tag[1] = 0;
-        used = r + 1u == (uint32_t)PROJ_TMPL ? template_used() : graph_project_used(r);
-        str_cpy(nm, r + 1u == (uint32_t)PROJ_TMPL ? "Template" : used && graph_project_name(r)[0] ? graph_project_name(r)
+        used = r + 1u == (uint32_t)PROJ_TMPL ? template_used() || template_old() : graph_project_used(r);
+        str_cpy(nm, r + 1u == (uint32_t)PROJ_TMPL ? (template_old() ? "OLD FORMAT" : "Template") : used && graph_project_name(r)[0] ? graph_project_name(r)
                     : used ? "Saved" : "--", 16);
         return used;
     }
     user_label(tag, r);
-    if (!user_used(r)) {
+    if (!user_used(r) && !user_old(r)) {
         str_cpy(nm, "--", 16);
         return 0;
     }

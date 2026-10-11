@@ -24,7 +24,7 @@ static struct result render(uint32_t channel, int sliced, int variant)
         close(fd[0]);
         usb.up=usb.config=1;usb.suspended=0;ua.cap_alt=1;
         host_tracks_init();
-        for (uint32_t k = 0; k < NPART; k++) host_preset(&trk[k], 0, 5);
+        for (uint32_t k = 0; k < NPART; k++) host_preset(&trk[k], HOST_SYNTH, 0);
         t->p[P_DIST] = 60;
         t->p[P_SLCR] = sliced ? SL_GATE : SL_OFF;
         t->p[P_SLPAT] = 1;

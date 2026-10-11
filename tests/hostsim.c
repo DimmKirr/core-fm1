@@ -27,9 +27,29 @@
 #undef memset
 #undef memcpy
 #undef memcmp
+#undef __attribute__                                  /* the RAM tables the firmware fills at boot (fm1_main) */
+__attribute__((constructor)) static void host_dsp_tables(void) { dsp_tables_init(); }
+#define __attribute__(x)
 static struct { volatile uint32_t notes, buttons; } fm1_in;
 #include "../firmware/src/core.h"
 #include "../firmware/src/engines.c"
+/* the packed factory banks, unpacked for comparisons (four slots each, so a few can be held at once) */
+static const p5_patch_t *p5_fac(uint32_t k)
+{
+    static p5_patch_t s[4];
+    static uint32_t n;
+    p5_patch_t *p = &s[n++ % 4u];
+    p5_factory(k, p);
+    return p;
+}
+static const uint8_t *cz_fac(uint32_t k)
+{
+    static uint8_t s[4][CZ_BYTES];
+    static uint32_t n;
+    uint8_t *p = s[n++ % 4u];
+    cz_factory(k, p);
+    return p;
+}
 #include "../firmware/src/params.c"
 #include "../firmware/src/mod.c"
 #include "../firmware/src/voice.c"
@@ -104,23 +124,12 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = (int16_t)(i == 2u ? 0 : p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
     cz_factory_loaded(t);
-    if(e==ENGI_PROPHET){uint32_t k=(uint32_t)(t-trk)%NTRK;p5_patch_init(&p5_patch[k]);p5_ready[k]=1;p5_track_accept(t);}
+    if(e==ENGI_PROPHET){uint32_t k=(uint32_t)(t-trk)%NTRK;p5_ready[k]=1;p5_preset_loaded(t,pi);}   /* (its program, as ui.c) */
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 {
     uint32_t n = ENGINES[e]->npresets;
-#if !MELODEE_FM4
-    if (e == ENGI_DIGITAL) {                      /* DIGITAL preset pi (retired): converted, as ui.c fm4_load_preset */
-        uint8_t v[FP_SIZE + 1u];
-        uint32_t tr = (uint32_t)(t - trk) % NTRK;
-        fm4_preset_values(t->p, pi);
-        t->preset = (uint8_t)fm4_convert(t->p, v);
-        t->eng_req = ENGI_FM6;
-        fm6_set_patch(tr, v);
-        return;
-    }
-#endif
     if (!n) {
         t->eng_req = (uint8_t)e;
         t->preset = 0;
@@ -129,15 +138,22 @@ static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
         return;
     }
     pi %= n;
-    host_preset_values(t, e, pi, &ENGINES[e]->presets[pi]);
+    host_preset_values(t, e, pi, eng_preset(ENGINES[e], pi));
 }
 static void host_preset(track_t *t, uint32_t e, uint32_t pi)
 {
     host_preset_req(t, e, pi);
     if (t->engine != t->eng_req && t >= &trk[0] && t < &trk[NPART])
         eng_state_clear((uint32_t)(t - trk));     /* as voice.c engine_block on a switch */
-    t->engine = t->eng_req;                       /* (DIGITAL without MELODEE_FM4: FM6) */
+    t->engine = t->eng_req;
 }
+
+/* part k's power-on sound (main.c, TRK_DEF) */
+static void host_power_on_sound(track_t *t, uint32_t k) { host_preset(t, TRK_DEF[k][0], TRK_DEF[k][1]); }
+
+/* the plain synth a test plays when the engine is not what it tests (ANALOG's place until 2.0 retired it): CZ-1,
+ * on the generic voice path (NPOLY voices, no cap of its own) as ANALOG was */
+#define HOST_SYNTH ENGI_CZ
 
 /* Explicit legacy fixture: hidden from factory browsing, still used by saved GM projects. */
 static void host_808_kit(track_t *t)
@@ -187,8 +203,8 @@ static uint32_t started_since(const track_t *t, uint32_t a0)
     return n;
 }
 
-/* the demo song: T1 ANALOG ACID (16 steps), T2 the power-on pad (TRK_DEF: FM6 PAD; DIGITAL PAD until it was
- * retired) (32 steps, tied chords), T3 SID INIT SID
+/* the demo song: T1 the power-on bass (TRK_DEF: PROPHET FUNK BASS II; ANALOG ACID until 2.0) (16 steps), T2 the
+ * power-on pad (TRK_DEF: FM6 PAD; DIGITAL PAD until it was retired) (32 steps, tied chords), T3 SID INIT SID
  * (12 steps: 3 against 4), T4 808 DRUM drums (16 steps, up to 3 notes a step); 120 BPM, 8 bars. Bars 5..6:
  * live recording: a clap into the drums just before step 4 (quantised onto it, not triggered twice),
  * MIDI ch 3 into the lead, a two-key chord on the keys into an empty pad step. solo: 0 = the mix,
@@ -212,8 +228,8 @@ static int tracks_demo(const char *dir, const char *name, uint32_t solo)
     }
     host_tracks_init();
     song.g[G_BPM] = 120;
-    host_preset(t1, 0, 4);
-    host_preset(t2, TRK_DEF[1][0], TRK_DEF[1][1]);
+    host_power_on_sound(t1, 0);
+    host_power_on_sound(t2, 1);
     host_preset(t3, 3, 0);
     host_808_kit(td);                   /* saved 808 DRUM sound */
     for (i = 0; i < 16u; i++) {
@@ -399,12 +415,8 @@ static int steal_test(const char *dir)
     host_tracks_init();
     for (p = 0; p < NPART; p++) {
         track_t *t = &trk[p];
-        host_preset(t, 0, 5);                      /* ANALOG SINE KEY, as a plain held sine: */
-        t->p[P_E4] = 127;                          /* filter open, no resonance, no drive */
-        t->p[P_E5] = t->p[P_E6] = 0;
+        host_preset(t, HOST_SYNTH, 0);             /* CZ-1 INIT TONE (DCW closed): a plain held sine, no sends */
         t->p[P_ED_FLT] = 0;
-        t->p[P_ATK] = 40;                          /* slow attack, full sustain, no sends */
-        t->p[P_SUS] = 127;
         t->p[P_DIST] = t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
         t->p[P_VOICE] = V_POLY;
         t->p[P_LEVEL] = 90;
@@ -452,9 +464,8 @@ static int steal_test(const char *dir)
 }
 
 /* a preset change across engines while notes sound (the PRESETS knob, the editor's PRESET) must not click:
- * part 1 as a plain sine pad (ANALOG SINE KEY, filter open, slow release, no sends: smooth, so the largest
- * sample step is set by the pitches), (a) a chord held and released, the switch to DIGITAL (its E.PIANO; without
- * MELODEE_FM4 converted: FM6) in its release
+ * part 1 as a plain sine pad (CZ-1 INIT TONE, no sends: smooth, so the largest
+ * sample step is set by the pitches), (a) a chord held and released, the switch to FM6 (its TINE EP) in its release
  * tail; (b) twice a chord held, the switch to PHASE / SID while it is held (the preset change releases
  * it); (c) a switch to SAMPLE with a note in its second block: that note must sound on the new engine. As ui.c
  * set_engine_of + apply_preset_to: eng_req, the new engine's values and panic_req at once (the main loop
@@ -463,13 +474,8 @@ static int steal_test(const char *dir)
  * Writes DIR/engine_switch.wav. */
 static void xfade_sine(track_t *t)
 {
-    host_preset(t, 0, 5);                          /* ANALOG SINE KEY, as a plain held sine */
-    t->p[P_E4] = 127;
-    t->p[P_E5] = t->p[P_E6] = 0;
+    host_preset(t, HOST_SYNTH, 0);                 /* CZ-1 INIT TONE (DCW closed): a plain held sine */
     t->p[P_ED_FLT] = 0;
-    t->p[P_ATK] = 40;
-    t->p[P_SUS] = 127;
-    t->p[P_REL] = 100;
     t->p[P_DIST] = t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = 0;
     t->p[P_VOICE] = V_POLY;
     t->p[P_LEVEL] = 100;
@@ -481,7 +487,7 @@ static int xfade_test(const char *dir)
     /* switches: (a) in a release tail, (b) twice with a chord held, (c) with a note right after it */
     const uint32_t sw[4] = {11u * B, 23u * B, 29u * B + 7u * CTL, 33u * B};
     const uint32_t on[3] = {B, 15u * B, 25u * B}, sine[3] = {14u * B, 24u * B, 32u * B};
-    const uint8_t to[4] = {1, 2, 3, 4};
+    const uint8_t to[4] = {ENGI_FM6, 2, 3, 4};
     char path[512];
     FILE *w;
     int32_t *L = calloc(frames, sizeof *L);
@@ -535,8 +541,8 @@ static int xfade_test(const char *dir)
         for (i = sw[k]; i < sw[k] + FS / 100u; i++)
             at = abs(L[i] - L[i - 1]) > at ? abs(L[i] - L[i - 1]) : at;
         printf("tracks: engine switch %s -> %s (%s): largest sample step %d in the 10 ms after, %d in the 0.1 s "
-               "before (%.2f x)\n", ENGINES[0]->name, ENGINES[to[k]]->name, k ? "chord held" : "release tail", at,
-               calm, (double)at / calm);
+               "before (%.2f x)\n", ENGINES[HOST_SYNTH]->name, ENGINES[to[k]]->name, k ? "chord held" : "release tail",
+               at, calm, (double)at / calm);
         worst = (double)at / calm > worst ? (double)at / calm : worst;
         bad += at > calm * 3 / 2;
     }
@@ -571,9 +577,9 @@ static int rec_test(void)
     int ok_len, ok_short, ok_half, ok_cap, ok_swing, ok_mono, ok_chord, fail;
     host_tracks_init();
     song.g[G_BPM] = 120;
-    host_preset(t1, 0, 1);                          /* POLY pad */
-    host_preset(t2, 0, 1);
-    host_preset(t3, 0, 0);                          /* SAW LEAD */
+    host_preset(t1, HOST_SYNTH, 4);                 /* POLY pad (CZ-1 STRINGS 1) */
+    host_preset(t2, HOST_SYNTH, 4);
+    host_preset(t3, HOST_SYNTH, 0);                 /* a lead (CZ-1 INIT TONE) */
     t1->p[P_VOICE] = t2->p[P_VOICE] = V_POLY;
     t3->p[P_VOICE] = V_MONO;
     t2->p[P_SLEN] = 4;
@@ -679,7 +685,7 @@ static int trs_test(void)
     int ok_parts, ok_ch10, ok_sel, ok_off, ok_hang, ok_rec;
     host_tracks_init();
     for (i = 0; i < NPART; i++) {
-        host_preset(&trk[i], 0, 1);
+        host_preset(&trk[i], HOST_SYNTH, 4);
         trk[i].p[P_VOICE] = V_POLY;
         trk[i].p[P_SUS] = 127;
     }
@@ -790,11 +796,11 @@ static int tracks_test(const char *dir)
     printf("tracks: one part, 8 notes held (host -O2, ns per sample, heaviest preset per engine):");
     for (e = 0; e < NENGINES; e++)
         if (eng_ok(e))
-            printf(" %s %s %.1f%s", ENGINES[e]->name, ENGINES[e]->presets[heavy[e]].name, best_e[e],
+            printf(" %s %s %.1f%s", ENGINES[e]->name, eng_preset(ENGINES[e], heavy[e])->name, best_e[e],
                    e + 1u < NENGINES ? "," : "\n");
-    {   /* FM (DIGITAL with MELODEE_FM4, else FM6), PHASE, VOICE (their heaviest presets) and drums on part 4 at once:
+    {   /* FM6, PHASE, VOICE (their heaviest presets) and drums on part 4 at once:
          * 3 + 3 + 2 notes and the hits in the budget of 8 */
-        const uint8_t fm = MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6;
+        const uint8_t fm = ENGI_FM6;
         uint8_t parts[NPART][3] = {{fm, (uint8_t)heavy[fm], 3}, {2, (uint8_t)heavy[2], 3}, {5, (uint8_t)heavy[5], 2},
                                    {4, 4, DRUM_HITS}};
         uint8_t full[NPART][3] = {{fm, (uint8_t)heavy[fm], 8}, {2, (uint8_t)heavy[2], 8}, {5, (uint8_t)heavy[5], 4},
@@ -807,7 +813,7 @@ static int tracks_test(const char *dir)
         four_full = tracks_cost(full, &bm2);
         two_voice = tracks_cost(vv, &bm3);
         none = tracks_cost(idle, 0);
-        printf("tracks: worst single part: %s %s %.1f ns\n", ENGINES[worst_e]->name, ENGINES[worst_e]->presets[worst_p].name, worst);
+        printf("tracks: worst single part: %s %s %.1f ns\n", ENGINES[worst_e]->name, eng_preset(ENGINES[worst_e], worst_p)->name, worst);
         printf("tracks: %s + PHASE + VOICE + drums, 3 + 3 + 2 notes: %.1f ns (%.2f x the worst single part), "
                "%u voices\n", ENGINES[fm]->name, four, four / worst, bm);
         printf("tracks: the same, 8 + 8 + 4 notes asked for (budget keeps %u): %.1f ns (%.2f x)\n", bm2, four_full,
@@ -823,7 +829,7 @@ static int tracks_test(const char *dir)
 
 int main(int argc, char **argv)
 {
-    int eng = argc > 1 ? atoi(argv[1]) : 0, preset = argc > 2 ? atoi(argv[2]) : 4;
+    int eng = argc > 1 ? atoi(argv[1]) : (int)HOST_SYNTH, preset = argc > 2 ? atoi(argv[2]) : 0;
     int mono = argc > 3 ? atoi(argv[3]) : 1;
     const char *out = argc > 4 ? argv[4] : "out.wav";
     uint32_t i, frames = FS * (getenv("SWEEP") ? 4 : 2), f, nk = 0;
@@ -838,7 +844,7 @@ int main(int argc, char **argv)
     inst.eng_req = inst.engine = (uint8_t)eng;
     for (i = 0; i < 8; i++) inst.p[P_E0 + i] = ENGINES[eng]->edit[i].def;
     if (ENGINES[eng]->npresets) {
-        const preset_t *p = &ENGINES[eng]->presets[preset % ENGINES[eng]->npresets];
+        const preset_t *p = eng_preset(ENGINES[eng], preset % ENGINES[eng]->npresets);
         for (i = 0; i < 8; i++) inst.p[P_E0 + i] = p->e[i];
         inst.p[P_ATK] = p->env[0]; inst.p[P_DEC] = p->env[1];
         inst.p[P_SUS] = p->env[2]; inst.p[P_REL] = p->env[3]; inst.p[P_ED_FLT] = p->fenv;

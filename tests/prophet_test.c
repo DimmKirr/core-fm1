@@ -12,7 +12,7 @@ static void setup(void)
 {
     memset(trk,0,sizeof trk); eng_state_reset();
     memset(p5_ready,0,sizeof p5_ready);
-    host_tracks_init(); host_preset(&trk[0],0,0);
+    host_tracks_init(); host_preset(&trk[0],0,0);   /* (MELODEE_PROPHET_PROTOTYPE: engine 0 is ENG_P5_TEST) */
     trk[0].p[P_VOICE]=V_POLY;
     trk[0].p[P_CHOR]=trk[0].p[P_DLY]=trk[0].p[P_REV]=0;
 }

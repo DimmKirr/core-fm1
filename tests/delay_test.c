@@ -339,7 +339,7 @@ static void demo(const char *dir, const char *name, int type, int wear)
     memset(trk, 0, sizeof trk);
     bus_reset(type, 11, 70, 51, 85, wear);
     song.g[G_BPM] = 100;
-    host_preset(tr, 0, 8);                                      /* ANALOG PLUCK */
+    host_preset(tr, HOST_SYNTH, 9);                             /* CZ-1 ACO.GUITAR: a pluck */
     for (i = 0; i < 16u; i++)
         put_step(tr, i, PL[i] ? 1u : 0u, &PL[i], PL[i] ? ST_NOTE : ST_REST, 0);
     tr->p[P_DLY] = 90;

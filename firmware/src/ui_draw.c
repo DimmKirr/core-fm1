@@ -478,7 +478,7 @@ static void sound_name(const track_t *t, char *b)
     else if (user_of(t) < UP_SLOTS)
         up_name(user_of(t), b);
     else if (e->npresets)
-        str_cpy(b, e->presets[t->preset % e->npresets].name, 16);
+        str_cpy(b, eng_preset(e, t->preset % e->npresets)->name, 16);
 }
 
 #if MELODEE_UART
@@ -962,6 +962,7 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "CLEAR T1 MOTION?", 24); a[7] = (char)('1' + k % NTRK);
         break;
     case CF_OVR_USER:
+        if (user_old_bank(k)) { str_cpy(a, "REPLACE OLD BANK?", 24); str_cpy(b, "All 16 old slots replaced", 32); break; }
         str_cpy(a, "OVERWRITE ", 24);
         user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
@@ -972,16 +973,30 @@ static void confirm_text(char *a, char *b)
         str_cpy(b, "The original sound returns", 32);
         break;
     case CF_IMPORT:
+        for (uint32_t slot = sx_import.first; slot < sx_import.first + sx_import.count; slot++) {
+            if (sx_import.general ? up_old_bank(slot) : native_old(sx_import.engine, slot)) {
+                str_cpy(a, "REPLACE OLD BANKS?", 24); str_cpy(b, "All slots in old banks replaced", 32); return;
+            }
+        }
         str_cpy(a,"OVERWRITE USER SLOTS?",24);
         fmt_int(b,sx_import.count);str_cpy(b+str_len(b)," incoming patches",20);break;
     case CF_BULK_ERASE:
         str_cpy(a,"ERASE SELECTED PRESETS?",24);
         str_cpy(b,"Selected slots will be empty",32);break;
     case CF_ERASE_USER:
+        if (user_old_bank(k)) { str_cpy(a, "ERASE OLD BANK?", 24); str_cpy(b, "All 16 old slots erased", 32); break; }
         str_cpy(a, "ERASE ", 24);
         user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
         user_name(k, b);
+        break;
+    case CF_OLD_SETTINGS:
+        str_cpy(a, "REPLACE OLD SETTINGS?", 24);
+        str_cpy(b, "Old settings/template replaced", 32);
+        break;
+    case CF_OLD_TEMPLATE:
+        str_cpy(a, "REPLACE OLD TEMPLATE?", 24);
+        str_cpy(b, "Old settings/template replaced", 32);
         break;
     default:
         str_cpy(a, "CLEAR T1 SEQUENCE?", 24);     /* the header (T1..T4) is hidden */
@@ -1046,8 +1061,7 @@ static int own_screen(void)                             /* a page drawn whole by
 /* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
 static void draw_page(void)
 {
-    if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
-                                                         * MELODEE_FM4: any track): EDIT 1 */
+    if (!ui.home && !page_visible(ui.page)) {          /* an OP page (DIGITAL's, retired): EDIT 1 */
         ui.page = (uint8_t)page_first(FAM_EDIT);
         page_entered();
     }

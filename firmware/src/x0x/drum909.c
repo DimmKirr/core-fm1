@@ -4,7 +4,6 @@
  * the fitted constants, the defaults and the per-trigger pinning are 9W9's, line
  * for line; only the arithmetic substrate changed (see drum909_dsp.h). Comments
  * that explain WHY a constant is what it is live in 9W9 and are not repeated. */
-#define X0X_DRUM_TABLES_DEFINE              /* the shared lookup tables live here (x0x_drum_tables.h) */
 #include "drum909.h"
 /* Melodee keeps the circuit voices; metallic voices are synthesized below. */
 
@@ -126,7 +125,7 @@ int drum909_get(const drum909_t *d, int voice, int i)
 static float d9_pot_value(const d9_pspec_t *s, int pot)
 {
     if (s->curve == CV_EXP)
-        return x0x_pot_exp[s->exp][pot];
+        return x0x_pot_lo[s->exp] * fm_exp2f(x0x_pot_l2[s->exp] * ((float)pot / 127.0f));
     if (s->curve == CV_SW)
         return (float)pot;
     const float t = (float)pot / 127.0f;

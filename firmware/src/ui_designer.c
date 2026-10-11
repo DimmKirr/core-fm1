@@ -307,12 +307,6 @@ static void designer_recipe(void)
 {
     track_t *t=TSEL;uint32_t g=ds.goal;
     t->p[P_DIST]=t->p[P_CHOR]=t->p[P_DLY]=t->p[P_REV]=0;
-    if(t->eng_req==0u){
-        /* A neutral single saw, rather than the first factory lead. */
-        t->p[P_E0]=t->p[P_E1]=t->p[P_E2]=t->p[P_E3]=0;t->p[P_E4]=127;
-        t->p[P_E5]=t->p[P_E6]=t->p[P_E7]=0;t->p[P_ED_FLT]=0;
-        t->p[P_VOICE]=V_POLY;t->p[P_ATK]=0;t->p[P_DEC]=60;t->p[P_SUS]=127;t->p[P_REL]=35;
-    }
     if(g==DG_FREE || drum_track(t))return;
     int pad=g==DG_PAD, shorty=g==DG_PLUCK||g==DG_KEYS;
     t->p[P_VOICE]=(g==DG_BASS||g==DG_LEAD)?V_MONO:V_POLY;

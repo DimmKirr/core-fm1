@@ -557,8 +557,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (na < 2u || !(d = ed_desc(a[0], a[1], &vp)))
             return;
         if (cmd == ED_SET && na >= 4u && !(chain_busy() && !a[0] && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
-            if (a[0] == 1 && a[1] == G_ENGSEL) {          /* engine change: the safe path (1 without MELODEE_FM4:
-                                                           * DIGITAL's first preset, as FM6) */
+            if (a[0] == 1 && a[1] == G_ENGSEL) {          /* engine change: the safe path */
                 set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
@@ -621,11 +620,6 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_PRESET:                                        /* engine, preset */
         if (na < 2u || a[0] >= NENGINES)
             return;
-#if !MELODEE_FM4
-        if (a[0] == ENGI_DIGITAL)                          /* a DIGITAL preset (retired): its sound, as FM6 */
-            fm4_load_preset(TSEL, a[1]);
-        else
-#endif
         {
             if (a[0] != TSEL->eng_req)
                 set_engine(a[0]);
@@ -660,7 +654,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         room = sizeof ed_out - ed_n - 2u - 18u - 4u - 1u;
         for (i = s0; i < en->npresets && n < 127u; i++, n++) {
             uint32_t len = 0;
-            while (len < 20u && en->presets[i].name[len])
+            const char *nm = eng_preset(en, i)->name;
+            while (len < 20u && nm[len])
                 len++;
             if (len + 1u > room)
                 break;
@@ -669,7 +664,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(a[0]);
         ed_b(n);
         for (i = 0; i < n; i++)
-            ed_str(en->presets[s0 + i].name, 20);
+            ed_str(eng_preset(en, s0 + i)->name, 20);
         for (i = 0; i < 2u; i++)                           /* then the two edit-page titles */
             ed_str(en->page_title[i], 8);
         ed_b(en->npresets);                                /* then all presets and this page's first: the */

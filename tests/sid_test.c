@@ -174,7 +174,7 @@ static void combined_tests(void)
             }
             fclose(f);
             memset(got, 0xa5, sizeof got);
-            sid_unpack(got, SID_WAVE_LZ + SID_WAVE_AT[m][w], 4096);
+            lz_unpack(got, SID_WAVE_LZ + SID_WAVE_AT[m][w], 4096);
             same &= !memcmp(got, want, 4096);
         }
     check("combined waveforms: the 8 packed tables unpack to reSID's samples bit for bit", same && !missing);

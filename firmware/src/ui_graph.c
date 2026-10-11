@@ -725,61 +725,6 @@ static void graph_fm6(const track_t *t, uint16_t c)
     FM6_CHART_HOOK(FMH_END, alg, 0);
 }
 
-#if MELODEE_FM4
-/* DIGITAL's eight algorithms as FM charts, read from src/eng_digital.c's switch (alg) (ui_test.c checks
- * these tables against it). FM_CELL: per operator 1..4 its grid cell, the column in 24 px steps (bits 0..2)
- * and the row above the output bus (bits 4..5; row 0 = the carriers). FM_MOD: per destination operator d a
- * nibble at bit 4 d of the operators modulating it (bit k = operator k + 1). Operator 4 feeds itself (FB). */
-static const uint8_t FM_CELL[8][4] = {
-    {0x00, 0x10, 0x20, 0x30}, {0x01, 0x11, 0x20, 0x22}, {0x01, 0x10, 0x20, 0x12}, {0x01, 0x12, 0x10, 0x20},
-    {0x00, 0x10, 0x02, 0x12}, {0x00, 0x02, 0x04, 0x12}, {0x00, 0x02, 0x04, 0x14}, {0x00, 0x02, 0x04, 0x06}};
-static const uint16_t FM_MOD[8] = {0x0842, 0x00C2, 0x004A, 0x0806, 0x0802, 0x0888, 0x0800, 0x0000};
-/* Modulators above what they modulate, the carriers on the bottom row over the output bus (an arrow out).
- * Carriers THEME with INK numerals, modulators RAISE with THEME ones; an operator at LEVEL 0: DIM numeral.
- * Routes by IDX: DIM at 0, MID, THEME from 64; op 4's feedback loop MID (DIM at FB 0). The knob just turned
- * (an operator's ratio or level, IDX, FB): ACCENT. Junction dots where routes split or merge. */
-static void graph_fm(const track_t *t, uint16_t c)
-{
-    uint32_t alg = (uint32_t)t->p[P_E0] & 7u, k, j, mods = FM_MOD[alg], car = 0, hop = 9;
-    uint32_t hot = ui.hot_t ? (uint32_t)cur_page()->id[ui.hot_col & 3u] : 0u;
-    int32_t x[4], y[4], lo = 7, hi = 0, top = 0, bus, cl = 240, cr = 0, idx = t->p[P_E4];
-    uint16_t ec = hot == P_E4 ? T_ACCENT : !idx ? T_DIM : idx < 64 ? T_MID : c;
-    if (hot >= P_E1 && hot <= P_E3) hop = hot - P_E1 + 1u;
-    else if (hot >= P_FM1_ATK && hot < P_E0) hop = (hot - P_FM1_ATK) / 5u;
-    for (k = 0; k < 4u; k++) {
-        int32_t col = FM_CELL[alg][k] & 7, row = FM_CELL[alg][k] >> 4;
-        lo = col < lo ? col : lo; hi = col > hi ? col : hi; top = row > top ? row : top;
-    }
-    bus = 50 + (27 + 23 * top) / 2;                  /* the chart centred on the 100 px scale */
-    for (k = 0; k < 4u; k++) {
-        x[k] = 120 + (FM_CELL[alg][k] & 7) * 24 - (lo + hi) * 12;
-        y[k] = bus - 6 - FM_BH - 23 * (FM_CELL[alg][k] >> 4);
-        if (FM_CELL[alg][k] < 0x10) { car |= 1u << k; cl = x[k] < cl ? x[k] : cl; cr = x[k] > cr ? x[k] : cr; }
-    }
-    for (k = 0; k < 4u; k++) {                       /* into k: sources down to its jog row, across, down */
-        uint32_t m = (mods >> (4u * k)) & 15u;
-        for (j = 0; j < 4u; j++) if (m >> j & 1u) {
-            uint32_t fan = mods & (0x1111u << j);
-            fm_route(x[j], y[j] + FM_BH, x[k], y[k] - 3, y[k], ec);
-            if (fan & (fan - 1u)) fm_dot(x[j], y[k] - 3, ec);   /* one operator modulating several */
-        }
-        if (m & (m - 1u)) fm_dot(x[k], y[k] - 3, ec);           /* several modulating one */
-        if (car >> k & 1u) {
-            cv_rect(x[k], y[k] + FM_BH, 1, bus - y[k] - FM_BH, T_MID);
-            if (x[k] != cl) fm_dot(x[k], bus, T_MID);
-        }
-    }
-    fm_bus(cl, cr, bus);                             /* the output bus and its arrow */
-    fm_loop(x[3], y[3], hot == P_E6 ? T_ACCENT : t->p[P_E6] ? T_MID : T_DIM);   /* op 4's feedback */
-    for (k = 0; k < 4u; k++) {
-        char b[2] = {(char)('1' + k), 0};
-        uint32_t on = t->p[P_FM1_LEVEL + k * 5u] != 0, fill_c = (car >> k & 1u) && on;
-        uint16_t f = k == hop ? T_ACCENT : c, fill = fill_c ? f : T_RAISE;
-        cv_rrect(x[k] - 10, y[k], 21, FM_BH, 3, fill, T_SURF);
-        cv_text_c(x[k] + 1, y[k] + 1, &AF_S, b, fill_c ? T_INK : on ? f : T_DIM, fill);
-    }
-}
-#endif
 /* Save-bank validity is expensive (CRC/import). Refresh it once per redraw or
  * twice per second, rather than parsing four projects on every UI frame. */
 static char graph_pname[4][13];                       /* .. and the slots' names ("" none) */
@@ -841,8 +786,7 @@ static uint32_t graph_sig(int play)
 #if MELODEE_SLICE
     if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
 #endif
-    if (pg->scope == SC_ENGINE && ((MELODEE_LEGACY_EXTRAS && t->eng_req % NENGINES == 7u) || t->eng_req % NENGINES == ENGI_FM6 ||
-                                   (MELODEE_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
+    if (pg->scope == SC_ENGINE && ((MELODEE_LEGACY_EXTRAS && t->eng_req % NENGINES == 7u) || t->eng_req % NENGINES == ENGI_FM6))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
     if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm, levels, FB) */
         h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + fm6_fn[(t - trk) % NTRK][FN_ENGINE] * 40503u;
@@ -858,10 +802,7 @@ static uint32_t graph_signature(void) { return graph_sig(1); }
 /* 4-letter engine tags of the preset list */
 static const char *eng_abbr(const char *name)
 {
-    static const char *const A[][2] = {{"ANALOG", "ANLG"}, {"PROPHET", "P5"},
-#if MELODEE_FM4
-                                       {"DIGITAL", "DGTL"},
-#endif
+    static const char *const A[][2] = {{"PROPHET", "P5"},
                                        {"PHASE", "PHAS"}, {"CZ-1", "CZ-1"}, {"SID", "SID"},
                                        {"SAMPLE", "SMPL"}, {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
                                        {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM", "DRUM"},
@@ -924,7 +865,7 @@ static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
         up_name(k, nm);
     } else {
         str_cpy(tag, eng_abbr(ENGINES[e % NENGINES]->name), 6);
-        str_cpy(nm, ENGINES[e % NENGINES]->presets[k].name, 13);
+        str_cpy(nm, eng_preset(ENGINES[e % NENGINES], k)->name, 13);
     }
 }
 /* the EDIT layer (ui_layer.c): the sound loaded, as the browser's selected row: "03" (its place in KNOB 2's list,
@@ -947,7 +888,7 @@ static void engine_sound_row(int32_t y)
         tag[0] = (char)('0' + (cur + 1u) / 10u % 10u);
         tag[1] = (char)('0' + (cur + 1u) % 10u);
         tag[2] = 0;
-        str_cpy(nm, e->npresets ? e->presets[TSEL->preset % e->npresets].name : "", sizeof nm);
+        str_cpy(nm, e->npresets ? eng_preset(e, TSEL->preset % e->npresets)->name : "", sizeof nm);
     }
     if(TSEL->eng_req==ENGI_PROPHET)p5_short_name(TSEL,nm,sizeof nm);
     list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232);
@@ -1033,7 +974,7 @@ static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b hol
     else if(user_of(t)<USER_NONE && t->user_native)native_name(t->eng_req,user_of(t),b);
     else if (user_of(t) < UP_SLOTS)up_name(user_of(t), b);
     else if (e->npresets)
-        str_cpy(b, e->presets[t->preset % e->npresets].name, 13);
+        str_cpy(b, eng_preset(e, t->preset % e->npresets)->name, 13);
     else
         str_cpy(b, e->name, 13);
 }
@@ -1103,9 +1044,11 @@ static uint32_t notes_fit(char *b, const uint8_t *note, uint32_t n, const aafont
 }
 
 /* oscilloscope of the output, triggered on a rising zero crossing: a RAISE centre line, the trace 2 px */
+static int16_t scope_snap[SCOPE_N];          /* audio.c scope_buf, held still to draw: one screen at a time (this scope, the
+                                              * stage wave) */
 static void graph_scope(uint16_t c, int32_t top, int32_t h)
 {
-    static int16_t snap[SCOPE_N];
+    int16_t *snap = scope_snap;
     uint32_t w = scope_w, i, trig = 0;
     int32_t cy = top + h / 2, py = cy, x, peak = 1500;
     for (i = 0; i < SCOPE_N; i++) {
@@ -1198,10 +1141,6 @@ static void draw_graph(void)
 #endif
             if ((pg->scope == SC_ENGINE || pg->scope == SC_FM6 || pg->scope == SC_FMOP) &&
                      t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c);   /* EDIT 1 and 2, FM6's pages */
-#if MELODEE_FM4
-            else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
-                graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
-#endif
             else { cv_oy = 0; graph_scope(c, 0, H_GRAPH); }
             break;
         }

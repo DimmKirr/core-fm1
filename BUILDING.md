@@ -63,7 +63,6 @@ Build options (environment; most use `0` or `1`; defaults in `firmware/src/build
 | `MELODEE_SYS_CLK` | 0 | Set to `320` (other values are ignored by `tools/build.py`): retune the SYS PLL at boot, before CPU1 and the audio ISR (hal/fm1_clock.h). JieLi's 320 MHz profile against M-VAVE's 360 one: the same post-div chain at 8/9 of the VCO (sys 360→320, HSB 180→160, LSB 60→53.3, SFC 90→80). TIMER4 (24 MHz crystal), the audio I2S (its own ALNK PLL) and USB/UART (PLL48M) do not move. For the units whose CPU1 misreads SRAM at 360 (below): on those, editor command 79 `count-only` at 320 against 360 is the experiment. An unfamiliar PLL multiplier leaves the boot clock untouched. The retune and rollback each wait on RC16M for at least 20 ms plus the cache handshake (not a PLL lock bit), bounded by 40 ms and a spin limit. A successful rollback raises the undo flag in editor command 79 (v[5]); failed rollback waits in SRAM for watchdog/bootguard recovery. Actual clock and stability require hardware measurement |
 | `MELODEE_SLICE` | 1 | the SLICE engine |
 | `MELODEE_ICONS` | 1 | parameter icons on the knob cards |
-| `MELODEE_FM4` | 0 | the retired DIGITAL engine (4-operator FM) instead of its FM6 conversion |
 
 ## Samples
 
@@ -82,14 +81,13 @@ track, while GATE needs no recording buffer. Performance loops reuse the same
 32 KiB capacity as the four stutters. Chorus and reverb retain their tails before
 releasing their delay lines; silent buses skip the delay processing.
 
-Preset browsing keeps names and slot indexes in RAM, with one bank cache for
-general presets, one for FM6 and one shared with the CZ bank reader. Retired FM6
-bank and owned-voice caches are replaced by temporary migration workspace,
-released after conversion. Existing flash and backup formats remain readable.
+Preset browsing keeps names and slot indexes in RAM, with one bank cache shared by
+the general presets and the native FM6, CZ-1 and Prophet banks (the last bank asked for). Melodee 2.0
+reads only the formats written since 1.0; 1.2 rewrote older records at boot.
 
 The build reports both permanent POOL usage and the available working arena,
-and requires at least 152 KiB for simultaneous maximum engine state, recording,
-effects and legacy conversion workspace. The resource tests cover eviction,
+and requires at least 139 KiB for simultaneous maximum engine state, recording
+and effects. The resource tests cover eviction,
 engine transitions, effect tails and resumption, and allocation failure.
 
 USB stem buffers are written only for an active capture stream. Derived tuning

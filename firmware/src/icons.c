@@ -212,10 +212,6 @@ static uint32_t mod_dst_icon(const track_t *t, int32_t d)
 static uint32_t engine_icon(const char *name)
 {
     static const icon_map_t M[] = {
-        {"ANALOG", ICON_WAVE},
-#if MELODEE_FM4
-        {"DIGITAL", ICON_ALGORITHM},
-#endif
         {"PHASE", ICON_PHASE}, {"SID", ICON_BITS},
         {"SAMPLE", ICON_SAMPLE}, {"VOICE", ICON_MOUTH}, {"TRIO", ICON_TRIO}, {"WHEEL", ICON_DRAWBAR},
         {"SLICE", ICON_SLICE},

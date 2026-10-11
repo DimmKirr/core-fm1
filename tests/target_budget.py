@@ -15,7 +15,7 @@ import os
 import re
 import sys
 
-FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "sid_render", "cz_native_render", "cz_native_wave", "formant_render",
+FUNCS = ["phase_render", "sid_render", "cz_native_render", "cz_native_wave", "formant_render",
          "trio_render", "trio_pass", "wheel_render", "wheel_block",
          "phys_render", "drum_render", "noise_render", "fm6_render", "p5_samples", "p5_mod_samples", "px_modal_block", "px_modal_run", "px_memb_block",
          "px_string_excite", "px_string_run", "px_symp_run",
@@ -29,9 +29,7 @@ FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_re
          "mod_begin", "mod_voice", "mod_end",                 # the modulation matrix (mod.c), called when active
          "perf_begin", "perf_mute", "perf_pre", "perf_block", "perf_master",   # the FX layer (perform.c), when busy
          "rev_room", "rev_spring"]                # the reverb bus (fx.c): REVERB TYPE ROOM / SPRING
-# built only with MELODEE_FM4=1 (DIGITAL, src/eng_digital.c; not in the default build, so not in BUDGET): absent,
-# they are skipped; present, checked against these (their budget lines until the engine was retired in 1.0)
-OPTIONAL = {"digital_render": 12, "digital_render_legacy": 333, "digital_render_custom": 558}
+OPTIONAL = {}                   # built only with an option, not in BUDGET: absent, skipped; present, checked against these
 # The FM6 operator kernel may be extracted from its renderer. Keep the original
 # combined budget, so moving work into a helper cannot weaken the existing guard.
 EXTRACTED = {"fm6_render": ("fm6_run", "fm6_run_into", "fm6_output", "fm6_join")}

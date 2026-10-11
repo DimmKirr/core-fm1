@@ -84,7 +84,7 @@ static void reset(void)
     so_r = so_w = mi_r = mi_w = 0; midi_in_overflow = 0; usb.config = 1;
     for (i = 0; i < G_COUNT; i++) song.g[i] = GP[i].def;
     for (t = 0; t < NTRK; t++) {
-        track_defaults(&trk[t]); set_engine_of(&trk[t], 0); apply_preset_to(&trk[t], 0);
+        track_defaults(&trk[t]); set_engine_of(&trk[t], 3); apply_preset_to(&trk[t], 0);   /* (SID: values on p[]) */
         trk[t].engine = trk[t].eng_req; track_defaults_steps(&trk[t]);
     }
 }
@@ -311,7 +311,6 @@ static int fm6_patches(void)
     uint8_t a[2 + FM6_PACKED], pk[FM6_PACKED];
     uint32_t n, i;
     reset();
-    upf_empty();
     a[0] = ED_FM6_FACTORY; a[1] = 3;
     n = request(ED_FM6_GET, a, 2);
     bad += check("FM6_GET factory 4: the packed record", n == 5u + 3u + FM6_PACKED + 1u && host_wire[7] == 0 &&
@@ -349,7 +348,7 @@ static int fm6_patches(void)
     i = host_wire[7];
     request(ED_FM6_PUT, a, 20);
     bad += check("FM6_PUT: a fifth track or a short record: rc 1", i == 1u && host_wire[7] == 1u);
-    a[0] = ED_FM6_BANK; a[1] = FM6_BANK_N;
+    a[0] = ED_FM6_BANK; a[1] = 31;
     request(ED_FM6_GET, a, 2);
     bad += check("FM6_GET retired bank: rc 3", host_wire[7] == 3u);
     return bad;
@@ -363,7 +362,7 @@ static int user_preset_roundtrip(void)
     uint32_t k = 0, i, p, ok;
     int bad = 0;
     reset();
-    a[k++] = 3; a[k++] = 0;                                /* slot U04, ANALOG */
+    a[k++] = 3; a[k++] = 3;                                /* slot U04, SID */
     memcpy(a + k, "ROUND", 5); k += 5; a[k++] = 0;
     for (i = 0; i < P_COUNT; i++) {
         const param_desc_t *d = param_desc_of(0, i);
@@ -386,7 +385,7 @@ static int user_preset_roundtrip(void)
     bad += check("UP_PUT keeps every value (PAN -20, FLT -40, min and max)", ok);
     a[0] = 3;
     request(ED_UP_GET, a, 1);
-    ok = host_wire[5] == 3 && host_wire[6] == 1 && host_wire[7] == 0 && !memcmp(host_wire + 8, "ROUND", 6);
+    ok = host_wire[5] == 3 && host_wire[6] == 1 && host_wire[7] == 3 && !memcmp(host_wire + 8, "ROUND", 6);   /* (slot, used, SID) */
     for (i = 0, p = 14; i < P_COUNT; i++, p += 2u)
         ok &= (int32_t)(host_wire[p] | host_wire[p + 1] << 7) - 8192 == want[i];
     for (i = 0; i < 16u; i++, p += 2u)
@@ -425,7 +424,7 @@ static int cz_native_protocol(void)
     a[40]=16;request(ED_CZ_PUT,a,290);bad+=check("invalid CZ upload leaves live patch intact",host_wire[7]==1 && !memcmp(cz_patch[2].raw,raw,CZ_BYTES));a[40]=raw[19]&15;
     a[0]=1;a[1]=8;request(ED_CZ_PUT,a,290);bad+=check("CZ tone uses atomic ordinary preset storage",host_wire[7]==0 && up_used(8) && up_rec(8)->ver==UP_VER_CZ && !memcmp(up_rec(8)->packed,raw,CZ_BYTES));
     song.sel=1;up_load(8);bad+=check("loading user CZ preset restores all 144 native bytes",TSEL->p[P_E7]==CZ_NATIVE && !memcmp(cz_patch[1].raw,raw,CZ_BYTES));
-    project_t q,r;project_store_t packed;project_capture(&q);bad+=check("native tones survive project serialization",proj_pack(&packed,&q) && proj_unpack(&r,packed.raw,sizeof packed) && !memcmp(q.cz,r.cz,sizeof q.cz));
+    project_t q,r;project_store_t packed;project_capture(&q);bad+=check("native tones survive project serialization",proj_pack(&packed,&q) && proj_unpack(&r,packed.raw) && !memcmp(q.cz,r.cz,sizeof q.cz));
     static uint8_t banked[BANK_STORE_SIZE];
     bad+=check("native tones survive full pattern-bank serialization",bank_pack(banked,&q,1) && bank_valid(banked,sizeof banked) && !memcmp(q.cz,proj_scratch.cz,sizeof q.cz));
     template_save(); static tmpl_t saved; saved=tmpl;
@@ -446,40 +445,6 @@ static int cz_casio_sysex(void)
     const uint8_t request[]={0xf0,0x44,0,0,0x70,0x11,0x60,0xf7};host_wire_n=0;for(uint32_t j=0;j<sizeof request;j++)sysex_byte(request[j]);cz_service();host_drain();
     int same=host_wire_n==295 && host_wire[5]==0x30;for(uint32_t j=0;same && j<CZ_BYTES;j++)same=host_wire[6+2*j]==(raw[j]&15) && host_wire[7+2*j]==(raw[j]>>4);
     bad+=check("direct Casio tone request exports exact native bytes",same);return bad;
-}
-
-static void legacy_cz_fixture(uint8_t *p)
-{
-    memset(p,0,LCZ_PACKED);memset(p+LCZ_NP,' ',16);memcpy(p+LCZ_NP,"MIGRATED",8);p[LCZ_OCT]=1;
-    for(uint32_t l=0;l<2;l++){p[LCZ_LBASE(l)+LCZ_LEVEL]=15;p[LCZ_LBASE(l)+LCZ_KW]=5;
-        for(uint32_t e=0;e<3;e++){uint32_t b=LCZ_EBASE(l,e);for(uint32_t j=0;j<8;j++)p[b+j]=99;p[b+8]=e?99:0;p[b+16]=0;p[b+17]=1;}}
-}
-#include "frozen_project.h"
-static int cz_legacy_saved_sounds(void)
-{
-    int bad=0;reset();cz_init();uint8_t tone[LCZ_PACKED],native[CZ_BYTES];legacy_cz_fixture(tone);
-    bad+=check("earlier next CZ tone becomes documented native wire bytes",cz_legacy_tone(native,tone,sizeof tone) && native[18]==5 && native[19]==83 && native[128]=='M');
-    project_t q,r;project_capture(&q);project_store_t packed;proj_pack(&packed,&q);
-    uint8_t legacy[PROJ_LEGACY_CZ];memset(legacy,0,sizeof legacy);frozen_project92(legacy,packed.raw,PROJ_CZ_OFF-PROJ_PARAM_EXTRA);
-    uint32_t magic=0x46554E42u,size=sizeof legacy,sum;memcpy(legacy,&magic,4);memcpy(legacy+4,&size,4);
-    for(uint32_t k=0;k<NTRK;k++){memcpy(legacy+PROJ_CZ_OFF-PROJ_PARAM_EXTRA+k*LCZ_PACKED,tone,LCZ_PACKED);legacy[68u+k*(92u+2u+NSTEP*9u)+92u]=14;}
-    sum=proj_hash(legacy,sizeof legacy-4);memcpy(legacy+sizeof legacy-4,&sum,4);
-    bad+=check("earlier next FUNB project migrates CZ engine and full envelopes",proj_import_any(&r,legacy,sizeof legacy) && r.t[0].engine==ENGI_CZ && r.t[0].p[P_E7]==CZ_NATIVE && !memcmp(r.cz[0].raw,native,CZ_BYTES));
-    uint8_t full[BANK_STORE_SIZE];bank_pack(full,&q,0);uint32_t oldExtra=BANK_EXTRA_OFF;
-    frozen_bank_tail(full+8u+sizeof legacy,full+8u+PROJ_STORE_SIZE,BANK_SIZE_CZ_NEXT-8u-sizeof legacy-4u);
-    memcpy(full+8u,legacy,sizeof legacy);magic=0x434B4246u;size=BANK_SIZE_CZ_NEXT;memcpy(full,&magic,4);memcpy(full+4,&size,4);sum=proj_hash(full,size-4u);memcpy(full+size-4u,&sum,4);
-    bad+=check("earlier next FBKC pattern bank validates without losing timing",bank_valid(full,size));bank_upgrade(full);
-    bad+=check("normalized CZ pattern bank upgrades to native project format",bank_valid(full,BANK_STORE_SIZE) && proj_scratch.t[0].engine==ENGI_CZ && !memcmp(proj_scratch.cz[0].raw,native,CZ_BYTES));
-    uint8_t tpl[TMPL_CZ_NEXT];memset(tpl,0,sizeof tpl);frozen_template92(tpl,(const uint8_t *)&tmpl,TMPL_SIZE6-8u);
-    for(uint32_t k=0;k<NTRK;k++){memcpy(tpl+TMPL_SIZE6-8u+k*LCZ_PACKED,tone,LCZ_PACKED);tpl[(2u*G_COUNT+2u)+k*(2u+92u*2u)]=14;}
-    size=sizeof tpl;magic=0x394C5054u;memcpy(tpl+size-8,&size,4);memcpy(tpl+size-4,&magic,4);
-    bad+=check("earlier next TPL9 template migrates native CZ tone",tmpl_take(tpl,sizeof tpl) && tmpl.t[0].engine==ENGI_CZ && !memcmp(tmpl.cz[0].raw,native,CZ_BYTES));
-    up_rec_t rec;memset(&rec,0,sizeof rec);rec.used=UP_USED;rec.engine=14;rec.ver=7;rec.np=92u;memcpy(rec.name,"OLD CZ",6);
-    uint32_t pos=0;for(uint32_t k=0;k<LCZ_PACKED;k++){uint32_t w=up_legacy_width(k);for(uint32_t j=0;j<w;j++,pos++){uint32_t at=pos>>3;uint8_t *p=at<144?rec.packed+at:rec.cz_extra+at-144;*p|=((tone[k]>>j)&1u)<<(pos&7);}}
-    for(uint32_t k=0;k<92u;k++){uint32_t val=(uint32_t)(TP[k<84u?k:k+P_COUNT-92u].def-LCZ_PRESET_MIN[k]);if(k==P_REV)val=77;for(uint32_t j=0;j<LCZ_PRESET_WIDTH[k];j++,pos++){uint32_t at=pos>>3;uint8_t *p=at<144?rec.packed+at:rec.cz_extra+at-144;*p|=((val>>j)&1u)<<(pos&7);}}
-    uint8_t converted[CZ_BYTES];int16_t values[P_COUNT];up_values(&rec,values);
-    bad+=check("earlier next CZ preset retains native tone and effect settings",up_valid(&rec) && up_cz_raw(&rec,converted) && !memcmp(converted,native,CZ_BYTES) && values[P_REV]==77 && values[P_E7]==CZ_NATIVE);
-    return bad;
 }
 
 static int cz_dedicated_banks(void)
@@ -553,7 +518,7 @@ static int names_whole(void)
             ok = n >= 12u && n <= sizeof ed_out && host_wire[5] == e && count <= 127u;
             for (k = 0; ok && k < count; k++) {
                 char want[21];
-                str_cpy(want, ENGINES[e]->presets[got + k].name, 21);
+                str_cpy(want, eng_preset(ENGINES[e], got + k)->name, 21);
                 ok = got + k < ENGINES[e]->npresets && !strcmp((const char *)host_wire + i, want);
                 while (i < n && host_wire[i++]) ;
             }
@@ -674,7 +639,7 @@ static int library_transfers(void)
 int main(void)
 {
     int bad = library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
-              native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex() + concert_pitch() + scale_catalogue();
+              native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

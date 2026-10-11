@@ -12,6 +12,9 @@ static void fm6_init_voice(void);
 static void panel_setup(void);
 static void project_load(uint32_t slot);
 static int project_used(uint32_t slot);
+static int project_old(uint32_t slot);
+static int template_old(void);
+static void settings_old_accept(void);
 static int template_used(void);                 /* SLOT TMPL (PROJ_TMPL): project.c */
 static void template_save(void);
 static void template_load(void);
@@ -29,6 +32,9 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k);   /* naming (ui_name.
 static void up_ui_named(uint32_t op, uint32_t k, const char *name);
 static uint32_t native_limit(uint32_t e);
 static int native_used(uint32_t e, uint32_t k);
+static int native_old(uint32_t e, uint32_t k);
+static int up_old(uint32_t k);
+static int up_old_bank(uint32_t k);
 static uint32_t native_count(uint32_t e);
 static uint32_t native_nth(uint32_t e, uint32_t n);
 static uint32_t native_rank(uint32_t e, uint32_t k);
@@ -38,7 +44,6 @@ static const uint8_t *native_raw(uint32_t e, uint32_t k);
 static void p5_send(uint32_t tr);
 static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name);
 static int native_put(uint32_t e, uint32_t k, const uint8_t *raw);
-static int native_fm_active(void);
 static uint32_t native_size(uint32_t e);
 static int general_sysex_send(uint32_t k);
 static int general_sysex_save(uint32_t k,const uint8_t *raw);
@@ -47,6 +52,9 @@ static void confirm_open(uint32_t kind,uint32_t track);
 static uint32_t library_engine(void);
 static uint32_t user_limit(void);
 static int user_used(uint32_t k);
+static int user_old(uint32_t k);
+static int user_old_bank(uint32_t k);
+static void preset_old_allow(uint32_t allow);
 static void user_name(uint32_t k, char *out);
 static void user_label(char *out, uint32_t k);
 static void user_ui_named(uint32_t op, uint32_t k, const char *name);
@@ -176,7 +184,7 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
-       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
+       CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
                                       * over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to over a
                                       * pattern in use */
 
@@ -191,7 +199,7 @@ static const char *layer_head(void);
 static uint32_t layer_leds(void);
 static uint32_t layer_btn(void);
 
-/* FM operator pages belong to DIGITAL; they never appear on other instruments (without MELODEE_FM4: never). SLICES:
+/* FM operator pages belonged to DIGITAL (retired): they never appear. SLICES:
  * a SLICE track's (ui_slice.c) */
 static int list_gone(uint32_t i);                        /* ui_list.c: a page in another's list */
 /* ENV / LFO on the engines with envelopes and LFOs of their own (Prophet, FM6, CZ-1: engine_t.ownenv, the track's
@@ -250,7 +258,7 @@ static int page_visible(uint32_t i)
         return 0;
 #endif
     return !(PAGES[i].fam == FAM_EDIT && PAGES[i].id[0] >= P_FM1_ATK &&
-             PAGES[i].id[0] <= P_FM4_LEVEL) || (MELODEE_FM4 && TSEL->eng_req % NENGINES == ENGI_DIGITAL);
+             PAGES[i].id[0] <= P_FM4_LEVEL);
 }
 
 static uint32_t page_first(uint32_t fam)
@@ -873,58 +881,12 @@ static uint32_t preset_orig(const engine_t *e, uint32_t k) { (void)e; return k; 
 static uint32_t preset_rank(const engine_t *e, uint32_t k) { (void)e; return k; }
 #define preset_shown(e) (ENGINES[e]->npresets)
 
-#if !MELODEE_FM4
-/* DIGITAL (engine 1, retired): t's sound = p, values as DIGITAL has them, converted to FM6 with a patch of its own
- * (fm4_convert.c). Every path that brings a DIGITAL sound into a track ends here: a track never keeps engine 1 */
-static void fm4_apply(track_t *t, int16_t *p)
-{
-    uint8_t v[FP_SIZE + 1u];
-    uint32_t pr = fm4_convert(p, v), tr = trk_index(t), f;
-    fm6_set_patch(tr, v);
-    f = motion_guard();                               /* the audio ISR sees the old sound or the new one */
-    memcpy(t->p, p, sizeof t->p);
-    t->eng_req = ENGI_FM6;
-    t->preset = (uint8_t)pr;
-    motion_unguard(f);
-}
-static void fm4_track(track_t *t)                     /* t holds a DIGITAL sound (engine 1): convert it */
-{
-    int16_t p[P_COUNT];
-    memcpy(p, t->p, sizeof p);
-    fm4_apply(t, p);
-}
-/* DIGITAL preset k (a stored preset number of engine 1: the editor's PRESET, SET G_ENGSEL, an old project's
- * power-on sound): its sound as a preset load sets it, converted. The sound only (not the steps, not param_kept) */
-static void fm4_load_preset(track_t *t, uint32_t k)
-{
-    int16_t p[P_COUNT];
-    uint32_t i;
-    load_begin(t, UNDO_SOUND);
-    panic_req |= (uint8_t)(1u << trk_index(t));
-    t->user = 0; t->user_native=0;
-    if (t == TSEL)
-        sync_reload = 1;
-    memcpy(p, t->p, sizeof p);
-    for (i = 0; i < P_E0; i++)
-        if (!param_kept(i))
-            p[i] = TP[i].def;
-    fm4_preset_values(p, k);
-    fm4_apply(t, p);
-    load_end(t);
-}
-#endif
 
 /* preset pi of the engine the track asked for: the sound only (not the steps, not param_kept) */
 static void apply_preset_to(track_t *t, uint32_t pi)
 {
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
     uint32_t i;
-#if !MELODEE_FM4
-    if (t->eng_req % NENGINES == ENGI_DIGITAL) {
-        fm4_load_preset(t, pi);
-        return;
-    }
-#endif
     load_begin(t, UNDO_SOUND);
     panic_req |= (uint8_t)(1u << trk_index(t));       /* MONO/POLY may change: release what sounds */
     t->user = 0; t->user_native=0;
@@ -940,17 +902,17 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
         if (!param_kept(i))                           /* sounds the same after any edit */
             t->p[i] = TP[i].def;
+    const preset_t *pr = eng_preset(e, pi);
     for (i = 0; i < 8u; i++)
-        t->p[P_E0 + i] = (int16_t)e->presets[pi].e[i];
-    t->p[P_ATK] = e->presets[pi].env[0];
-    t->p[P_DEC] = e->presets[pi].env[1];
-    t->p[P_SUS] = e->presets[pi].env[2];
-    t->p[P_REL] = e->presets[pi].env[3];
-    t->p[P_ED_FLT] = e->presets[pi].fenv;
-    t->p[P_VOICE] = e->presets[pi].mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
+        t->p[P_E0 + i] = (int16_t)pr->e[i];
+    t->p[P_ATK] = pr->env[0];
+    t->p[P_DEC] = pr->env[1];
+    t->p[P_SUS] = pr->env[2];
+    t->p[P_REL] = pr->env[3];
+    t->p[P_ED_FLT] = pr->fenv;
+    t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
     {   /* the sends */
         static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
-        const preset_t *pr = &e->presets[pi];
         for (i = 0; i < 4u; i++)                      /* (no delay: its sends predate the delay bus coming back) */
             t->p[P_DIST + i] = (int16_t)(i == 2u ? 0 : pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
@@ -967,12 +929,6 @@ static void engine_load_of(track_t *t, uint32_t ei, uint32_t pi)
 {
     const engine_t *e = ENGINES[ei % NENGINES];
     uint32_t i;
-#if !MELODEE_FM4
-    if (ei % NENGINES == ENGI_DIGITAL) {             /* DIGITAL (retired): its first preset, as FM6 */
-        fm4_load_preset(t, 0);
-        return;
-    }
-#endif
     load_begin(t, UNDO_SOUND);
     fm1_irq_off();
     t->eng_req = (uint8_t)(ei % NENGINES);
@@ -992,7 +948,7 @@ static uint32_t preset_init(uint32_t e)
     const engine_t *en = ENGINES[e % NENGINES];
     uint32_t k;
     for (k = 0; k < en->npresets; k++) {
-        const char *n = en->presets[k].name;
+        const char *n = eng_preset(en, k)->name;
         if (n[0] == 'I' && n[1] == 'N' && n[2] == 'I' && n[3] == 'T' && (n[4] == ' ' || !n[4]))
             return k;
     }

@@ -77,53 +77,42 @@ static int compact_project(void)
     motion_set_event(t, 3, P_REV, 110);
     project_t before, after; project_store_t packed, corrupt;
     project_capture(&before);
-    bad += check("FUN8 fits the retained and flash extent", sizeof(proj_slot) == 4u * PROJ_STORE_SIZE && proj_pack(&packed, &before));
-    fm6_fn[0][FN_PTIME] = 33;                            /* (FM6 functions: in the FBK9 around FUN8, not in FUN8) */
+    bad += check("FUN16 fits the retained and flash extent", sizeof(proj_slot) == 4u * PROJ_STORE_SIZE && proj_pack(&packed, &before));
+    fm6_fn[0][FN_PTIME] = 33;                            /* (FM6 functions: in the FBKK around FUN16, not in FUN16) */
     project_capture(&before);
     {
         static uint8_t fbk[BANK_STORE_SIZE];
-        bad += check("FBK9 keeps the tracks' FM6 function settings", bank_pack(fbk, &before, 1) &&
+        bad += check("FBKK keeps the tracks' FM6 function settings", bank_pack(fbk, &before, 1) &&
                      bank_valid(fbk, sizeof fbk) && proj_scratch.fm6_fn_ok && proj_scratch.fm6_fn[0][FN_PTIME] == 33u);
     }
     proj_fn_none(&before); proj_pack(&packed,&before);
-    bad += check("FUN8 round trip preserves signed values/FM params/probability/motion", proj_import(&after, &packed, sizeof packed) &&
+    bad += check("FUN16 round trip preserves signed values/FM params/probability/motion", proj_import(&after, &packed, sizeof packed) &&
         !memcmp(&before, &after, sizeof before));
     corrupt = packed; corrupt.raw[112] ^= 1u;
-    bad += check("FUN7 torn or corrupted payload is refused", !proj_import(&after, &corrupt, sizeof corrupt));
+    bad += check("FUN16 torn or corrupted payload is refused", !proj_import(&after, &corrupt, sizeof corrupt));
     corrupt = packed; corrupt.raw[68] = 255; uint32_t sum = proj_hash(corrupt.raw, sizeof corrupt - 4u);
     memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
     bad += check("compact parameter range is validated even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));
     corrupt = packed; uint32_t probability_byte = 68u + P_COUNT + 2u + 8u; corrupt.raw[probability_byte] = 127;
     sum = proj_hash(corrupt.raw, sizeof corrupt - 4u); memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
     bad += check("invalid probability is refused even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));
-    project_v6_t old; memset(&old, 0, sizeof old); old.magic = PROJ_MAGIC_V6; old.size = sizeof old;
-    memcpy(old.g, before.g, sizeof old.g); old.parts = NPART; old.phys = PROJ_PHYS;
-    for (uint32_t k = 0; k < NTRK; k++) {
-        for (uint32_t j = 0; j < 61u; j++) old.t[k].p[j] = before.t[k].p[j];
-        for (uint32_t j = 0; j < 8u; j++) old.t[k].p[61u + j] = before.t[k].p[P_E0 + j];
-        old.t[k].engine = before.t[k].engine; old.t[k].preset = before.t[k].preset;
-        for (uint32_t j = 0; j < NSTEP; j++) memcpy(&old.t[k].step[j], &before.t[k].step[j], sizeof(step10_t));
-    }
-    old.chain = before.chain; old.sum = proj_hash(&old, sizeof old - 4u);
-    bad += check("real FUN6 disk image migrates with FM defaults/100% chance/no motion", proj_import(&after, &old, sizeof old) &&
-        after.t[0].p[P_E0] == before.t[0].p[P_E0] && after.t[0].p[P_ED_FLT] == -50 &&
-        after.t[0].p[P_FM1_LEVEL] == 127 && !after.motion.count && step_chance(&after.t[0].step[3]) == 100u);
-    bad += check("migrated FUN6 can be written as fixed-size FUN7", proj_pack(&packed, &after));
     project_save(1); motion_clear(t); t->p[P_FM1_LEVEL] = 127; step_set_chance(&t->step[3], 100);
     project_load(1);
     bad += check("actual project save/load restores motion, chance and operator settings", motion_count(t) == 1u &&
         step_chance(&t->step[3]) == 25u && t->p[P_FM1_LEVEL] == 80);
     return bad;
 }
-/* a FUN7 image as the firmware of 89 parameters (before the chord keys P_CHRD / P_VOIC) wrote it: the engine's
- * values at 81..88, motion ids from 81 on for E0..E7 (m: its events as that firmware numbered them) */
-static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_store_t *m)
+/* a FUN16 record written with np parameters (np < P_COUNT: a firmware of before parameters were added): its first
+ * np - 8 values in place, then the engine's E0..E7; motion ids from np - 8 on for E0..E7 (m: its events as that
+ * firmware numbered them). The fixed parts (patches, tones, name) as today's */
+static void pack_np(project_store_t *out, const project_t *q, const motion_store_t *m, uint32_t np)
 {
-    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, magic = PROJ_MAGIC_V7, size = 3388u, sum;
-    memset(out, 0, sizeof *out); memcpy(b, &magic, 4); memcpy(b + 4, &size, 4);
-    memcpy(b + 8, q->g, sizeof q->g); b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = 89;
+    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, sum;
+    proj_pack(out, q);
+    memset(b + 68, 0, PROJ_FM6_OFF - 68u);
+    b[66] = (uint8_t)np;
     for (t = 0; t < NTRK; t++) {
-        for (i = 0; i < 89u; i++) b[pos++] = (uint8_t)(q->t[t].p[i < 81u ? i : i - 81u + P_E0] + 64);
+        for (i = 0; i < np; i++) b[pos++] = (uint8_t)(q->t[t].p[i < np - 8u ? i : i - (np - 8u) + P_E0] + 64);
         b[pos++] = q->t[t].engine; b[pos++] = q->t[t].preset;
         for (i = 0; i < NSTEP; i++) {
             const step_t *s = &q->t[t].step[i];
@@ -134,12 +123,13 @@ static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_
     }
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
     memcpy(b + pos, m, sizeof *m);
-    sum = proj_hash(b, size - 4u); memcpy(b + size - 4u, &sum, 4);
+    sum = proj_hash(b, PROJ_STORE_SIZE - 4u); memcpy(b + PROJ_STORE_SIZE - 4u, &sum, 4);
 }
-static int fun7_89(void)
+static int older_count(void)
 {
     int bad = 0, ok; ui_power_on(); track_t *t = &trk[0];
     project_t before, after; project_store_t old; motion_store_t m;
+    const uint32_t np = P_COUNT - 2u, e0 = np - 8u;
     uint32_t i, k;
     for (k = 0; k < NTRK; k++)
         for (i = 0; i < 8u; i++) trk[k].p[P_E0 + i] = (int16_t)(ENGINES[trk[k].eng_req]->edit[i].min + (int16_t)(k + i) %
@@ -147,32 +137,32 @@ static int fun7_89(void)
     t->p[P_FM1_ATK] = 33; t->p[P_REV] = 20;
     t->step[2] = (step_t){{60, 64, 67}, 3, ST_NOTE, 0, 100};
     project_capture(&before);
-    memset(&m, 0, sizeof m);                                       /* as the 89-parameter firmware numbered them */
+    memset(&m, 0, sizeof m);                                       /* as that firmware numbered them */
     m.count = 3; m.on = 1;
     m.event[0] = (motion_event_t){3, P_REV, 90};
-    m.event[1] = (motion_event_t){5, 81, 40};                      /* its P_E0 (81) */
-    m.event[2] = (motion_event_t){6, 61, 20};                      /* FM OP1 ATK: 61 then and now */
-    pack_fun7_89(&old, &before, &m);
+    m.event[1] = (motion_event_t){5, (uint8_t)e0, 40};             /* its P_E0 */
+    m.event[2] = (motion_event_t){6, P_FM1_ATK, 20};               /* below its P_E0: the same id then and now */
+    pack_np(&old, &before, &m, np);
     ok = proj_import(&after, &old, sizeof old);
     for (k = 0; ok && k < NTRK; k++) {
         for (i = 0; i < 8u; i++) ok &= after.t[k].p[P_E0 + i] == before.t[k].p[P_E0 + i];
-        for (i = 0; i < 81u; i++) ok &= after.t[k].p[i] == before.t[k].p[i];
-        ok &= after.t[k].p[P_CHRD] == 0 && after.t[k].p[P_VOIC] == 0;
+        for (i = 0; i < e0; i++) ok &= after.t[k].p[i] == before.t[k].p[i];
+        for (i = e0; i < P_E0; i++) ok &= after.t[k].p[i] == param_desc_of(after.t[k].engine, i)->def;
     }
-    bad += check("FUN7 of 89 parameters: E0..E7 at 83..90, the chord keys OFF / CLOSE, the rest in place", ok &&
+    bad += check("FUN16 of P_COUNT - 2: E0..E7 in place, the two added parameters their defaults, the rest kept", ok &&
         after.t[0].p[P_FM1_ATK] == 33 && !memcmp(after.t[0].step, before.t[0].step, sizeof before.t[0].step));
-    bad += check("  its motion: E0 (81) -> 83, REV and FM OP1 ATK (61) kept",
+    bad += check("  its motion: its E0 -> P_E0, REV and FM OP1 ATK kept",
         after.motion.count == 3u && after.motion.event[0].param == P_REV && after.motion.event[1].param == P_E0 &&
         after.motion.event[1].value == 40 && after.motion.event[2].param == P_FM1_ATK);
-    bad += check("  written again as FUN7 of 91: the same project", proj_pack(&old, &after) && old.raw[66] == P_COUNT &&
+    bad += check("  written again with today's count: the same project", proj_pack(&old, &after) && old.raw[66] == P_COUNT &&
         proj_import(&before, &old, sizeof old) && !memcmp(&before, &after, sizeof before));
-    pack_fun7_89(&old, &before, &m); memcpy(&proj_slot[2], &old, sizeof old);
+    pack_np(&old, &before, &m, np); memcpy(&proj_slot[2], &old, sizeof old);
     project_load(2);
-    bad += check("legacy project's motion migrates into bank 1 at today's parameter ids", motion.count == 3u &&
+    bad += check("such a project's motion loads at today's parameter ids", motion.count == 3u &&
         motion.event[1].param == P_E0 && trk[0].pattern == 0u);
-    m.event[1].param = 82;                                          /* (any id P_E0 .. P_E7 of then moves by 2) */
-    pack_fun7_89(&old, &before, &m);
-    bad += check("  E1 (82) -> 84", proj_import(&after, &old, sizeof old) && after.motion.event[1].param == P_E1);
+    m.event[1].param = (uint8_t)(e0 + 1u);                          /* (any id of its E0 .. E7 moves by 2) */
+    pack_np(&old, &before, &m, np);
+    bad += check("  its E1 -> P_E1", proj_import(&after, &old, sizeof old) && after.motion.event[1].param == P_E1);
     return bad;
 }
 static int loads_and_song(void)
@@ -258,7 +248,7 @@ static int native_motion_test(void)
     song.rec = 1; seq_start(); seq_tick(TSEL, CTL); turn(EN_K1, -1);
     bad += check("FM6 operator page records its native patch through UI", motion.count && (uint32_t)motion.event[0].value >> 8 == MO_TAG_FM6);
     seq_stop();
-    ui_power_on(); uint32_t page = 0;
+    ui_power_on(); set_engine_of(TSEL, ENGI_FM6); uint32_t page = 0;   /* (not the Prophet: its events below are another's) */
     for (uint32_t p = 0; p < NPAGES; p++) if (PAGES[p].graph == GR_MOTION) page = p;
     bad += check("empty motion page is hidden", !page_visible(page));
     motion_set_event(TSEL, 0, P_REV, 50);
@@ -284,6 +274,6 @@ static int native_motion_test(void)
 }
 int main(void)
 {
-    int bad = native_motion_test() + motion_recording() + motion_capacity() + probability_playback() + compact_project() + fun7_89() + loads_and_song() + repeat_mode();
+    int bad = native_motion_test() + motion_recording() + motion_capacity() + probability_playback() + compact_project() + older_count() + loads_and_song() + repeat_mode();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;
 }

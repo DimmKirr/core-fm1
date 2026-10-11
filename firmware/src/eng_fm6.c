@@ -41,7 +41,6 @@ typedef struct {
 
 #define ENGI_FM6 12u             /* engines.c ENGINES[] (append-only) */
 #define FM6_NFAC (FM6_NFACTORY + FM6_NROM)        /* F1..F24: the factory patches */
-#define FM6_BANK_N 32u           /* patch bank slots (fm6_bank.c): a DX7 cartridge */
 #define FM6_PACKED 128u
 #define FM6_ON_ALL 0x3Fu
 

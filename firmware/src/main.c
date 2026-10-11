@@ -152,6 +152,7 @@ static void fm1_main(void)
 {
     int32_t knob = 512 * 16;
     fm1__pc_out(6,0);                         /* codec held quiet before flash, PLL and splash */
+    dsp_tables_init();                        /* the RAM lookup tables (FM6), before anything renders */
     persist_boot();
 #if MELODEE_OTA
     if (flash_ok)

@@ -946,7 +946,7 @@ static void act_do(void)
     if (cur_page()->graph == GR_FMSTORE) {                /* FM6: 1 STORE (into fm6_bslot), 2 SEND, 3 INIT */
         if (c == 1u) {
             if (transport_busy()) ui_message("STOP TO SAVE");
-            else if (native_used(ENGI_FM6,fm6_bslot)) confirm_open(CF_OVR_USER, fm6_bslot);
+            else if (native_used(ENGI_FM6,fm6_bslot) || native_old(ENGI_FM6,fm6_bslot)) confirm_open(CF_OVR_USER, fm6_bslot);
             else fm6_store(fm6_bslot);
         }
         else if (c == 2u)
@@ -960,13 +960,13 @@ static void act_do(void)
         if (c > 1u)
             ui.act = 0;
         ui.uslot %= user_limit();
-        if (c == 2u && user_used(ui.uslot) && !transport_busy())
+        if (c == 2u && (user_used(ui.uslot) || user_old(ui.uslot)) && !transport_busy())
             confirm_open(CF_ERASE_USER, ui.uslot);        /* ERASE: the dialog first */
         else if (c != 3u)
             user_ui_named(c - 1u, ui.uslot, 0);
         else if (transport_busy())
             ui_message("STOP TO SAVE");
-        else if (user_used(ui.uslot))
+        else if (user_used(ui.uslot) || user_old(ui.uslot))
             confirm_open(CF_OVR_USER, ui.uslot);
         else
             name_open(NK_USER_SAVE, ui.uslot);
@@ -986,7 +986,7 @@ static void act_do(void)
         if (id == G_LOAD)
             template_load();
         else
-            template_save();
+            if (template_old()) confirm_open(CF_OLD_TEMPLATE, 0); else template_save();
         return;
     }
     switch (id) {
@@ -996,7 +996,7 @@ static void act_do(void)
     case G_SAVE:                                          /* the NAME screen writes it */
         if (transport_busy())
             ui_message("STOP TO SAVE");
-        else if (project_used(k))
+        else if (project_used(k) || project_old(k))     /* (an old record too: only replaced when asked) */
             confirm_open(CF_OVR_PROJ, k);
         else
             name_open(NK_PROJ_SAVE, k);
@@ -1532,7 +1532,9 @@ static void ui_confirm_accept(void)
     uint32_t kind = ui.confirm;
     ui.confirm = 0;
     ui.force = 1;
-    if(kind==CF_IMPORT){sysex_commit();
+    if(kind==CF_OLD_SETTINGS){settings_old_accept();settings_save();
+    } else if(kind==CF_OLD_TEMPLATE){settings_old_accept();template_save();
+    } else if(kind==CF_IMPORT){preset_old_allow(1);sysex_commit();preset_old_allow(0);
     } else if(kind==CF_BULK_ERASE){bulk_erase();
     } else if (kind == CF_OVR_PROJ) {                  /* overwrite: the NAME screen writes it */
         name_open(NK_PROJ_SAVE, ui.confirm_trk & 3u);
@@ -1630,11 +1632,6 @@ static void ui_input(void)
     } else {
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
     }
-#if !MELODEE_FM4
-    for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
-        if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */
-            fm4_track(&trk[k]);
-#endif
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     layer_arm(pressed, now);
     layer_masks();                                      /* seq.c: keys pressed with a layer's button are its own */

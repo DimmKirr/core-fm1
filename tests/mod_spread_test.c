@@ -59,7 +59,7 @@ static uint32_t preset_by_name(uint32_t e, const char *n)
 {
     uint32_t k;
     for (k = 0; k < ENGINES[e]->npresets; k++)
-        if (str_eq(ENGINES[e]->presets[k].name, n))
+        if (str_eq(eng_preset(ENGINES[e], k)->name, n))
             return k;
     return 0;
 }
@@ -79,7 +79,7 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
     perf_held = perf_latched = 0;
     lim_env = LIM_T;
     dc_l = dc_r = dce_l = dce_r = 0;                      /* (the master's DC blockers: no residue of a run before) */
-    vage = 0;                                             /* the seeds: every run the same (ANALOG's noise by age) */
+    vage = 0;                                             /* the seeds: every run the same (noise by voice age) */
     rng_state = 0x1234567u;
     mod_seed = 0x2545F491u;
     memset(trk, 0, sizeof trk);
@@ -87,7 +87,7 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
     memset(sl, 0, sizeof sl);
     host_tracks_init();
     for (k = 0; k < NPART; k++)
-        host_preset(&trk[k], k ? 0u : e, k ? 0u : pi);
+        host_preset(&trk[k], k ? HOST_SYNTH : e, k ? 0u : pi);
     song.sel = 0;
     hash = 0xCBF29CE484222325ull;
 }
@@ -157,7 +157,7 @@ static void test_matrix(void)
           !MD_ENGINE(MD_DEPTH) && MD_ENGINE(MD_E1 + 7));
 
     /* S&H and SLEW over a few LFO cycles: one value per cycle, the steps at the wraps; SLEW continuous */
-    fresh(0, 0);
+    fresh(HOST_SYNTH, 0);
     t->p[P_LRATE] = 90;                                   /* a few Hz */
     t->p[P_LWAVE] = 4;                                    /* S&H: the LFO's own value is the same random */
     trk_note_on(t, 60, 100);
@@ -207,14 +207,14 @@ static void test_matrix(void)
     /* S&H follows RATE: a faster LFO steps more often */
     {
         uint32_t s1 = 0, s2 = 0;
-        fresh(0, 0);
+        fresh(HOST_SYNTH, 0);
         t->p[P_LRATE] = 70;
         for (k = 0; k < 2u * FS / CTL; k++) {
             uint32_t ph0 = t->lfo_ph;
             blocks(1);
             s1 += t->lfo_ph < ph0;
         }
-        fresh(0, 0);
+        fresh(HOST_SYNTH, 0);
         t->p[P_LRATE] = 70;
         slot(t, 0, MS_MODW, MD_RATE, 63);                 /* the matrix's RATE: S&H with it */
         t->mw = 127;
@@ -227,7 +227,7 @@ static void test_matrix(void)
     }
 
     /* DEPTH: the LFO's gain, as AMP's */
-    fresh(0, 0);
+    fresh(HOST_SYNTH, 0);
     t->lfo_val = 32767;
     t->lfo_fade = 32767;
     slot(t, 0, MS_MODW, MD_DEPTH, 63);
@@ -304,9 +304,9 @@ static void sh_on_nothing(track_t *t)             /* S&H and SLEW slots with AMT
 }
 static void test_matrix_sound(void)
 {
-    uint64_t h0 = phrase_child(0, 0, 0), hn = phrase_child(0, 0, sh_on_nothing);
-    uint64_t p0 = phrase_child(0, 0, vib_plain), d0 = phrase_child(0, 0, vib_depth0);
-    uint64_t d1 = phrase_child(0, 0, vib_depth1), f1 = phrase_child(0, 0, vib_full);
+    uint64_t h0 = phrase_child(HOST_SYNTH, 0, 0), hn = phrase_child(HOST_SYNTH, 0, sh_on_nothing);
+    uint64_t p0 = phrase_child(HOST_SYNTH, 0, vib_plain), d0 = phrase_child(HOST_SYNTH, 0, vib_depth0);
+    uint64_t d1 = phrase_child(HOST_SYNTH, 0, vib_depth1), f1 = phrase_child(HOST_SYNTH, 0, vib_full);
     check("S&H / SLEW / DEPTH slots at AMT 0: bit for bit no matrix", h0 && h0 == hn);
     check("DEPTH closed: LFO DEST PIT plays nothing (bit for bit LFO DEST PIT 0)", p0 && p0 == d0);
     check("DEPTH open: the vibrato is there (not the plain note), as without the matrix but for the gain",
@@ -323,14 +323,14 @@ static void sp_leg0(track_t *t) { t->p[P_VOICE] = V_LEGATO; }
 static void sp_poly0(track_t *t) { t->p[P_VOICE] = V_POLY; t->sp_alt = 1; }   /* (the sides change nothing at 0) */
 static void sp_poly0b(track_t *t) { t->p[P_VOICE] = V_POLY; }
 
-/* track 1 (ANALOG SOFT PAD, dry, POLY), SPRD sp, PAN pan: notes, then blocks; L and R sums of squares, the mono sum's */
+/* track 1 (the host synth's SYN STRINGS, dry, POLY), SPRD sp, PAN pan: notes, then blocks; L and R sums of squares, the mono sum's */
 typedef struct { double l, r, m, lr; int32_t rmax, lmax; } lr_t;
 static lr_t spread_run(int32_t sp, int32_t pan, uint32_t mode, const uint8_t *notes, uint32_t nn, uint32_t nb)
 {
     track_t *t = &trk[0];
     lr_t a = {0};
     uint32_t k, i;
-    fresh(0, preset_by_name(0, "SOFT PAD"));
+    fresh(HOST_SYNTH, preset_by_name(HOST_SYNTH, "SYN STRINGS"));
     dry(t);
     song.master_q12 = 1024;                               /* below the limiter: the levels as mixed */
     t->p[P_VOICE] = (int16_t)mode;
@@ -364,14 +364,14 @@ static void test_spread(void)
     check("SPRD: a track parameter 0..127, default 0 (as before), before the engine's (P_E0 96, P_COUNT 104)",
           TP[P_SPRD].min == 0 && TP[P_SPRD].max == 127 && TP[P_SPRD].def == 0 && P_SPRD + 1 == P_E0 && P_E0 == 96 &&
           P_COUNT == 104 && str_eq(TP[P_SPRD].label, "SPRD") && motion_param(P_SPRD));
-    h1 = phrase_child(0, 1, sp_mono0);
-    h2 = phrase_child(0, 1, sp_mono127);
+    h1 = phrase_child(HOST_SYNTH, 1, sp_mono0);
+    h2 = phrase_child(HOST_SYNTH, 1, sp_mono127);
     check("MONO: SPRD 127 plays bit for bit as SPRD 0 (one voice: on PAN)", h1 && h1 == h2);
-    h1 = phrase_child(0, 1, sp_leg0);
-    h2 = phrase_child(0, 1, sp_leg127);
+    h1 = phrase_child(HOST_SYNTH, 1, sp_leg0);
+    h2 = phrase_child(HOST_SYNTH, 1, sp_leg127);
     check("LEGATO: SPRD 127 plays bit for bit as SPRD 0", h1 && h1 == h2);
-    h1 = phrase_child(0, 1, sp_poly0);
-    h2 = phrase_child(0, 1, sp_poly0b);
+    h1 = phrase_child(HOST_SYNTH, 1, sp_poly0);
+    h2 = phrase_child(HOST_SYNTH, 1, sp_poly0b);
     check("POLY SPRD 0: the voices' sides change nothing (the plain mix, bit for bit)", h1 && h1 == h2);
 
     a = spread_run(0, 0, V_POLY, ONE, 1, NREND / 2);
@@ -430,7 +430,7 @@ static void test_spread_fx(void)
     double side_closed = 0, side_open = 0;
     char msg[160];
     /* SLICER GATE, pattern 1 (x.x.), DEPTH 100 %: in the closed steps L and R both near silent */
-    fresh(0, preset_by_name(0, "SOFT PAD"));
+    fresh(HOST_SYNTH, preset_by_name(HOST_SYNTH, "SYN STRINGS"));
     dry(t);
     t->p[P_ATK] = 0;
     t->p[P_SPRD] = 127;
@@ -464,7 +464,7 @@ static void test_spread_fx(void)
         double side[2][2] = {{0}}, all[2][2] = {{0}};
         uint32_t ph, r;
         for (r = 0; r < 2u; r++) {
-            fresh(0, preset_by_name(0, "SOFT PAD"));
+            fresh(HOST_SYNTH, 0);                         /* (INIT TONE: little DC for the blockers to settle) */
             dry(t);
             t->p[P_ATK] = 0;
             t->p[P_SPRD] = (int16_t)(r ? 127 : 0);
@@ -486,7 +486,7 @@ static void test_spread_fx(void)
         }
         snprintf(msg, sizeof msg, "the mute key: L and R both go (SPRD 127: left %.1e, L - R %.1e of before; SPRD 0: %.1e)",
                  all[1][1] / all[1][0], side[1][1] / side[1][0], all[0][1] / all[0][0]);
-        check(msg, side[1][0] > 0 && all[1][1] / all[1][0] < 2 * all[0][1] / all[0][0] + 1e-3 &&
+        check(msg, side[1][0] > 0 && all[1][1] / all[1][0] < 2 * all[0][1] / all[0][0] + 3e-3 &&   /* (CZ-1's DC: a few 1e-3) */
               side[1][1] <= all[1][1] && all[0][1] < all[0][0] * 0.05);
     }
     /* the sends: mono (a chord with SPRD 127 and only REV: what the wet bus gets is the same) */
@@ -494,7 +494,7 @@ static void test_spread_fx(void)
         uint64_t hw[2];
         uint32_t r;
         for (r = 0; r < 2u; r++) {
-            fresh(0, preset_by_name(0, "SOFT PAD"));
+            fresh(HOST_SYNTH, preset_by_name(HOST_SYNTH, "SYN STRINGS"));
             dry(t);
             t->p[P_REV] = 100;
             t->p[P_SPRD] = (int16_t)(r ? 127 : 0);

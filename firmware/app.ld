@@ -44,7 +44,7 @@ SECTIONS
     _cpu1_ustack_top = _cpu1_stacks_lo + 4096;
     _cpu1_sstack_top = _cpu1_stacks_lo + 8192;
     _resource_end = ORIGIN(POOL) + LENGTH(POOL);
-    ASSERT(_resource_end - _resource_start >= 152K, "audio working arena below worst-case budget")
+    ASSERT(_resource_end - _resource_start >= 139K, "audio working arena below worst-case budget")
     .noinit (NOLOAD) : { *(.noinit*) . = ALIGN(4); _noinit_end = .; } > NOINIT
     _resource_retained_start = _noinit_end;
     _resource_retained_end = ORIGIN(NOINIT) + LENGTH(NOINIT);

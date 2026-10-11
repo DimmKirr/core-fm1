@@ -7,7 +7,7 @@
 static track_t *edit_setup(void)
 {
     ui_power_on();
-    set_engine_of(TSEL, 0u);
+    set_engine_of(TSEL, 3);                       /* (SID: the generic ENV) */
     TSEL->engine = TSEL->eng_req;
     TSEL->p[P_VOICE] = V_POLY;
     TSEL->p[P_QUANT] = Q_OFF;
@@ -152,7 +152,7 @@ static int test_midi_entry(void)
     bad += check("last source release advances once", ui.cursor == 1 && !step_midi_held && t->step[0].n == 1);
     midi_channel(0)->pedal = 1;
     midi_note_event(0, 65, 100); frame(); midi_note_event(0, 65, 0); frame();
-    bad += check("sustain holds audio while physical MIDI release ends step entry", ui.cursor == 2 && !step_midi_held && (midi_notes[0][65] & MIDI_PEDAL_NOTE));
+    bad += check("sustain holds audio while physical MIDI release ends step entry", ui.cursor == 2 && !step_midi_held && (mn_get(0, 65) & MIDI_PEDAL_NOTE));
     midi_pedal_up(0); frame();
     bad += check("pedal-up never advances an extra step", ui.cursor == 2);
 

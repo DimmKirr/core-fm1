@@ -297,7 +297,7 @@ static void song_setup(void)
     dly_buf = 0;
     memset(&dl, 0, sizeof dl);
     song.g[G_BPM] = 120;
-    host_preset(t1, 0, 4);
+    host_preset(t1, HOST_SYNTH, 4);
     host_preset(t2, 1, 5);
     host_808_kit(td);
     for (i = 0; i < 16u; i++) {
@@ -1143,7 +1143,7 @@ static void harm_demos(const char *dir)
         host_tracks_init();
         perf_reset();
         song.g[G_BPM] = 110;
-        host_preset(&trk[0], 0, 0);                       /* ANALOG SAW LEAD */
+        host_preset(&trk[0], HOST_SYNTH, 0);              /* the host synth's first tone */
         for (i = 0; i < 16u; i++)
             put_step(&trk[0], i, MEL[i] ? 1u : 0u, &MEL[i], MEL[i] ? ST_NOTE : ST_REST, 0);
         hd_mode = m + 1u;
