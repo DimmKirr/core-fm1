@@ -124,7 +124,7 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = (int16_t)(i == 2u ? 0 : p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
     cz_factory_loaded(t);
-    if(e==ENGI_PROPHET){uint32_t k=(uint32_t)(t-trk)%NTRK;p5_patch_init(&p5_patch[k]);p5_ready[k]=1;p5_track_accept(t);}
+    if(e==ENGI_PROPHET){uint32_t k=(uint32_t)(t-trk)%NTRK;p5_ready[k]=1;p5_preset_loaded(t,pi);}   /* (its program, as ui.c) */
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
@@ -148,13 +148,8 @@ static void host_preset(track_t *t, uint32_t e, uint32_t pi)
     t->engine = t->eng_req;
 }
 
-/* part k's power-on sound (main.c, TRK_DEF): the engine, its preset, the Prophet's program too */
-static void host_power_on_sound(track_t *t, uint32_t k)
-{
-    host_preset(t, TRK_DEF[k][0], TRK_DEF[k][1]);
-    if (TRK_DEF[k][0] == ENGI_PROPHET)
-        p5_preset_loaded(t, TRK_DEF[k][1]);
-}
+/* part k's power-on sound (main.c, TRK_DEF) */
+static void host_power_on_sound(track_t *t, uint32_t k) { host_preset(t, TRK_DEF[k][0], TRK_DEF[k][1]); }
 
 /* the plain synth a test plays when the engine is not what it tests (ANALOG's place until 2.0 retired it): CZ-1,
  * on the generic voice path (NPOLY voices, no cap of its own) as ANALOG was */

@@ -122,7 +122,20 @@ static void run_to(uint32_t f) { while (fpos < f) blk(); }
 static const char *const LONG_TAIL[] = {"preset/CZ-1/47_BELLS", "preset/CZ-1/51_SITAR", "preset/CZ-1/62_JET_ROAR"};
 static uint32_t free_cap_s = FREE_CAP_S;         /* this job's (run_job_body) */
 static uint32_t tail_s = TAIL_S;                 /* .. its FX tail (a delay send's: job_sends) */
-static uint32_t release_cap(void) { return free_cap_s; }
+/* the Prophet's release is calibrated (tau = 10^(4 v / 127) ms: gen_tables.py p5ms) and its voice is free at -60 dB
+ * (P5_ENV_END: about 6.9 tau): a program with a long RELEASE rings that long, as the instrument does */
+static uint32_t release_cap(void)
+{
+    const track_t *t = &trk[0];
+    if (t->eng_req == ENGI_PROPHET) {
+        const uint8_t *p = p5_patch_of(t)->raw;
+        uint32_t v = p[P5_RELEASE_AMP] > 127u ? 127u : p[P5_RELEASE_AMP];
+        uint32_t s = p[P5_RELEASE_ON] ? (uint32_t)(7.0 * pow(10000.0, v / 127.0) / 1000.0) + 2u : 0u;
+        if (s > free_cap_s)
+            return s;
+    }
+    return free_cap_s;
+}
 
 /* after the last note-off (rel_at): until the voices are free, then the FX tail */
 static void finish(void)
@@ -210,8 +223,6 @@ static void job_sends(const job_t *j)           /* arg: 0 dry, 1 chorus, 2 delay
     uint32_t i;
     host_tracks_init();
     host_preset(t, j->e, j->pi);
-    if (j->e == ENGI_PROPHET)
-        p5_preset_loaded(t, j->pi);              /* (its program) */
     t->p[P_AMODE] = 0;
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = S[j->arg][i];
@@ -256,8 +267,6 @@ static void job_slicer(const job_t *j)
     uint32_t i;
     host_tracks_init();
     host_preset(t, j->e, j->pi);
-    if (j->e == ENGI_PROPHET)
-        p5_preset_loaded(t, j->pi);              /* (its program) */
     t->p[P_AMODE] = 0;
     for (i = 0; i < 4u; i++)
         t->p[P_SLCR + i] = S[j->arg][i];

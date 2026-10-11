@@ -29,7 +29,7 @@ typedef struct {
     uint32_t coeff_valid;
     p5_env_t filter, amp;
 } p5_voice_t;
-typedef struct { p5_voice_t voice[P5_POLY]; uint32_t lfo; int32_t lfo_value, last_pitch, mod_noise; float wheel[CTL * P5_OVERSAMPLE], wheel_pitch[CTL * P5_OVERSAMPLE]; uint8_t value[55]; } p5_part_t;
+typedef struct { p5_voice_t voice[P5_POLY]; uint32_t lfo; int32_t lfo_value, last_pitch, mod_noise, dc_x1, dc_y1; float wheel[CTL * P5_OVERSAMPLE], wheel_pitch[CTL * P5_OVERSAMPLE]; uint8_t value[55]; } p5_part_t;
 static p5_part_t *p5_part(uint32_t part);
 static p5_patch_t p5_patch[NPART] __attribute__((section(".pool")));
 static uint8_t p5_ready[NPART];
@@ -369,12 +369,30 @@ static void p5_join(void)
     if(!audio_worker_join())return;   /* CPU1 lost: this voice's block is dropped */
     for(uint32_t i=0;i<p5_job.n;i++)p5_pending_out[i]+=p5_job.pcm[i];
 }
+#endif
+/* the part after its voices: the output's coupling capacitor, about 5 Hz (y = x - x' + (1 - 2 pi 5 / FS) y'). The
+ * oscillators are unipolar, as the CEM3340's, so the mixer's DC rides through the filter and the VCA as it does in the
+ * instrument up to its output stage; without the capacitor it reached the sends, DIST and the USB stems. With no
+ * voice it starts afresh */
+#define P5_DC_K 1072976913                       /* (1 - 2 pi 5 / FS) << 30 */
+_Static_assert(FS == 44100, "P5_DC_K: the sample rate");
 static void p5_post(track_t *t,int32_t *out,uint32_t n,uint32_t nr)
 {
-    (void)t;(void)out;(void)n;(void)nr;
+#if MELODEE_DUAL_CORE
     p5_join();
-}
 #endif
+    p5_part_t *P=p5_part((uint32_t)(t-trk)%NPART);
+    if(!P)return;
+    int32_t x1=P->dc_x1,y=P->dc_y1;
+    if(!nr){P->dc_x1=P->dc_y1=0;return;}
+    for(uint32_t i=0;i<n;i++){
+        int32_t x=out[i];
+        y=(int32_t)((int64_t)(x-x1)*256+(((int64_t)y*P5_DC_K)>>30));
+        x1=x;
+        out[i]=(y+128)>>8;
+    }
+    P->dc_x1=x1;P->dc_y1=y;
+}
 
 /* XIP stalls dominated the first hardware run. This bounded hot path uses
  * the existing RAMTEXT region; startup copies it before audio starts. */
@@ -520,8 +538,6 @@ static const engine_t ENG_P5_TEST = {
            {"MIXA",F_INT,-63,63,0,0,0},{"MIXB",F_INT,-63,63,0,0,0}},
     .preset_make=p5_preset_make,.npresets=P5_FACTORY_N+1u,.poly=P5_POLY,.ownenv=1,
     .note_on=p5_note_on,.render=p5_render,.done=p5_done,.block=p5_block,.units=p5_units,.cap=p5_cap,.legato=p5_legato,
-#if MELODEE_DUAL_CORE
     .post=p5_post,
-#endif
     .knob={P_E0,P_E1,P_CHOR,P_REV}
 };
