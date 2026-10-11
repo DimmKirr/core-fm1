@@ -82,6 +82,8 @@ static void timer5_start(void)                 /* OSC /4 = 6 MHz, PRD 600 -> 10 
     fm1_timer5_start(isr_timer5, 4);   /* above ALNK0 (3): the scan nests into the render (see fm1_timer5_irq) */
 }
 
+int fm1_clock_downclock_undo;                  /* unfamiliar boot clock or settled rollback from the 320 retune */
+
 static void hexs(char *b, uint32_t v)
 {
     uint32_t i;
@@ -155,6 +157,14 @@ static void fm1_main(void)
         ota_boot_cleanup();                             /* staging area left by an update */
 #endif
     settings_init();
+    {   /* 320 MHz before anything that cares: no audio ISR yet, CPU1 not started, LCD not
+         * initialised (it reads the new LSB at fm1_lcd_baud). The switch runs from .ram_text
+         * (the system clock wobbles while the PLL restarts), so it is called through its
+         * function pointer. An unfamiliar boot clock or a settled rollback raises the
+         * undo flag in editor command 79. Failed rollback stays in SRAM on RC16M
+         * for watchdog recovery; it never returns here with an unverified PLL. */
+        fm1_clock_downclock_undo = fm1_clock_downclock() != 0;
+    }
     lcd_init();
     lcd_fill(0, 0, 240, 240, T_BG);
     draw_text_box(0, 94, 240, &AF_L, "MELODEE", T_THEME, 1);

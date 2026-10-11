@@ -187,6 +187,8 @@ def build_app():
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
+    if os.environ.get("MELODEE_SYS_CLK") == "320":          # boot-time SYS PLL retune (hal/fm1_clock.h)
+        flags.append("-DMELODEE_SYS_CLK=320")
     if os.environ.get("P5_OVERSAMPLE") in ("1", "2"):
         flags.append("-DP5_OVERSAMPLE=" + os.environ["P5_OVERSAMPLE"])
     flags.append(f'-DMELODEE_ID="{PRODUCT}"')
@@ -364,6 +366,8 @@ def main():
     a = ap.parse_args()
     name = "melodee.fwsc"
     variant = "-1core" if os.environ.get("MELODEE_DUAL_CORE") == "0" else ""
+    if os.environ.get("MELODEE_SYS_CLK") == "320":
+        variant += "-320"
     if a.release:                   # X one digit, Y one or two (1.0: FM-1_910; 1.0.0: FM-1_91000),
         m = re.fullmatch(r"(\d)\.(\d{1,2})(?:\.(\d))?(-[A-Za-z0-9]+)?", a.release)   # Z one (Y two with it)
         if not m:
