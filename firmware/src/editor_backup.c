@@ -69,14 +69,11 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
         if (up_cache_bank(b)->magic == UP_BANK_MAGIC) *len = sizeof (*up_cache_bank(0));
         return (const uint8_t *)up_cache_bank(b);
     }
-    if (id == 8u) return ED_BK_RAW; /* retired bank: older archives may still restore it */
+    if (id == 8u) return ED_BK_RAW; /* retired bank: always empty */
     if (id >= 19u && id <= 22u) {
         uint32_t nb=id<21u?id-17u:id-21u;
         if(native_fm_valid(native_fm_bank(nb))){*len=sizeof(native_fm_t);return (const uint8_t *)native_fm_bank(nb);}
-        if(id>=21u)return ED_BK_RAW;
-        uint32_t b = id - 19u;
-        if (upf_valid(upf_bank((b) * UPF_SLOTS))) *len = sizeof (*upf_bank((b) * UPF_SLOTS));
-        return (const uint8_t *)upf_bank((b) * UPF_SLOTS);
+        return ED_BK_RAW;
     }
     if(id>=9u && id<=16u){if(cz_bank_valid(native_cz_bank(id-9u))){*len=sizeof(cz_bank_t);return (const uint8_t *)native_cz_bank(id-9u);}cz_bank_t *b=cz_bank_load(id-9u);if(cz_bank_saved)*len=sizeof *b;return (const uint8_t *)b;}
     return 0;
@@ -151,8 +148,7 @@ static uint32_t ed_bk_commit_inner(void)
         obj = OBJ_SETTINGS;
     } else if (ed_bk_id == 6u || ed_bk_id == 7u || ed_bk_id == 17u || ed_bk_id == 18u) {
         const up_bank_t *p = (const up_bank_t *)raw;
-        if ((ed_bk_id >= 17u && ed_bk_len && (ed_bk_len != sizeof(up_bank_t) || p->rsize != sizeof(up_rec_t))) ||
-            (ed_bk_len && (!up_bank_shape(ed_bk_len,p->rsize) || p->magic != UP_BANK_MAGIC || p->nslot != UP_PER_BANK))) return 2;
+        if (ed_bk_len && (!up_bank_shape(ed_bk_len,p->rsize) || p->magic != UP_BANK_MAGIC || p->nslot != UP_PER_BANK)) return 2;
         /* Unknown record versions remain inert bytes, preserving future/older bank data. */
         obj = ed_bk_id < 8u ? OBJ_UPRESET0 + ed_bk_id - 6u : OBJ_UPRESET_EXT0 + ed_bk_id - 17u;
     } else if (ed_bk_id == 8u) {
@@ -164,14 +160,6 @@ static uint32_t ed_bk_commit_inner(void)
         native_fm_t old=(*native_fm_bank(b));if(ed_bk_len)memcpy(native_fm_bank(b),raw,sizeof (*native_fm_bank(b)));else native_fm_empty(b);
         if(native_save_bank(ENGI_FM6,b)==2){(*native_fm_bank(b))=old;return 4;}
         up_gen++;sync_reload=1;ui.force=1;return 0;
-    } else if (ed_bk_id == 19u || ed_bk_id == 20u) {
-        uint32_t b = ed_bk_id - 19u;
-        if (ed_bk_len && (ed_bk_len != sizeof(upf_t) || !upf_valid((const upf_t *)raw))) return 2;
-        upf_t *work=upf_bank(b*UPF_SLOTS);if(!work)return 4;
-        if (ed_bk_len) memcpy(work, raw, sizeof *work); else upf_empty_bank(b);
-        if(native_import_owned(b))return 4;
-        sync_reload = 1; ui.force = 1;
-        return 0;
     } else if(ed_bk_id>=9u && ed_bk_id<=16u){
         if(ed_bk_len && (ed_bk_len!=sizeof(cz_bank_t)||!cz_bank_valid((const cz_bank_t *)raw)))return 2;
         uint32_t b=ed_bk_id-9u;cz_bank_t old=(*native_cz_bank(b));
@@ -220,11 +208,7 @@ static uint32_t ed_bk_commit_inner(void)
     sync_reload = 1; ui.force = 1;
     return 0;
 }
-/* Legacy payloads are conversion workspace, never part of the live preset cache. */
-static uint32_t ed_bk_commit(void)
-{
-    uint32_t rc=ed_bk_commit_inner();upf_release();return rc;
-}
+static uint32_t ed_bk_commit(void) { return ed_bk_commit_inner(); }
 static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
 {
     if (n < 2u || a[0] > 3u || a[1] > 27u) return 1;
@@ -235,11 +219,11 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
         if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != sizeof(project_store_t)) ||
             (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set) ||
             (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != sizeof(project_store_t)) ||
-            ((a[1] == 6u || a[1] == 7u || a[1] == 17u || a[1] == 18u) && len && len != sizeof(up_bank_t) && len!=UP_BANK_LEGACY_SIZE) ||
-            (a[1] == 8u && len && len != sizeof(fm6_bank_t)) ||
+            ((a[1] == 6u || a[1] == 7u || a[1] == 17u || a[1] == 18u) && len && len != sizeof(up_bank_t)) ||
+            (a[1] == 8u && len) ||
             (a[1]>=9u && a[1]<=16u && len && len!=sizeof(cz_bank_t)) ||
             (a[1]>=23u && len && len!=sizeof(p5_bank_t)) ||
-            (a[1]>=19u && a[1]<=22u && len && len!=sizeof(native_fm_t) && !(a[1]<=20u && len==sizeof(upf_t)))) return 1;
+            (a[1]>=19u && a[1]<=22u && len && len!=sizeof(native_fm_t))) return 1;
         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;
         ed_bk_crc = ed_bk_r32(a + 7); ed_bk_pos = 0;
         ed_bk_usb = usb.resets; ed_bk_ms = fm1_ms;

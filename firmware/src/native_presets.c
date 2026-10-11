@@ -83,14 +83,6 @@ static void native_index(uint32_t e, uint32_t b)
         native_meta[idx].name[j][n] = 0;
     }
 }
-static int native_fm_active(void)
-{
-    for (uint32_t b = 0; b < 4u; b++) {
-        if (!native_meta[b].ready) native_index(ENGI_FM6, b);
-        if (!native_meta[b].valid) return 0;
-    }
-    return 1;
-}
 static void native_fm_empty(uint32_t b) { native_fm_t *f = native_fm_bank(b); memset(f,0,sizeof *f);f->magic=NATIVE_FM_MAGIC;f->ver=1;f->slots=16; }
 static int native_used(uint32_t e,uint32_t k)
 {
@@ -124,71 +116,22 @@ static int native_save_bank(uint32_t e,uint32_t b)
     if (rc != 2) native_index(e, b);
     return rc;
 }
-/* Commit the two new objects before reusing either old owned-voice object.
- * At every interruption, voices still reside in an old source or a committed
- * native object. Legacy user records remain available for older archives. */
-static void native_release_shared(void)
-{
-    int marked=0;
-    for(uint32_t b=0;b<UP_SLOTS/UP_PER_BANK;b++){
-        up_bank_t old=(*up_cache_bank(b));uint32_t changed=0;
-        for(uint32_t j=0;j<UP_PER_BANK;j++){
-            uint32_t k=b*UP_PER_BANK+j;if(!up_used(k))continue;
-            uint32_t e=up_engine(k),slot=USER_NONE;
-            if(e==ENGI_FM6 && native_used(e,k))slot=k;
-            else if(e==ENGI_CZ){uint8_t raw[CZ_BYTES];if(up_cz_raw(up_rec(k),raw))for(uint32_t i=0;i<NATIVE_CZ_SLOTS;i++)if(native_used(e,i) && !memcmp(native_raw(e,i),raw,CZ_BYTES)){slot=i;break;}}
-            if(slot==USER_NONE)continue;
-            if(favorite_has(USER_GENERAL,k)){favorite_set(e==ENGI_FM6?USER_NATIVE_FM:USER_NATIVE_CZ,slot,1);favorite_set(USER_GENERAL,k,0);marked=1;}
-            memset(up_rec(k),0,sizeof(up_rec_t));changed++;
-        }
-        if(changed){
-#if MELODEE_FLASH
-            if(flash_ok && up_save_bank(b)){(*up_cache_bank(b))=old;ui_message("PRESET SAVE ERROR");continue;}
-#endif
-            up_gen++;
-        }
-    }
-    if(marked)settings_save();
-}
+/* power-on: every native bank exists; a missing one (a fresh device's, or after the stock firmware) gets its default,
+ * written once: FM6 empty, CZ-1 BANK A..D Casio's tones, E..H empty */
 static void native_boot(void)
 {
-    for(uint32_t b=0;b<4u;b++){
-#if MELODEE_FLASH
-        if(flash_ok && st_load(native_fm_obj(b),native_fm_bank(b),sizeof (*native_fm_bank(b)))==(int)sizeof (*native_fm_bank(b)) && native_fm_valid(native_fm_bank(b))) { native_index(ENGI_FM6,b); continue; }
-#endif
+    for (uint32_t b = 0; b < 4u; b++) {
+        if (native_fm_valid(native_fm_bank(b))) continue;
         native_fm_empty(b);
-        for(uint32_t j=0;j<16u;j++){
-            uint32_t k=b*16u+j;uint8_t pk[FM6_PACKED];
-            if(!upf_fm6(k))continue;
-            if(upf_get(k,pk))continue;
-            memcpy(native_fm_bank(b)->tone[j],pk,sizeof pk);native_fm_bank(b)->used|=1u<<j;
-        }
-        /* Empty objects are completion markers too: never resurrect an erased
-         * native preset from its retained legacy record on a later boot. */
-        if(native_save_bank(ENGI_FM6,b)==2){ui_message("PRESET SAVE ERROR");return;}
+        if (native_save_bank(ENGI_FM6, b) == 2) { ui_message("PRESET SAVE ERROR"); return; }
     }
-    uint32_t migrated=0;
-    for(uint32_t b=0;b<8u;b++){
-        cz_bank_t *old=cz_bank_load(b);
-        if(cz_bank_saved)(*native_cz_bank(b))=*old;else cz_bank_empty(native_cz_bank(b),b);
-        migrated+=native_cz_bank(b)->ver==2u;
-        native_index(ENGI_CZ,b);
+    for (uint32_t b = 0; b < 8u; b++) {
+        cz_bank_t *c = native_cz_bank(b);
+        if (cz_bank_valid(c)) continue;
+        cz_bank_empty(c, b);
+        c->ver = 2;
+        if (native_save_bank(ENGI_CZ, b) == 2) { ui_message("PRESET SAVE ERROR"); return; }
     }
-    if(migrated==8u){native_release_shared();return;}
-    /* Imported ordinary CZ presets are copied into free native slots, without
-     * overwriting the historical 128-tone collection. Exact duplicates skip. */
-    for(uint32_t k=0;k<UP_SLOTS;k++)if(up_used(k)){
-        uint8_t raw[CZ_BYTES];if(!up_cz_raw(up_rec(k),raw))continue;
-        uint32_t i,free=NATIVE_CZ_SLOTS;
-        for(i=0;i<NATIVE_CZ_SLOTS;i++){if(!native_used(ENGI_CZ,i)){if(free==NATIVE_CZ_SLOTS)free=i;}else if(!memcmp(native_raw(ENGI_CZ,i),raw,CZ_BYTES))break;}
-        if(i<NATIVE_CZ_SLOTS || free==NATIVE_CZ_SLOTS)continue;
-        if(!cz_bank_valid(native_cz_bank(free/16u)))cz_bank_empty(native_cz_bank(free/16u),free/16u);
-        cz_bank_t old=(*native_cz_bank(free/16u));memcpy(native_cz_bank(free/16u)->tone[free%16u].raw,raw,CZ_BYTES);native_cz_bank(free/16u)->used|=1u<<(free%16u);
-        if(native_save_bank(ENGI_CZ,free/16u)==2){(*native_cz_bank(free/16u))=old;ui_message("PRESET SAVE ERROR");return;}
-        cz_bank_cached=255;
-    }
-    for(uint32_t b=0;b<8u;b++){cz_bank_t *c=native_cz_bank(b);if(!cz_bank_valid(c))cz_bank_empty(c,b);c->ver=2;if(native_save_bank(ENGI_CZ,b)==2){ui_message("PRESET SAVE ERROR");return;}}
-    native_release_shared();
 }
 /* Mutations keep the last committed tone in RAM if flash fails. */
 static int native_put(uint32_t e,uint32_t k,const uint8_t *raw)
@@ -257,25 +200,6 @@ static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name)
     uint8_t raw[CZ_BYTES];if(e==ENGI_FM6)fm6_pack(fm6_patch[tr],raw);else if(e==ENGI_PROPHET)memcpy(raw,p5_patch_of(&trk[tr]),sizeof(p5_patch_t));else memcpy(raw,cz_patch[tr].raw,CZ_BYTES);
     if(name && name[0]){uint32_t off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u,n=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u;memset(raw+off,' ',n);for(uint32_t i=0;i<n && name[i];i++)raw[off+i]=(uint8_t)name[i];}
     return native_put(e,k,raw);
-}
-/* Older archives carry two 32-slot owned-voice objects. Copy their restored
- * records into the corresponding independent native slots, then commit in the
- * same order used at boot. */
-static int native_import_owned(uint32_t group)
-{
-    for (uint32_t b = group*2u; b < group*2u+2u; b++) {
-        if(!native_fm_valid(native_fm_bank(b)))native_fm_empty(b);
-        native_fm_t *f = native_fm_bank(b);
-        for (uint32_t j = 0; j < 16u; j++) {
-            uint32_t k=b*16u+j; uint8_t pk[FM6_PACKED]; f->used &= ~(1u<<j);
-            if(upf_fm6(k)){
-                int ok=!upf_get(k,pk);
-                if(ok){memcpy(f->tone[j],pk,FM6_PACKED);f->used|=1u<<j;}
-            }
-        }
-        if (native_save_bank(ENGI_FM6,b)==2) return 2;
-    }
-    return 0;
 }
 static uint32_t user_limit(void) { uint32_t n=library_native();return n?n:UP_SLOTS; }
 static int user_used(uint32_t k) { return library_native()?native_used(library_engine(),k):up_used(k); }

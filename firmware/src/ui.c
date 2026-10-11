@@ -38,7 +38,6 @@ static const uint8_t *native_raw(uint32_t e, uint32_t k);
 static void p5_send(uint32_t tr);
 static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name);
 static int native_put(uint32_t e, uint32_t k, const uint8_t *raw);
-static int native_fm_active(void);
 static uint32_t native_size(uint32_t e);
 static int general_sysex_send(uint32_t k);
 static int general_sysex_save(uint32_t k,const uint8_t *raw);

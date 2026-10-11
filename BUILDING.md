@@ -82,13 +82,12 @@ track, while GATE needs no recording buffer. Performance loops reuse the same
 releasing their delay lines; silent buses skip the delay processing.
 
 Preset browsing keeps names and slot indexes in RAM, with one bank cache for
-general presets, one for FM6 and one shared with the CZ bank reader. Retired FM6
-bank and owned-voice caches are replaced by temporary migration workspace,
-released after conversion. Existing flash and backup formats remain readable.
+general presets, one for FM6 and one shared with the CZ bank reader. Melodee 2.0
+reads only the formats written since 1.0; 1.2 rewrote older records at boot.
 
 The build reports both permanent POOL usage and the available working arena,
-and requires at least 152 KiB for simultaneous maximum engine state, recording,
-effects and legacy conversion workspace. The resource tests cover eviction,
+and requires at least 139 KiB for simultaneous maximum engine state, recording
+and effects. The resource tests cover eviction,
 engine transitions, effect tails and resumption, and allocation failure.
 
 USB stem buffers are written only for an active capture stream. Derived tuning

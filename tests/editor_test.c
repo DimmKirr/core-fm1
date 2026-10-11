@@ -311,7 +311,6 @@ static int fm6_patches(void)
     uint8_t a[2 + FM6_PACKED], pk[FM6_PACKED];
     uint32_t n, i;
     reset();
-    upf_empty();
     a[0] = ED_FM6_FACTORY; a[1] = 3;
     n = request(ED_FM6_GET, a, 2);
     bad += check("FM6_GET factory 4: the packed record", n == 5u + 3u + FM6_PACKED + 1u && host_wire[7] == 0 &&
@@ -349,7 +348,7 @@ static int fm6_patches(void)
     i = host_wire[7];
     request(ED_FM6_PUT, a, 20);
     bad += check("FM6_PUT: a fifth track or a short record: rc 1", i == 1u && host_wire[7] == 1u);
-    a[0] = ED_FM6_BANK; a[1] = FM6_BANK_N;
+    a[0] = ED_FM6_BANK; a[1] = 31;
     request(ED_FM6_GET, a, 2);
     bad += check("FM6_GET retired bank: rc 3", host_wire[7] == 3u);
     return bad;

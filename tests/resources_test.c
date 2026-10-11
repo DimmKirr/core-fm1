@@ -5,7 +5,7 @@
 
 static void audio_resources_reset(void)
 {
-    upf_release();memset(resource,0,sizeof resource);memset(sl_buf,0,sizeof sl_buf);
+    memset(resource,0,sizeof resource);memset(sl_buf,0,sizeof sl_buf);
     cho_buf=rev_comb=perf_audio=0;rev_memory=0;sl_lent=0;
     memset(&fx,0,sizeof fx);memset(sl,0,sizeof sl);
     memset(rev_hold_comb,0,sizeof rev_hold_comb);memset(rev_hold_ap,0,sizeof rev_hold_ap);
@@ -25,7 +25,6 @@ static int cache_tests(void)
     for(uint32_t b=0;b<4u;b++)bad+=check("FM cache reload preserves each independent patch",native_raw(ENGI_FM6,b*16u)[118]=='A'+b);
     for(uint32_t b=0;b<8u;b++)bad+=check("CZ cache reload preserves each independent patch",native_raw(ENGI_CZ,b*16u)[128]=='A'+b);
     for(uint32_t b=0;b<4u;b++)bad+=check("general cache reload preserves parameters",up_value(up_rec(b*16u),P_E0)==(int16_t)b);
-    bad+=check("legacy conversion handles are released after boot",!resource[RES_LEGACY0].size && !resource[RES_LEGACY1].size);
     bad+=check("resident bank payloads are bounded to one bank per type",sizeof up_cache+sizeof native_fm_cache+sizeof native_cz_cache==8208u);
     flash_ok=0;
     bad+=check("missing flash refuses mutations without evicting committed indexes",native_put(ENGI_FM6,0,fm)==2 && native_put(ENGI_CZ,0,cz)==2 && up_store(0,"NO FLASH")==2 && native_used(ENGI_FM6,0) && native_used(ENGI_CZ,0) && up_used(0));
@@ -34,7 +33,6 @@ static int cache_tests(void)
     resource_get(RES_PERFORM,RESOURCE_MAIN_CAPACITY);
     for(uint32_t b=0;b<RESOURCE_BANKS-1u;b++)if(b!=RESOURCE_CACHE_BANK || RESOURCE_CACHE_AVAILABLE)
         resource_get(RES_ENGINE0+b,(uint32_t)((uintptr_t)resource_banks[b].end-(uintptr_t)resource_banks[b].start));
-    bad+=check("legacy scratch exhaustion returns a safe missing bank",!upf_bank(0) && !upf_valid(upf_bank(0)));
     resource_release(RES_PERFORM);
     for(uint32_t b=0;b<RESOURCE_BANKS-1u;b++)resource_release(RES_ENGINE0+b);
     return bad;
@@ -66,8 +64,9 @@ static int audio_tests(void)
     bad+=check("four largest remaining engine tracks and four stutters fit together",resource_used()==maximum+32768u);
     c[0]=d[0]=r[0]=12000;fx_buses(c,d,r,out,CTL);c[0]=d[0]=r[0]=0;
     bad+=check("maximum engines, stutter and the three FX fit simultaneously",resource_used()==maximum+32768u+CHO_LEN*2u+REV_MEMORY_BYTES+DL_N*2u);
-    bad+=check("that and the legacy conversion workspace stay within the linker's 152 KiB budget (app.ld)",
-               maximum+32768u+CHO_LEN*2u+REV_MEMORY_BYTES+DL_N*2u+2u*sizeof(upf_t)<=152u*1024u);
+    printf("resources: worst case %u B\n",(unsigned)(maximum+32768u+CHO_LEN*2u+REV_MEMORY_BYTES+DL_N*2u));
+    bad+=check("that stays within the linker's 139 KiB budget (app.ld)",
+               maximum+32768u+CHO_LEN*2u+REV_MEMORY_BYTES+DL_N*2u<=139u*1024u);
     perf_buf_start(PF_FRZ);
     int released=1;for(uint32_t k=0;k<4u;k++)released&=!resource[RES_SLICER0+k].size;
     bad+=check("performance loop replaces stutter storage without extra 32 KiB",perf_audio && released && resource[RES_PERFORM].size==32768u);

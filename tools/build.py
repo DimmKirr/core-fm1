@@ -286,8 +286,8 @@ def check(img, syms, dis, rt):
     notes.append(f"image {len(img)} B; RAM .data+.bss {bss} B of 98304; pool {pool} B of {0x54000}")
     arena = sym("_resource_end") - sym("_resource_start")
     if arena:
-        notes.append(f"audio working arena {arena} B available on demand (minimum {152 * 1024})")
-        if arena < 152 * 1024: errors.append("audio working arena below worst-case budget")
+        notes.append(f"audio working arena {arena} B available on demand (minimum {139 * 1024})")
+        if arena < 139 * 1024: errors.append("audio working arena below worst-case budget")
     if bss > 96 * 1024:
         errors.append("RAM region overflow")
     tails = 0

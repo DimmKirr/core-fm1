@@ -380,36 +380,28 @@ int main(void)
         ((uint32_t *)old)[0] = 0x46554E36u; ((uint32_t *)old)[1] = sizeof old;
         bad += check("a FUN6 project archive is refused (1)", put_begin(5, sizeof old, st_crc32(old, sizeof old)) == 1u);
     }
-    {   /* Selector-based archives are retired; owned-voice backups still restore. */
-        static fm6_bank_t bk;
-        static upf_t got;
+    {   /* the retired FM6 bank (8) and owned-voice archives (19, 20 at 4,240 B) are refused; native voices restore */
+        static native_fm_t got;
         static up_bank_t records;
-        uint8_t pk[FM6_PACKED], rec[FM6_PACKED];
-        upf_empty();
+        static uint8_t owned[4240];
+        uint8_t pk[FM6_PACKED];
         set_engine_of(TSEL, ENGI_FM6);
         up_store(2, "OLD FM6");
-        up_set_value(up_rec(2), P_E7, FM6_NFAC + 2u);up_save_bank(0);
-        memset(&bk, 0, sizeof bk);
-        bk.magic = FM6_BANK_MAGIC; bk.ver = FM6_BANK_VER; bk.nslot = FM6_BANK_N; bk.used = 1u << 2;
-        memcpy(bk.fn, FM6_FNDEF, FM6_NFN);
-        fm6_factory(5, pk); fm6_pack7(bk.pk[2], pk, FM6_PACKED);
-        bad += check("retired selector bank backup is refused without changing native voices",
-                     put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 2 && !native_used(ENGI_FM6,2));
+        bad += check("retired bank id 8 refuses a payload", put_begin(8, 3612, 0) == 1u);
         bad += check("retired bank id 8 is listed empty", list(8, &len, &crc) == 0 && !len);
-        bad += check("refusing the retired bank leaves native object 21 empty", list(21, &len, &crc) == 0 && !len);
-        upf_set(2,pk); /* construct a historical owned-voice archive */
-        memcpy(&got, upf_bank((0) * UPF_SLOTS), sizeof got); upf_empty();
-        bad += check("owned voices restore through id 19", put_all(19, &got, sizeof got, st_crc32(&got, sizeof got)) == 0 && native_used(ENGI_FM6,2) && !memcmp(native_raw(ENGI_FM6,2), pk, FM6_PACKED));
+        bad += check("an owned-voice archive (id 19) is refused", put_begin(19, sizeof owned, st_crc32(owned, sizeof owned)) == 1u);
+        fm6_factory(5, pk); native_put(ENGI_FM6, 2, pk);
         bad += check("native voice id 21 is listed with its CRC", list(21, &len, &crc) == 0 && len == sizeof(native_fm_t) && crc == st_crc32(native_fm_bank(0), len));
-        bk.fn[FN_ENGINE] = 9;
-        bad += check("damaged historical bank is refused", put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 2u);
+        memcpy(&got, native_fm_bank(0), sizeof got); native_put(ENGI_FM6, 2, 0);
+        bad += check("native voices restore through id 21", !native_used(ENGI_FM6, 2) && put_all(21, &got, sizeof got, st_crc32(&got, sizeof got)) == 0 && native_used(ENGI_FM6, 2) && !memcmp(native_raw(ENGI_FM6, 2), pk, FM6_PACKED));
+        got.magic ^= 1u;
+        bad += check("a damaged native voice bank is refused", put_all(21, &got, sizeof got, st_crc32(&got, sizeof got)) == 2u);
         up_store(63, "LAST FM6");
         bad += check("additional user record bank id 18 retains U64", list(18, &len, &crc) == 0 && len == sizeof(up_bank_t));
         memcpy(&records, up_cache_bank(3), sizeof records); memset(up_cache_bank(3), 0, sizeof (*up_cache_bank(3)));
         bad += check("additional user record bank id 18 restores U64", put_all(18, &records, sizeof records, st_crc32(&records, sizeof records)) == 0 && up_used(63));
-        fm6_pack(fm6_patch[0],pk);upf_set(63,pk);
-        memcpy(&got, upf_bank((1) * UPF_SLOTS), sizeof got); upf_empty_bank(1);
-        bad += check("additional voice bank id 20 restores U64", put_all(20, &got, sizeof got, st_crc32(&got, sizeof got)) == 0 && native_used(ENGI_FM6,63) && !memcmp(native_raw(ENGI_FM6,63),pk,FM6_PACKED));
+        fm6_pack(fm6_patch[0], pk);
+        bad += check("U64 keeps its own voice in native bank 3 (id 20)", native_used(ENGI_FM6, 63) && !memcmp(native_raw(ENGI_FM6, 63), pk, FM6_PACKED) && list(20, &len, &crc) == 0 && len == sizeof(native_fm_t));
     }
     memcpy(&st, &proj_slot[2], sizeof st);
     erase_error = 1;
@@ -444,7 +436,7 @@ int main(void)
         b.r[4].used = UP_USED;
         b.r[4].ver = 99;                                 /* a future record */
         memcpy(b.r[4].name, "Future", 7);
-        b.r[4].p[0] = 55;
+        b.r[4].packed[0] = 55;
         bad += check("a bank with a future record version restores byte for byte",
                      put_all(6, &b, sizeof b, st_crc32(&b, sizeof b)) == 0 &&
                      st_load(OBJ_UPRESET0, &proj_wire, sizeof proj_wire) == (int)sizeof b &&

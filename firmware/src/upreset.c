@@ -4,28 +4,18 @@
  * slots in four storage objects (the first two at 0xDC000..0xDFFFF,
  * two more at 0xE5000..0xE8FFF), 16 records each. Only names and indexes
  * stay in RAM; one bank is read on demand when loading or editing. A record: engine, name, the instrument parameters, a 16-step
- * pattern (kept in the format, never loaded: the phrases are gone). FM6 voices live beside their records
- * (up_fm6.c). Loading one loads the sound only.
+ * pattern (kept in the format, never loaded: the phrases are gone). An FM6 record's voice is native FM6 slot k
+ * (native_presets.c). Loading one loads the sound only.
  *
  * Versions: a bank whose magic, record size or slot count differ reads as
- * empty; so does a record with another layout version. A record keeps np =
- * the P_COUNT it was stored with; when that differs from today's it is
- * mapped by count: its last 8 values are P_E0..P_E7, the first np - 8 are
- * P_LEVEL.. in order, and parameters it does not have take their defaults.
- * That holds as long as common parameters are only ever added just before
- * P_E0 (else bump UP_VER and translate). Version 1 (before 1.0) has the
- * same layout; only its PHYS MODEL 2 meant DUST, which up_values loads as
- * MODAL bowed (eng_phys.c phys_legacy). A record of PHYS MODEL 4 (DRUM, version 2
- * until the kit became the DRUM engine) is that engine: up_migrate rewrites it
- * in the RAM mirror when a bank is read and when UP_PUT sends one (core.h
- * drum_from_phys); flash keeps the old record until its bank is written again,
- * which stores the new one. No version bump: today's PHYS has no MODEL 4, so
- * such a record cannot be anything else, and older firmware keeps reading the bank.
- * Version 3 (UP_VER_GRID, since the DRUM grid) is the same record with a drum grid as its pattern: note[i] is
- * step i's lane hits (bit l = lane l), flags[i] their accents. A DRUM track whose first 16 steps strike a
- * lane is stored so (its notes on their lanes); every other sound as version 2, which older firmware reads.
- * Older firmware shows a version 3 record as empty and keeps its bytes.
- * A record of engine 1 (DIGITAL, retired) stays as it is and plays silent, as any retired engine's.
+ * empty; so does a record with another layout version. Read: UP_VER (4, values as biased bytes), UP_VER_GRID (5,
+ * its pattern a drum grid: note[i] step i's lane hits, flags[i] their accents), UP_VER_CZ (8, native CZ-1 bytes),
+ * UP_VER_DRUM / UP_VER_DRUM_GRID (9 / 10, the DRUM patch beside the values). Older versions (1..3, the CZ records
+ * of before the native CZ-1, the 192-byte banks) were rewritten by 1.2's boot pass. A record keeps np = the
+ * P_COUNT it was stored with; when that differs from today's it is mapped by count: its last 8 values are
+ * P_E0..P_E7, the first np - 8 are P_LEVEL.. in order, and parameters it does not have take their defaults.
+ * That holds as long as common parameters are only ever added just before P_E0 (else bump UP_VER and translate).
+ * A record of a retired engine (DIGITAL, ANALOG ..) stays as it is and plays silent.
  *
  * With -DUP_HOST (host test) only the part above #ifndef UP_HOST is built;
  * it needs nothing but core.h. */
@@ -35,18 +25,18 @@
 #define UP_VER_CZ 8u                            /* native CZ-1 bytes in the 144-byte payload */
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
 #define UP_USED 0xA5u
-#define UP_VER 4u                                /* 2 since 1.0; 1 is read too (PHYS MODEL 2 was DUST) */
+#define UP_VER 4u                                /* the values as biased bytes */
 #define UP_VER_DRUM 9u
 #define UP_VER_DRUM_GRID 10u
-#define UP_VER_GRID 5u                           /* 2 with a drum grid as the pattern (see the top) */
+#define UP_VER_GRID 5u                           /* 4 with a drum grid as the pattern (see the top) */
 #define UP_BANK_MAGIC 0x31425055u                /* "UPB1" */
 typedef struct {
     uint8_t used, ver, engine, np;               /* UP_USED, UP_VER, engine, P_COUNT when stored */
     char name[12];                               /* ASCII 32..126, 0-padded (no 0 when 12 long) */
-    union { int16_t p[UP_PMAX]; uint8_t packed[UP_PMAX * 2u]; };
+    uint8_t packed[UP_PMAX * 2u];                /* the values + 64 (UP_VER_CZ: the native tone) */
     uint8_t note[16], flags[16];                 /* note 0 = rest; flags 1 accent, 2 slide, 4 tie (UP_VER_GRID:
                                                   * lane hits, their accents) */
-    uint8_t cz_extra[46]; /* read compatibility with next's v6/v7 CZ records */
+    uint8_t cz_extra[46];                        /* UP_VER_DRUM*: the DRUM patch's first bytes (up_drum_raw) */
 } up_rec_t;
 typedef struct {
     uint32_t magic;
@@ -82,23 +72,13 @@ static int up_save_bank(uint32_t b) {
 
 static up_rec_t *up_rec(uint32_t k) { return &up_cache_bank(k / UP_PER_BANK)->r[k % UP_PER_BANK]; }
 
-#define UP_BANK_LEGACY_SIZE (8u+16u*192u)
-static int up_legacy_cz(const up_rec_t *r){return r->engine==14u && (r->ver==6u || r->ver==7u);}
-static int up_native_cz(const up_rec_t *r){return r->engine==ENGI_CZ && (r->ver==6u || r->ver==UP_VER_CZ);}
-static uint32_t up_legacy_bits(const up_rec_t *r,uint32_t pos,uint32_t n)
-{
-    uint32_t v=0;for(uint32_t i=0;i<n;i++){uint32_t k=(pos+i)>>3;uint8_t b=k<144u?r->packed[k]:r->cz_extra[k-144u];v|=((b>>((pos+i)&7u))&1u)<<i;}return v;
-}
-static uint32_t up_legacy_width(uint32_t k){uint32_t w=0,x=k<LCZ_NP?LCZ_MAX[k]:127u;do{w++;x>>=1;}while(x);return w;}
+static int up_native_cz(const up_rec_t *r){return r->engine==ENGI_CZ && r->ver==UP_VER_CZ;}
 static int up_cz_raw(const up_rec_t *r,uint8_t *raw)
 {
-    if(up_native_cz(r)){memcpy(raw,r->packed,CZ_BYTES);return cz_patch_valid(raw);}
-    if(!up_legacy_cz(r))return 0;
-    uint8_t p[LCZ_PACKED];uint32_t n=r->ver==6u?LCZ_OLD_PACKED:LCZ_PACKED,pos=0;
-    for(uint32_t k=0;k<n;k++){uint32_t w=k<(r->ver==6u?LCZ_OLD_NP:LCZ_NP)?up_legacy_width(k):7u;p[k]=(uint8_t)up_legacy_bits(r,pos,w);pos+=w;}
-    return cz_legacy_tone(raw,p,n);
+    if(!up_native_cz(r))return 0;
+    memcpy(raw,r->packed,CZ_BYTES);return cz_patch_valid(raw);
 }
-static int up_bank_shape(uint32_t len,uint32_t rsize){return (len==sizeof(up_bank_t) && rsize==sizeof(up_rec_t)) || (len==UP_BANK_LEGACY_SIZE && rsize==192u);}
+static int up_bank_shape(uint32_t len,uint32_t rsize){return len==sizeof(up_bank_t) && rsize==sizeof(up_rec_t);}
 static int up_drum_raw(const up_rec_t *r,drum_patch_t *p)
 {
     uint8_t b[DRUM_WIRE_BYTES];if(r->np>sizeof r->packed-8u)return 0;
@@ -107,13 +87,10 @@ static int up_drum_raw(const up_rec_t *r,drum_patch_t *p)
 
 static int up_valid(const up_rec_t *r)
 {
-    if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return (up_legacy_cz(r)?r->np==92u:(r->np==92u || r->np==100u || r->np==P_COUNT)) && r->name[0] && up_cz_raw(r,raw); }
-    if (!(r->used == UP_USED && r->ver >= 1u && (r->ver <= UP_VER_GRID || (r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
-          r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
-    /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
-     * Fresh-start policy: preserve the bytes while treating these fork layouts as empty. */
-    if (r->ver == 1u && (r->np == 58u || r->np == 62u)) return 0;
-    if (r->ver >= 4u) for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
+    if (r->used == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
+    if (!(r->used == UP_USED && (r->ver == UP_VER || r->ver == UP_VER_GRID || (r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
+          r->np >= 8u && r->np <= UP_PMAX * 2u && r->name[0])) return 0;
+    for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
     if(r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)){drum_patch_t p;if(!up_drum_raw(r,&p))return 0;}
     return 1;
 }
@@ -127,39 +104,18 @@ static int up_used(uint32_t k)
     return up_valid(up_rec(k));
 }
 
-static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID || r->ver==UP_VER_DRUM_GRID; }
-static int16_t up_value(const up_rec_t *r, uint32_t k) { if(up_legacy_cz(r)){uint32_t pos=r->ver==6u?977u:983u;for(uint32_t i=0;i<k;i++)pos+=LCZ_PRESET_WIDTH[i];return (int16_t)up_legacy_bits(r,pos,LCZ_PRESET_WIDTH[k])+LCZ_PRESET_MIN[k];} return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
+static int up_grid(const up_rec_t *r) { return r->ver == UP_VER_GRID || r->ver==UP_VER_DRUM_GRID; }
+static int16_t up_value(const up_rec_t *r, uint32_t k) { return (int16_t)r->packed[k] - 64; }
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
-    if (r->ver >= 4u) r->packed[k] = (uint8_t)(v + 64); else r->p[k] = v;
+    r->packed[k] = (uint8_t)(v + 64);
 }
-/* Legacy PHYS drums map through decoded parameters, not their disk representation. 1 = rewritten */
-static int up_migrate(up_rec_t *r)
-{
-    int16_t e[8]; uint32_t k;
-    if (!up_valid(r)) return 0;
-    if (up_native_cz(r) || up_legacy_cz(r)) return 0;
-    for (k = 0; k < 8u; k++) e[k] = up_value(r, r->np - 8u + k);
-    if (drum_from_phys(r->engine, e)) {
-        r->engine = ENGI_DRUM;
-        for (k = 0; k < 8u; k++) up_set_value(r, r->np - 8u + k, e[k]);
-        return 1;
-    }
-    return 0;
-}
-
-static uint8_t up_stale;                        /* bit b: bank b was read from an older shape (up_normalize) */
 static void up_bank_check(uint32_t b, int len)  /* after loading bank b (len bytes, -1 = none): wrong shape -> empty */
 {
     up_bank_t *bk = up_cache_bank(b);
-    uint32_t i;
     if (!up_bank_shape((uint32_t)len,bk->rsize) || bk->magic != UP_BANK_MAGIC ||
         bk->nslot != UP_PER_BANK)
         memset(bk, 0, sizeof *bk);
-    if(len==UP_BANK_LEGACY_SIZE){for(i=UP_PER_BANK;i-- > 0;){uint8_t copy[192];memcpy(copy,(uint8_t *)bk+8u+i*192u,192);memset(&bk->r[i],0,sizeof(up_rec_t));memcpy(&bk->r[i],copy,192);}bk->rsize=sizeof(up_rec_t);up_stale|=(uint8_t)(1u<<b);}
-    for (i = 0; i < UP_PER_BANK; i++)
-        if (up_valid(&bk->r[i]) && up_migrate(&bk->r[i]))
-            up_stale |= (uint8_t)(1u << b);
 }
 #if MELODEE_FLASH && !defined(UP_HOST)
 static void up_cache_index(uint32_t b)
@@ -167,7 +123,7 @@ static void up_cache_index(uint32_t b)
     for(uint32_t j=0;j<UP_PER_BANK;j++){
         uint32_t k=b*UP_PER_BANK+j; const up_rec_t *r=&up_cache.r[j];
         up_meta[k].ready=1;up_meta[k].used=(uint8_t)up_valid(r);
-        up_meta[k].engine=up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:eng_sound_idx(r->engine);
+        up_meta[k].engine=up_native_cz(r)?ENGI_CZ:eng_sound_idx(r->engine);
         uint32_t n=0;
         for(;n<12u && r->name[n];n++)up_meta[k].name[n]=r->name[n]>='a' && r->name[n]<='z'?(char)(r->name[n]-32):r->name[n];
         up_meta[k].name[n]=0;
@@ -195,7 +151,6 @@ static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
     int16_t values[UP_PMAX * 2u];
     for (uint32_t i = 0; i < r->np && i < NELEM(values); i++) values[i] = up_value(r, i);
     params_by_count(out, values, r->np, def);
-    if(up_legacy_cz(r)){for(uint32_t i=P_E0;i<P_COUNT;i++)out[i]=def[i];out[P_E7]=CZ_NATIVE;}
 }
 
 static int up_name_ok(const uint8_t *s, uint32_t n)   /* 1..12 printable ASCII */
@@ -289,7 +244,6 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
         r->flags[i] = a[k + 1];
         up_pat_norm(&r->note[i], &r->flags[i]);
     }
-    up_migrate(r);                               /* (an editor of before the DRUM engine) */
     *target = *r;
     return 0;
 }
@@ -300,20 +254,16 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
     int16_t def[P_COUNT];
     uint32_t i;
     for (i = 0; i < P_COUNT; i++)
-        def[i] = param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->def;
+        def[i] = param_desc_of(up_native_cz(r)?ENGI_CZ:r->engine, i)->def;
     up_params(r, v, def);
     if (r->np < P_COUNT)                          /* (before the delay came back: its send inert, so none) */
         v[P_DLY] = 0;
-    if (r->ver == 1u && r->engine == ENGI_PHYS)   /* (before 1.0: MODEL 2 was DUST) */
-        phys_legacy(&v[P_E0]);
     for (i = 0; i < P_COUNT; i++)
         if (!(eng_extra_retired(r->engine) && i >= P_E0))
-        v[i] = (int16_t)clamp(v[i], param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->min, param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->max);
+        v[i] = (int16_t)clamp(v[i], param_desc_of(up_native_cz(r)?ENGI_CZ:r->engine, i)->min, param_desc_of(up_native_cz(r)?ENGI_CZ:r->engine, i)->max);
 }
 
 #include "cz_bank.c"
-#include "fm6_bank.c" /* historical bank formats, migration only */
-#include "up_fm6.c"
 static void native_boot(void);
 static void native_cache_reset(void);
 
@@ -341,61 +291,14 @@ static void up_boot(void)                      /* persist_boot: the banks from f
     }
 #endif
     native_cache_reset();
-    if(!native_fm_active())upf_boot();else upf_release();
     cz_bank_boot();
     native_boot();
-    upf_release();
 #ifdef MELODEE_FAVORITES
     for (uint32_t k = 0; k < UP_SLOTS; k++)
         if (!up_used(k)) favorite_set(USER_GENERAL, k, 0);
 #endif
 }
 
-#if MELODEE_FLASH && !defined(UP_HOST)
-/* The bridge to firmware without the readers of older layouts (persist_boot, once per bank): a bank read from
- * the 192-byte shape, or holding a PHYS MODEL 4 drum, a record of versions 1..3 (int16 values) or a CZ record of
- * before the native CZ-1 bytes (engine 14, versions 6 / 7; and the native one of version 6), is written again
- * in today's layouts, each record as today's firmware reads it. Records of retired engines keep their values */
-static void up_normalize(void)
-{
-    for (uint32_t b = 0; b < UP_SLOTS / UP_PER_BANK; b++) {
-        up_bank_t *bk = up_cache_bank(b);
-        uint32_t stale = (up_stale >> b) & 1u;
-        for (uint32_t j = 0; j < UP_PER_BANK; j++) {
-            up_rec_t *r = &bk->r[j];
-            if (!up_valid(r))
-                continue;
-            if (up_legacy_cz(r) || (up_native_cz(r) && r->ver != UP_VER_CZ)) {
-                uint8_t raw[CZ_BYTES];
-                if (!up_cz_raw(r, raw))
-                    continue;
-                memset(r->packed, 0, sizeof r->packed);
-                memset(r->cz_extra, 0, sizeof r->cz_extra);
-                memcpy(r->packed, raw, CZ_BYTES);
-                r->engine = ENGI_CZ;
-                r->ver = UP_VER_CZ;
-                r->np = P_COUNT;
-                stale = 1;
-            } else if (r->ver <= 3u) {
-                int16_t v[UP_PMAX];
-                uint32_t n = r->np, k;
-                for (k = 0; k < n; k++)
-                    v[k] = r->p[k];
-                if (r->ver == 1u && r->engine == ENGI_PHYS)   /* (MODEL 2 was DUST, up_values) */
-                    phys_legacy(&v[n - 8u]);
-                memset(r->packed, 0, sizeof r->packed);
-                for (k = 0; k < n; k++)
-                    r->packed[k] = (uint8_t)(clamp(v[k], -64, 127) + 64);
-                r->ver = r->ver == 3u ? UP_VER_GRID : UP_VER;
-                stale = 1;
-            }
-        }
-        if (stale && flash_ok && up_save_bank(b) == 0)
-            up_stale &= (uint8_t)~(1u << b);
-        up_cache_index(b);
-    }
-}
-#endif
 
 /* record k = *r (0: erase), then the bank to flash: 0 ok, 1 bad slot, 2 flash error or the transport runs (nothing
  * written), 3 no flash (kept in RAM) */
@@ -522,22 +425,11 @@ static int up_store(uint32_t k, const char *name)
         }
     }
     if(r.engine==ENGI_DRUM){uint8_t b[DRUM_WIRE_BYTES];drum_patch_pack(b,&drum_patch[song.sel]);memcpy(r.cz_extra,b,sizeof r.cz_extra);memcpy(r.packed+r.np,b+sizeof r.cz_extra,8u);r.ver=r.ver==UP_VER_GRID?UP_VER_DRUM_GRID:UP_VER_DRUM;}
-    if (r.engine == ENGI_FM6) {
-        /* A fresh nonce prevents an interrupted save of the same macros from
-         * pairing the new record with the previous voice. Renames keep it. */
-        uint32_t oldtag = 0;
-        if(!native_fm_active()){
-            upf_t *work=upf_bank(k);if(!work)return 2;
-            oldtag=work->e[k % UPF_SLOTS].tag;
-        }
-        uint32_t nonce = oldtag + 1u;
-        do { memcpy(r.cz_extra, &nonce, sizeof nonce); nonce++; }
-        while (upf_tag(&r) == oldtag);
-    }
     int rc = up_put(k, &r);
-    if ((rc == 0 || rc == 3) && r.engine == ENGI_FM6) {
-        int u = upf_store(k, (uint32_t)(TSEL - trk));
-        if (u == 2) rc = 2;
+    if ((rc == 0 || rc == 3) && r.engine == ENGI_FM6) {    /* its voice: native FM6 slot k */
+        uint8_t pk[FM6_PACKED];
+        fm6_pack(fm6_patch[song.sel % NTRK], pk);
+        if (native_put(ENGI_FM6, k, pk) == 2) rc = 2;
     }
     return rc;
 }
@@ -571,16 +463,20 @@ static int up_load(uint32_t k)
     panic_req |= (uint8_t)(1u << song.sel);
     {
         fm1_irq_off();                                  /* the audio ISR must not see half a sound */
-        t->eng_req = up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine;
+        t->eng_req = up_native_cz(r)?ENGI_CZ:r->engine;
         for (i = 0; i < P_COUNT; i++)
             if (!param_kept(i))
                 t->p[i] = v[i];
         t->preset = 0;
-        if (up_native_cz(r)||up_legacy_cz(r))up_cz_raw(r,cz_patch[song.sel % NTRK].raw);
+        if (up_native_cz(r))up_cz_raw(r,cz_patch[song.sel % NTRK].raw);
         if(r->engine==ENGI_DRUM){memset(&drum_patch[song.sel],0,sizeof(drum_patch_t));if(r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)up_drum_raw(r,&drum_patch[song.sel]);}
         cz_track_accept(t);
         fm1_irq_on();
-        upf_track_load(t, k); /* FM6: load the preset's actual voice */
+        if (t->eng_req == ENGI_FM6) {                   /* FM6: its voice, native slot k (else INIT) */
+            uint8_t v[FP_SIZE + 1u];
+            fm6_unpack(native_used(ENGI_FM6, k) ? native_raw(ENGI_FM6, k) : FM6_INIT, v);
+            fm6_set_patch(song.sel % NTRK, v);
+        }
     }
     t->user = (uint8_t)(k + 1u);
     t->user_native=0;
@@ -595,7 +491,7 @@ static uint32_t up_engine(uint32_t k) {
 #if MELODEE_FLASH && !defined(UP_HOST)
     if(up_cached != k/UP_PER_BANK && up_meta[k].ready)return up_meta[k].engine;
 #endif
- if(up_native_cz(up_rec(k))||up_legacy_cz(up_rec(k)))return ENGI_CZ; return eng_sound_idx(up_rec(k)->engine); }
+ if(up_native_cz(up_rec(k)))return ENGI_CZ; return eng_sound_idx(up_rec(k)->engine); }
 
 static uint32_t up_count(void)                 /* used slots */
 {

@@ -289,7 +289,7 @@ int main(void)
     bad += check("preset initial save", up_put(3, &r) == 0 && up_used(3));
     bank = (*up_cache_bank(0));
     before = up_gen;
-    r.p[0] = 77;
+    r.packed[0] = 77;
     fail_after = 1;
     ok = up_put(3, &r) == 2;
     fail_after = -1;

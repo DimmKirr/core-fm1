@@ -551,9 +551,9 @@ this firmware sends 3. Requests name objects, never flash addresses.
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, USB audio devices, BOOT, CLK TUNE MIDI ROUT, ...), then the template (SAVE > PROJECT, SLOT TMPL) when one is saved; Felucca 1.0's record (PER4, no ext) restores too | the settings record's size: 604, or 1924 with the template |
 | 2..5 | PROJECT slots 1..4 (FUN8) | 3584, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
-| 8 | retired FM6 bank; nonempty restores are rejected | 0 when listed |
+| 8 | retired FM6 bank; a payload is refused at begin | 0 |
 | 17, 18 | user records U33..U48, U49..U64 | 3816 or 0 |
-| 19, 20 | owned FM6 voices U01..U32, U33..U64 | 3728 or 0 |
+| 19..22 | native FM6 voices F033..F064, F001..F032 | 2060 or 0 |
 | 32..34 | user sample slots 1..3: header (512 bytes) then ADPCM data | 512 + data length, or 0 if empty |
 
 Reading: `BACKUP_LIST` (no arguments) stops the transport, then takes a snapshot of the runtime object and
@@ -565,8 +565,8 @@ against the list; if it differs the device changed, so start again.
 Restoring: `BACKUP_PUT` takes ids 0..8 (the samples are written with `SMP_BEGIN` / `SMP_WRITE` / `SMP_END`,
 or `SMP_ERASE` for an empty slot). Begin: `0, id, size u32, crc u32`: size is 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
 the settings record's size for id 1, 3584, 3388 or 0 (empty the slot) for ids 2..5, the bank's size or 0 for 6 and 7,
-3612 or 0 for 8 (the FM6 bank: its magic, version 2, 32 slots and its function settings in range are checked). FUN7 and FUN6 become FUN8.
-An archive without id 8 (written before FM6) still restores; the web editor reads both. Data: `1, id, offset u32, pack7` with the next offset (they must follow each other)
+0 for 8 (the retired FM6 bank). A size the firmware does not read is refused at begin (rc 1), so the web
+editor begins and aborts every object first and refuses the whole archive before any write. Data: `1, id, offset u32, pack7` with the next offset (they must follow each other)
 and at most 256 decoded bytes. Commit: `2, id`: the device checks the length and the CRC, validates the
 content, and then writes. Abort: `3, id`. Id 0 replaces the music now playing (RAM only, no flash);
 ids 1..7 are written to flash (settings and presets are applied too). Nothing is written before the commit.
@@ -609,7 +609,7 @@ The device stores every value clamped into its range.
 Targets: 0 track (index 0..3), 1 retired bank (GET/PUT always rc 3),
 2 factory (index 0..23, GET only), 3 user preset voice (index 0..63).
 Target 3 GET returns rc 2 for a preset without a stored FM6 voice. Target 3 PUT
-requires an existing FM6 user record and writes the owned voice to flash. Library
+requires an existing FM6 user record and writes its voice (every value into its range) to native slot k. Library
 transfers send UP_PUT first, then FM6_PUT target 3. UP_STORE saves both automatically.
 FM6_LIST lists only factory voices; FM6_ERASE always returns rc 3 for the retired bank.
 Erase a user sound through UP_ERASE. Track PUT replaces the track voice.
@@ -789,19 +789,14 @@ and THROW feeds the delay and the reverb. Web editors hide the DLY / DLY 2 pages
 advertises `-` there (firmware without the delay). Projects (formats before FUN16), templates and
 user presets saved before it load with their delay sends 0 (and their delay-send automation 0).
 
-## Legacy owned FM6 presets and expanded user storage
+## Expanded user storage
 
 UP_LIST reports 64 shared user slots, U01..U64. All slot indices remain 7-bit.
-BACKUP_LIST now lists ids 0..20. Ids 0..7 and 9..16 keep their established meanings;
-id 8 is empty (retired bank). Restoring an older id 8 migrates bank voices into
-referencing user records already restored through ids 6 and 7.
-Ids 17 and 18 hold user records U33..U48 and U49..U64 (3816-byte UPB1 banks);
-ids 19 and 20 formerly held owned FM6 voices U01..U32 and U33..U64 (3728 bytes each).
-Each UPF6 object has magic 0x36465055, version 1, 32 slots, a used mask and reserved
-word, then 32 entries: a u32 FNV-1a record tag and 112 packed bytes. Tags cover the
-238-byte Melodee user record except name bytes 4..15. Renames preserve the tag;
-saving a whole FM6 sound writes a fresh nonce into the otherwise unused cz_extra
-bytes 0..3 before tagging. A mismatched tag never attaches an older voice.
+BACKUP_LIST lists ids 0..27. Id 8 is always empty (the retired FM6 bank) and refuses a payload.
+Ids 17 and 18 hold user records U33..U48 and U49..U64 (3816-byte UPB1 banks). Ids 19..22 hold the
+native FM6 voice banks F033..F048, F049..F064, F001..F016, F017..F032 (2060 bytes each); the owned-voice
+objects (UPF6, 3728 or 4240 bytes) that ids 19 and 20 held before 1.0 are refused since 2.0
+(Melodee 1.2 restores and rewrites them). An FM6 general preset's voice is native slot k.
 
 On flash, extension user banks omit their eight-byte UPB1 header (3808 record
 bytes), which is reconstructed at boot and included in backups. New storage objects
