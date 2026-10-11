@@ -23,6 +23,14 @@ Done, full host suite passing:
 | RAM: one scope snapshot, MIDI note owners as nibbles, backup settings and template staged in `set_rec`, update scratch in the project staging | +336 B | −10,432 B |
 | **Total** | **581,340 → 503,836 B (−77,504 B)** | **.data + .bss 97,824 → 87,392 B** |
 
+Bridge (release plan step 2, `feat(storage): rewrite older formats once at boot`, +720 B until 2.0 removes it):
+`persist_boot` writes each slot not stored as FBKK again as today's bank (`proj_normalize`), each user preset bank
+holding a 192-byte shape, a version 1..3 record, an older CZ record or a PHYS MODEL 4 drum in today's record
+versions (`up_normalize`), and queues one settings write when the record is PER1..PER4, has an older template, an
+untagged palette or FX key map, or DIGITAL stars (`persist_stale`). CZ and native FM banks were already rewritten by
+`native_boot`. Tested in `persistence_test` (and that a second boot writes nothing). Not converted: DIGITAL user
+records keep engine 1 and go silent in 2.0, like ANALOG's.
+
 Sound: only the 909 kit golden changed (2 tanh entries an ULP apart, pot curves within 3e-7). FM6 tables were
 compared value by value with the old generator's.
 
