@@ -5,17 +5,17 @@
  * byte-swapped (the panel takes RGB565 big-endian).
  * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Rubik;
  * tools/gen_icons.py: Melodee's own drawings). A glyph is trimmed to its ink box, advances are in 1/16 px, and
- * each glyph is rasterised at 1 << psh horizontal phases (S M 4, L 2: drawn at a pen of +0, +1/4 .. px);
+ * each glyph is rasterised at 1 << psh horizontal phases (2: drawn at a pen of +0, +1/2 px);
  * cv_text takes the phase that puts it within a phase step of its true place. Blending uses a 16-entry
  * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens. */
 typedef struct { uint16_t off, adv; int8_t bx; uint8_t by, bw, bh; } aag_t;
 typedef struct {
     uint8_t h, asc, first, last, nex;   /* line height, baseline; ASCII range; extras */
-    uint16_t nk;                        /* kerning pairs */
+    uint8_t nkr;                        /* right kerning classes (0: no kerning) */
     const aag_t *g;
     const uint8_t *data;
-    const uint16_t *kkey;               /* a << 8 | b, sorted */
-    const int8_t *kd;                   /* 1/16 px */
+    const uint8_t *kl, *kr;             /* each glyph's left / right kerning class, 0 = no pair */
+    const int8_t *km;                   /* 1/16 px: [(left class - 1) * nkr + right class - 1] */
     const uint8_t *ex;                  /* codes of the extra glyphs */
     uint8_t psh;                        /* log2 of the phases per glyph: g[i << psh] .. g[(i << psh) + phases - 1] */
     const uint8_t *hc;                  /* data's Huffman code (cv_alpha_hc), 0 = 2 px per byte (cv_alpha) */
@@ -902,17 +902,11 @@ static uint32_t glyph(const aafont_t *f, uint32_t ch)
 
 static int32_t kern(const aafont_t *f, uint32_t a, uint32_t b)       /* 1/16 px */
 {
-    uint32_t key = (a << 8) | b, lo = 0, hi = f->nk;
-    while (lo < hi) {
-        uint32_t m = (lo + hi) / 2u;
-        if (f->kkey[m] == key)
-            return f->kd[m];
-        if (f->kkey[m] < key)
-            lo = m + 1u;
-        else
-            hi = m;
-    }
-    return 0;
+    int32_t i, j;
+    uint32_t l, r;
+    if (!f->nkr || (i = glyph_at(f, a)) < 0 || (j = glyph_at(f, b)) < 0 || !(l = f->kl[i]) || !(r = f->kr[j]))
+        return 0;
+    return f->km[(l - 1u) * f->nkr + r - 1u];
 }
 
 static uint32_t fold(const aafont_t *f, uint32_t c)
