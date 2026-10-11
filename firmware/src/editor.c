@@ -437,7 +437,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_CORE1_TEST: {        /* mode: 0 report, 1 misread request, 2 null job, 3 stalled job, 4 reboot */
         uint32_t mode = na ? a[0] : 0u, rc = 0, waited = 0, v[16];
         if (mode == 4u) {                           /* (a[1] 1: keep fm1_core1_bar, else clear it as power-off does) */
-            bootguard.pending = 0;                  /* (intentional: not a failed boot) */
+            reset_intended();
             if (!(na > 1u && a[1]))
                 fm1_core1_bar.magic = 0;
             fm1_reboot();
@@ -476,7 +476,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             for (i = 0; i < FM1_RAILS; i++)
                 v[i] = fm1_power_get(i);
             v[3] = (uint32_t)fm1_core1_barred(); v[4] = bootguard.failed;
-            v[5] = (uint32_t)fm1_clock_downclock_undo;   /* 1: the boot retune timed out, running at 360 */
+            v[5] = (uint32_t)fm1_clock_undo;   /* 1: the boot retune timed out or met an unknown clock: left there */
             fm1_clock_regs(v + 6);
             v[11] = audio_worker.misread; v[12] = fm1_core1_fault.count;
             v[13] = fm1_cpu_ticks();

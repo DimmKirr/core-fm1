@@ -28,7 +28,6 @@ static void write_word(uint32_t a, uint32_t v)
     }
 }
 #define FM1_CLOCK_HOST_TEST 1
-#define MELODEE_SYS_CLK 320
 #define FCLK_READ(a) read_word(a)
 #define FCLK_WRITE(a,v) write_word(a,v)
 #define FCLK_SYNC() ((void)0)
@@ -41,19 +40,27 @@ static void reset(uint32_t m)
 }
 int main(void)
 {
-    reset(0); assert(fm1_clock_downclock() == 0);
-    assert(pll == 0x075030EEu && source == 0x10101u && writes == 1);
-    reset(0); pll = 0x07503026u; assert(fm1_clock_downclock() == 1);
+    /* the three OVERCLOCK points: 320 360 396 MHz, from the SPL's 360 and from each other (a soft reset keeps one) */
+    assert(fm1_clock_mhz_of(FCLK_MULT_320) == 320u && fm1_clock_mhz_of(FCLK_MULT_360) == 360u &&
+           fm1_clock_mhz_of(FCLK_MULT_396) == 396u);
+    reset(0); assert(fm1_clock_mult() == FCLK_MULT_360 && fm1_clock_set(FCLK_MULT_320) == 0);
+    assert(pll == 0x075030EEu && source == 0x10101u && writes == 1 && fm1_clock_mult() == FCLK_MULT_320);
+    reset(0); assert(fm1_clock_set(FCLK_MULT_396) == 0);
+    assert(pll == 0x07503127u && source == 0x10101u && writes == 1 && fm1_clock_mult() == FCLK_MULT_396);
+    reset(0); assert(fm1_clock_set(FCLK_MULT_360) == 0 && !writes && pll == 0x0750310Cu);   /* already there */
+    reset(0); pll = 0x07503127u; assert(fm1_clock_set(FCLK_MULT_320) == 0 && pll == 0x075030EEu && writes == 1);
+    reset(0); pll = 0x075030EEu; assert(fm1_clock_set(FCLK_MULT_360) == 0 && pll == 0x0750310Cu && writes == 1);
+    reset(0); pll = 0x07503026u; assert(fm1_clock_mult() == 0 && fm1_clock_set(FCLK_MULT_320) == 1);
     assert(pll == 0x07503026u && source == 0x10101u && writes == 0);
-    reset(0); source &= ~(1u << 8); assert(fm1_clock_downclock() == 1 && !writes);
-    reset(3); assert(fm1_clock_downclock() == 1 && !writes); /* busy SFC: no source switch */
-    reset(1); assert(fm1_clock_downclock() == 2);
+    reset(0); source &= ~(1u << 8); assert(fm1_clock_set(FCLK_MULT_320) == 1 && !writes);
+    reset(3); assert(fm1_clock_set(FCLK_MULT_396) == 1 && !writes); /* busy SFC: no source switch */
+    reset(1); assert(fm1_clock_set(FCLK_MULT_396) == 2);
     assert(pll == 0x0750310Cu && source == 0x10101u && writes == 2);
     reset(2);
-    if (!setjmp(failed)) { fm1_clock_downclock(); assert(!"rollback must not return"); }
+    if (!setjmp(failed)) { fm1_clock_set(FCLK_MULT_320); assert(!"rollback must not return"); }
     assert(source == 0x10003u && pll == 0x0750310Cu && writes == 2);
     reset(0); step = 0;
-    if (!setjmp(failed)) { fm1_clock_downclock(); assert(!"stopped timer must not return"); }
+    if (!setjmp(failed)) { fm1_clock_set(FCLK_MULT_396); assert(!"stopped timer must not return"); }
     assert(source == 0x10003u && writes == 2);
-    puts("clock: retune, wrapping timer, ready-bit settling, unfamiliar boot, rollback wait, failed rollback and stopped timer passed");
+    puts("clock: 320/360/396 between each other, already there, wrapping timer, ready-bit settling, unfamiliar boot, rollback wait, failed rollback and stopped timer passed");
 }

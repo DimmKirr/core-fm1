@@ -6,7 +6,8 @@
  * Each synth part has its own NVOICE voices (so MONO / LEGATO / UNISON keep using
  * v[0..]; POLY uses the engine's cap, NPOLY or FM6's 16), but the parts' sounding voices
  * share a weighted budget (voice_budget: normally 16, resident audio with CPU1
- * online 18; FM6 takes one unit, ordinary engines two, serial Prophet three).
+ * online 18 at 360 MHz, scaled with OVERCLOCK's clock; FM6 takes one unit,
+ * ordinary engines two, serial Prophet three).
  * A part that starts
  * a voice while the budget is full takes one from any part (voice_victim): the oldest
  * released voice, else the oldest extra UNISON voice, else the oldest held voice of a
@@ -100,13 +101,16 @@ static uint32_t voice_units(const track_t *t)
     return e->units ? e->units(t) : trk_nvoice(t) > NPOLY ? 1u : 2u;
 }
 
+/* the budget with CPU1: VBUDGET at 360 MHz, scaled with OVERCLOCK's clock by main.c oc_boot (16 at 320 MHz);
+ * VBUDGET before the boot retune and on the host */
+static uint32_t vbudget_cpu1 = VBUDGET;
 static uint32_t voice_budget(void)
 {
 #if MELODEE_RAM_AUDIO
 #if MELODEE_DUAL_CORE
     /* CPU1 retirement removes the extra headroom. New notes then use the
      * original budget; overload shedding still handles already-active work. */
-    return audio_worker_online ? VBUDGET : 16u;
+    return audio_worker_online ? vbudget_cpu1 : 16u;
 #else
     return 16u;
 #endif

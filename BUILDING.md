@@ -89,7 +89,6 @@ Build options (environment; most use `0` or `1`; defaults in `firmware/src/build
 | `MELODEE_CDC` | 0 (1 without USB audio) | USB serial console; it shares EP2 / EP3 with USB audio, so `MELODEE_USB_AUDIO=0` |
 | `MELODEE_UART` | 1 | TRS MIDI IN |
 | `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; `0` builds serial-only firmware |
-| `MELODEE_SYS_CLK` | 0 | Set to `320` (other values are ignored by `tools/build.py`): retune the SYS PLL at boot, before CPU1 and the audio ISR (hal/fm1_clock.h). JieLi's 320 MHz profile against M-VAVE's 360 one: the same post-div chain at 8/9 of the VCO (sys 360→320, HSB 180→160, LSB 60→53.3, SFC 90→80). TIMER4 (24 MHz crystal), the audio I2S (its own ALNK PLL) and USB/UART (PLL48M) do not move. For the units whose CPU1 misreads SRAM at 360 (below): on those, editor command 79 `count-only` at 320 against 360 is the experiment. An unfamiliar PLL multiplier leaves the boot clock untouched. The retune and rollback each wait on RC16M for at least 20 ms plus the cache handshake (not a PLL lock bit), bounded by 40 ms and a spin limit. A successful rollback raises the undo flag in editor command 79 (v[5]); failed rollback waits in SRAM for watchdog/bootguard recovery. Actual clock and stability require hardware measurement |
 | `MELODEE_SLICE` | 1 | the SLICE engine |
 | `MELODEE_ICONS` | 1 | parameter icons on the knob cards |
 
@@ -322,6 +321,38 @@ without a misread down to SYSVDD 6 (1.11 V): the margin varies from chip to chip
 Melodee does not change a supply rail: what an FM-1 board and its regulators take
 at other levels is unknown, so the rails stay where the boot loader sets them.
 
+### OVERCLOCK: the boot clock
+
+The HOME-held menu's OVERCLOCK (`overclock.c`, `main.c` `oc_boot`) picks the SYS
+clock at boot, before CPU1, the audio ISR and the LCD start. The retune is PR #27's
+by [johnskiller](https://github.com/johnskiller) (`hal/fm1_clock.h`): PLL2_CON1's
+multiplier on the SPL's post-divider chain, 2 MHz a step and 2/3 of the VCO.
+
+| Setting | Multiplier | SYS / HSB / LSB / SFC (MHz) |
+| --- | --- | --- |
+| 320 MHz (default) | 240 | 320 / 160 / 53.3 / 80 |
+| 360 MHz | 270 (the SPL's) | 360 / 180 / 60 / 90 |
+
+The rails stay at the boot levels. A 396 MHz test (multiplier 297, JieLi's
+overclock rails) crashed on a healthy unit and is not offered; the switch still
+recognises 297 at boot and moves away from it. TIMER4 (the 24 MHz crystal), the
+audio I2S (its own ALNK PLL) and USB/UART (PLL48M) do not move; the LCD SPI
+follows LSB (10.7 / 12 MHz). The switch accepts any of those multipliers at boot
+(a soft reset can keep the last one) and leaves an unfamiliar one untouched; it and its rollback each wait on RC16M for at least
+20 ms plus the cache handshake (not a PLL lock bit), bounded by 40 ms and a spin
+limit. A settled rollback or an unfamiliar clock raises the undo flag in editor
+command 79 (v[5]); a failed rollback waits in SRAM for the watchdog.
+
+The setting lives in `favorites.factory[15][30]` bits 2..3, beside KNOB ACCEL, so
+older firmware keeps it. A new clock applies at the next start; closing the menu
+with one asks to restart (the settings are saved first, the transport stopped).
+`oc_guard` (`.noinit`, gone at power-off) marks a session above 320 MHz as live
+until an intended reset (the restart, UBOOT, an update): a boot that finds it set
+(a crash, the watchdog, a switch that never returned) comes back at 320 MHz and
+saves that. A CPU1 retirement in such a session sets 320 MHz for the next start.
+With CPU1 the shared voice budget follows the clock (16 or 18 units in the
+resident profile); one core keeps 16.
+
 So the second core stays on, and a unit that shows the fault falls back to one:
 
 - The worker runs a request only when it is exactly the next one and its check
@@ -376,23 +407,22 @@ release tails before adopting it in a release.
 ## Nightly builds from `next`
 
 The web installer keeps the released standard and single-core packages and
-adds two development builds from `next`: normal dual core at the SPL clock
-(360 MHz), and experimental dual core with `MELODEE_SYS_CLK=320`. The latter
-is a test for crashing units; a stability improvement remains unverified.
+adds two development builds from `next`: dual core and single core, both with
+`MELODEE_RAM_AUDIO=1`. The clock is chosen on the device (OVERCLOCK, above).
 Save a complete backup in the editor before trying a nightly. Selecting
 Standard in the installer returns to the released firmware.
 
 `./build.sh --nightly` stamps the current Git commit into the firmware version
 (`next-<commit>`) and uses development identity `FM-1_900`. Build both variants
-from the same commit; `MELODEE_SYS_CLK=320 ./build.sh --nightly` produces
-`build/melodee-nightly-320.fwsc`, while the normal package is
+from the same commit; `MELODEE_DUAL_CORE=0 ./build.sh --nightly` produces
+`build/melodee-nightly-1core.fwsc`, while the dual-core package is
 `build/melodee-nightly.fwsc`. The installer shows the source commit and UTC
 build time, verifies the selected channel's identity, and locks all choices
 while installing.
 
 The Nightly builds workflow runs on pushes to `next`, manually, and daily at
 02:00 UTC. Its scheduled definition must also exist on GitHub's default branch.
-It checks out `next`, builds both dual-core variants, runs the host/web suite,
+It checks out `next`, builds both variants, runs the host/web suite,
 and publishes only after successful checks. Packages, checksums and source
 metadata are available as an Actions artifact and in `gh-pages/firmware`.
 `web/publish_nightly.py` updates the existing Pages checkout while keeping its
