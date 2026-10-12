@@ -176,7 +176,80 @@ cd /tmp/melodee-site && python3 -m http.server 8000
 ```
 
 Installing firmware is at your own risk. If an install fails and the FM-1 no longer
-starts, recovery needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter).
+starts, identify its recovery mode using the steps below.
+
+### Recover a black-screen FM-1
+
+If the device appears as **Melodee Update**, it is in the MIDI update loader:
+`python3 tools/fm1_install.py /path/to/working-firmware.fwsc --yes` resumes installation.
+
+If it appears as USB **4c4a:8057**, with inquiry identity **WL82 / UBOOT1.00**, it is
+already in mask-ROM UBOOT. `tools/fm1_recover.py` can recover it over a normal USB data
+cable, without an RP2040. It does not force a running device into UBOOT.
+
+The [1.3.1 release downloads](https://github.com/keremimo/melodee/releases/tag/v1.3.1)
+include standalone recovery archives for Windows x64, Linux x64, macOS Intel/x64
+and Apple Silicon/arm64. Extract the matching archive and follow its `RECOVERY.md`,
+also available [here](docs/RECOVERY.md). Python, libusb and the RAM helper are bundled.
+Windows still needs the ROM device's WinUSB driver; macOS/Linux may need USB permissions.
+
+To run the Python source instead, install Python 3.10 or later, PyUSB
+(`python3 -m pip install pyusb`) and libusb:
+
+- macOS: `brew install libusb`. If USB access is denied, run the recovery command
+  with `sudo` and the same Python interpreter that has PyUSB installed.
+- Linux: install your distribution's libusb 1.0 package (for example,
+  `sudo apt install libusb-1.0-0`). USB access may need a udev rule or `sudo`.
+- Windows: install a libusb-compatible driver such as WinUSB for **4c4a:8057 only**
+  using Zadig, and supply `--libusb C:\path\to\libusb-1.0.dll` if discovery fails.
+  Do not replace the driver for the normal Melodee MIDI/audio device.
+
+The tool uses the unmodified `cpu/wl82/tools/wl82loader.bin` from the
+[JieLi AC79 SDK](https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK/tree/AC79NN_SDK_V1.2.1_2023-12-13/cpu/wl82/tools).
+It is included under `assets/recovery/` and loaded into RAM. The supported file is
+30,720 bytes with SHA-256
+`d9de9f1c81a3bb52998e5bced678f0ca851223014a7d43965b03f0719a44eb55`.
+The tool uses the included file by default. `--loader` or `AC79_SDK` can override it.
+
+Choose a firmware package whose boot has been verified. For investigating 1.3 startup
+failures, use a previously working release rather than reinstalling the suspected build.
+Download the `.fwsc` and its `SHA256SUMS` from the corresponding release.
+
+```sh
+# Identify ROM UBOOT; no loader or package needed.
+python3 tools/fm1_recover.py --info
+
+# Validate the package and RAM loader offline; no USB access.
+python3 tools/fm1_recover.py working.fwsc --check
+
+# Default: load the RAM helper and save a full backup, with NO flash writes.
+python3 tools/fm1_recover.py working.fwsc
+
+# Back up again, restore the application, and verify the entire flash.
+python3 tools/fm1_recover.py working.fwsc --write
+```
+
+Each connected recovery creates a unique session directory under `fm1-recovery-backups/`
+(`--backup-dir PATH` changes the parent). Keep `full-flash-before.bin`, `backup.json` and
+`retained-ram.bin`. The full backup and its manifest are flushed to disk before any erase.
+The tool checks the package's checksums, chip key, ROM identity and expected flash chip;
+writes only changed 4 KiB sectors in **0x4000–0x93000**; and verifies each sector and then
+the entire flash. The bootloader below 0x4000 and saved data above 0x93000 are retained.
+Legacy Prophet banks at 0x89000 are ignored and replaced by application code. They remain
+available in the full pre-recovery backup, but are not moved or loaded by current firmware.
+
+Success creates `recovery-result.json` and prints **RESTORE VERIFIED**. Power-cycle the
+FM-1 afterward, including after a backup-only session. Verification proves the flash
+contents, not that the selected firmware boots or its audio and controls work.
+If USB disconnects during writing, keep the original backup, reconnect the device in
+UBOOT, and retry; matching sectors are skipped. No success report is produced for a
+failed write or verification. Connect one FM-1 at a time, or select it with `--bus` and
+`--address`. `--wait` controls detection time, up to 60 seconds.
+
+The protocol and previous direct-USB recoveries were verified on macOS. The portable
+tool has simulated USB/NOR tests, including interrupted writes; its Linux and Windows
+hardware paths still need validation. If ROM USB never appears, use
+[FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter) and its RP2040 setup.
 
 ## Experimental cache RAM
 

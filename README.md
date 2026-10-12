@@ -10,9 +10,11 @@ No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the i
 **Return to official V15** takes you back to the official firmware.
 It saves a complete backup first. If your firmware cannot export one, you can select
 **Skip backup** and confirm that Melodee music, sounds and settings may be lost.
+For a black-screen device already in ROM UBOOT, use the
+[direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.0** ([what's new](#whats-new-in-130)).
+**Melodee 1.3.1** ([what's new](#whats-new-in-131)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -26,6 +28,20 @@ runs Felucca.
   into a computer; choose **Synth only** in the installer, edit it with its own
   [synth editor](https://keremimo.github.io/melodee/webapp/synth-editor/) ([BUILDING.md](BUILDING.md#synth-only-firmware))
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.3.1
+
+- **Simpler updates:** the loader no longer scans or moves legacy Prophet banks from
+  `0x89000`. That abandoned area is treated as application flash. Current Prophet user
+  banks at `0x93000` remain supported. Legacy sounds need an export or backup if you want
+  to retain them; they are no longer recovered automatically during an upgrade.
+- **UBOOT recovery:** standalone command-line unbrickers for Windows, macOS (Intel and
+  Apple Silicon), and Linux are included in the release downloads. They back up the
+  device first and require `--write` to restore firmware. See
+  [recovery instructions](BUILDING.md#recover-a-black-screen-fm-1).
+
+This removes the relocation step; it does not establish the cause of the reported
+1.3.0 startup failures.
 
 ## What's new in 1.3.0
 
@@ -177,9 +193,9 @@ and patterns; settings represented by multiple patch bytes can use multiple even
   VOICE and NOISE join TRIO, WHEEL and PHYS as retired engine IDs; old tracks using them remain
   identifiable but silent. Phrases and their pages are removed.
 
-**Upgrading from 0.13.1:** the Prophet user banks move to their new flash location on first boot.
-Export important Prophet programs, or keep the installer's complete backup, before downgrading:
-older firmware does not know the new location. The four legacy project objects are retired and are
+**Upgrading from 0.13.1:** export important Prophet programs or keep a complete backup.
+Current firmware ignores the old Prophet bank location; it no longer moves those banks.
+The four legacy project objects are retired and are
 not read by 1.0.0. Former effect fields in older saves are ignored.
 Tracks and user presets that used LOFI keep their engine number and load as SID with LOFI's control
 values, so they sound different; choose a SID preset to start again.

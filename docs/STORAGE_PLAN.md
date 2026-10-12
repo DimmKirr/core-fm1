@@ -154,8 +154,8 @@ Needs an audit, not just deletion:
   native FM banks 2 and 3.
 - The bank caches (~8 KB of RAM) can share one buffer only after `native_release_shared` is gone, and
   only after checking each of the ~200 call sites that holds a bank pointer across another bank's load.
-- The update loader's `ldr_p5_move` (Prophet banks from `0x89000`) costs nothing in the app. Keep it until
-  no device can still have the old layout.
+- Since 1.3.1, legacy Prophet banks at `0x89000` are retired. The updater and ROM recovery tool
+  ignore them; they are not relocated. Current banks at `0x93000` remain supported.
 
 A catch: legacy *records* can sit inside current containers. A UPB1 bank can still hold version 1–3
 records, and a slot that was never saved again after an upgrade still holds FBKJ or older. Dropping the
@@ -265,8 +265,9 @@ The app area would grow the way it did on 2026-10-10 (3f86c33): `app.ld` XIP len
 the app.
 
 **Do the migration in the update loader, not in the app.** The loader is not part of the app image, so
-migration code there costs the app nothing, and `ldr_p5_move` already shows the pattern: copy the body,
-then write the commit record, so the move can restart after an interruption. The new regions overlap
+migration code there costs the app nothing. If a future map migration is approved, copy the body,
+then write the commit record, so the move can restart after an interruption. The retired Prophet-bank
+relocation must not be reintroduced. The new regions overlap
 the old ones, so the move order has to stage through sectors that are free at that moment. Generate the
 schedule at build time and run it in the host loader test with a power cut injected after every
 erase and program. Sector moves do not need to understand any format: headers and CRCs move unchanged.

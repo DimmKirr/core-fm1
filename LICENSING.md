@@ -56,7 +56,7 @@ All by Hügelton Instruments (Leo Kuroshita), in this tree:
 | Casio CZ-1 preset tones A-1..H-8 (Casio Computer Co., Ltd., 1986): the 64 factory sounds as native tone data, combined from the "64 original CZ-1 patches" SysEx (GeoCities CZ-101 page, archived 2009) and Oli Larkin's VirtualCZ conversions of the same presets (LCD names, line levels, velocity). Included as sound data for CZ-1 compatibility; the rights stay with Casio. See `assets/cz1-factory/README.md` | Casio's (no licence granted) | `assets/cz1-factory/cz1-factory.syx`, `tools/make_cz1_factory.py`, `tools/gen_cz1_factory.py` |
 | Sequential Prophet-5/10 factory programs v1.03 (Sequential, 2025; <https://sequential.com/support/download/prophet-5-10-sounds/>): the 200 programs of `P5_Factory_Programs_USER_v1.03.syx`, unchanged native data, as PROPHET's factory presets and its default native user collection. Included as sound data for Prophet-5 compatibility; the rights stay with Sequential. See `assets/prophet5-factory/README.md` | Sequential's (no licence granted) | `assets/prophet5-factory/prophet5-v1.03.syx`, `tools/gen_prophet_factory.py` |
 | klattsch by Tony Gies (<https://github.com/tgies/klattsch>): design reference for the VOICE engine; no code copied. Formant data from Klatt (1980) / Hillenbrand et al. (1995) | MIT (klattsch) | credit only |
-| JieLi AC79 SDK by JieLi Technology: three of its files go into every `.fwsc` package (below); none are in this tree | Apache-2.0 | `LICENSES/Apache-2.0.txt` |
+| JieLi AC79 SDK by JieLi Technology: three external files go into every `.fwsc` package; the optional RAM recovery helper is in `assets/recovery/` | Apache-2.0 | `LICENSES/Apache-2.0.txt` |
 
 On the device, HOME held > ABOUT opens the information screen; turning PRESETS scrolls on into
 CREDITS, a short list of these authors, licences and source URLs.
@@ -66,7 +66,7 @@ CREDITS, a short list of these authors, licences and source URLs.
 A `.fwsc` package made by `tools/build.py` (with `tools/fm1pkg_make.py`; this is the package the
 web installer installs) holds three unmodified files from the JieLi AC79 SDK
 (<https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK>, `cpu/wl82/tools/`). They are read from your SDK
-checkout at build time (see BUILDING.md); no SDK files are in this tree.
+checkout at build time (see BUILDING.md); those three SDK files are not in this tree.
 
 | File in the package | What it is |
 | --- | --- |
@@ -82,7 +82,22 @@ Every distribution of a package carries the licence texts with it: the release f
 (`tools/build.py --release`) and the site (`web/make_site.py`, next to the package in
 `firmware/` and linked from the installer page).
 
-## No vendor material
+## Standalone ROM recovery tool
+
+The optional `fm1-recover` executables include `assets/recovery/wl82loader.bin`,
+an unmodified RAM recovery helper from JieLi's AC79 SDK under Apache-2.0. Its
+source version and checksum are recorded in `assets/recovery/README.md`; it is
+loaded into RAM, not installed in flash. Copyright remains with JieLi Technology.
+This SDK file is included in the source tree and the recovery distributions;
+the three SDK files in firmware packages are still read from an external checkout.
+
+Recovery archives carry Melodee's GPL-3.0-only licence, the SDK's Apache-2.0 licence,
+and the bundled Python/PyUSB/PyInstaller/libusb notices. libusb is dynamically
+loaded under LGPL-2.1-or-later; its corresponding source archive is included,
+and `--libusb PATH` allows using a replacement library. PyInstaller's bootloader
+exception permits distributing the generated executable under Melodee's licence.
+
+## No vendor firmware material
 
 No M-VAVE material is part of Melodee. The firmware links no vendor code and contains no vendor
 data, and the packages hold only Melodee and the three SDK files above. The installer's
