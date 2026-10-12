@@ -315,7 +315,8 @@ static void pv_sound(void)
     int32_t x;
     if (designer_on() && designer_foot())                /* the sound designer: its keys (ui_designer.c) */
         return;
-    sound_name(TSEL, nm);
+    if(cur_page()->fam==FAM_FX && cur_page()->scope==SC_GLOBAL && cur_page()->id[0]!=G_TRK_SEND){en="SEND / RETURN";memcpy(nm,"ALL TRACKS",11);}
+    else sound_name(TSEL, nm);
     sig = str_hash(str_hash(song.sel * 7u + ux.gen * 977u + ux.pal * 31u, en), nm);
     if (!ui.force && sig == pv.sound)
         return;
@@ -705,9 +706,11 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
  * WIDTH explicitly names its two sides and the mono tradeoff. */
 static void pv_fx(void)
 {
-    uint32_t type=(uint32_t)clamp(TSEL->p[P_FXTYPE],0,FX_COUNT-1);
-    static const char *const hint[FX_COUNT]={"Dry signal","Moving notches","All-pass L / dry R","Random vowels","Phase / crossover jitter","Jumping resonance","Short lo-fi echoes","Small lo-fi space"};
-    int32_t mix=TSEL->p[P_FXMIX],cha=TSEL->p[P_FXCHAR],py=50*16;
+    if(cur_page()->id[0]==G_TRK_SEND){cv_text_on(12,8,&AF_X,"Track to shared FX",T_MID,T_PANEL);cv_text_on(12,45,&AF_X,"SEND: this track",T_THEME,T_PANEL);cv_text_on(12,65,&AF_X,"RETURN: all tracks",T_THEME,T_PANEL);return;}
+    uint32_t base=cur_page()->id[0],master=cur_page()->scope==SC_GLOBAL,slot=(base-(master?G_MFXTYPE:P_FXTYPE))/FX_PARAMS;
+    const int16_t *values=master?song.g:TSEL->p;uint32_t type=(uint32_t)clamp(values[base],0,FX_COUNT-1);
+    static const char *const hint[FX_COUNT]={"Dry signal","Moving notches","All-pass L / dry R","Random vowels","Phase / crossover jitter","Jumping resonance","Short lo-fi echoes","Small lo-fi space","Diffused stereo reverb"};
+    int32_t mix=values[base+1u],cha=values[base+3u],py=50*16;
     cv_text_on(12,8,&AF_X,hint[type],T_MID,T_PANEL);
     for(int32_t x=0;x<208;x++){
         int32_t ph=(int32_t)(sine_i((uint32_t)x*0x06000000u)>>10);
@@ -718,7 +721,7 @@ static void pv_fx(void)
         else if(type>=FX_ECHO)y+=(ph*mix*(208-x))/1900;
         y=clamp(y,27*16,76*16);cv_vspan_aa(16+x,py,y,type&&mix?T_THEME:T_DIM);py=y;
     }
-    const char *foot=fx_state[song.sel%NPART].failed?"MEMORY FULL":type==FX_WIDTH?"Mono changes the tone":type==FX_OFF || !mix?"Turn MIX to hear FX":"OCT+ sound actions";
+    const char *foot=fx_state[(master?NPART:song.sel%NPART)*FX_SLOTS+slot].failed?"MEMORY FULL":type==FX_WIDTH?"Mono changes the tone":type==FX_OFF || !mix?"Turn MIX to hear FX":master?"Shared by all tracks":"OCT+ sound actions";
     cv_text_on(12,88,&AF_X,foot,T_DIM,T_PANEL);
 }
 static void pv_picture(void)
@@ -727,7 +730,7 @@ static void pv_picture(void)
     uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u, i;
     int32_t pp = pic == 6u && song.playing ? (int32_t)(TSEL->seq_idx % (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP)) : -1;
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
-    if(pic==9u)sig^=(uint32_t)fx_state[song.sel%NPART].failed*347u;
+    if(pic==9u && cur_page()->id[0]!=G_TRK_SEND)sig^=(uint32_t)fx_state[(cur_page()->scope==SC_GLOBAL?NPART:song.sel%NPART)*FX_SLOTS+(cur_page()->id[0]-(cur_page()->scope==SC_GLOBAL?G_MFXTYPE:P_FXTYPE))/FX_PARAMS].failed*347u;
     if (pic >= 5u) {                                    /* ARP, PATTERN: the keys and steps */
         sig ^= steps_hash(TSEL) + (song.playing ? 1u + TSEL->seq_idx * 257u : 0u) * 2246822519u;
         for (i = 0; i < TSEL->nheld && i < 16u; i++)

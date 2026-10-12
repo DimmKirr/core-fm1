@@ -97,9 +97,17 @@ enum {                          /* per-track parameters */
     P_LN0, P_LN1, P_LN2, P_LN3, P_LN4, P_LN5, P_LN6, P_LN7, /* DRUM lane levels, 127 = original gain */
     P_LSYNC, P_LTRIG, P_LPOL, P_SPRD, /* Felucca 1.4 common LFO controls and stereo spread */
     P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR, /* new FX; legacy effect IDs remain inert */
+    P_FX2TYPE, P_FX2MIX, P_FX2RATE, P_FX2CHAR,
+    P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR,
+    P_FXSEND, /* post-fader send to the shared stereo FX bus; track-owned */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+#define FX_SLOTS 3u
+#define FX_PARAMS 4u
+#define FX_CHAIN_COUNT (NPART+1u)
+#define FX_STATE_COUNT (FX_CHAIN_COUNT*FX_SLOTS)
+static int param_fx(uint32_t id) { return id>=P_FXTYPE && id<=P_FX3CHAR; }
 
 
 enum {                          /* global parameters */
@@ -113,8 +121,13 @@ enum {                          /* global parameters */
                                  * G_ENGGO id, reads tuning_a4 instead of song.g (ids/count stay fixed) */
     G_CLRSEQ, G_INITSND,
     G_RESERVED24, G_RESERVED25, G_RESERVED26, /* retired global format padding */
+    G_MFXTYPE, G_MFXMIX, G_MFXRATE, G_MFXCHAR,
+    G_MFX2TYPE, G_MFX2MIX, G_MFX2RATE, G_MFX2CHAR,
+    G_MFX3TYPE, G_MFX3MIX, G_MFX3RATE, G_MFX3CHAR,
+    G_FXRETURN,
     G_COUNT
 };
+static int param_master_fx(uint32_t id){return id>=G_MFXTYPE && id<=G_MFX3CHAR;}
 #define G_DRLVL G_RESERVED25         /* (their meaning in a project from before 1.0: proj_drums_to_part) */
 #define G_DRREV G_RESERVED26
 

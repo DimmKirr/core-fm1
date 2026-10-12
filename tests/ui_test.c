@@ -125,7 +125,8 @@ static void ui_power_on(void)
 {
     uint32_t i;
     fx_clear_all();
-    for(uint32_t k=0;k<NPART;k++)resource_release(RES_FX0+k);
+    for(uint32_t k=0;k<FX_STATE_COUNT;k++)resource_release(RES_FX0+k);
+    fx_bus_result=fx_bus_pending=0;fx_bus_mix=fx_bus_target=0;
     memset(fx_state,0,sizeof fx_state);
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);

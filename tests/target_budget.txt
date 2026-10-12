@@ -44,6 +44,9 @@ track_render_audio 821
 mod_begin 158
 mod_voice 30
 mod_end 7
+# Quarter-rate Tape now includes the fused wet interpolation/mix, replacing full-rate passes.
+# These are static compiled-loop sizes; device before/after proves the actual CPU reduction.
+fx_tape 259
 cz_native_render 529
 cz_native_wave 0
 drum_source 10
@@ -60,3 +63,11 @@ d9_render_smp 1444
 # Native fp32 Prophet kernels, r3 + fprev1 disassembly.
 p5_samples 1075
 p5_mod_samples 105
+
+# FX performance run: normal target, reduced-rate kernels and send-aware track sum.
+fx_filter 176
+fx_down 126
+fx_up 141
+fx_time 249
+fx_reverb 1016
+mix_fx_samples 82

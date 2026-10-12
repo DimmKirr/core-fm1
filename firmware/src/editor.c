@@ -224,7 +224,7 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
     }
     if (scope == 1 && id < G_COUNT) {
         *vp = ed_val(P_COUNT + id);
-        return &GP[id];
+        return global_desc(id);
     }
     return 0;
 }
@@ -318,7 +318,7 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
         return n == 2u || n == 10u || n == 13u || (n == 14u && a[13] <= 100u);
     case ED_MOTION:
         return (n == 1u || (n == 2u && a[1] == 2u) || (n == 3u && a[1] == 1u && a[2] <= 1u) ||
-                (n == 6u && a[1] == 3u) || (n == 4u && a[1] == 4u)) && a[0] < NTRK;
+                (n == 6u && a[1] == 3u) || ((n == 4u || n == 6u) && a[1] == 4u)) && a[0] < NTRK;
     case ED_BANK_SONG: case ED_SONG:
         return n && (a[0] == 1u || n == 1u);
     default:
@@ -347,6 +347,18 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_cz_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_native_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
+#if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
+    case 97: {
+        uint32_t rc=0;
+        if((na==6u || (na==7u && a[6]<=1u)) && a[0]<=15u && a[1]<FX_COUNT && a[2]<FX_COUNT && a[3]<FX_COUNT){
+            fx_profile_request=a[0]?((uint32_t)(na==7u?a[6]:0u)<<30u)|((uint32_t)a[0]<<26u)|((uint32_t)a[5]<<19u)|((uint32_t)a[4]<<12u)|((uint32_t)a[3]<<8u)|((uint32_t)a[2]<<4u)|a[1]:0;
+        }else if(na)rc=1;
+        uint32_t values[14];fm1_irq_off();values[0]=fx_profile_control;values[13]=fx_hw_status;
+        for(uint32_t k=0;k<4u;k++){values[1+k*3]=fx_profile_ticks[k];values[2+k*3]=fx_profile_blocks[k];values[3+k*3]=fx_profile_max[k];}fm1_irq_on();
+        ed_b(rc);for(uint32_t k=0;k<14u;k++)for(uint32_t j=0;j<5u;j++)ed_b(values[k]>>(j*7u));
+        break;
+    }
+#endif
 #if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 memory, 16 part victims */
         uint32_t snapshot[55] = {0}, k, count = na && (a[0] & 16u) ? 55u : na && (a[0] & 8u) ? 47u : na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
@@ -528,7 +540,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             else if (a[1] == 4u) {
                 uint32_t id = a[3] | ((a[2] & 64u) << 1);
                 if (motion_param(id) || (id >= MO_NATIVE && id < MO_NATIVE + MO_NATIVE_N))
-                    motion_delete_event(t, a[2] & 63u, id);
+                    motion_delete_event(t, a[2] & 63u, na==6u ? id|(motion_native_event(id,ed_rv(a+4))?256u:0u) : id|512u);
                 else rc = 1;
             }
             else rc = 1;

@@ -169,11 +169,21 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
 
 ## FX inserts (2026-10-12)
 
-FX opens the selected track's insert. It is one R5 knob page: four rings over a
+FX opens the selected track's insert family. SELECT moves between FX 1, FX 2
+and FX 3, using the existing page dots; all three slots can run together. Each
+is an R5 knob page: four rings over a
 rounded picture, the existing track palette, Rubik faces, sound bar and footer.
-KNOB 1: the effect-name picker; KNOB 2: MIX; KNOB 3: RATE (ECHO: TIME, ROOM: SIZE);
+KNOB 1: the effect-name picker; KNOB 2: MIX; KNOB 3: RATE (ECHO: TIME, ROOM / REVERB: SIZE);
 KNOB 4: DEPTH / FOCUS / JITTER / BITE / REPEAT / DECAY. OCT+ opens the sound's
 actions, OCT- returns to Stage. FX held opens no keyboard layer. WIDTH says
 “All-pass L / dry R” and “Mono changes the tone”. MEMORY FULL appears in the
-picture when a time-effect buffer cannot be allocated. Screens for every effect
+picture when that slot's time-effect buffer cannot be allocated. REVERB says
+“Diffused stereo reverb”; ROOM keeps its existing character and picture.
+Reverb's fourth knob is DEPTH, combining wet body
+and longer sustain; MIX and SIZE stay separate. Effects
+belong to the track: preset loads, engine changes, Init sound and sound undo keep
+them. Projects and templates save the chain. Reduced processing rates apply
+only to effects, with no change to synth rendering. Screens for every effect
 and this state are rendered and linted in every palette by `tests/ui_render.c`.
+
+FX SEND uses the same four-ring page with SEND for the selected track and RETURN for the shared bus. SEND FX 1–3 keep the insert page layout, show TYPE / MIX / RATE or SIZE / CHAR or DEPTH, and identify SEND / RETURN and ALL TRACKS in the footer. These controls belong to the project and track, never the instrument preset. Shared MIX defaults fully wet.

@@ -3,6 +3,10 @@
 /* Engine output -> optional stereo insert -> track level -> master.
  * The bypass retains the original level/pan/spread path exactly. */
 #include "fx.c"
+static int32_t part_buf[CTL], mix_l[CTL], mix_r[CTL];
+static uint8_t fx_send_on;
+static inline __attribute__((always_inline)) void mix_add(int32_t l,int32_t r,uint32_t i,uint32_t send)
+{mix_l[i]+=l;mix_r[i]+=r;if(send){fx_send_l[i]+=fx_scale(l,send);fx_send_r[i]+=fx_scale(r,send);}}
 static volatile uint32_t kb_mask, kb_layer;
 static volatile uint8_t kb_lock;
 #define LIM_T 18000
@@ -81,7 +85,6 @@ static uint32_t seq_div_samples(uint32_t div)
 
 
 static void events_block(uint32_t n);
-static int32_t part_buf[CTL], mix_l[CTL], mix_r[CTL];
 #if MELODEE_USB_AUDIO
 static int ua_capture_active(void);
 static uint8_t track_capture_on;
@@ -102,6 +105,7 @@ static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cac
 }
 static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_t n)
 {
+    uint32_t send=fx_send_on?fx_send_gain(t):0u;
     int32_t *d=spread_buf;
     int32_t lvl=LEVEL_Q12[t->p[P_LEVEL] & 127],pan=t->p[P_PAN],s=(t->p[P_SPRD]+1)>>1;
     int32_t pa=clamp(pan-s,-64,63),pb=clamp(pan+s,-64,63);
@@ -116,8 +120,7 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
         if(track_capture_on)track_capture[i*NTRK+(uint32_t)(t-trk)]=x;
 #endif
         if(a>pk)pk=a;
-        mix_l[i]+=((x*glm)>>12)+((y*gld)>>12);
-        mix_r[i]+=((x*grm)>>12)+((y*grd)>>12);
+        mix_add(((x*glm)>>12)+((y*gld)>>12),((x*grm)>>12)+((y*grd)>>12),i,send);
     }
     t->peak=pk;
 }
@@ -126,6 +129,7 @@ static inline __attribute__((always_inline)) int32_t mix_clamp(int32_t x,int32_t
 static __attribute__((noinline,section(".dsp_text"))) void mix_mono_samples(track_t *t,int32_t *b,uint32_t n,const mix_cache_t *mc)
 {
     uint32_t ti=(uint32_t)(t-trk);
+    uint32_t send=fx_send_on?fx_send_gain(t):0u;
     int32_t lvl=mc->lvl,gl=mc->gl,gr=mc->gr,pk=t->peak;
     for(uint32_t i=0;i<n;i++){
         int32_t x=mix_clamp(((mix_clamp(b[i],-884000,884000)>>2)*lvl)>>10,-524287,524287),a=x<0?-x:x;
@@ -133,7 +137,7 @@ static __attribute__((noinline,section(".dsp_text"))) void mix_mono_samples(trac
         if(track_capture_on)track_capture[i*NTRK+ti]=x;
 #endif
         if(a>pk)pk=a;
-        mix_l[i]+=(x*gl)>>12;mix_r[i]+=(x*gr)>>12;
+        mix_add((x*gl)>>12,(x*gr)>>12,i,send);
     }
     t->peak=pk;
 }
@@ -153,14 +157,15 @@ static void mix_solo(track_t *t,int32_t *b,uint32_t n)
 static __attribute__((noinline,section(".dsp_text"))) void mix_fx_samples(track_t *t,uint32_t n)
 {
     uint32_t ti=(uint32_t)(t-trk);int32_t lvl=LEVEL_Q12[t->p[P_LEVEL]&127],pk=t->peak;
+    uint32_t send=fx_send_on?fx_send_gain(t):0u;
     int32_t gain=solo_gain[ti],to=!t->p[P_MUTE] && (!track_solo || ((track_solo>>ti)&1u))?32768:0;
     for(uint32_t i=0;i<n;i++){
         gain+=mix_clamp(to-gain,-256,256);
         int32_t l=fx_scale(fx_left[i],(uint32_t)gain*2u),r=fx_scale(fx_right[i],(uint32_t)gain*2u);
-        l=mix_clamp((l>>2)*lvl/1024,-524287,524287);r=mix_clamp((r>>2)*lvl/1024,-524287,524287);
-        mix_l[i]+=l;mix_r[i]+=r;int32_t a=l<0?-l:l,c=r<0?-r:r;if(c>a)a=c;if(a>pk)pk=a;
+        l=mix_clamp(fx_div_pow2((l>>2)*lvl,10),-524287,524287);r=mix_clamp(fx_div_pow2((r>>2)*lvl,10),-524287,524287);
+        mix_add(l,r,i,send);int32_t a=l<0?-l:l,c=r<0?-r:r;if(c>a)a=c;if(a>pk)pk=a;
 #if MELODEE_USB_AUDIO
-        if(track_capture_on)track_capture[i*NTRK+ti]=(l+r)/2;
+        if(track_capture_on)track_capture[i*NTRK+ti]=fx_div_pow2(l+r,1);
 #endif
     }
     solo_gain[ti]=gain;t->peak=pk;
@@ -170,7 +175,10 @@ static void mix_part(track_t *t,uint32_t n)
     mod_begin(t);
     spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON);
     int rendered=track_render_audio(t,part_buf,n,0);
-    if(rendered || t->p[P_FXTYPE] || fx_state[(uint32_t)(t-trk)].mix){
+#if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
+    if(fx_profile_control>>30u && fx_profile_track((uint32_t)(t-trk))){for(uint32_t i=0;i<n;i++)part_buf[i]=((i&8u)?-8000:8000)+(int32_t)i*97;rendered=1;spread_on=0;}
+#endif
+    if(rendered || fx_active(t)){
         if(!rendered){memset(part_buf,0,n*sizeof *part_buf);if(spread_on)memset(spread_buf,0,n*sizeof *spread_buf);}
         if(fx_process(t,part_buf,n)){
             void (*volatile run)(track_t *,uint32_t)=mix_fx_samples;run(t,n);
@@ -189,21 +197,34 @@ static void mix_part(track_t *t,uint32_t n)
 }
 static __attribute__((noinline,section(".dsp_text"))) void master_samples(int32_t *out,uint32_t n)
 {
+    int32_t gain=fx_bus_mix,target=fx_bus_target;
     for(uint32_t i=0;i<n;i++){
-        int32_t l=((mix_l[i]>>2)*(int32_t)song.master_q12)>>10;
-        int32_t r=((mix_r[i]>>2)*(int32_t)song.master_q12)>>10;
+        if(gain!=target)gain+=mix_clamp(target-gain,-128,128);
+        int32_t l=mix_l[i],r=mix_r[i];
+        if(fx_bus_result){uint32_t ret=(uint32_t)gain*2u;
+            l+=((fx_scale(fx_left[i],ret)>>2)*(int32_t)song.master_q12)>>10;
+            r+=((fx_scale(fx_right[i],ret)>>2)*(int32_t)song.master_q12)>>10;}
         master_out(&l,&r);out[2u*i]=l;out[2u*i+1u]=r;
     }
+    fx_bus_mix=gain;
 }
 static void mix_block(int32_t *out,uint32_t n)
 {
+#if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
+    fx_profile_poll();
+#endif
 #if MELODEE_USB_AUDIO
     track_capture_on=(uint8_t)ua_capture_active();
     if(track_capture_on)memset(track_capture,0,n*NTRK*sizeof *track_capture);
 #endif
     memset(mix_l,0,n*sizeof *mix_l);memset(mix_r,0,n*sizeof *mix_r);
+    fx_send_on=(uint8_t)fx_bus_active();if(fx_send_on){memset(fx_send_l,0,n*sizeof *fx_send_l);memset(fx_send_r,0,n*sizeof *fx_send_r);}
     events_block(n);
     for(uint32_t i=0;i<NPART;i++)mix_part(&trk[i],n);
+    fx_bus_start(n);
+    /* Dry gain overlaps the shared wet processing; limiter sees their sum. */
+    for(uint32_t i=0;i<n;i++){mix_l[i]=((mix_l[i]>>2)*(int32_t)song.master_q12)>>10;mix_r[i]=((mix_r[i]>>2)*(int32_t)song.master_q12)>>10;}
+    fx_bus_join();
     void (*volatile run)(int32_t *,uint32_t)=master_samples;
     run(out,n);
 }

@@ -337,7 +337,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   levels); while SAVE is held, OCT- undoes and OCT+ redoes. On the step pages SAVE's undo
   covers the step edits first
   When editing synth steps, SCL and EDIT use the editing controls below instead.
-- The panel's FX button has no action.
+- **FX** opens the track's three insert pages; SELECT moves between the slots.
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
   transport; **REC + PLAY** arms it and starts recording in one gesture
 - On Stage, OCT− / OCT+ shift the octave (both: reset). Everywhere else OCT+ enters, opens or
@@ -480,28 +480,41 @@ replaces that event. **RECORDING FULL** leaves existing recordings intact; clear
 recorded steps makes space for new takes. Notes held longer than 128
 nominal steps are capped at that duration.
 
-Each track has one FX insert. Press **FX**: KNOB 1 chooses **OFF, PHASER, WIDTH,
-FORMANT, TAPE, SPIT, ECHO, ROOM**; KNOB 2 sets **MIX**; KNOB 3 sets rate (Echo's
-time / Room's size); KNOB 4 sets depth, focus, jitter, bite, repeats or decay.
+Each track has **three serial FX inserts**, all usable together, including repeated
+effect types. Press **FX** and turn **SELECT** between **FX 1**, **FX 2** and **FX 3**.
+KNOB 1 chooses **OFF, PHASER, WIDTH, FORMANT, TAPE, SPIT, ECHO, ROOM, REVERB**;
+KNOB 2 sets **MIX**; KNOB 3 sets rate (Echo's time / Room's and Reverb's size);
+KNOB 4 sets depth, focus, jitter, bite, repeats or decay.
 The page follows `docs/design`: four rings, a track-colour picture, the normal
 name picker, OCT+ sound actions and OCT- back to Stage. FX settings belong to
-the sound and save with user presets, projects and templates. Init sound is dry.
+the track and save with projects and templates. Loading or saving a preset,
+changing engines, Init sound and sound undo preserve the track's effects.
 
 Phaser sweeps four all-pass sections per side. Width processes the left side
 and keeps the right dry; collapsing it to mono changes its tone. Formant jumps
-among five vowel shapes. Tape jitters two parallel crossover filters, sometimes
-inverts the middle band, and rolls off the top. Spit abruptly retunes a resonant
+among five vowel shapes. Tape drifts two parallel crossover filters, smoothly
+changes the middle band's polarity, and rolls off the top. JITTER increases the
+movement without abrupt filter or phase switches. Its stereo filters run in
+one software pass with no delay buffer. Spit abruptly retunes a resonant
 band-pass and saturates it. Echo is a short, reduced-rate delay (10–370 ms,
-8 KiB per enabled track); Room is a small damped four-comb space (2 KiB).
-Their deliberately lo-fi sound keeps memory bounded. Turning MIX to zero or
+8 KiB per slot); Room keeps its small damped four-comb character (2 KiB).
+Reverb adds a diffused stereo eight-delay feedback tank with input and output
+allpasses (4 KiB per slot). Its **DEPTH** knob increases the wet body and extends
+the tail, from a short space to a deeper wash, with subtle delay drift for
+fuller diffusion and a softly bounded wet return. **MIX** sets the balance and
+**SIZE** sets the reflection spacing. Filter FX, Echo and Room run at **11.025 kHz**; Reverb runs at **5.5125 kHz**. Synths and the dry path stay at **44.1 kHz**.
+Reverb uses an inexpensive averaging input filter and interpolates the wet
+return; the rate conversion needs no additional buffer. Turning MIX to zero or
 selecting OFF fades to dry and releases the time-effect buffer. An allocation
-failure keeps that track dry and shows MEMORY FULL; bypass and re-enable to retry.
+failure bypasses only that slot and shows MEMORY FULL; bypass and re-enable to retry.
+
+SELECT also visits **FX SEND** and **SEND FX 1–3**. SEND is the selected track's post-volume, post-pan amount into one shared stereo chain; RETURN blends that chain into the main output. Set a shared TYPE (for example REVERB), then raise SEND on the tracks that should feed it. Shared MIX defaults fully wet. Switching the shared chain off fades its return to silence. The three track inserts remain available, and preset changes keep SEND. One shared Reverb uses 4 KiB regardless of the number of sending tracks. Its processing uses CPU1 when available; CPU0 prepares the dry output, then joins before the final limiter. Four mono USB stems remain individual tracks; the stereo master includes the shared return.
 
 Old FX/slicer sends, IDs, motion and key assignments remain inert. Previous
 FUN16 projects, FBKK banks, TPLF templates and old user presets load with the new
-FX off. FUN17 keeps the exact project and bank extent by storing the four new
-FX bytes per track in reserved *wire* global padding; runtime globals remain
-unchanged. Four mono USB recording stems include each insert, averaged after
+FX off. FUN17 projects and TPLG templates retain their original effect in slot 1,
+with slots 2 and 3 off. FUN18 projects and TPLH templates preserve all three inserts. New FUN19 projects and TPLI templates also store SEND and the shared return, with the shared chain off for older music. Eight-byte packed steps keep the project and bank extents unchanged. Four mono USB
+recording stems include the complete chain, averaged after
 pan; Width therefore has the same mono tradeoff on a stem.
 
 With **CLK TRS** or **CLK USB**, musical timing follows MIDI clock pulses directly, so tempo

@@ -5,7 +5,7 @@
  * Linker-derived SRAM tails are separate banks: an allocation never spans a
  * code/data/retained-state boundary. Small banks first preserve the large
  * contiguous POOL bank for engine state and note history. */
-enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_FX0, RES_COUNT = RES_FX0 + NPART };
+enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_FX0, RES_COUNT = RES_FX0 + FX_STATE_COUNT };
 static struct { void *ptr; uint32_t size; } resource[RES_COUNT];
 static uint32_t resource_peak, resource_failures;
 #ifdef FM1_IRQ_TARGET

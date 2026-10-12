@@ -180,7 +180,7 @@ an older editor sees the first page (the names that fit 1024 bytes).
 
 | cmd (v7) | Request args | Reply args |
 | --- | --- | --- |
-| 64 MOTION | track (query); track, 1, on 0/1 (play on / off); track, 2 (clear); track, 3, step, id, v14 (set an event); track, 4, step, id (delete an event) | track, rc, on (0/1), count (this track's events), max (64), then count × (step, id, v14) |
+| 64 MOTION | track (query); track, 1, on 0/1 (play on / off); track, 2 (clear); track, 3, step, id, v14 (set an event); track, 4, step, id[, v14] (delete an event) | track, rc, on (0/1), count (this track's events), max (64), then count × (step, id, v14) |
 | 65 BACKUP_LIST | — | 1, rc, count (11), then per object: id, size u32, crc u32 |
 | 66 BACKUP_GET | id, offset u32, count lo, count hi (≤ 256) | id, rc, offset u32, count lo, count hi, pack7 data |
 | 67 BACKUP_PUT | op 0 begin: 0, id, size u32, crc u32; op 1 data: 1, id, offset u32, pack7 data; op 2 commit: 2, id; op 3 abort: 3, id | op, id, rc |
@@ -992,6 +992,20 @@ Decode `step = wire_step & 63`, `param = wire_param | ((wire_step & 64) << 1)`.
 Existing events keep their original wire representation. Values retain the signed 14-bit encoding.
 The web editor displays and edits the raw native byte while preserving its engine tag.
 
+With three track FX slots (`P_COUNT = 117`, `P_E0 = 109`), common engine IDs
+112–115 overlap the first native IDs. Native values carry a tag and are at least
+256; ordinary values remain -64..127. Both kinds may coexist at the same step
+and raw ID. A six-byte delete request includes the event's v14 to select its
+kind. The legacy four-byte delete removes both kinds at that step and ID.
+Editors should send typed deletes when INFO reports `pe0 >= 108`.
+
+FX slots occupy IDs 96–99, 100–103 and 104–107 (TYPE, MIX, RATE, CHAR). They
+belong to the track; preset loads and sound undo preserve them. Projects and
+templates store all three slots. REVERB is appended as type 8; previous type IDs
+are unchanged.
+
 INFO advertises motion capability version 2 (`4D 02 40 01`), so cached v1 editors
 do not offer a motion interface that would truncate native parameter IDs. The current editor
 accepts both versions 1 and 2 and retains all other tagged capabilities.
+
+The send bus appends track SEND at ID 108; engine parameters are 109–116. Globals 27–38 are three shared FX slots (TYPE/MIX/RATE/CHAR); global 39 is RETURN. `G_COUNT=40`. SEND is track-owned during preset loads; shared controls are song globals. FUN19/TPLI store the routing; FUN18/TPLH and earlier records map engine IDs by count and default shared FX off. Native tagged motion IDs retain their meaning during conversion.

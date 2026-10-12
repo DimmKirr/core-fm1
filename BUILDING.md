@@ -463,10 +463,20 @@ measured. An impulse through four nontrivial all-pass sections is checked
 against the CPU reference before the first active filter effect. A failed
 probe, timeout or invalid output permanently selects the CPU path until reboot.
 The wait is bounded to 8192 register polls; audio never waits on an SDK mutex
-or semaphore. There are four logical biquads per stereo side per track (32
-maximum), time-shared through a single mono hardware lane. This is a logical
+or semaphore. There are four logical biquads per stereo side per slot (96 track sections plus 24 shared send sections), time-shared through a single mono hardware lane. This is a logical
 budget, not evidence that the chip provides 32 independent physical filters.
-Echo and Room always use their small software buffers.
+Tape uses a fused stereo software path: three cascaded one-pole pairs per
+channel, with shared coefficients and polarity smoothed over about 15 ms.
+Coefficient targets are calculated only when JITTER or the random target
+changes. It avoids the six separate filter passes and hardware EQ waits, and
+needs no delay allocation. The other filter effects retain the optional EQ path.
+Filter effects, Echo and Room run at FS/4 (11.025 kHz). Reverb runs at FS/8 (5.5125 kHz), with a 4 KiB allocation per slot. Two modular running sums provide a triangular CIC input filter; cached block-local converter state avoids repeated SRAM accesses. The seven-tap quarter-rate response and fifteen-tap eighth-rate response reject aliases, with a low-pass pole and upper-mid compensation for Reverb. Wet interpolation and wet/dry mixing are fused in the sample kernels; bounded power-of-two divisions use exact shifts, without a hardware divide.
+
+The eight-line fixed-point Reverb tank uses an orthogonal Householder reflection, input/output diffusers, length-normalised decay and a bounded wet return. SIZE/DEPTH coefficients are cached; drift targets update once per control block. DEPTH retains bass/body and increases return level and tail duration. Synths and the dry mixer retain FS = 44.1 kHz. OFF / MIX 0 releases the slot's delay memory; memory exhaustion bypasses only the failing slot.
+
+Track SEND is post-level/pan/mute/solo and feeds one three-slot stereo auxiliary chain. Shared MIX defaults 127, RETURN defaults 100, SEND and TYPE default 0. CPU0 prepares control values and all allocations, then snapshots the final pointers after compaction. CPU1 owns the shared workspace while CPU0 computes dry master gain, and CPU0 joins before return summing, DC rejection, limiting or any events/flash access. Existing FM6/Prophet voice pairing remains in place. There is no additional block of audio latency. Offline CPU1 runs the same callback serially; a failed in-flight callback is discarded, never rerun with partly advanced histories. Individual USB stems exclude the shared return. The parallel return ramps to silence when the final active slot is bypassed or changes type; RETURN edits are smoothed over about 6 ms.
+
+Opt-in `MELODEE_FX_PROFILE=1 MELODEE_BENCH_SILENT=1` packages allow `tools/fx_performance_device.py` to inject repeatable input and override DSP settings without changing song data. `--bus` measures the shared return. These packages mute physical output and must be replaced by a normal package after measurement. Host `tests/fx_performance.c full` covers all 1,024 ordered extreme/default three-effect combinations. Device deadline/shedding/fault counters remain the performance authority; host instruction counts are not device CPU percentages.
 
 The row/stride/control layout follows the locally installed AC79 V1.2.1 SDK's
 `eq.c` and `asm/eq.h`, also described by

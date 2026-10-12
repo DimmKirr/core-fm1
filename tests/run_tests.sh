@@ -205,7 +205,8 @@ phys_ref() {
 
 # ------------------------------------------------------------------ tests ---
 # the longest first: they set the length of the run
-sound && t "FX: seven inserts, dry bypass, stability, memory and frozen legacy storage" fx_test -O1 $FW
+sound && t "FX performance: all effects, four-track mixer, shared send bus and 1024 ordered three-effect chains" fx_performance -O2 $FW -- "$OUT/fx_performance" full
+sound && t "FX: three-slot chains, reverb decay/density/rate conversion, smooth Tape, track ownership, dry bypass and frozen legacy storage" fx_test -O1 $FW
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
 sound && [ $TABLES = 1 ] && job dsp_tracks

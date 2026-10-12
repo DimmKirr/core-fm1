@@ -93,7 +93,7 @@ static int compact_project(void)
     corrupt = packed; corrupt.raw[68] = 255; uint32_t sum = proj_hash(corrupt.raw, sizeof corrupt - 4u);
     memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
     bad += check("compact parameter range is validated even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));
-    corrupt = packed; uint32_t probability_byte = 68u + P_COUNT - PROJ_FX_FIELDS + 2u + 8u; corrupt.raw[probability_byte] = 127;
+    corrupt = packed; uint32_t probability_byte = 68u + P_COUNT + 2u + 7u; corrupt.raw[probability_byte] = 255;
     sum = proj_hash(corrupt.raw, sizeof corrupt - 4u); memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
     bad += check("invalid probability is refused even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));
     project_save(1); motion_clear(t); t->p[P_FM1_LEVEL] = 127; step_set_chance(&t->step[3], 100);
@@ -225,9 +225,9 @@ static int native_motion_test(void)
         motion_native_peek(t, old); *motion_native_at(t, i) = 65; motion_native_edited(t, old); seq_stop();
         bad += check("native manual edit outside REC becomes the new patch base", *motion_native_at(t, i) == 65);
         int16_t lane_value;
-        bad += check("native motion has a named lane and the raw value", (mo_name(id, (char *)unpacked, sizeof unpacked), unpacked[0]) &&
-            mo_value(id, 0, &lane_value) && lane_value == changed);
-        motion_clear_param(t, id);
+        bad += check("native motion has a named lane and the raw value", (mo_name(id|256u, (char *)unpacked, sizeof unpacked), unpacked[0]) &&
+            mo_value(id|256u, 0, &lane_value) && lane_value == changed);
+        motion_clear_param(t, id|256u);
         bad += check("native lane clear removes its events", !motion.count);
         bad += check("native persisted project restores base then replays its motion", !project_restore_runtime(&restored));
         seq_start(); seq_tick(t, CTL);
@@ -273,8 +273,23 @@ static int native_motion_test(void)
     seq_stop();
     return bad;
 }
+static int overlapping_motion_ids(void)
+{
+    int bad=0;ui_power_on();track_t *t=TSEL;set_engine_of(t,ENGI_FM6);apply_preset_to(t,0);
+    const param_desc_t *d=param_desc_of(ENGI_FM6,P_E3);
+    int16_t common=(int16_t)(d->def==d->max?d->min:d->max),native=(int16_t)(MO_TAG_FM6<<8|80u);
+    bad+=check("common engine and native motion sharing wire ID 112 coexist", P_E3==MO_NATIVE &&
+        !motion_set_event(t,0,P_E3,common) && !motion_set_event(t,0,MO_NATIVE,native) && motion.count==2 && motion_valid(&motion));
+    uint16_t ids[MO_MAX];bad+=check("colliding wire IDs produce separate UI lanes",mo_lanes(ids)==2 && ids[0]==P_E3 && ids[1]==(MO_NATIVE|256u));
+    motion_step(t,0,&motion);bad+=check("both colliding motion destinations play independently",t->p[P_E3]==common && fm6_patch[0][0]==80);
+    motion_delete_event(t,0,P_E3);bad+=check("typed common deletion keeps native motion",motion.count==1 && motion.event[0].value==native);
+    motion_set_event(t,0,P_E3,common);motion_delete_event(t,0,MO_NATIVE|256u);
+    bad+=check("typed native deletion keeps common motion",motion.count==1 && motion.event[0].value==common);
+    motion_set_event(t,0,MO_NATIVE,native);motion_delete_event(t,0,MO_NATIVE|512u);
+    bad+=check("legacy untyped deletion clears both kinds",!motion.count);return bad;
+}
 int main(void)
 {
-    int bad = native_motion_test() + motion_recording() + motion_capacity() + probability_playback() + compact_project() + older_count() + loads_and_song() + repeat_mode();
+    int bad = native_motion_test() + overlapping_motion_ids() + motion_recording() + motion_capacity() + probability_playback() + compact_project() + older_count() + loads_and_song() + repeat_mode();
     printf("%s\n", bad ? "MOTION TEST FAILED" : "motion/chance/compact storage tests passed"); return bad != 0;
 }
