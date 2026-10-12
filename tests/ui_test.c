@@ -4414,7 +4414,24 @@ static int test_capture(void)
         ui_power_on();
         stop_transport();
         project_save(1);
+        hold(B_HOME); ui.menu_sel = MI_AUTOSAVE;
+        turn(EN_K1, -1); turn(EN_K1, -1);
+        bad += check("HOME menu AUTOSAVE: KNOB 1 left disables and clamps OFF", ui.menu == 1 && !settings_autosave);
+        press(B_OCTUP);
+        bad += check("HOME menu AUTOSAVE: OCT+ toggles ON without leaving the menu", ui.menu == 1 && settings_autosave);
+        press(B_OCTUP); turn(EN_K1, 1); turn(EN_K1, 1);
+        bad += check("HOME menu AUTOSAVE: KNOB 1 right enables and clamps ON", ui.menu == 1 && settings_autosave);
+        turn(EN_K1, -1); hold(B_HOME);
+        TSEL->p[P_LEVEL] = 55;
+        for (i = 0; i < 400u; i++) frame();
+        bad += check("autosave OFF: changed, stopped, untouched project stays unsaved", stored_param(1, 0, P_LEVEL) != 55);
+        btn_down(B_SAVE); press(B_REC); btn_up(B_SAVE); frame();
+        bad += check("autosave OFF: SAVE + REC still saves manually", stored_param(1, 0, P_LEVEL) == 55 && !settings_autosave);
         TSEL->p[P_LEVEL] = 77;
+        for (i = 0; i < 400u; i++) frame();
+        hold(B_HOME); ui.menu_sel = MI_AUTOSAVE; press(B_OCTUP); hold(B_HOME);
+        for (i = 0; i < 100u; i++) frame();
+        bad += check("autosave re-enabled: waits a fresh five seconds before saving", stored_param(1, 0, P_LEVEL) == 55);
         writes = stored_param(1, 0, P_LEVEL) == 77;
         for (i = 0; i < 400u; i++) frame();             /* 6.4 s */
         bad += check("autosave: changed, stopped, untouched: back to its slot (B)", !writes && stored_param(1, 0, P_LEVEL) == 77);

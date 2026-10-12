@@ -97,6 +97,24 @@ int main(void)
         }
         p = original; settings_import(&p, sizeof p);
     }
+    {   /* AUTOSAVE: default ON for old/unknown bytes, tagged OFF survives a settings round trip. */
+        persist_t q = original;
+        assert(settings_autosave);
+        settings_autosave = 0;
+        settings_export(&q);
+        assert(sizeof q == 604u && q.favorites.factory[15][28] == AUTOSAVE_OFF_TAG);
+        settings_autosave = 1;
+        assert(settings_import(&q, sizeof q) && !settings_autosave);
+        settings_autosave = 1;
+        settings_export(&q);
+        settings_autosave = 0;
+        assert(settings_import(&q, sizeof q) && settings_autosave);
+        for (uint32_t byte = 0; byte < 256u; byte++) {
+            q.favorites.factory[15][28] = (uint8_t)byte;
+            assert(settings_import(&q, sizeof q) && settings_autosave == (byte != AUTOSAVE_OFF_TAG));
+        }
+        p = original; settings_import(&p, sizeof p);
+    }
     {   /* records before PER5 (Felucca's PER1..PER4; 1.2 rewrote them) and short ones: not read */
         const uint32_t magic[4] = {0x50455231u, 0x50455232u, 0x50455233u, 0x50455234u};
         for (uint32_t k = 0; k < 4u; k++) {
@@ -130,5 +148,5 @@ int main(void)
     }
     assert(settings_import(&p, 3) == 0 && settings_import(&p, -1) == 0);
     assert(settings_import(&p, sizeof p - 1) == 0);
-    puts("Settings: PER5 only, palette ids, calibration, HOLD, ext and independent feature preservation passed.");
+    puts("Settings: PER5 only, palette ids, calibration, HOLD, AUTOSAVE, ext and independent feature preservation passed.");
 }

@@ -364,7 +364,9 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   first sound where the template's does not fit it, every pattern empty
 - **SAVE + REC** saves the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
   the transport first; a new project opens SAVE > PROJECT on a free slot. **Autosave:** stopped and untouched for
-  5 seconds (no key, button, knob or MIDI), a project that has a slot saves itself there when it changed
+  5 seconds (no key, button, knob or MIDI), a project that has a slot saves itself there when it changed.
+  Hold **HOME** and set **AUTOSAVE** to **OFF** to disable it (default **ON**). The choice survives power-off;
+  manual saves still work
 - **Capture:** while the transport runs, Melodee keeps what you play on every track that is not recording. Hold
   **REC** to write the selected track's last bars into its pattern, with their timing, velocities and lengths: an
   empty pattern takes 1, 2 or 4 bars (as many as your notes span) and its LEN follows; a pattern with notes takes its

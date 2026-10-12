@@ -508,7 +508,7 @@ static void autosave_poll(uint32_t active)
 #else
     uint32_t r = usb.rx_pkts;
 #endif
-    if (active || r != rx || transport_busy() || ui.menu || ui.confirm || name_on() || new_on() || ui.layer || momentary.active ||
+    if (!settings_autosave || active || r != rx || transport_busy() || ui.menu || ui.confirm || name_on() || new_on() || ui.layer || momentary.active ||
         browse_pending() || qsave_req || designer_on()) {
         t0 = fm1_ms;
         rx = r;
