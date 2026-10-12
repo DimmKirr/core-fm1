@@ -581,7 +581,7 @@ static int rec_test(void)
     t2->p[P_SLEN] = 4;
     t3->p[P_SSWING] = 50;                           /* odd steps start 0.2 step late */
     put_step(t1, 5, 1, (const uint8_t[]){48}, ST_NOTE, 0);   /* an older take: put back by an early release */
-    song.rec = 0x07u;
+    song.rec = 0x01u;
     transport_req = 1;
     /* (a) actual held length 3.2 steps: the final tie keeps its fractional gate. */
     rec_run_to(t1, 2, 10);
@@ -615,25 +615,30 @@ static int rec_test(void)
     rec_run_to(t1, 0, 10);
     ok_chord = t1->step[13].n == 2u && rec_step_is(t1, 14, ST_TIE, 0, 0) && rec_step_is(t1, 15, ST_TIE, 0, 0) &&
                t1->step[0].time != ST_TIE;
-    /* (e) LEN 4, held for 10 steps: the note fills the pattern (3 TIEs), not more */
+    /* (e) LEN 4, held for 10 steps: the take seals at the first pattern boundary.
+     * Each independent scenario starts a new armed pass; recording no longer loops. */
+    seq_stop(); song.rec = 0x02u; transport_req = 1;
     rec_run_to(t2, 1, 10);
     input_on(t2, 55, 100);
     for (i = 0; i < 10u; i++)
         rec_run_to(t2, (2u + i) % 4u, 50);
     input_off(t2, 55);
     ok_cap = rec_step_is(t2, 1, ST_NOTE, 1, 55) && rec_step_is(t2, 2, ST_TIE, 0, 0) && rec_step_is(t2, 3, ST_TIE, 0, 0) &&
-             rec_step_is(t2, 0, ST_TIE, 0, 0);
-    /* (f) SWING 50 %: closest swung onset, on each side of the midpoint. */
+             rec_step_is(t2, 0, ST_REST, 0, 0) && !(song.rec & 0x02u);
+    /* (f) SWING 50 %: ending the take commits QNT to the closest swung onset. */
+    seq_stop(); t3->p[P_RECQ] = 3; song.rec = 0x04u; transport_req = 1;
     rec_run_to(t3, 4, 46);                         /* 0.46 x 1.2 = 0.55 period */
     input_on(t3, 72, 100);
     input_off(t3, 72);
     rec_run_to(t3, 7, 53);                         /* 0.53 x 0.8 = 0.42 period */
     input_on(t3, 74, 100);
     input_off(t3, 74);
+    rec_set(t3, 0);
     ok_swing = rec_step_is(t3, 4, ST_NOTE, 1, 72) && t3->step[5].n == 0u && rec_step_is(t3, 8, ST_NOTE, 1, 74) &&
                t3->step[7].n == 0u;
     /* (g) MONO, legato: A held from step 10, B pressed in step 12 while A is still down, A up, B up late in
      * 13: 10 A, 11 TIE, 12 B (one note), 13 TIE */
+    seq_stop(); t3->p[P_RECQ] = 0; song.rec = 0x04u; transport_req = 1;
     rec_run_to(t3, 10, 10);
     input_on(t3, 60, 100);
     rec_run_to(t3, 12, 10);
@@ -648,7 +653,7 @@ static int rec_test(void)
     printf("tracks: recording lengths: held 3.2 steps -> NOTE TIE TIE and a 0.2-step tail %s; 0.3 step -> one "
            "step %s; past the middle of the next -> NOTE TIE %s\n", ok_len ? "ok" : "FAIL", ok_short ? "ok" : "FAIL",
            ok_half ? "ok" : "FAIL");
-    printf("tracks: recording lengths: a chord ties until its last key %s; capped at LEN 4 %s; MONO legato A..B -> "
+    printf("tracks: recording lengths: a chord ties until its last key %s; seals at LEN 4 boundary %s; MONO legato A..B -> "
            "A TIE B TIE %s\n", ok_chord ? "ok" : "FAIL", ok_cap ? "ok" : "FAIL", ok_mono ? "ok" : "FAIL");
     printf("tracks: recording with SWING 50 %%: notes round to the nearest swung onset %s\n",
            ok_swing ? "ok" : "FAIL");
