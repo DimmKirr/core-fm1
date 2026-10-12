@@ -96,7 +96,6 @@ jobs:
           path: build/recovery/${{ matrix.target }}/*.zip
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/')
     needs: [firmware, recovery]
     runs-on: ubuntu-22.04
     permissions:
@@ -115,18 +114,24 @@ jobs:
           path: build/release-assets
           merge-multiple: true
       - name: Validate release provenance and every archive checksum
-        run: python tools/prepare_release.py "${GITHUB_REF_NAME#v}" build/release-assets
+        run: |
+          version=$(python tools/fm1_recover.py --version | awk '{print $NF}')
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then test "$GITHUB_REF_NAME" = "v$version"; fi
+          python tools/prepare_release.py "$version" build/release-assets
       - name: Publish complete release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" build/release-assets/* \
             --verify-tag --title "Melodee ${GITHUB_REF_NAME#v}" --notes-file docs/RELEASE_1.3.1.md
       - uses: actions/checkout@v4
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           ref: gh-pages
           path: .nightly-pages
       - name: Publish stable installer while preserving nightly and synth channels
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           version=${GITHUB_REF_NAME#v}
           python web/make_site.py "build/release-assets/melodee-$version.fwsc" \
@@ -140,6 +145,7 @@ jobs:
             git push origin HEAD:gh-pages
           fi
       - name: Request Pages rebuild
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"
