@@ -1,26 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Update an existing Pages checkout with the next nightlies (dual and single core); preserve its release/editor."""
+"""Update an existing Pages checkout with the next nightlies (dual and single core); preserve its release/editor
+and the synth-only firmware."""
 import argparse
-import json
-import re
-from pathlib import Path
-from make_site import main
+from make_site import main, release_packages
 
 
 def publish(out, dual, single, version, commit, built_at):
-    out = Path(out)
-    manifest = out / "firmware/release.json"
-    if manifest.exists():
-        release = json.loads(manifest.read_text())
-    else:  # Existing sites predate the release manifest.
-        html = (out / "webapp/installer/index.html").read_text()
-        match = re.search(r"^const meta = (\{.*\});$", html, re.M)
-        if not match:
-            raise SystemExit("Pages installer has no release metadata")
-        release = json.loads(match[1])
-    packages = {k: out / "firmware" / Path(v).name for k, v in release["pkg"].items()}
-    main(packages["dual"], packages["single"], release["version"], out,
+    release, packages = release_packages(out)
+    main(packages["dual"], packages["single"], release, out,
          nightly={"pkg": {"dual": dual, "single": single}, "version": version,
                   "commit": commit, "builtAt": built_at}, installer_only=True)
 

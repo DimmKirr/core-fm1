@@ -216,7 +216,7 @@ if core; then
     t "audio worker: stalled jobs and wrapping deadlines" audio_worker_test
     t "cache RAM startup, memory faults and safe fallback" cache_ram_test
     t "system clock retune and rollback" clock_test -O1
-    job step "nightly site preserves release and editor" python3 tests/nightly_site_test.py
+    job step "nightly and synth-only site preserve release and editor" python3 tests/nightly_site_test.py
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
     run "target budget: natural loops and FPU decoding" python3 tests/target_budget_test.py
     t "retired synth identities, project/user patch preservation and favorites" engine_retirement_test -O2 $FW
