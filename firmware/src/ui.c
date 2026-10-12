@@ -233,6 +233,8 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
 
 static int page_visible(uint32_t i)
 {
+    if(PAGES[i].fam==FAM_FX && PAGES[i].scope==SC_TRACK && PAGES[i].id[0]==P_FXSEND)
+        return song.g[G_FXMODE]!=0;
     if (list_gone(i))
         return 0;
     if (PAGES[i].graph == GR_MOTION)                   /* MOTION: once there is motion (Kerem: an empty page; the one
@@ -756,12 +758,14 @@ static void load_extend(track_t *t)
 }
 
 static int param_kept(uint32_t i);
+static int note_clear_history(int redo);
 
 /* SAVE held (redo 0) / SAVE + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
  * redo is the same swap. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_step(int redo)
 {
+    if(note_clear_history(redo))return;
     track_t *t;
     undo_t *u;
     uint32_t i;
@@ -845,10 +849,12 @@ static void undo_seal(void) { if (undo_top) undo_lv[undo_top - 1u].keep = 0; }  
 
 static void track_defaults_steps(track_t *t)
 {
-    uint32_t i;
+    uint32_t i, guard = motion_guard();
+    recording_clear(t);
     motion_reset(t);
     for (i = 0; i < NSTEP; i++)
         step_clear(&t->step[i]);
+    motion_unguard(guard);
 }
 
 /* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
@@ -858,7 +864,7 @@ static void track_defaults_steps(track_t *t)
 static int param_kept(uint32_t i)
 {
     return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           i == P_CHRD || i == P_VOIC || i == P_MPCDEG || i == P_RECQ || param_fx(i) || i==P_FXSEND;
+           i == P_CHRD || i == P_VOIC || i == P_MPCDEG || i == P_RECQ || param_fx(i) || param_fx_send(i);
 }
 
 /* SCL, QNT and the MPC degree are the song's: one scale for every part, kept the same in each track's own slots

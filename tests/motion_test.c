@@ -276,14 +276,14 @@ static int native_motion_test(void)
 static int overlapping_motion_ids(void)
 {
     int bad=0;ui_power_on();track_t *t=TSEL;set_engine_of(t,ENGI_FM6);apply_preset_to(t,0);
-    const param_desc_t *d=param_desc_of(ENGI_FM6,P_E3);
+    const param_desc_t *d=param_desc_of(ENGI_FM6,P_E1);
     int16_t common=(int16_t)(d->def==d->max?d->min:d->max),native=(int16_t)(MO_TAG_FM6<<8|80u);
-    bad+=check("common engine and native motion sharing wire ID 112 coexist", P_E3==MO_NATIVE &&
-        !motion_set_event(t,0,P_E3,common) && !motion_set_event(t,0,MO_NATIVE,native) && motion.count==2 && motion_valid(&motion));
-    uint16_t ids[MO_MAX];bad+=check("colliding wire IDs produce separate UI lanes",mo_lanes(ids)==2 && ids[0]==P_E3 && ids[1]==(MO_NATIVE|256u));
-    motion_step(t,0,&motion);bad+=check("both colliding motion destinations play independently",t->p[P_E3]==common && fm6_patch[0][0]==80);
-    motion_delete_event(t,0,P_E3);bad+=check("typed common deletion keeps native motion",motion.count==1 && motion.event[0].value==native);
-    motion_set_event(t,0,P_E3,common);motion_delete_event(t,0,MO_NATIVE|256u);
+    bad+=check("common engine and native motion sharing wire ID 112 coexist", P_E1==MO_NATIVE &&
+        !motion_set_event(t,0,P_E1,common) && !motion_set_event(t,0,MO_NATIVE,native) && motion.count==2 && motion_valid(&motion));
+    uint16_t ids[MO_MAX];bad+=check("colliding wire IDs produce separate UI lanes",mo_lanes(ids)==2 && ids[0]==P_E1 && ids[1]==(MO_NATIVE|256u));
+    motion_step(t,0,&motion);bad+=check("both colliding motion destinations play independently",t->p[P_E1]==common && fm6_patch[0][0]==80);
+    motion_delete_event(t,0,P_E1);bad+=check("typed common deletion keeps native motion",motion.count==1 && motion.event[0].value==native);
+    motion_set_event(t,0,P_E1,common);motion_delete_event(t,0,MO_NATIVE|256u);
     bad+=check("typed native deletion keeps common motion",motion.count==1 && motion.event[0].value==common);
     motion_set_event(t,0,MO_NATIVE,native);motion_delete_event(t,0,MO_NATIVE|512u);
     bad+=check("legacy untyped deletion clears both kinds",!motion.count);return bad;

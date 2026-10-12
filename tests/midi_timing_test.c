@@ -195,6 +195,8 @@ static int lengths_and_swing_test(void)
     timing_packet(start, 0xFA, 0, 0, 2);
     for (uint32_t pulse = 0; pulse <= 192; pulse++) {
         timing_packet(start + pulse * 500000u, 0xF8, 0, 0, 2); events_block(CTL);
+        /* This fixture measures continuous capture beyond the first pass. */
+        song.rec_pass = 0;
         uint32_t units = pulse * 1024u, pair = units / 12288u, within = units % 12288u;
         /* SWING 100: 6144 + floor(6144*100/250) = 8601, then 3687. */
         uint32_t odd = within >= 8601u;
@@ -215,8 +217,11 @@ static int loop_replay_test(void)
         timing_packet(timing_now, 0xFA, 0, 0, 2);
         timing_packet(timing_now, 0xF8, 0, 0, 2);
         events_block(CTL);
+        /* Exercise the event store's cross-loop releases independently of the
+         * UI's one-pattern punch-out (covered in recording_test.c). */
+        song.rec_pass = 0;
         seq_advance(15u * 6144u + 5000u);
-        t->p[P_RECQ] = 3; /* optional playback 1/16 grid */
+        t->p[P_RECQ] = 3; /* commit a 1/16 grid when this take stops */
         /* Three paths retain the same late last-step original onset. */
         if (source == 0) input_on(t, 60, 111);
         else { timing_packet(timing_now, 0x90, 60, 111, source); events_block(CTL); }

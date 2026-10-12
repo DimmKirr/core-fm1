@@ -68,7 +68,7 @@ and name your own preset. Open **Sound designer** from the HOME hold menu
 or a sound page's action sheet. [Controls and saving](docs/SOUND_DESIGNER.md).
 
 - **Clearer header:** the four track dots are gone. A REC mark beside the tempo shows recording
-  (filled: the selected track is armed; a ring: another track is), the octave shift is a small
+  (filled: the selected track is ready/recording; a ring: waiting or another track is armed), the octave shift is a small
   `+2` / `-1` badge, and a page's dots always fit. The bar under a sound page starts with the
   track's number in its colour.
 - **Larger small text:** labels, names and values are a pixel larger and easier to read.
@@ -201,7 +201,7 @@ erases the Prophet user slots: export them, or keep the installer's backup, firs
 - **Concert pitch:** set A4 from **400–480 Hz** on GLO > GLOBAL, saved independently of projects;
   440 Hz remains the default and TUNE still adds a fine offset in cents
 - **Recording:** retain the original note timing and gate lengths, with **1,024 timed notes across
-  all 32 pattern banks**. SEQ > TIMING > QNT applies reversible playback quantization and defaults OFF
+  all 32 pattern banks**. SEQ > TEMPO > QNT applies an automatic quantization pass when recording ends and defaults OFF
 - **Recorded-note editing:** SEQ > NOTES selects individual synth or drum hits, zooms the original
   take, deletes selected hits and supports undo without changing neighbouring notes
 - **Native user presets:** 64 FM6 voices and 128 CZ-1 tones in separate collections, alongside 64 general
@@ -249,7 +249,7 @@ On top of Felucca 1.0 it adds:
   as separate channels; each can be switched off
 - **Patterns:** eight banks per track, with songs that pick a bank for each track
 - **Step editing:** set a note's length while its key is held, resize it with ENV, move it with SCL,
-  delete it with EDIT, and undo or redo up to eight edits; MIDI step entry; unquantized live recording with reversible timing quantization
+  delete it with EDIT, and undo or redo up to eight edits; MIDI step entry; unquantized live recording with optional quantization when the take ends
   and the cursor following playback
 - **Startup:** a BOOT project loaded at power-on and a template for new projects; CLK, TUNE, MIDI and
   ROUT kept between starts
@@ -274,7 +274,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   has not yet been stress-tested on hardware
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide and per-step chance; a piano
   roll of the steps; a drum grid (white keys = steps, black keys = lanes); motion recording of knob
-  moves; unquantized live loop recording with overdub and optional playback quantization; MIDI step entry; tied-note length,
+  moves; unquantized live loop recording with overdub and optional quantization at take end; MIDI step entry; tied-note length,
   movement and deletion; eight-level manual step undo/redo; divisions from 1/32 to 4 bars;
   loading a sound never touches your patterns
 - **Patterns:** eight independent 64-step banks per track, with up to four notes per step, ties,
@@ -299,12 +299,16 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   its pattern (and the next one while it waits for the bar), the bar playing and its level
 - **Lights:** one grammar for keys and buttons: dark nothing there, dim something there, bright happening now,
   breathing waiting. The keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up
-  while its note sounds, MIDI in too, and the idle buttons glow; REC breathes while armed and stopped, PLAY while
+  while its note sounds, MIDI in too, and the idle buttons glow; REC breathes while armed and waiting for the pattern start, PLAY while
   counting in; the HOME-held menu's LIGHTS sets the level (OFF: only what is pressed, engaged or selectable)
 - **USB:** class-compliant MIDI in and out; **Melodee Out** plays the computer through the FM-1,
-  **Melodee In** records four mono tracks (one channel per track, after level and before pan and
-  master gain/output protection). Both support 16/24-bit audio at 44.1 kHz; each can be disabled in the
-  HOME-held menu's USB AUDIO setting. No driver needed
+  **Melodee In** defaults to a stereo copy of the synth master, including track effects, shared effects,
+  pan, master level and output protection. The HOME-held menu's **USB INPUT** selects **STEREO** or
+  **4 TRACKS** (four isolated mono stems, after track effects/level, before shared effects and master).
+  Stereo skips stem collection and halves capture transfer/packing work; no extra effects pass or resampling.
+  Computer playback and the monitor click stay out of recordings. Both support 16/24-bit audio at 44.1 kHz;
+  each device can be disabled with **USB AUDIO**. Changing USB options reconnects automatically; reselect the
+  input in your DAW if needed. No driver needed
 - **Overclock:** the HOME-held menu's OVERCLOCK sets the clock the FM-1 starts at: **320 MHz** (the default, JieLi's
   own clock table) or **360 MHz** (M-VAVE's clock, what Melodee ran at before). 360 MHz gives more voices with the
   second core (18 budget units instead of 16). A new clock needs a restart: closing the menu offers one (unsaved song
@@ -326,7 +330,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **SELECT** turns the pages of the open section (both ways); **MASTER** sets the volume,
   **ALGORITHM** picks the track (T1–T4), and **PRESETS** browses its sounds. KNOB 1 moves across
   lists and grids, KNOB 2 moves down; on parameter pages KNOB 1–4 edit the four controls
-- **BPM**, the song's **SWG** and the selected track's playback **QNT** are on **SEQ > TEMPO**:
+- **BPM**, the song's **SWG** and the selected track's recording **QNT** are on **SEQ > TEMPO**:
   the project's, saved and loaded with it (power-on: the BOOT project's, the template's or 120);
   GLO > GLOBAL keeps CLK and TUNE, the device's
 - SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
@@ -339,7 +343,10 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   When editing synth steps, SCL and EDIT use the editing controls below instead.
 - **FX** opens the track's three insert pages; SELECT moves between the slots.
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
-  transport; **REC + PLAY** arms it and starts recording in one gesture
+  transport. While playing, REC waits for that track's next pattern start, records one pass and
+  automatically disarms at its end while playback continues. While stopped and armed, the first
+  key or MIDI note starts playback and records from step zero, skipping count-in.
+  **REC + PLAY** arms and starts in one gesture
 - On Stage, OCT− / OCT+ shift the octave (both: reset). Everywhere else OCT+ enters, opens or
   confirms and OCT− goes back. During synth step editing they move the step cursor
 - Save a sound: stop, tap SAVE, choose USER and a slot, press OCT+ to open its sheet with
@@ -466,11 +473,13 @@ recording stops. During live drum recording, the grid and lane keys stay in plac
 
 Armed live recording preserves played timing, velocity and each note's held duration, including
 repeated hits within one step and overlapping chord notes with different releases.
-**SEQ > TEMPO > QNT** defaults to **OFF**. Choose a division to snap playback to a swung grid;
-switch back to OFF to hear original timing again. The piano roll continues to show the original take.
+**SEQ > TEMPO > QNT** defaults to **OFF**, preserving captured timing. Choose a division to
+quantize the new take's onsets to a swung grid when recording finishes. Note lengths and velocities
+stay intact; the piano roll and playback use the committed timing. Changing QNT afterward chooses
+the next take's grid. An occupied manual step leaves the take intact and shows **QNT STEP OCCUPIED**.
 This is independent of scale/key-map QNT on SCL. Track GATE controls manually entered steps.
 
-Project saves, backups and bank copies preserve edited performance events and original timing.
+Project saves, backups and bank copies preserve edited performance events and their stored timing.
 User-preset patterns and the ordinary step-edit protocol carry only the grouped step overview;
 external overview edits can replace a recording group with ordinary step sequencing.
 
@@ -482,7 +491,7 @@ nominal steps are capped at that duration.
 
 Each track has **three serial FX inserts**, all usable together, including repeated
 effect types. Press **FX** and turn **SELECT** between **FX 1**, **FX 2** and **FX 3**.
-KNOB 1 chooses **OFF, PHASER, WIDTH, FORMANT, TAPE, SPIT, ECHO, ROOM, REVERB**;
+KNOB 1 chooses **OFF, PHASER, WIDTH, FORMANT, TAPE, SPIT, ECHO, ROOM, REVERB, CHORUS**;
 KNOB 2 sets **MIX**; KNOB 3 sets rate (Echo's time / Room's and Reverb's size);
 KNOB 4 sets depth, focus, jitter, bite, repeats or decay.
 The page follows `docs/design`: four rings, a track-colour picture, the normal
@@ -508,7 +517,14 @@ return; the rate conversion needs no additional buffer. Turning MIX to zero or
 selecting OFF fades to dry and releases the time-effect buffer. An allocation
 failure bypasses only that slot and shows MEMORY FULL; bypass and re-enable to retry.
 
-SELECT also visits **FX SEND** and **SEND FX 1–3**. SEND is the selected track's post-volume, post-pan amount into one shared stereo chain; RETURN blends that chain into the main output. Set a shared TYPE (for example REVERB), then raise SEND on the tracks that should feed it. Shared MIX defaults fully wet. Switching the shared chain off fades its return to silence. The three track inserts remain available, and preset changes keep SEND. One shared Reverb uses 4 KiB regardless of the number of sending tracks. Its processing uses CPU1 when available; CPU0 prepares the dry output, then joins before the final limiter. Four mono USB stems remain individual tracks; the stereo master includes the shared return.
+Chorus adds two smoothly modulated stereo delay taps at full **44.1 kHz**, using
+**2 KiB per slot** and integer sample processing. **RATE** sets the modulation
+speed, **DEPTH** sets pitch movement, and **MIX** blends the delayed signal with
+dry audio (start near 50%). Its delay is centred at 5.8 ms with up to +/-2.9 ms
+of movement. It has no feedback or extra filters; OFF / MIX 0 releases its buffer.
+For several tracks, use one Chorus in the shared send chain to save processing.
+
+SELECT also visits **FX SEND** and **SEND FX 1–3**. SEND is the selected track's post-volume, post-pan amount into one shared stereo chain; RETURN blends that chain into the main output. Set a shared TYPE (for example REVERB), then raise SEND on the tracks that should feed it. Shared MIX defaults fully wet. **FX SEND > MODE** chooses **CHAIN** (the default) or **SPLIT** (separate sends). SPLIT exposes **FX SENDS > SEND 1–3** for each track: each global slot receives its own mix of tracks and its return joins the dry output. SEND 1 shares the existing SEND level; SEND 2 and SEND 3 are remembered when returning to CHAIN. The routing choice and send levels are saved in projects and the boot template; older projects load as CHAIN. Changing MODE fades the return before resetting the global effect tails. Switching the shared chain off fades its return to silence. The three track inserts remain available, and preset changes keep SEND. One shared Reverb uses 4 KiB regardless of the number of sending tracks. Its processing uses CPU1 when available; CPU0 prepares the dry output, then joins before the final limiter. Four mono USB stems remain individual tracks; the stereo master includes the shared return.
 
 Old FX/slicer sends, IDs, motion and key assignments remain inert. Previous
 FUN16 projects, FBKK banks, TPLF templates and old user presets load with the new
@@ -519,7 +535,7 @@ pan; Width therefore has the same mono tradeoff on a stem.
 
 With **CLK TRS** or **CLK USB**, musical timing follows MIDI clock pulses directly, so tempo
 changes do not shift the pattern. DIV sets the pattern's step length, while TEMPO QNT independently
-selects the optional playback grid. The DRUM grid keeps its white-key step and black-key lane controls.
+selects the grid committed at recording end. The DRUM grid keeps its white-key step and black-key lane controls.
 
 ### Startup and compatibility
 

@@ -6,7 +6,7 @@
 #include "../hal/fm1_eq.h"
 #define FX_RATE (FS/4u)
 #define FX_REV_DIV 8u
-enum { FX_OFF, FX_PHASER, FX_WIDTH, FX_FORMANT, FX_TAPE, FX_SPIT, FX_ECHO, FX_ROOM, FX_REVERB, FX_COUNT };
+enum { FX_OFF, FX_PHASER, FX_WIDTH, FX_FORMANT, FX_TAPE, FX_SPIT, FX_ECHO, FX_ROOM, FX_REVERB, FX_CHORUS, FX_COUNT };
 typedef struct { float b0,b1,b2,a1,a2,z1,z2; } fx_bq_t;
 typedef struct {
     fx_bq_t q[2][4];
@@ -259,6 +259,32 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_time(fx_state_t *r
         fx_return(target,0,f->mono,i,f->echo,f->type==FX_ROOM?f->damp[1]+f->damp[3]:f->echo,&mix);
     }
     f->mix=mix;
+}
+/* Full-band stereo chorus: two fractional taps, no feedback or filters.
+ * 512 stereo int16 frames cost 2 KiB. The 5.8 ms centre and +/-2.9 ms
+ * modulation fit comfortably in the ring. Sines/divides run once per block;
+ * the SRAM sample loop only ramps, interpolates and mixes with integers.
+ * Reuse the idle reverb output fields for Q16 delay positions. */
+#define FX_CHORUS_BYTES 2048u
+static inline __attribute__((always_inline)) int32_t fx_chorus_read(const int16_t *mem,uint32_t pos,uint32_t ch,int32_t delay)
+{
+    uint32_t whole=(uint32_t)delay>>16,frac=((uint32_t)delay>>8)&255u;
+    uint32_t at=(pos-whole)&511u;
+    int32_t a=mem[at*2u+ch],b=mem[((at-1u)&511u)*2u+ch];
+    return (a*256+(b-a)*(int32_t)frac)>>6;
+}
+/* Use the existing POOL SRAM code section; low DSP SRAM is already full. */
+static __attribute__((noinline,section(".audio_text"))) void fx_chorus(fx_state_t *restrict f,int16_t *restrict mem,uint32_t n,const int32_t *step,int32_t target)
+{
+    int32_t l=f->rev_l,r=f->rev_r,mix=f->mix;uint32_t pos=f->pos;
+    for(uint32_t i=0;i<n;i++){
+        mem[pos*2u]=(int16_t)fx_limit(fx_left[i]>>2,-32767,32767);
+        mem[pos*2u+1u]=(int16_t)fx_limit(fx_right[i]>>2,-32767,32767);
+        l+=step[0];r+=step[1];
+        int32_t wl=fx_chorus_read(mem,pos,0,l),wr=fx_chorus_read(mem,pos,1,r);
+        fx_return(target,0,0,i,wl,wr,&mix);pos=(pos+1u)&511u;
+    }
+    f->pos=pos;f->rev_l=l;f->rev_r=r;f->mix=mix;
 }
 /* Eight-line orthogonal feedback tank, preceded by four input diffusers and
  * followed by two allpasses per output. Runs at FS/8 with input low-pass and
@@ -520,7 +546,7 @@ static void fx_slot_prepare(fx_plan_t *plan,uint32_t si,const int16_t *p)
 #endif
     int16_t *mem=0;
     if(f->type>=FX_ECHO){
-        uint32_t bytes=f->type==FX_ROOM?2048u:f->type==FX_REVERB?FX_REVERB_BYTES:8192u;
+        uint32_t bytes=f->type==FX_CHORUS?FX_CHORUS_BYTES:f->type==FX_ROOM?2048u:f->type==FX_REVERB?FX_REVERB_BYTES:8192u;
         if(!f->failed && !resource[RES_FX0+si].size){
             void *(*volatile allocate)(uint32_t,uint32_t)=fx_memory;mem=allocate(RES_FX0+si,bytes);if(!mem)f->failed=1;
         }else if(resource[RES_FX0+si].size)mem=resource[RES_FX0+si].ptr;
@@ -533,7 +559,14 @@ static __attribute__((noinline,section(".audio_text"))) int fx_slot_run(const fx
     if(!plan->active)return 0;
     fx_state_t *f=plan->f;int16_t *mem=plan->mem;int32_t target=plan->target;
     void (*volatile copy)(fx_state_t *,uint32_t)=fx_copy;copy(f,n);
-    if(f->type==FX_REVERB){
+    if(f->type==FX_CHORUS){
+        if(!n)return 1;
+        if(!f->age){f->rev_l=f->rev_r=256*65536;f->age=1;}
+        f->phase+=LFO_INC[f->rate]*n/CTL;
+        int32_t depth=f->character*2,delay=256*65536+fx_sine(f->phase)*depth;
+        int32_t step[2]={(delay-f->rev_l)/(int32_t)n,(512*65536-delay-f->rev_r)/(int32_t)n};
+        void (*volatile run)(fx_state_t *,int16_t *,uint32_t,const int32_t *,int32_t)=fx_chorus;run(f,mem,n,step,target);
+    }else if(f->type==FX_REVERB){
         /* Design the slow drift beside the other block-rate coefficients,
          * keeping sine lookup calls outside the small SRAM sample kernel. */
         int32_t drift[8];for(uint32_t k=0;k<8u;k++)drift[k]=fx_sine(f->phase*(k+1u)+k*0x23456789u)*f->character/1024;
@@ -587,9 +620,13 @@ static inline int fx_process(track_t *t,int32_t *b,uint32_t n)
     return result;
 }
 
-/* Shared send/return, post-fader tracks feed one chain. CPU0 and CPU1 never
+/* Shared send/return: one chain or three independent post-fader buses. CPU0 and CPU1 never
  * access this workspace concurrently; join before events or flash IO. */
 static int32_t fx_send_l[CTL],fx_send_r[CTL];
+static int32_t fx_send_extra_l[FX_SLOTS-1u][CTL],fx_send_extra_r[FX_SLOTS-1u][CTL];
+static int32_t fx_bus_sum_l[CTL],fx_bus_sum_r[CTL];
+static uint8_t fx_bus_separate;
+static int32_t fx_bus_slot_mix[FX_SLOTS];
 static uint32_t fx_bus_n;
 static inline __attribute__((always_inline)) uint32_t fx_send_gain(const track_t *t)
 {
@@ -601,13 +638,38 @@ static inline __attribute__((always_inline)) uint32_t fx_send_gain(const track_t
 static int fx_bus_result,fx_bus_pending;
 static int32_t fx_bus_mix,fx_bus_target;
 static fx_plan_t fx_bus_plan[FX_SLOTS];
+/* Fade the return before changing topology, then reset only the global histories.
+ * Inserts keep their state; separate send levels survive a round trip to CHAIN. */
+static void fx_bus_select(void)
+{
+    uint8_t separate=song.g[G_FXMODE]!=0;
+    if(separate==fx_bus_separate || fx_bus_mix)return;
+    fx_bus_separate=separate;
+    memset(fx_bus_slot_mix,0,sizeof fx_bus_slot_mix);
+    for(uint32_t slot=0;slot<FX_SLOTS;slot++)fx_state[NPART*FX_SLOTS+slot].epoch=fx_epoch-1u;
+}
 static void fx_bus_kernel(void *unused)
 {
     (void)unused;fx_bus_result=0;
 #if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
     uint32_t on=fx_profile_control>>30u,start=on?fm1_ticks():0;
 #endif
-    for(uint32_t slot=0;slot<FX_SLOTS;slot++)fx_bus_result|=fx_slot_run(&fx_bus_plan[slot],fx_bus_n);
+    if(fx_bus_separate){
+        memset(fx_bus_sum_l,0,fx_bus_n*sizeof *fx_bus_sum_l);memset(fx_bus_sum_r,0,fx_bus_n*sizeof *fx_bus_sum_r);
+        for(uint32_t slot=0;slot<FX_SLOTS;slot++){
+            if(!fx_bus_plan[slot].active){fx_bus_slot_mix[slot]=0;continue;}
+            const int32_t *l=slot?fx_send_extra_l[slot-1u]:fx_send_l,*r=slot?fx_send_extra_r[slot-1u]:fx_send_r;
+            memcpy(fx_left,l,fx_bus_n*sizeof *l);memcpy(fx_right,r,fx_bus_n*sizeof *r);
+            fx_bus_result|=fx_slot_run(&fx_bus_plan[slot],fx_bus_n);
+            int32_t gain=fx_bus_slot_mix[slot],target=fx_bus_plan[slot].target?32768:0;
+            for(uint32_t i=0;i<fx_bus_n;i++){
+                if(gain!=target)gain+=fx_limit(target-gain,-128,128);
+                fx_bus_sum_l[i]+=fx_scale(fx_left[i],(uint32_t)gain*2u);fx_bus_sum_r[i]+=fx_scale(fx_right[i],(uint32_t)gain*2u);
+            }
+            fx_bus_slot_mix[slot]=gain;
+        }
+        memcpy(fx_left,fx_bus_sum_l,fx_bus_n*sizeof *fx_left);memcpy(fx_right,fx_bus_sum_r,fx_bus_n*sizeof *fx_right);
+    }else for(uint32_t slot=0;slot<FX_SLOTS;slot++)fx_bus_result|=fx_slot_run(&fx_bus_plan[slot],fx_bus_n);
 #if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
     if(on){uint32_t elapsed=fm1_ticks()-start+fx_profile_bus_setup;fx_profile_ticks[0]+=elapsed;if(elapsed>fx_profile_max[0])fx_profile_max[0]=elapsed;fx_profile_blocks[0]++;}
 #endif
@@ -624,6 +686,7 @@ static int fx_bus_active(void)
 }
 static void fx_bus_start(uint32_t n)
 {
+    fx_bus_select();
     fx_bus_result=fx_bus_pending=0;fx_bus_target=0;fx_bus_n=n;if(!fx_bus_active())return;
 #if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
     uint32_t start=fm1_ticks();
@@ -632,6 +695,7 @@ static void fx_bus_start(uint32_t n)
     for(uint32_t slot=0;slot<FX_SLOTS;slot++)if(fx_bus_plan[slot].active && fx_bus_plan[slot].target){
         int32_t amount=fx_limit(song.g[G_FXRETURN],0,127);fx_bus_target=(amount+(amount==127))*256;break;
     }
+    if((song.g[G_FXMODE]!=0)!=fx_bus_separate)fx_bus_target=0;
     /* A later allocation may compact earlier handles; snapshot pointers only
      * after all three preparations have completed. */
     for(uint32_t slot=0;slot<FX_SLOTS;slot++)if(fx_bus_plan[slot].active && fx_bus_plan[slot].f->type>=FX_ECHO)fx_bus_plan[slot].mem=resource[RES_FX0+NPART*FX_SLOTS+slot].ptr;

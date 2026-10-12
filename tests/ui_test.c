@@ -2362,6 +2362,29 @@ static int test_layer(void)
                      ua_off_want == UA_OFF_IN);
     }
     ua_off = ua_off_want = 0;
+    ua_tracks = ua_tracks_want = 0;
+    ui_power_on(); hold(B_HOME); ui.menu_sel = MI_USB_INPUT; turn(EN_K1, 1);
+    ok = ua_tracks_want && !ua_tracks && ui.menu;
+    press(B_OCTUP); ok &= !ua_tracks_want && ui.menu;
+    turn(EN_K1, 1); hold(B_HOME); ua_tracks = ua_tracks_want;
+    {
+        persist_t p = {.magic = PERSIST_MAGIC, .panel = panel};
+        settings_export(&p); ua_tracks = ua_tracks_want = 0;
+        bad += check("USB INPUT menu and persisted four-track mode",
+                     ok && p.favorites.factory[15][26] == 0xA1u && settings_import(&p, sizeof p) && ua_tracks && ua_tracks_want);
+        p.favorites.factory[15][26] = 1;
+        bad += check("old/unknown USB INPUT setting defaults to stereo",
+                     settings_import(&p, sizeof p) && !ua_tracks && !ua_tracks_want);
+        settings_export(&p);
+        bad += check("stereo setting saves without changing PER5 layout",
+                     sizeof p == 604 && !p.favorites.factory[15][26]);
+        p.favorites.factory[15][26] = 0xA1u;
+        usb.up = 1; ua_cap_channels = 2;
+        bad += check("live restored USB mode waits for re-enumeration",
+                     settings_import(&p, sizeof p) && ua_tracks_want && !ua_tracks && ua_cap_channels == 2);
+        usb.up = 0;
+    }
+    ua_tracks = ua_tracks_want = 0;
 #endif    /* release-act: every page button acts when let go */
     {
         static const uint8_t PB[6] = {B_ENV, B_LFO, B_SCL, B_ARP, B_GLO, B_EDIT};

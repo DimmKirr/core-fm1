@@ -164,7 +164,7 @@ static uint32_t pr_held(void)
 }
 static int32_t pr_row_y(int32_t n) { return PR_Y0 + ((int32_t)proll.lo + PR_ROWS - 1 - n) * PR_RH; }
 /* NOTES draws original sample times on a timeline. Swing changes the grid
- * spacing; playback QNT never changes the displayed or selected take. */
+ * spacing; finishing a take with QNT updates its stored/displayed onset. */
 static void notes_window(const track_t *t, uint32_t period, uint32_t *a, uint32_t *b)
 {
     uint32_t base = notes_base(), end = base + notes_span();

@@ -4,7 +4,7 @@
 import argparse,json,time,sys
 from prophet_device import Device
 from usb_audio_stats import snapshot
-NAMES=('OFF','PHASER','WIDTH','FORMANT','TAPE','SPIT','ECHO','ROOM','REVERB')
+NAMES=('OFF','PHASER','WIDTH','FORMANT','TAPE','SPIT','ECHO','ROOM','REVERB','CHORUS')
 def u32(a):return sum(v<<(7*i) for i,v in enumerate(a))
 def profile(d,args=()):
     b=d.request(97,args)
@@ -54,8 +54,8 @@ def main():
     try:
         for extreme in (False,True):
             for tracks in (1,4):
-                for fx in range(9):run(d,[fx,0,0],tracks,extreme,a.seconds,a.bus,notes)
-                for fx in range(1,9):run(d,[fx,fx,fx],tracks,extreme,a.seconds,a.bus,notes)
+                for fx in range(len(NAMES)):run(d,[fx,0,0],tracks,extreme,a.seconds,a.bus,notes)
+                for fx in range(1,len(NAMES)):run(d,[fx,fx,fx],tracks,extreme,a.seconds,a.bus,notes)
                 run(d,[1,4,8],tracks,extreme,a.seconds,a.bus,notes);run(d,[3,6,8],tracks,extreme,a.seconds,a.bus,notes)
         # Keep the worst dense chain running long enough to expose deadlines.
         run(d,[8,8,8],4,True,a.sustain,a.bus,notes)

@@ -28,11 +28,11 @@ static int32_t batt_shown(void)
     return batt_level();
 }
 
-/* REC: filled, the selected track armed; outlined, another track armed */
+/* REC: filled, the selected track ready/recording; outlined, waiting or another track armed. */
 static void draw_rec_mark(int32_t x, uint16_t bg)
 {
     if (song.rec)
-        cv_icon_mid(x, H_HEAD / 2, 16, (song.rec >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
+        cv_icon_mid(x, H_HEAD / 2, 16, ((song.rec & ~song.rec_wait) >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
 }
 
 /* the battery: a 24 px icon (tools/gen_icons.py). The stock thresholds give 0..3 bars of 3; the font has 0..4 bars of 4:
@@ -227,7 +227,7 @@ static void draw_head(void)
     uint32_t sig, moved = 0;
     int16_t bpm = song.g[G_BPM];                        /* (read once: what is noted is what is drawn) */
     head_chip_text(chip);
-    sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + (uint32_t)(song.octave + 8) * 11u +
+    sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
           (ui.home ? 0u : ui.page * 2654435761u) + page_sheet() * 524287u;
@@ -257,7 +257,7 @@ static void draw_head(void)
     roll_text(ROLL_BPM, BPM_X, 3, b, ui.bpm_t ? T_ACCENT : T_TEXT);
     x = BPM_X + BPM_W + 2;                              /* (past the widest BPM) */
     if (song.rec) {                                     /* (12 px, as the transport) */
-        cv_icon_mid(x, H_HEAD / 2, 12, (song.rec >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, T_BG);
+        cv_icon_mid(x, H_HEAD / 2, 12, ((song.rec & ~song.rec_wait) >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, T_BG);
         x += 14;
     }
     if (seq_erase_active(TSEL)) {
@@ -866,7 +866,7 @@ static void draw_columns(void)
             unit = "%";
         } else {
             param_format(d, *vp, val, &unit);
-            if(d->names==N_FX && *vp==FX_REVERB)str_cpy(val,N_FX[FX_REVERB],sizeof val);
+            if(d->names==N_FX && (*vp==FX_REVERB || *vp==FX_CHORUS))str_cpy(val,N_FX[*vp],sizeof val);
         }
         draw_column(c, d->label, val, unit, (cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
                     !cz_ed_active(cz_patch[song.sel % NTRK].raw, cur_page()->id[c])) ||

@@ -182,6 +182,7 @@ static void ui_leds(void)
     uint32_t k, c, play, lights = settings_lights % LIGHTS_N, pdim = 0, pbr = 0;
     uint32_t fam = cur_fam();
     uint32_t armed = song.rec != 0u, rolling = song.playing != 0u, counting = (uint32_t)seq_counting();
+    uint32_t recording_now = (song.rec & ~song.rec_wait) && rolling && !counting && !chain.running;
     static uint8_t ready;
     if (!ready) {
         led_pos_init();
@@ -195,8 +196,8 @@ static void ui_leds(void)
         led_put(nl, panel.btn[layer_btn()], ((fm1_ms / 250u) & 1u) == 0u);
     led_put(nl, panel.btn[B_PLAY], rolling && !counting); /* steady transport state, independent of audio block rate; */
     led_put(nw, panel.btn[B_PLAY], counting);           /* counting in: waiting */
-    led_put(nl, panel.btn[B_REC], armed && rolling && !counting);   /* recording; armed, not yet: waiting */
-    led_put(nw, panel.btn[B_REC], armed && !(rolling && !counting));
+    led_put(nl, panel.btn[B_REC], recording_now);
+    led_put(nw, panel.btn[B_REC], armed && !recording_now);
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)(k >> 1));
@@ -306,9 +307,9 @@ static void tracks_edit(uint32_t slot, int32_t steps)
     motion_capture(t, (uint32_t)(vp - t->p), *vp);
 }
 
-/* REC tap on every page: arm / disarm live recording on the selected
- * track without navigating. PLAY starts the transport; REC + PLAY arms and starts together. On STEP, keys record live (at the
- * play head) instead of writing the cursor step */
+/* REC arms one pattern pass on the selected track without navigating. During
+ * playback it waits for loop zero; another tap cancels or finishes the take.
+ * On STEP, armed keys audition/record instead of writing the cursor step. */
 static void rec_tap(void)
 {
     uint8_t bit = (uint8_t)(1u << song.sel);
@@ -316,16 +317,22 @@ static void rec_tap(void)
         ui_message("[SEQ] TO RECORD");
         return;
     }
-    song.rec ^= bit;
+    fm1_irq_off();
+    rec_set(TSEL, !(song.rec & bit));
+    fm1_irq_on();
     ui.force = 1;                                     /* also refresh the status on MENU / ABOUT */
-    if ((song.rec & bit) && grid_on())
+    if (song.rec_wait & bit)
+        ui_message("WAITING FOR LOOP");
+    else if ((song.rec & bit) && grid_on())
         ui_message("LANE KEYS RECORD");               /* (the white keys stay the steps) */
     else if ((song.rec & bit) && !ui.home && cur_page()->graph == GR_ROLL)
         ui_message("KEYS RECORD LIVE");               /* (seq_entry pauses while armed and playing) */
+    else if (!(song.rec & bit))
+        ui_message("REC OFF");
 }
 
-/* REC + PLAY (PLAY pressed while REC is held): record on the selected track at once, armed and playing; REC's
- * release then does nothing (no tap, no hold) */
+/* REC + PLAY starts an armed track, or queues its next pattern pass if playback
+ * already runs. REC's release then does nothing (no tap, no hold). */
 static void rec_play(void)
 {
     uint8_t bit = (uint8_t)(1u << song.sel);
@@ -338,11 +345,13 @@ static void rec_play(void)
         ui_message("[SEQ] TO RECORD");
         return;
     }
-    song.rec |= bit;
+    fm1_irq_off();
+    rec_set(TSEL, 1);
+    fm1_irq_on();
     if (!song.playing && !seq_counting())
         transport_req = 1;
     ui.force = 1;
-    ui_message("RECORDING");
+    ui_message(song.rec_wait & bit ? "WAITING FOR LOOP" : "RECORDING");
 }
 
 /* SAVE + REC (either pressed while the other is held): the project back to its slot (project.c project_quick_save);
@@ -426,6 +435,7 @@ static void capture_take(void)
         r.step = (uint8_t)(actual | (view != actual ? 64u : 0u) | (!view && actual ? 128u : 0u));
         r.length = drum_track(t) ? 1u : 0u;
         fm1_irq_off();
+        recording_prune(t);
         /* Capturing an overlapping window again must not stack another voice
          * at an onset already kept in this bank. Distinct pitches and times
          * remain independent events; keep existing edits to the first take. */
@@ -512,7 +522,7 @@ static void autosave_poll(uint32_t active)
 }
 
 /* live recording into the selected track now: the STEP page's key entry pauses meanwhile */
-static int live_rec_sel(void) { return ((song.rec >> song.sel) & 1u) && (song.playing || seq_counting() || transport_req == 1u); }
+static int live_rec_sel(void) { return (song.rec >> song.sel) & 1u; }
 
 /* the OCT- / OCT+ dialog (ui_draw.c draws it); trk: the track or the slot it is about */
 /* the grid's page down (-1) / up (+1): the cursor to the same place on it (at most the last step) */
@@ -1196,6 +1206,7 @@ static void notes_delete_edit(void)
 
 static void step_delete_edit(void)
 {
+    if(cur_page()->graph==GR_ROLL&&bulk.on){notes_bulk_delete();return;}
     if (cur_page()->graph == GR_ROLL && notes_selected(TSEL) < RECORD_MAX) { notes_delete_edit(); return; }
     if (cur_page()->graph == GR_ROLL) {
         uint32_t start = notes_manual_start(TSEL);
@@ -1413,7 +1424,10 @@ static void page_tap(uint32_t b)
 static void ui_notices(void)
 {
     static uint32_t midi_t, midi_last;
+    if (ui.msg_t && str_eq(ui.msg, "WAITING FOR LOOP") && !(song.rec_wait & (1u << song.sel)))
+        ui_message(rec_on(TSEL) ? "RECORDING" : "REC OFF");
     if (motion_full) { motion_full = 0; ui_message("MOTION FULL"); }
+    if (recording_quant_blocked) { recording_quant_blocked = 0; ui_message("QNT STEP OCCUPIED"); }
     if (midi_hint) {                                    /* MIDI notes into a track that is not selected */
         uint32_t h = midi_hint;
         midi_hint = 0;
@@ -1534,7 +1548,7 @@ static int bulk_jog(int32_t delta)
     bulk.end=(uint16_t)to;ui.bulk_hold=0;oct_eat|=2u;ui.oct_t0|=2u;ui.force=1;ui_message(slots?"PRESETS SELECTED":"Moving..");return 1;
 }
 static void notes_bulk_copy(void){note_copy_arm();}
-static const sheet_row_t SHEET_NOTE_BULK[]={{"Move: KNOB 1",0,0,note_move_arm,0},{"Copy: KNOB 1",0,0,notes_bulk_copy,0},{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0},{"Clear selection",0,0,bulk_clear,0}};
+static const sheet_row_t SHEET_NOTE_BULK[]={{"Move: KNOB 1",0,0,note_move_arm,0},{"Copy: KNOB 1",0,0,notes_bulk_copy,0},{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0},{"Delete selected",0,0,notes_bulk_delete,0},{"Clear selection",0,0,bulk_clear,0}};
 static void notes_bulk_sheet_open(void){sheet_open("Selected notes","",SHEET_NOTE_BULK,NELEM(SHEET_NOTE_BULK));}
 
 /* Confirmed writes are infrequent; keep their dispatch out of every input frame. */
@@ -1585,9 +1599,13 @@ static void ui_confirm_accept(void)
         if (!chain_busy()) { sound_init_of(TSEL, TSEL->eng_req); ui_message("SOUND INIT"); }
     } else {
         track_t *t = &trk[ui.confirm_trk % NTRK];
-        load_begin(t, UNDO_PAT);
-        track_defaults_steps(t);
-        load_end(t);
+        if(recording_head[recording_owner(t)]<RECORD_MAX){
+            if(!note_clear_pattern(t))return;
+        }else{
+            load_begin(t, UNDO_PAT);
+            track_defaults_steps(t);
+            load_end(t);
+        }
         t->nheld = 0;                           /* and the latched arp chord */
         t->arp_phys = 0;
         if (kind == CF_CLEAR_TRK) {
@@ -1803,7 +1821,7 @@ static void ui_input(void)
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     if (step_page() && live_rec_sel() && !ui.step_mods) { /* armed: follow recording
                                                          * (not while ENV / SCL are held: a note edit) */
-        uint32_t idx = TSEL->seq_pos == 0x7FFFFFFFu ? 0u : TSEL->seq_idx;
+        uint32_t idx = !song.playing || TSEL->seq_pos == 0x7FFFFFFFu ? 0u : TSEL->seq_idx;
         if (ui.cursor != idx)
             cursor_set((int32_t)idx);
     }

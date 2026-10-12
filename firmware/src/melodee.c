@@ -25,7 +25,7 @@
 #endif
 #ifndef MELODEE_USB_AUDIO
 #define MELODEE_USB_AUDIO 1      /* USB audio (usb_audio.c): "Melodee Out" plays through the FM-1, "Melodee In"
-                                  * records the four tracks; 16 / 24 bit, 44.1 kHz. Needs EP2 / EP3: no CDC */
+                                  * records stereo master or four tracks; 16 / 24 bit, 44.1 kHz. Needs EP2 / EP3: no CDC */
 #endif
 #ifndef MELODEE_CDC
 #define MELODEE_CDC !MELODEE_USB_AUDIO   /* USB CDC-ACM serial console */

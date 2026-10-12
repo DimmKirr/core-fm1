@@ -5,8 +5,20 @@
 #include "fx.c"
 static int32_t part_buf[CTL], mix_l[CTL], mix_r[CTL];
 static uint8_t fx_send_on;
+static uint32_t fx_extra_gain[FX_SLOTS-1u];
+static __attribute__((noinline,section(".audio_text"))) void mix_extra_sends(uint32_t n)
+{
+    for(uint32_t i=0;i<n;i++){
+        int32_t l=mix_l[i]-fx_bus_sum_l[i],r=mix_r[i]-fx_bus_sum_r[i];
+        for(uint32_t slot=0;slot<FX_SLOTS-1u;slot++)if(fx_extra_gain[slot]){
+            fx_send_extra_l[slot][i]+=fx_scale(l,fx_extra_gain[slot]);fx_send_extra_r[slot][i]+=fx_scale(r,fx_extra_gain[slot]);
+        }
+    }
+}
 static inline __attribute__((always_inline)) void mix_add(int32_t l,int32_t r,uint32_t i,uint32_t send)
-{mix_l[i]+=l;mix_r[i]+=r;if(send){fx_send_l[i]+=fx_scale(l,send);fx_send_r[i]+=fx_scale(r,send);}}
+{
+    mix_l[i]+=l;mix_r[i]+=r;if(send){fx_send_l[i]+=fx_scale(l,send);fx_send_r[i]+=fx_scale(r,send);}
+}
 static volatile uint32_t kb_mask, kb_layer;
 static volatile uint8_t kb_lock;
 #define LIM_T 18000
@@ -172,6 +184,14 @@ static __attribute__((noinline,section(".dsp_text"))) void mix_fx_samples(track_
 }
 static void mix_part(track_t *t,uint32_t n)
 {
+    uint32_t extra=0;
+    if(fx_send_on && fx_bus_separate)for(uint32_t slot=0;slot<FX_SLOTS-1u;slot++){
+        uint32_t amount=(uint32_t)t->p[P_FXSEND2+slot];fx_extra_gain[slot]=(amount+(amount==127u))*512u;extra|=amount;
+    }
+    /* Reuse the return workspace until the worker starts. The difference is
+     * this track's exact post-fader/pan/solo contribution; CHAIN's sample loops
+     * stay unchanged and zero extra sends need no extra mixing pass. */
+    if(extra){memcpy(fx_bus_sum_l,mix_l,n*sizeof *mix_l);memcpy(fx_bus_sum_r,mix_r,n*sizeof *mix_r);}
     mod_begin(t);
     spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON);
     int rendered=track_render_audio(t,part_buf,n,0);
@@ -194,6 +214,7 @@ static void mix_part(track_t *t,uint32_t n)
         }
     }
     if(mod.on)mod_end(t);
+    if(extra){void (*volatile run)(uint32_t)=mix_extra_sends;run(n);}
 }
 static __attribute__((noinline,section(".dsp_text"))) void master_samples(int32_t *out,uint32_t n)
 {
@@ -218,8 +239,9 @@ static void mix_block(int32_t *out,uint32_t n)
     if(track_capture_on)memset(track_capture,0,n*NTRK*sizeof *track_capture);
 #endif
     memset(mix_l,0,n*sizeof *mix_l);memset(mix_r,0,n*sizeof *mix_r);
-    fx_send_on=(uint8_t)fx_bus_active();if(fx_send_on){memset(fx_send_l,0,n*sizeof *fx_send_l);memset(fx_send_r,0,n*sizeof *fx_send_r);}
     events_block(n);
+    fx_bus_select();fx_send_on=(uint8_t)fx_bus_active();if(fx_send_on){memset(fx_send_l,0,n*sizeof *fx_send_l);memset(fx_send_r,0,n*sizeof *fx_send_r);
+        if(fx_bus_separate){memset(fx_send_extra_l,0,sizeof fx_send_extra_l);memset(fx_send_extra_r,0,sizeof fx_send_extra_r);}}
     for(uint32_t i=0;i<NPART;i++)mix_part(&trk[i],n);
     fx_bus_start(n);
     /* Dry gain overlaps the shared wet processing; limiter sees their sum. */

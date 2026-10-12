@@ -9,7 +9,7 @@ static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "
 static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
-static const char *const N_FX[] = {"OFF", "PHASER", "WIDTH", "FORMANT", "TAPE", "SPIT", "ECHO", "ROOM", "REVERB"};
+static const char *const N_FX[] = {"OFF", "PHASER", "WIDTH", "FORMANT", "TAPE", "SPIT", "ECHO", "ROOM", "REVERB", "CHORUS"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
 static const char *const N_QUANT[] = {"OFF", "SNAP", "WHITE", "ALL", "MPC"};   /* Q_OFF .. Q_MPC (seq.c kb_map, midi_map) */
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
@@ -205,6 +205,8 @@ static const param_desc_t TP[P_COUNT] = {
     FMOP(1), FMOP(2), FMOP(3), FMOP(4),
 #undef FMOP
     [P_FXSEND] = PD("SEND", F_PCT, 0, 127, 0),
+    [P_FXSEND2] = PD("SEND 2", F_PCT, 0, 127, 0),
+    [P_FXSEND3] = PD("SEND 3", F_PCT, 0, 127, 0),
     [P_CHRD] = PE("CHRD", N_CHRD, 0),
     [P_VOIC] = PE("VOIC", N_VOIC, 0),
     [P_MPCDEG] = PD("DEG", F_INT, 1, 12, 1),         /* its max: the scale's notes (track_desc) */
@@ -251,15 +253,16 @@ static const param_desc_t GP[G_COUNT] = {
     [G_MFX3RATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
     [G_MFX3CHAR] = PD("CHAR", F_PCT, 0, 127, 64),
     [G_FXRETURN] = PD("RETURN", F_PCT, 0, 127, 100),
+    [G_FXMODE] = {"MODE", F_ENUM, 0, 1, 0, (const char *const []){"CHAIN", "SPLIT"}, 0},
 
 };
 
 static const param_desc_t *global_desc(uint32_t id)
 {
     if(param_master_fx(id) && (id-G_MFXTYPE)%FX_PARAMS>=2u){
-        static param_desc_t d;static const char *const character[]={"CHAR","DEPTH","DEPTH","FOCUS","JITTER","BITE","REPEAT","DECAY","DEPTH"};
-        uint32_t base=G_MFXTYPE+(id-G_MFXTYPE)/FX_PARAMS*FX_PARAMS,type=(uint32_t)clamp(song.g[base],0,8);d=GP[id];
-        if(id-base==3u)d.label=character[type];else if(type>=6u){d.label=type==6u?"TIME":"SIZE";d.fmt=F_PCT;}return &d;
+        static param_desc_t d;static const char *const character[]={"CHAR","DEPTH","DEPTH","FOCUS","JITTER","BITE","REPEAT","DECAY","DEPTH","DEPTH"};
+        uint32_t base=G_MFXTYPE+(id-G_MFXTYPE)/FX_PARAMS*FX_PARAMS,type=(uint32_t)clamp(song.g[base],0,NELEM(N_FX)-1);d=GP[id];
+        if(id-base==3u)d.label=character[type];else if(type>=6u && type<=8u){d.label=type==6u?"TIME":"SIZE";d.fmt=F_PCT;}return &d;
     }
     return &GP[id];
 }
@@ -268,11 +271,11 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
     if (param_fx(id) && ((id-P_FXTYPE)%FX_PARAMS)>=2u) {
         static param_desc_t fx_desc;
-        static const char *const character[] = {"CHAR", "DEPTH", "DEPTH", "FOCUS", "JITTER", "BITE", "REPEAT", "DECAY", "DEPTH"};
+        static const char *const character[] = {"CHAR", "DEPTH", "DEPTH", "FOCUS", "JITTER", "BITE", "REPEAT", "DECAY", "DEPTH", "DEPTH"};
         uint32_t base=P_FXTYPE+(id-P_FXTYPE)/FX_PARAMS*FX_PARAMS;
-        fx_desc=TP[id];uint32_t type=(uint32_t)clamp(t->p[base],0,8);
+        fx_desc=TP[id];uint32_t type=(uint32_t)clamp(t->p[base],0,NELEM(N_FX)-1);
         if(id-base==3u)fx_desc.label=character[type];
-        else if(type>=6u){fx_desc.label=type==6u?"TIME":"SIZE";fx_desc.fmt=F_PCT;}
+        else if(type>=6u && type<=8u){fx_desc.label=type==6u?"TIME":"SIZE";fx_desc.fmt=F_PCT;}
         return &fx_desc;
     }
     if (t->eng_req == 2u && id >= P_FM1_ATK && id <= P_FM4_LEVEL)
@@ -482,7 +485,8 @@ static const page_t PAGES[] = {
     {"FX 1", FAM_FX, SC_TRACK, GR_NONE, {P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR}},
     {"FX 2", FAM_FX, SC_TRACK, GR_NONE, {P_FX2TYPE, P_FX2MIX, P_FX2RATE, P_FX2CHAR}},
     {"FX 3", FAM_FX, SC_TRACK, GR_NONE, {P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR}},
-    {"FX SEND", FAM_FX, SC_GLOBAL, GR_NONE, {G_TRK_SEND, G_FXRETURN, 0xFF, 0xFF}},
+    {"FX SEND", FAM_FX, SC_GLOBAL, GR_NONE, {G_TRK_SEND, G_FXRETURN, G_FXMODE, 0xFF}},
+    {"FX SENDS", FAM_FX, SC_TRACK, GR_NONE, {P_FXSEND, P_FXSEND2, P_FXSEND3, 0xFF}},
     {"SEND FX 1", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFXTYPE, G_MFXMIX, G_MFXRATE, G_MFXCHAR}},
     {"SEND FX 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX2TYPE, G_MFX2MIX, G_MFX2RATE, G_MFX2CHAR}},
     {"SEND FX 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX3TYPE, G_MFX3MIX, G_MFX3RATE, G_MFX3CHAR}},
@@ -676,7 +680,10 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         *valp = 0;
         return 0;
     }
-    if(id==G_TRK_SEND){*valp=&TSEL->p[P_FXSEND];return track_desc(TSEL,P_FXSEND);}
+    if(id==G_TRK_SEND || (pg->scope==SC_TRACK && id==P_FXSEND)){
+        static param_desc_t d;*valp=&TSEL->p[P_FXSEND];d=*track_desc(TSEL,P_FXSEND);
+        if(song.g[G_FXMODE])d.label="SEND 1";return &d;
+    }
     if (id == G_TRK_RECQ) {                          /* (TEMPO's QNT: the selected track's recording quantise) */
         *valp = &TSEL->p[P_RECQ];
         return track_desc(TSEL, P_RECQ);

@@ -22,7 +22,7 @@ static uint64_t fx_signal(uint32_t type,int rate,int character,int mix,const cha
             if(frame%173u==0u && !i)b[i]+=18000;
         }
         int on=fx_process(t,b,CTL);
-        assert(resource[RES_FX0].size==(type==FX_ECHO && mix?8192u:type==FX_REVERB && mix?FX_REVERB_BYTES:type==FX_ROOM && mix?2048u:0u));
+        assert(resource[RES_FX0].size==(type==FX_ECHO && mix?8192u:type==FX_REVERB && mix?FX_REVERB_BYTES:type==FX_CHORUS && mix?FX_CHORUS_BYTES:type==FX_ROOM && mix?2048u:0u));
         for(uint32_t i=0;i<CTL;i++){
             int32_t l=on?fx_left[i]:b[i],r=on?fx_right[i]:b[i];
             assert(l>=-1000000 && l<=1000000 && r>=-1000000 && r<=1000000);
@@ -68,7 +68,7 @@ static void frozen_three_slots(void)
         if(k==0){ /* Old engine ID 112 shifts, a tagged native 112 must not. */
             motion_store_t m={.count=2,.on=1,.event={{0,112,10},{0,112,(MO_TAG_FM6<<8)|80}}};
             uint32_t off=68u+NTRK*(116u+2u+NSTEP*8u)+sizeof(chain_config_t);memcpy(b+off,&m,sizeof m);uint32_t h=proj_hash(b,n-4u);memcpy(b+n-4u,&h,4);
-            assert(proj_import(&proj_scratch,b,n));assert(proj_scratch.motion.event[0].param==113 && proj_scratch.motion.event[1].param==112 && proj_scratch.motion.event[1].value==((MO_TAG_FM6<<8)|80));
+            assert(proj_import(&proj_scratch,b,n));assert(proj_scratch.motion.event[0].param==P_E4 && proj_scratch.motion.event[1].param==112 && proj_scratch.motion.event[1].value==((MO_TAG_FM6<<8)|80));
         }
         assert(!memcmp(trk[0].p+P_FXTYPE,chain,sizeof chain));assert(!trk[0].p[P_FXSEND]);
         for(uint32_t j=0;j<3;j++)assert(!song.g[G_MFXTYPE+j*4] && song.g[G_MFXMIX+j*4]==127);
@@ -107,6 +107,72 @@ static void send_return(void)
     song.g[G_MFXTYPE]=FX_ECHO;fx_bus_start(CTL);fx_bus_join();assert(!fx_bus_target);master_samples(out,CTL);assert(fx_bus_mix==32768-CTL*128);
     song.g[G_FXRETURN]=0;for(uint32_t k=0;k<24;k++){fx_bus_start(CTL);fx_bus_join();master_samples(out,CTL);}assert(!fx_bus_mix);
     puts("Shared send/return: post-fader sum, no dry doubling when OFF, one 4KiB tank, preset independence, UI and project/template persistence: OK");
+}
+static void separate_sends(void)
+{
+    /* Frozen records are written by the preceding firmware, not this decoder. */
+    uint8_t b[PROJ_STORE_SIZE];
+    const char *paths[]={"tests/fixtures/fun19-send-chain.bin","tests/fixtures/tpli-send-chain.bin"};
+    for(uint32_t k=0;k<2;k++){
+        FILE *f=fopen(paths[k],"rb");assert(f);uint32_t n=fread(b,1,sizeof b,f);fclose(f);ui_power_on();
+        if(k){assert(tmpl_take(b,n));template_load();}else{assert(proj_import(&proj_scratch,b,n));assert(!project_restore_runtime(&proj_scratch));}
+        assert(!song.g[G_FXMODE] && TSEL->p[P_FXSEND]==81 && !TSEL->p[P_FXSEND2] && !TSEL->p[P_FXSEND3]);
+        assert(TSEL->p[P_E3]==clamp(42,track_desc(TSEL,P_E3)->min,track_desc(TSEL,P_E3)->max) && song.g[G_FXRETURN]==73 && song.g[G_MFXTYPE]==FX_REVERB);
+    }
+    ui_power_on();fx_bus_mix=0;song.g[G_FXMODE]=1;fx_bus_select();fx_send_on=1;
+    memset(mix_l,0,sizeof mix_l);memset(mix_r,0,sizeof mix_r);
+    memset(fx_send_l,0,sizeof fx_send_l);memset(fx_send_r,0,sizeof fx_send_r);
+    memset(fx_send_extra_l,0,sizeof fx_send_extra_l);memset(fx_send_extra_r,0,sizeof fx_send_extra_r);
+    memset(fx_bus_sum_l,0,sizeof fx_bus_sum_l);memset(fx_bus_sum_r,0,sizeof fx_bus_sum_r);
+    fx_extra_gain[0]=32768;fx_extra_gain[1]=65536;mix_add(4000,-3000,0,0);mix_extra_sends(CTL);
+    assert(mix_l[0]==4000 && mix_r[0]==-3000 && !fx_send_l[0] && !fx_send_r[0]);
+    assert(fx_send_extra_l[0][0]==2000 && fx_send_extra_r[0][0]==-1500 && fx_send_extra_l[1][0]==4000 && fx_send_extra_r[1][0]==-3000);
+    /* Each slot must see its own input and return exactly once, even with an
+     * inactive middle slot. Compare with separately rendered reference outputs. */
+    int32_t expected_l[CTL]={0},expected_r[CTL]={0};fx_state_t before[FX_SLOTS];
+    for(uint32_t slot=0;slot<FX_SLOTS;slot++){
+        song.g[G_MFXTYPE+slot*FX_PARAMS]=slot==1?FX_OFF:FX_PHASER;
+        int32_t *l=slot?fx_send_extra_l[slot-1]:fx_send_l,*r=slot?fx_send_extra_r[slot-1]:fx_send_r;
+        for(uint32_t i=0;i<CTL;i++){l[i]=(int32_t)(i*97+slot*303);r[i]=-(int32_t)(i*53+slot*197);}
+        fx_slot_prepare(&fx_bus_plan[slot],NPART*FX_SLOTS+slot,song.g+G_MFXTYPE+slot*FX_PARAMS);
+        before[slot]=fx_state[NPART*FX_SLOTS+slot];
+        if(!fx_bus_plan[slot].active)continue;
+        memcpy(fx_left,l,sizeof fx_left);memcpy(fx_right,r,sizeof fx_right);assert(fx_slot_run(&fx_bus_plan[slot],CTL));
+        for(uint32_t i=0;i<CTL;i++){expected_l[i]+=fx_scale(fx_left[i],(i+1u)*256u);expected_r[i]+=fx_scale(fx_right[i],(i+1u)*256u);}
+    }
+    for(uint32_t slot=0;slot<FX_SLOTS;slot++)fx_state[NPART*FX_SLOTS+slot]=before[slot];
+    fx_bus_start(CTL);fx_bus_join();assert(fx_bus_result);
+    assert(!memcmp(expected_l,fx_left,sizeof expected_l) && !memcmp(expected_r,fx_right,sizeof expected_r));
+    /* The real mixer routes only this track to slot 2 after volume and pan. */
+    ui_power_on();fx_bus_mix=0;song.g[G_FXMODE]=1;song.g[G_MFX2TYPE]=FX_PHASER;
+    host_preset(TSEL,ENGI_FM6,8);TSEL->p[P_SUS]=127;TSEL->p[P_LEVEL]=127;TSEL->p[P_PAN]=-64;
+    TSEL->p[P_FXSEND2]=127;trk_note_on(TSEL,60,100);int32_t probe[CTL*2];uint64_t send_energy=0;
+    for(uint32_t k=0;k<32;k++){
+        mix_block(probe,CTL);
+        for(uint32_t i=0;i<CTL;i++){
+            assert(!fx_send_l[i] && !fx_send_r[i] && !fx_send_extra_r[0][i] && !fx_send_extra_l[1][i] && !fx_send_extra_r[1][i]);
+            send_energy+=abs(fx_send_extra_l[0][i]);assert(probe[2*i]>=-32767 && probe[2*i]<=32767);
+        }
+    }
+    assert(send_energy>1000);TSEL->p[P_LEVEL]=0;
+    mix_block(probe,CTL);
+    for(uint32_t i=0;i<CTL;i++)assert(!fx_send_extra_l[0][i]);
+    TSEL->p[P_LEVEL]=127;
+    TSEL->p[P_FXSEND]=20;TSEL->p[P_FXSEND2]=71;TSEL->p[P_FXSEND3]=99;
+    apply_preset_to(TSEL,0);sound_init_of(TSEL,eng_idx(TSEL->eng_req));
+    assert(TSEL->p[P_FXSEND]==20 && TSEL->p[P_FXSEND2]==71 && TSEL->p[P_FXSEND3]==99);
+    project_t q;project_store_t wire;project_capture(&q);assert(proj_pack(&wire,&q) && proj_import(&proj_scratch,&wire,sizeof wire));
+    assert(proj_scratch.g[G_FXMODE]==1 && proj_scratch.t[0].p[P_FXSEND2]==71 && proj_scratch.t[0].p[P_FXSEND3]==99);
+    template_save();song.g[G_FXMODE]=0;TSEL->p[P_FXSEND2]=TSEL->p[P_FXSEND3]=0;template_load();
+    assert(song.g[G_FXMODE]==1 && TSEL->p[P_FXSEND2]==71 && TSEL->p[P_FXSEND3]==99);
+    go_title("FX SENDS");turn(EN_K2,1);turn(EN_K3,-1);assert(TSEL->p[P_FXSEND2]>71 && TSEL->p[P_FXSEND3]<99);
+    go_title("FX SEND");turn(EN_K3,-1);assert(!song.g[G_FXMODE]);
+    uint32_t inserts_epoch=fx_state[0].epoch;fx_bus_mix=32768;fx_bus_select();assert(fx_bus_separate);
+    int32_t out[CTL*2];for(uint32_t k=0;k<32;k++){fx_bus_start(CTL);fx_bus_join();master_samples(out,CTL);}
+    assert(!fx_bus_separate && fx_state[0].epoch==inserts_epoch && TSEL->p[P_FXSEND2]>71);
+    wire.raw[PROJ_FX_MODE_OFF]=2;uint32_t h=proj_hash(wire.raw,sizeof wire-4u);memcpy(wire.raw+sizeof wire-4u,&h,4);assert(!proj_import(&proj_scratch,&wire,sizeof wire));
+    ui_power_on();fx_bus_mix=0;fx_bus_select();
+    puts("Separate sends: independent inputs/returns, inactive-slot silence, routing fade, old chain imports, UI and project/template persistence: OK");
 }
 static void fx_chain_test(void)
 {
@@ -294,9 +360,60 @@ static void tape_smooth(void)
     }
     puts("Tape: maximum jitter/rate have smooth phase/filter transitions, bounded stereo output, no allocation and no denormal tail: OK");
 }
+static void chorus_test(void)
+{
+    _Static_assert(FX_REVERB==8 && FX_CHORUS==9,"stored FX IDs stay fixed");
+    /* A fully wet, depth-zero chorus preserves upper audio frequencies and
+     * independent stereo channels; unlike the other time FX it is full-rate. */
+    fx_state_t f={.type=FX_CHORUS,.rev_l=256*65536,.rev_r=256*65536,.mix=32768};
+    int16_t mem[FX_CHORUS_BYTES/2u]={0};int32_t step[2]={0},rng=31;
+    uint64_t dry=0,wet=0;
+    for(uint32_t block=0;block<3000u;block++){
+        uint32_t n=1u+block%CTL;
+        for(uint32_t i=0;i<n;i++){
+            int32_t x=8000*sine_i((block*CTL+i)*0x2e709de5u)/32768;
+            fx_left[i]=fx_dry_l[i]=x;fx_right[i]=fx_dry_r[i]=-x;
+            dry+=(int64_t)x*x;
+        }
+        fx_chorus(&f,mem,n,step,32768);
+        for(uint32_t i=0;i<n;i++){assert(abs(fx_left[i]+fx_right[i])<=4);wet+=(int64_t)fx_left[i]*fx_left[i];}
+    }
+    assert(wet>dry*98u/100u && wet<dry*102u/100u);
+    /* Hot output from preceding slots stays bounded, and no feedback means
+     * silence becomes exact within one ring, even after repeated wraps. */
+    for(uint32_t block=0;block<1000;block++){
+        for(uint32_t i=0;i<CTL;i++){fx_left[i]=fx_dry_l[i]=(int32_t)(noise32(&rng)%2000001u)-1000000;fx_right[i]=fx_dry_r[i]=-fx_left[i];}
+        fx_chorus(&f,mem,CTL,step,32768);
+        for(uint32_t i=0;i<CTL;i++)assert(abs(fx_left[i])<=131068 && abs(fx_right[i])<=131068);
+    }
+    for(uint32_t block=0;block<512u/CTL+2u;block++){
+        memset(fx_left,0,sizeof fx_left);memset(fx_right,0,sizeof fx_right);fx_chorus(&f,mem,CTL,step,32768);
+    }
+    for(uint32_t i=0;i<CTL;i++)assert(!fx_left[i] && !fx_right[i]);
+    ui_power_on();
+    for(uint32_t slot=0;slot<FX_SLOTS;slot++){
+        uint32_t b=P_FXTYPE+slot*FX_PARAMS,g=G_MFXTYPE+slot*FX_PARAMS;
+        trk[0].p[b]=song.g[g]=FX_CHORUS;trk[0].p[b+1]=100;
+        assert(str_eq(track_desc(&trk[0],b+2)->label,"RATE") && track_desc(&trk[0],b+2)->fmt==F_LFOHZ);
+        assert(str_eq(track_desc(&trk[0],b+3)->label,"DEPTH"));
+        assert(str_eq(global_desc(g+2)->label,"RATE") && global_desc(g+2)->fmt==F_LFOHZ);
+        assert(str_eq(global_desc(g+3)->label,"DEPTH"));
+    }
+    project_t q;project_store_t p;project_capture(&q);assert(proj_pack(&p,&q) && proj_import(&proj_scratch,&p,sizeof p));
+    template_save();memset(trk[0].p+P_FXTYPE,0,FX_SLOTS*FX_PARAMS*sizeof(int16_t));memset(song.g+G_MFXTYPE,0,FX_SLOTS*FX_PARAMS*sizeof(int16_t));template_load();
+    int32_t b[CTL]={0};assert(fx_process(&trk[0],b,CTL));fx_bus_start(CTL);fx_bus_join();assert(fx_bus_result);
+    for(uint32_t slot=0;slot<FX_SLOTS;slot++){
+        assert(proj_scratch.t[0].p[P_FXTYPE+slot*FX_PARAMS]==FX_CHORUS && proj_scratch.g[G_MFXTYPE+slot*FX_PARAMS]==FX_CHORUS);
+        assert(resource[RES_FX0+slot].size==FX_CHORUS_BYTES && resource[RES_FX0+NPART*FX_SLOTS+slot].size==FX_CHORUS_BYTES);
+        trk[0].p[P_FXTYPE+slot*FX_PARAMS]=song.g[G_MFXTYPE+slot*FX_PARAMS]=FX_OFF;
+    }
+    for(uint32_t k=0;k<24;k++){fx_process(&trk[0],b,CTL);fx_bus_start(CTL);fx_bus_join();}
+    for(uint32_t slot=0;slot<FX_SLOTS;slot++)assert(!resource[RES_FX0+slot].size && !resource[RES_FX0+NPART*FX_SLOTS+slot].size);
+    puts("Chorus: full-band independent stereo, bounded hot inputs, exact silent tail, 2 KiB/slot, RATE/DEPTH, insert/send persistence and bypass release: OK");
+}
 int main(int argc,char **argv)
 {
-    legacy();frozen_three_slots();send_return();fx_chain_test();reverb_tail();reverb_presence();reverb_rate_conversion();rate_and_pan();tape_smooth();
+    legacy();frozen_three_slots();send_return();separate_sends();fx_chain_test();reverb_tail();reverb_presence();reverb_rate_conversion();rate_and_pan();tape_smooth();chorus_test();
     uint64_t dry=fx_signal(FX_OFF,60,64,0,0);
     for(uint32_t mode=FX_PHASER;mode<FX_COUNT;mode++){
         assert(fx_signal(mode,60,64,0,0)==dry);
@@ -318,9 +435,12 @@ int main(int argc,char **argv)
     /* Exhaust all usable banks: fail dry, with no per-block allocation retry. */
     reset_fx();for(uint32_t id=0;id<RES_COUNT;id++)resource_release(id);
     for(uint32_t id=0;id<RES_FX0;id++)assert(id==4u || resource_get(id,id==0?163840u:id==1?20480u:id==2?4096u:2048u));
-    trk[0].p[P_FXTYPE]=FX_ECHO;trk[0].p[P_FXMIX]=127;int32_t b[CTL]={0};
-    assert(!fx_process(&trk[0],b,CTL));uint32_t fail=resource_failures;assert(fx_state[0].failed);
-    for(uint32_t k=0;k<100;k++)assert(!fx_process(&trk[0],b,CTL));assert(resource_failures==fail);
+    int32_t b[CTL]={0};
+    for(uint32_t mode=0;mode<2;mode++){
+        reset_fx();trk[0].p[P_FXTYPE]=mode?FX_CHORUS:FX_ECHO;trk[0].p[P_FXMIX]=127;
+        assert(!fx_process(&trk[0],b,CTL));uint32_t fail=resource_failures;assert(fx_state[0].failed);
+        for(uint32_t k=0;k<100;k++)assert(!fx_process(&trk[0],b,CTL));assert(resource_failures==fail);
+    }
     for(uint32_t id=0;id<RES_COUNT;id++)resource_release(id);
     ui_power_on();press(B_FX);assert(!ui.home && cur_page()->fam==FAM_FX && !ui.layer);
     turn(EN_K1,2);assert(TSEL->p[P_FXTYPE]==FX_WIDTH);turn(EN_K2,50);assert(TSEL->p[P_FXMIX]>0);

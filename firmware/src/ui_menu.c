@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee menu (HOME held): COLOR, HOLD (the layer threshold), LIGHTS (the keys' and buttons'
- * glow: ui_input.c ui_leds), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (the devices the host gets: IN+OUT, OUT, IN or OFF; usb.c ua_off_set),
+ * glow: ui_input.c ui_leds), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (IN+OUT, IN, OUT or OFF; usb.c ua_off_set),
+ * USB INPUT (stereo master or four track stems; usb.c ua_tracks_set),
  * OVERCLOCK (the boot clock: overclock.c; closing with a new clock asks to restart),
  * CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
  * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information. */
@@ -9,13 +10,13 @@
 #define MENU_HEAD 24                     /* the menu's own title strip (Stage and the pages: H_HEAD) */
 enum { MI_COLOR, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
-       MI_USB,
+       MI_USB, MI_USB_INPUT,
 #endif
        MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_ACCEL, MI_SCREEN, MI_CLOCK, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
-                                              "USB AUDIO",
+                                              "USB AUDIO", "USB INPUT",
 #endif
                                               "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY",
                                               "KNOB ACCEL", "SCREEN OFF", "OVERCLOCK", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
@@ -223,7 +224,7 @@ static void draw_menu(void)
     uint32_t i, pass, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
                             settings_hold * 3511u + settings_lights * 6151u + oc_get() * 104729u +
 #if MELODEE_USB_AUDIO
-                            ua_off_want * 92821u +
+                            ua_off_want * 92821u + ua_tracks_want * 324161u +
 #endif
                             song.rec * 65537u + song.sel * 13u +
                             (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u);
@@ -277,6 +278,7 @@ static void draw_menu(void)
             if (i == MI_CLOCK) value = OC_NAME[oc_get()];
             if (i == MI_LIGHTS) value = LIGHTS_NAME[settings_lights % LIGHTS_N];
 #if MELODEE_USB_AUDIO
+            if (i == MI_USB_INPUT) value = ua_tracks_want ? "4 TRACKS" : "STEREO";
             if (i == MI_USB) value = (const char *const[]){"In + Out", "In", "Out", "Off"}[ua_off_want & 3u];
 #endif
             if (i == MI_HOLD) {                         /* "0.4 s" */
@@ -357,6 +359,10 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
     }
 
 #if MELODEE_USB_AUDIO
+    if ((s != 0 || ok) && ui.menu == 1 && ui.menu_sel == MI_USB_INPUT) {
+        ua_tracks_set(s > 0 ? 1 : s < 0 ? 0 : !ua_tracks_want, fm1_ms);
+        ok = 0;
+    }
     if ((s != 0 || ok) && ui.menu == 1 && ui.menu_sel == MI_USB) {
         /* KNOB 1 steps IN+OUT IN OUT OFF, OCT+ steps and wraps; the host gets it once it rests (main.c) */
         uint32_t v = ua_off_want & 3u;

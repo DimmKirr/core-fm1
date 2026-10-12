@@ -46,6 +46,9 @@ static int settings_import(persist_t *p, int n)
     }
     memcpy(settings_glo, p->ext.glo, sizeof settings_glo);
 #if MELODEE_USB_AUDIO
+    uint8_t tracks = p->favorites.factory[15][26] == 0xA1u;
+    if (usb.up) ua_tracks_set(tracks, fm1_ms);    /* live backup restore: re-enumerate before changing stride */
+    else ua_tracks = ua_tracks_want = tracks;
     ua_off = ua_off_want = (uint8_t)p->ext.usb_off;    /* (usb_start, after this, builds the configuration) */
 #endif
     p->palette = palette_to_stored(palette_from_stored(p->palette));
@@ -89,6 +92,7 @@ static void settings_export(persist_t *p)
 #endif
 #if MELODEE_USB_AUDIO
     p->ext.usb_off = ua_off;
+    p->favorites.factory[15][26] = ua_tracks ? 0xA1u : 0u; /* tagged; old/unknown bytes default to stereo */
 #endif
     p->favorites.factory[15][27]=settings_screen;
     p->ext.boot = settings_boot;

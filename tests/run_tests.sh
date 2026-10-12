@@ -205,7 +205,7 @@ phys_ref() {
 
 # ------------------------------------------------------------------ tests ---
 # the longest first: they set the length of the run
-sound && t "FX performance: all effects, four-track mixer, shared send bus and 1024 ordered three-effect chains" fx_performance -O2 $FW -- "$OUT/fx_performance" full
+sound && t "FX performance: all effects, four-track mixer, shared send bus and ordered three-effect chains" fx_performance -O2 $FW -- "$OUT/fx_performance" full
 sound && t "FX: three-slot chains, reverb decay/density/rate conversion, smooth Tape, track ownership, dry bypass and frozen legacy storage" fx_test -O1 $FW
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
@@ -254,7 +254,7 @@ if core && [ $TABLES = 1 ]; then
     t "recording/performance tools and legacy migrations" performance_tools_test -O1 $FW
     t "USB/TRS clock, bend, sustain, ownership and panic recovery" midi_control_test -O1 $FW
     t "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" midi_timing_test -O1 $FW
-    t "MIDI recording: raw events, reversible quantization, independent releases, banks and capacity" recording_test \
+    t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
     t "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" seq_notes_test \
         -O1 $FW

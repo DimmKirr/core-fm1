@@ -439,7 +439,7 @@ static int up_store(uint32_t k, const char *name)
     r.np = P_COUNT;
     up_set_name(&r, k, name);
     for (i = 0; i < P_COUNT; i++)
-        up_set_value(&r, i, (param_fx(i) || i==P_FXSEND)?TP[i].def:motion_base_value(TSEL, i));
+        up_set_value(&r, i, (param_fx(i) || param_fx_send(i))?TP[i].def:motion_base_value(TSEL, i));
     if (r.engine == ENGI_CZ && TSEL->p[P_E7] == CZ_NATIVE) {
         r.ver = UP_VER_CZ;
         memcpy(r.packed, cz_patch[song.sel % NTRK].raw, CZ_BYTES);

@@ -706,16 +706,21 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
  * WIDTH explicitly names its two sides and the mono tradeoff. */
 static void pv_fx(void)
 {
-    if(cur_page()->id[0]==G_TRK_SEND){cv_text_on(12,8,&AF_X,"Track to shared FX",T_MID,T_PANEL);cv_text_on(12,45,&AF_X,"SEND: this track",T_THEME,T_PANEL);cv_text_on(12,65,&AF_X,"RETURN: all tracks",T_THEME,T_PANEL);return;}
+    if(cur_page()->id[0]==G_TRK_SEND || cur_page()->id[0]==P_FXSEND){
+        uint32_t sends=cur_page()->id[0]==P_FXSEND;
+        cv_text_on(12,8,&AF_X,song.g[G_FXMODE]?"Independent FX sends":"Track to shared FX",T_MID,T_PANEL);
+        cv_text_on(12,45,&AF_X,sends?"One level per effect":song.g[G_FXMODE]?"SEND 1: this track":"SEND: this track",T_THEME,T_PANEL);
+        cv_text_on(12,65,&AF_X,sends?"Returns join the dry mix":"RETURN: all tracks",T_THEME,T_PANEL);return;
+    }
     uint32_t base=cur_page()->id[0],master=cur_page()->scope==SC_GLOBAL,slot=(base-(master?G_MFXTYPE:P_FXTYPE))/FX_PARAMS;
     const int16_t *values=master?song.g:TSEL->p;uint32_t type=(uint32_t)clamp(values[base],0,FX_COUNT-1);
-    static const char *const hint[FX_COUNT]={"Dry signal","Moving notches","All-pass L / dry R","Random vowels","Phase / crossover jitter","Jumping resonance","Short lo-fi echoes","Small lo-fi space","Diffused stereo reverb"};
+    static const char *const hint[FX_COUNT]={"Dry signal","Moving notches","All-pass L / dry R","Random vowels","Phase / crossover jitter","Jumping resonance","Short lo-fi echoes","Small lo-fi space","Diffused stereo reverb","Stereo pitch shimmer"};
     int32_t mix=values[base+1u],cha=values[base+3u],py=50*16;
     cv_text_on(12,8,&AF_X,hint[type],T_MID,T_PANEL);
     for(int32_t x=0;x<208;x++){
         int32_t ph=(int32_t)(sine_i((uint32_t)x*0x06000000u)>>10);
         int32_t y=50*16;
-        if(type==FX_PHASER || type==FX_WIDTH)y+=ph*mix/9;
+        if(type==FX_PHASER || type==FX_WIDTH || type==FX_CHORUS)y+=ph*mix/9;
         else if(type==FX_FORMANT)y-=((ph+32)*mix)/15;
         else if(type==FX_TAPE || type==FX_SPIT)y+=(ph*((x*(cha+1)/32)%32))/4;
         else if(type>=FX_ECHO)y+=(ph*mix*(208-x))/1900;
@@ -730,7 +735,7 @@ static void pv_picture(void)
     uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u, i;
     int32_t pp = pic == 6u && song.playing ? (int32_t)(TSEL->seq_idx % (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP)) : -1;
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
-    if(pic==9u && cur_page()->id[0]!=G_TRK_SEND)sig^=(uint32_t)fx_state[(cur_page()->scope==SC_GLOBAL?NPART:song.sel%NPART)*FX_SLOTS+(cur_page()->id[0]-(cur_page()->scope==SC_GLOBAL?G_MFXTYPE:P_FXTYPE))/FX_PARAMS].failed*347u;
+    if(pic==9u && cur_page()->id[0]!=G_TRK_SEND && cur_page()->id[0]!=P_FXSEND)sig^=(uint32_t)fx_state[(cur_page()->scope==SC_GLOBAL?NPART:song.sel%NPART)*FX_SLOTS+(cur_page()->id[0]-(cur_page()->scope==SC_GLOBAL?G_MFXTYPE:P_FXTYPE))/FX_PARAMS].failed*347u;
     if (pic >= 5u) {                                    /* ARP, PATTERN: the keys and steps */
         sig ^= steps_hash(TSEL) + (song.playing ? 1u + TSEL->seq_idx * 257u : 0u) * 2246822519u;
         for (i = 0; i < TSEL->nheld && i < 16u; i++)

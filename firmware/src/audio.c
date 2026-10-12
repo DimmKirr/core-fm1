@@ -31,7 +31,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (mix.c), then Q15
     uint32_t i;
     mix_block(out, n);
 #if MELODEE_USB_AUDIO
-    /* the USB audio rings (usb_audio_stream.c): the track stems in, Melodee Out's playback into the output.
+    /* USB capture copies the finished master or optional stems; computer playback follows capture.
      * TIMER5 serves the endpoints nested in this render (main.c): only this short copy goes without IRQs,
      * stream resets and alternate changes included, not the synth and mixer work */
     fm1_irq_off();

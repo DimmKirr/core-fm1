@@ -38,8 +38,11 @@ static __attribute__((noinline)) void midi_clock_transport(uint32_t status, uint
         midi_clock.have_pulse = midi_clock.tempo_valid = 0;
         midi_clock.interval_time = 0;
         midi_clock.start_ms = ms;
-        if (!song.playing)
+        if (!song.playing) {
             motion_begin();
+            song.rec_wait = song.rec;
+            song.rec_pass = 0;
+        }
         song.playing = 1;
     } else if (status == 0xFCu) {
         seq_stop();

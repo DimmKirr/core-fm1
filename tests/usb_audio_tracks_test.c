@@ -22,7 +22,7 @@ static struct result render(uint32_t channel, int sliced, int variant)
         int32_t out[CTL * 2];
         track_t *t = &trk[channel];
         close(fd[0]);
-        usb.up=usb.config=1;usb.suspended=0;ua.cap_alt=1;
+        usb.up=usb.config=1;usb.suspended=0;ua.cap_alt=1;ua_cap_channels=4;
         host_tracks_init();
         for (uint32_t k = 0; k < NPART; k++) host_preset(&trk[k], HOST_SYNTH, 0);
         t->p[P_RESERVED33] = 60;
@@ -66,8 +66,69 @@ static struct result render(uint32_t channel, int sliced, int variant)
     return result;
 }
 
+/* Compare every captured sample with the real finished mixer output. Separate
+ * processes keep effect tails and limiter history identical between variants. */
+static struct result stereo_render(int insert, int send, uint32_t master)
+{
+    int fd[2], status;
+    struct result result = {2166136261u, 0, 0};
+    assert(pipe(fd) == 0);
+    pid_t child = fork();
+    assert(child >= 0);
+    if (!child) {
+        int32_t out[CTL * 2];
+        close(fd[0]);
+        host_tracks_init();
+        for (uint32_t k = 0; k < NPART; k++) host_preset(&trk[k], HOST_SYNTH, 0);
+        trk[0].p[P_PAN] = -40;
+        trk[0].p[P_FXTYPE] = insert ? FX_ECHO : FX_OFF;
+        trk[0].p[P_FXMIX] = 100;
+        trk[0].p[P_FXRATE] = 30;
+        trk[0].p[P_FXCHAR] = 80;
+        trk[0].p[P_FXSEND] = send ? 127 : 0;
+        song.g[G_MFXTYPE] = send ? FX_REVERB : FX_OFF;
+        song.g[G_MFXMIX] = 127;
+        song.g[G_FXRETURN] = 127;
+        song.master_q12 = master;
+        usb.up = usb.config = 1; usb.suspended = 0;
+        ua.cap_alt = 1; ua_cap_channels = 2;
+        for (uint32_t i = 0; i < CTL * NTRK; i++) track_capture[i] = 123456;
+        trk_note_on(&trk[0], 60, 100);
+        for (uint32_t block = 0; block < 2048; block++) {
+            mix_block(out, CTL);
+            assert(!track_capture_on);
+            for (uint32_t i = 0; i < CTL * NTRK; i++) assert(track_capture[i] == 123456);
+            ua.cw = ua.cr = 0;
+            ua_audio(out, 0, CTL, master);
+            assert(ua.cw == CTL);
+            for (uint32_t i = 0; i < CTL * 2; i++) {
+                assert(out[i] >= -32768 && out[i] <= 32767);
+                assert(ua.cap[i] == out[i]);
+                result.hash = (result.hash ^ (uint32_t)out[i]) * 16777619u;
+                result.energy += (int64_t)out[i] * out[i];
+                if (!(i & 1u)) result.monitor += abs(out[i] - out[i + 1u]);
+            }
+        }
+        assert(write(fd[1], &result, sizeof result) == sizeof result);
+        _exit(0);
+    }
+    close(fd[1]);
+    assert(read(fd[0], &result, sizeof result) == sizeof result);
+    close(fd[0]);
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    return result;
+}
+
 int main(void)
 {
+    struct result dry = stereo_render(0, 0, 4096);
+    struct result insert = stereo_render(1, 0, 4096);
+    struct result wet = stereo_render(1, 1, 4096);
+    assert(dry.energy && dry.monitor && insert.energy && wet.energy);
+    assert(dry.hash != insert.hash && insert.hash != wet.hash);
+    assert(stereo_render(1, 1, 0).energy == 0);
+    assert(stereo_render(1, 1, 2048).energy < wet.energy);
+    puts("USB stereo: exact post-insert/send/pan/master/limiter copy, no stem collection: OK");
     for (uint32_t ch = 0; ch < NTRK; ch++) {
         struct result dry = render(ch, 0, 0);
         assert(dry.energy && dry.monitor);

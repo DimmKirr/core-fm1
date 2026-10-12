@@ -73,7 +73,7 @@ typedef struct {
 enum {                          /* per-track parameters */
     P_LEVEL,
     P_ATK, P_DEC, P_SUS, P_REL,
-    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_RECQ,     /* P_RECQ: reserved field now used by sequencer playback QNT */
+    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_RECQ,     /* P_RECQ: reserved field now used by end-of-recording QNT */
     P_LRATE, P_LWAVE, P_LPHASE, P_LFADE,
     P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP,
     P_AMODE, P_ARATE, P_AOCT, P_AGATE,
@@ -99,7 +99,8 @@ enum {                          /* per-track parameters */
     P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR, /* new FX; legacy effect IDs remain inert */
     P_FX2TYPE, P_FX2MIX, P_FX2RATE, P_FX2CHAR,
     P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR,
-    P_FXSEND, /* post-fader send to the shared stereo FX bus; track-owned */
+    P_FXSEND, /* post-fader chain send, or send to slot 1 in separate mode */
+    P_FXSEND2, P_FXSEND3,
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -108,6 +109,7 @@ enum {                          /* per-track parameters */
 #define FX_CHAIN_COUNT (NPART+1u)
 #define FX_STATE_COUNT (FX_CHAIN_COUNT*FX_SLOTS)
 static int param_fx(uint32_t id) { return id>=P_FXTYPE && id<=P_FX3CHAR; }
+static int param_fx_send(uint32_t id) { return id>=P_FXSEND && id<=P_FXSEND3; }
 
 
 enum {                          /* global parameters */
@@ -125,6 +127,7 @@ enum {                          /* global parameters */
     G_MFX2TYPE, G_MFX2MIX, G_MFX2RATE, G_MFX2CHAR,
     G_MFX3TYPE, G_MFX3MIX, G_MFX3RATE, G_MFX3CHAR,
     G_FXRETURN,
+    G_FXMODE, /* 0: one shared serial chain; 1: independent slot sends */
     G_COUNT
 };
 static int param_master_fx(uint32_t id){return id>=G_MFXTYPE && id<=G_MFX3CHAR;}
@@ -410,6 +413,7 @@ typedef struct {
     uint8_t grid;                /* 1: the keys are the DRUM grid (ui.c grid_on): only the lane keys play (seq.c);
                                   * 2: NAME (ui_name.c): no key plays */
     uint8_t rec;                 /* live recording armed: bit per track */
+    uint8_t rec_wait, rec_pass;   /* waiting for loop zero, or recording one pattern pass */
     uint8_t sel;                 /* selected track 0..NTRK-1: keys, pages, editor */
     int8_t octave;
     uint32_t tick;               /* sub-blocks since play */

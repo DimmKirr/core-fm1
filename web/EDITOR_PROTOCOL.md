@@ -744,16 +744,18 @@ accents only. Full backups retain recorded gates.
 Track parameter **8**, previously the inert `P_ED_FX` field, is now `P_RECQ`: **OFF** (0),
 then the ten existing DIV values plus one (1/4 = 1, 1/16 = 3, 16T = 6, 4BAR = 10).
 P_COUNT stays 92 and P_E0 stays 84. This parameter is per track, survives sound loads, and
-is shown on SEQ > TIMING and the web sequencer. Scale QNT remains parameter 27. Old projects
+is shown on SEQ > TEMPO and the web sequencer. Scale QNT remains parameter 27. Old projects
 and templates initialize timing QNT to OFF. New TPLB templates retain it without changing size.
 Web library files use `TQNT` for parameter 8 and keep `QNT` for scale parameter 27, so older
 library files retain their scale mapping. The timing page appears only when the device advertises it.
 
-Live recording stores original note edges even when timing QNT is enabled. Playback alone rounds
-onsets to the nearest swung boundary of the selected division, with loop-end mapping to zero.
-Each note retains its captured duration; its release shifts with its quantized onset. Switching OFF
-restores original timing. Repeated hits within one step and independent chord releases are retained.
-Playback fires each recorded event at most once per loop, including when QNT changes mid-loop.
+Live recording captures original note edges. When the take finishes, timing QNT commits the new
+take's onsets to the nearest swung boundary of the selected division, with loop-end mapping to zero.
+Each note retains its captured duration; its release shifts with its committed onset. OFF leaves
+the take unchanged. Changing QNT afterward configures the next take without changing playback.
+Repeated hits within one step and independent chord releases are retained. A destination occupied
+by a manual step or its tie tail rejects the pass without modifying the take or the existing steps.
+Playback fires each stored event at most once per loop.
 
 FUN13 LE magic is `0x46554E3D`, size 12352. The original FM6/CZ payload offsets stay fixed.
 Header bytes 65 and 67 hold a 12-bit active-bank selection (four 3-bit bank ids, low byte at 65).

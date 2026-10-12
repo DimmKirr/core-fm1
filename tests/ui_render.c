@@ -387,7 +387,7 @@ static void state(void)                          /* a playing song with steps on
     oc_put(OC_OFF);
     memset(&tmpl, 0, sizeof tmpl);
 #if MELODEE_USB_AUDIO
-    ua_off_want = 0;
+    ua_off_want = 0; ua_tracks = ua_tracks_want = 0;
 #endif
     song.playing = 1;
     song.g[G_BPM] = 124;
@@ -440,7 +440,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_CONFIRM_SEQ, S_CONFIRM_PROJ, S_CONFIRM_USER, S_CONFIRM_MOTION, S_CONFIRM_ERASE,
        S_MENU, S_ABOUT, S_ABOUT_REC, S_ABOUT_CREDITS, S_ABOUT_END, S_UBOOT, S_CALIBRATION,
        S_BATT0, S_BATT1, S_BATT2, S_BATT3, S_BATT_USB, S_MOTION_REC, S_MOTION_OFF, S_SONG_HOME,
-       S_MENU_HOLD, S_MENU_USB, S_GLO_PEEK, S_GLO_ACTIVE, S_GLO_EXT, S_SCL_PEEK, S_SCL_ACTIVE, S_EDIT_PEEK, S_EDIT_ACTIVE, S_EDIT_USER, S_LAYER_HINT,
+       S_MENU_HOLD, S_MENU_USB, S_MENU_USB_STEREO, S_MENU_USB_TRACKS, S_GLO_PEEK, S_GLO_ACTIVE, S_GLO_EXT, S_SCL_PEEK, S_SCL_ACTIVE, S_EDIT_PEEK, S_EDIT_ACTIVE, S_EDIT_USER, S_LAYER_HINT,
        S_NAME_USER, S_NAME_TYPING, S_NAME_123, S_NAME_EMPTY, S_NAME_FULL, S_NAME_PLAYING, S_PROJECT_NAMED, S_SONG_NAMED,
        S_USER_FOOT,
 #if MELODEE_SLICE && SMP_USER_SLOTS
@@ -455,7 +455,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_PICKER_MODE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
        S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_REF_SHEET_NOTE, S_REF_SHEET_HIT, S_REF_MOTION,
        S_REF_SHEET_MOTION, S_REF_MOD, S_REF_PICKER_MOD, S_REF_ARP, S_REF_PATTERN,
-       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_MENU_CLOCK, S_CONFIRM_RESTART, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_SEND, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_COUNT };
+       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_MENU_CLOCK, S_CONFIRM_RESTART, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_SEND, S_FX_SEPARATE, S_FX_SENDS, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -463,7 +463,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "fm6_freq", "fm6_eg", "fm6_peg", "fm6_store", "cz1_env", "confirm_seq", "confirm_project", "confirm_user",
     "confirm_motion", "confirm_erase", "menu", "about", "about_rec", "about_credits", "about_end", "uboot", "calibration",
     "batt_0", "batt_1", "batt_2", "batt_3", "batt_usb", "motion_rec", "motion_off", "song_home",
-    "menu_hold", "menu_usb",
+    "menu_hold", "menu_usb", "menu_usb_stereo", "menu_usb_tracks",
     "layer_glo_peek", "layer_glo_active", "layer_glo_ext", "layer_scl_peek", "layer_scl_active", "layer_edit_peek",
     "layer_edit_active", "layer_edit_user", "layer_hint",
     "name_user", "name_typing", "name_123", "name_empty", "name_full", "name_playing", "project_named", "song_named",
@@ -475,7 +475,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
     "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long",
     "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "patterns", "patterns_stopped", "patterns_sheet", "patterns_copy", "patterns_replace", "patterns_delete", "project_new", "new_key", "new_roles",
-    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "menu_clock", "confirm_restart", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_bus1", "fx_bus2", "fx_bus3"};
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "menu_clock", "confirm_restart", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_separate", "fx_sends", "fx_bus1", "fx_bus2", "fx_bus3"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -1073,13 +1073,17 @@ static void setup(int s)
         trk[0].p[P_RESERVED36] = 127; trk[2].p[P_RESERVED36] = 1; trk[3].p[P_MUTE] = 1;
         song.rec = 1u | 8u; ui.hot_col = 3; ui.hot_t = 30;
         break;
-    case S_FX_PHASER: case S_FX_WIDTH: case S_FX_FORMANT: case S_FX_TAPE: case S_FX_SPIT: case S_FX_ECHO: case S_FX_ROOM: case S_FX_REVERB: case S_FX_FULL:
+    case S_FX_PHASER: case S_FX_WIDTH: case S_FX_FORMANT: case S_FX_TAPE: case S_FX_SPIT: case S_FX_ECHO: case S_FX_ROOM: case S_FX_REVERB: case S_FX_CHORUS: case S_FX_FULL:
         go_title("FX 1");TSEL->p[P_FXTYPE]=(int16_t)(s==S_FX_FULL?FX_ECHO:s-S_FX_PHASER+1);
         TSEL->p[P_FXMIX]=84;TSEL->p[P_FXRATE]=60;TSEL->p[P_FXCHAR]=72;
         if(s==S_FX_FULL)fx_state[(song.sel%NPART)*FX_SLOTS].failed=1;
         break;
     case S_FX_SEND:
         go_title("FX SEND");TSEL->p[P_FXSEND]=81;song.g[G_FXRETURN]=100;break;
+    case S_FX_SEPARATE:
+        song.g[G_FXMODE]=1;go_title("FX SEND");TSEL->p[P_FXSEND]=81;song.g[G_FXRETURN]=100;break;
+    case S_FX_SENDS:
+        song.g[G_FXMODE]=1;go_title("FX SENDS");TSEL->p[P_FXSEND]=50;TSEL->p[P_FXSEND2]=71;TSEL->p[P_FXSEND3]=99;break;
     case S_FX_BUS1: case S_FX_BUS2: case S_FX_BUS3:
         go_title(s==S_FX_BUS1?"SEND FX 1":s==S_FX_BUS2?"SEND FX 2":"SEND FX 3");
         for(uint32_t slot=0;slot<3;slot++){uint32_t b=G_MFXTYPE+slot*4;song.g[b]=slot==0?FX_REVERB:slot==1?FX_TAPE:FX_ECHO;song.g[b+1]=127;song.g[b+2]=90;song.g[b+3]=100;}break;
@@ -1209,6 +1213,8 @@ static void setup(int s)
     case S_MENU_HOLD: ui.menu = 1; ui.menu_sel = MI_HOLD; settings_hold = 2; break;
 #if MELODEE_USB_AUDIO
     case S_MENU_USB: ui.menu = 1; ui.menu_sel = MI_USB; ua_off_want = UA_OFF_IN; break;   /* (OUT only) */
+    case S_MENU_USB_STEREO: ui.menu = 1; ui.menu_sel = MI_USB_INPUT; ua_tracks_want = 0; break;
+    case S_MENU_USB_TRACKS: ui.menu = 1; ui.menu_sel = MI_USB_INPUT; ua_tracks_want = 1; break;
     case S_MENU_CLOCK: ui.menu = 1; ui.menu_sel = MI_CLOCK; oc_put(OC_MEDIUM); break;       /* OVERCLOCK at 360 MHz */
     case S_CONFIRM_RESTART: ui.confirm = CF_RESTART; break; /* the menu closed with a new clock */
 #endif

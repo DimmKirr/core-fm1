@@ -71,3 +71,7 @@ fx_up 141
 fx_time 249
 fx_reverb 1016
 mix_fx_samples 82
+mix_extra_sends 94
+fx_bus_kernel 267
+# Full-rate stereo chorus: two integer taps; no sample-loop calls or divides.
+fx_chorus 97
