@@ -1,0 +1,55 @@
+FM Lab -- audio ISR load, measured on the device
+================================================
+
+How
+---
+Flash the build, select a voice, press FX to clear PK, then:
+
+    python tools/load_test.py            # 1, 2, 4, 6, 8 notes held, 10 s each
+
+Read CPU (smoothed) and PK (worst single block) off the bottom of the screen.
+Both are a percentage of the budget: the ISR must render HALF_FRAMES (256) before
+the DMA plays them, which at FS 44100 is 5804 us. Over 100 % means it cannot keep up.
+
+Measured
+--------
+2026-10-11, FM-1 hardware, FM-1_970, DX_LG_N 6, NV 8, voice 6 BRASS
+(algorithm 22, all six operators sounding, four carriers, sustains while held --
+the worst case among the factory voices):
+
+    8 notes held     CPU ~26 %     PK 33 %
+
+So roughly 3.3 % of the ISR budget per six-operator voice, and eight voices leave
+about three quarters of the budget unused. No red line, no shed voices, no glitching.
+
+This agrees with sloopDX, which measured 65 % for 14 voices that each also carry a
+filter and an amp envelope (14 x 3.3 % = 46 % for the FM alone, the rest theirs).
+
+Editing while it sounds (step 3)
+--------------------------------
+Same day, same voice, with the parameter editor in. A knob detent copies the 156
+bytes, publishes them, and makes the ISR run dx_update over every sounding voice,
+so the worst case is eight notes held while a knob is spun as fast as it will go:
+
+    8 notes held                     CPU 26 %   PK 32 %
+    8 notes + LEVEL spun hard        CPU 26 %   PK 32 %
+    8 notes + ALGORITHM spun hard    CPU 26 %   PK 33 %
+
+Editing is free, to within the resolution of the meter. That is the point of
+dx_update: it recomputes the operator rates and levels but leaves every phase and
+envelope where it stood, so it is a few hundred cycles per voice and never a
+retrigger. Spinning ALGORITHM costs the extra 1 % because it also re-reads which
+operators are carriers.
+
+What it means
+-------------
+NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better
+spent on what the instrument is for (drawing envelopes, the algorithm, operator
+levels) than on more voices.
+
+Watch this number again after:
+  - raising NV
+  - raising CV_MAX / drawing more per frame (the UI steals from the same CPU)
+  - anything per-sample added to app_audio
+  - DX_LG_N changed from 6 (smaller blocks cost more per sample)
+  - anything that makes a knob detent do more than publish 156 bytes
