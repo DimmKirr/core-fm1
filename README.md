@@ -12,7 +12,7 @@ It saves a complete backup first. If your firmware cannot export one, you can se
 **Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.2.1** ([what's new](#whats-new-in-121)).
+**Melodee 1.3.0** ([what's new](#whats-new-in-130)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -26,6 +26,33 @@ runs Felucca.
   into a computer; choose **Synth only** in the installer, edit it with its own
   [synth editor](https://keremimo.github.io/melodee/webapp/synth-editor/) ([BUILDING.md](BUILDING.md#synth-only-firmware))
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.3.0
+
+This release adds track and shared effects, one-pass recording, selectable USB capture,
+and an optional autosave setting. Standard (dual-core) and Single core firmware are
+available in the installer and release downloads.
+
+- **Effects:** three inserts per track and a shared three-slot return, with independent
+  sends. Choose Phaser, Width, Formant, Tape, Spit, Echo, Room, Reverb or Chorus.
+  Effects save with projects and templates; sound changes preserve the track's effects.
+- **One-pass recording:** arm a track before PLAY to record from step zero, or arm it
+  during playback to record at its next pattern start. Recording ends after one pass.
+  While stopped and armed, the first key or MIDI note starts and records immediately.
+  SEQ > TEMPO > QNT quantizes the new take when recording ends; OFF keeps played timing.
+- **Note editing:** bulk deletion includes recorded notes, and pattern clearing removes
+  manual notes, recorded notes and motion together.
+- **USB capture:** stereo master capture is the default, including track and shared
+  effects. Hold HOME and choose USB INPUT > 4 TRACKS for isolated mono stems.
+- **Optional autosave:** hold HOME and set AUTOSAVE to OFF to keep project saves manual.
+  It defaults ON, remembers the choice across power-offs, and leaves manual SAVE working.
+- **Clock choice:** the HOME menu's OVERCLOCK chooses 320 MHz (default) or 360 MHz for
+  the next start. A CPU fault at 360 MHz returns the device to 320 MHz.
+- **Installer options:** stable, next nightly and the separate synth-only firmware
+  remain selectable, with Standard and Single core variants for each.
+- **Compatibility:** earlier Melodee project and template layouts load with their
+  effect routing preserved. Back up before upgrading; older firmware may not reproduce
+  the new effects and recording behavior.
 
 ## What's new in 1.2.1
 
