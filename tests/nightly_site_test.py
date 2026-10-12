@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Nightly site generation preserves releases/editor and rejects mismatched builds."""
+"""Nightly and synth-only site generation preserves releases/editor and rejects mismatched builds."""
 import hashlib
 import json
 import sys
@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
 from make_site import main
 from publish_nightly import publish
+from publish_synth import publish as publish_synth
 
 
 def package(path, product, variant):
@@ -51,6 +52,50 @@ class NightlySite(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     publish(site, str(normal), str(other), "next-abcdef0", "abcdef0" * 5 + "abcde", "2026-10-11T02:00:00Z")
                 self.assertEqual(hashlib.sha256((site / "webapp/installer/index.html").read_bytes()).digest(), before)
+
+    def test_synth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dual = package(root / "release.fwsc", "FM-1_91010", 1)
+            single = package(root / "single.fwsc", "FM-1_91010", 2)
+            normal = package(root / "next.fwsc", "FM-1_900", 3)
+            slow = package(root / "slow.fwsc", "FM-1_900", 4)
+            synth = package(root / "synth.fwsc", "FM-1_900", 6)
+            synth1 = package(root / "synth-1core.fwsc", "FM-1_900", 7)
+            web = root / "synth-web"
+            web.mkdir()
+            for f in ("editor.html", "fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
+                (web / f).write_text("synth " + f)
+            site = root / "site"
+            main(dual, single, "1.1.0", site)
+            editor = site / "webapp/editor/index.html"
+            editor.write_text("existing published editor")
+            installer = site / "webapp/installer/index.html"
+            self.assertIn('"synth": null', installer.read_text())
+            commit = "1234567" * 5 + "12345"
+            publish_synth(site, str(synth), str(synth1), "synth-1234567", commit, "2026-10-12T08:00:00Z", str(web))
+            self.assertEqual(editor.read_text(), "existing published editor")
+            self.assertEqual((site / "webapp/synth-editor/index.html").read_text(), "synth editor.html")
+            self.assertEqual((site / "webapp/synth-editor/fm1backup.js").read_text(), "synth fm1backup.js")
+            manifest = json.loads((site / "firmware/synth.json").read_text())
+            self.assertEqual((manifest["product"], manifest["branch"], manifest["commit"]), ("FM-1_900", "synth-only", commit))
+            self.assertIn('"single": "../../firmware/melodee-synth-1core.fwsc"', installer.read_text())
+            # A nightly run and a regenerated release both keep the synth-only firmware.
+            publish(site, str(normal), str(slow), "next-abcdef0", "abcdef0" * 5 + "abcde", "2026-10-11T02:00:00Z")
+            main(dual, single, "1.1.0", site, installer_only=True)
+            self.assertEqual((site / "firmware/melodee-synth.fwsc").read_bytes(), synth.read_bytes())
+            self.assertEqual((site / "firmware/melodee-synth-1core.fwsc").read_bytes(), synth1.read_bytes())
+            self.assertEqual((site / "firmware/melodee-nightly-1core.fwsc").read_bytes(), slow.read_bytes())
+            html = installer.read_text()
+            self.assertIn('"version": "synth-1234567"', html)
+            self.assertIn('"editor": "../synth-editor/"', html)
+            self.assertIn('"single": "../../firmware/melodee-nightly-1core.fwsc"', html)
+            before = hashlib.sha256(installer.read_bytes()).digest()
+            wrong = package(root / "wrong.fwsc", "FM-1_9010", 8)
+            for other in (wrong, synth):
+                with self.assertRaises(SystemExit):
+                    publish_synth(site, str(synth), str(other), "synth-1234567", commit, "2026-10-12T08:00:00Z", str(web))
+                self.assertEqual(hashlib.sha256(installer.read_bytes()).digest(), before)
 
 
 if __name__ == "__main__":

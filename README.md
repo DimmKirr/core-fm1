@@ -22,6 +22,9 @@ runs Felucca.
 
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
+- Synth only (optional): a one-track sound module build without the sequencer, for playing and recording
+  into a computer; choose **Synth only** in the installer, edit it with its own
+  [synth editor](https://keremimo.github.io/melodee/webapp/synth-editor/) ([BUILDING.md](BUILDING.md#synth-only-firmware))
 - Build: [BUILDING.md](BUILDING.md)
 
 ## What's new in 1.2.1

@@ -1468,7 +1468,10 @@ async function installerBuilds() {
     .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",
       pkg:{dual:"melodee-1.0.2.fwsc",single:"melodee-1.0.2-1core.fwsc"},
       nightly:{version:"next-abcdef0",product:"FM-1_900",commit:"abcdef0123456789abcdef0123456789abcdef0123",builtAt:"2026-10-11T02:00:00Z",
-        pkg:{dual:"melodee-nightly.fwsc",single:"melodee-nightly-1core.fwsc"}}}));
+        pkg:{dual:"melodee-nightly.fwsc",single:"melodee-nightly-1core.fwsc"}},
+      synth:{version:"synth-1234567",product:"FM-1_900",branch:"synth-only",commit:"1234567890abcdef1234567890abcdef12345678",
+        builtAt:"2026-10-12T08:00:00Z",pkg:{dual:"melodee-synth.fwsc",single:"melodee-synth-1core.fwsc"},editor:"../synth-editor/"}}));
+  const ALL = ["dual", "single", "nightly-dual", "nightly-single", "synth-dual", "synth-single"];
   const fetched = [], installed = [], elements = new Map();
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, {checked:id === "build-dual", disabled:false, textContent:"", value:0, listeners:{},
@@ -1480,7 +1483,7 @@ async function installerBuilds() {
     document:{documentElement:{}, querySelectorAll:() => [], getElementById:element},
     window:{addEventListener() {}},
     fetch:async (url) => { fetched.push(url); return {ok:true, arrayBuffer:async () => new Uint8Array(Buffer.from(url)).buffer}; },
-    productOf:(pkg) => String.fromCharCode(...pkg).includes("nightly") ? "FM-1_900" : "FM-1_91002", logicalImage:(pkg) => String.fromCharCode(...pkg),
+    productOf:(pkg) => /nightly|synth/.test(String.fromCharCode(...pkg)) ? "FM-1_900" : "FM-1_91002", logicalImage:(pkg) => String.fromCharCode(...pkg),
     Updater:class { async find() { return null; } async install(image, product) { installed.push([image, product]); } },
   });
   vm.runInContext(script, context);
@@ -1499,7 +1502,7 @@ async function installerBuilds() {
   ok(fetched.length === 2 && installed[1][0] === "melodee-1.0.2.fwsc", "installer: back to standard, each package fetched once");
   const revision = "abcdef0123456789abcdef0123456789abcdef0123";
   for (const [kind, file, tag] of [["nightly-dual", "melodee-nightly.fwsc", "dual core"], ["nightly-single", "melodee-nightly-1core.fwsc", "single core"]]) {
-    for (const k of ["dual", "single", "nightly-dual", "nightly-single"]) element("build-" + k).checked = k === kind;
+    for (const k of ALL) element("build-" + k).checked = k === kind;
     await element("build-" + kind).listeners.change();
     ok(element("status").textContent === `Melodee next-abcdef0 (nightly, ${tag})`, "installer: nightly label uses its own source version");
     await element("go").listeners.click();
@@ -1507,10 +1510,25 @@ async function installerBuilds() {
     ok(image === file + "?commit=" + revision && product === "FM-1_900", "installer: each nightly installs the chosen package with its own identity");
   }
   ok(!element("nightly-options").hidden && element("nightly-info").textContent.includes("abcdef0"), "installer: nightly source and build timestamp are visible");
-  for (const k of ["dual", "single", "nightly-dual", "nightly-single"]) element("build-" + k).checked = k === "dual";
+  for (const k of ALL) element("build-" + k).checked = k === "dual";
   await element("build-dual").listeners.change();
   await element("go").listeners.click();
   ok(installed.at(-1)[1] === "FM-1_91002" && fetched.length === 4, "installer: returning from nightly restores release identity without refetching");
+  const synthRevision = "1234567890abcdef1234567890abcdef12345678";
+  for (const [kind, file, tag] of [["synth-dual", "melodee-synth.fwsc", "dual core"], ["synth-single", "melodee-synth-1core.fwsc", "single core"]]) {
+    for (const k of ALL) element("build-" + k).checked = k === kind;
+    await element("build-" + kind).listeners.change();
+    ok(element("status").textContent === `Melodee synth-1234567 (synth only, ${tag})`, "installer: the synth-only label uses its own source version");
+    await element("go").listeners.click();
+    const [image, product] = installed.at(-1);
+    ok(image === file + "?commit=" + synthRevision && product === "FM-1_900", "installer: each synth-only build installs the chosen package with its own identity");
+  }
+  ok(!element("synth-options").hidden && element("synth-info").textContent === "synth-only · 1234567 · 2026-10-12T08:00:00Z",
+    "installer: the synth-only option shows its branch, source and build time");
+  for (const k of ALL) element("build-" + k).checked = k === "dual";
+  await element("build-dual").listeners.change();
+  await element("go").listeners.click();
+  ok(installed.at(-1)[1] === "FM-1_91002" && fetched.length === 6, "installer: returning from synth only restores the release without refetching");
 }
 async function installerBuildRaces() {
   const script = readFileSync(join(HERE, "index_pkg.html"), "utf8").match(/<script type="module">([\s\S]*?)<\/script>/)[1]
@@ -1530,6 +1548,7 @@ async function installerBuildRaces() {
   const finish = url => pending.get(url)({ok:true,arrayBuffer:async()=>Uint8Array.from(Buffer.from(url)).buffer});
   const tick = () => new Promise(resolve=>setImmediate(resolve));
   vm.runInContext(script, context);
+  ok(element("synth-options").hidden && element("nightly-options").hidden, "installer: no synth-only or nightly choices on a site without them");
   element("build-dual").checked=false;element("build-single").checked=true;
   const single = element("build-single").listeners.change();
   ok(element("go").disabled,"installer: Install is disabled while the selected package loads");
