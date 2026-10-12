@@ -102,7 +102,7 @@ static int up_drum_raw(const up_rec_t *r,drum_patch_t *p)
 
 static int up_valid(const up_rec_t *r)
 {
-    if (r->used == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
+    if (r->used == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
     if (!(r->used == UP_USED && (r->ver == UP_VER || r->ver == UP_VER_GRID || (r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= UP_PMAX * 2u && r->name[0])) return 0;
     for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;

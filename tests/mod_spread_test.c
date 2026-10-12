@@ -351,8 +351,8 @@ static void test_spread(void)
     char msg[200];
 
     check("SPRD: a track parameter 0..127, default 0 (as before), before the engine's (P_E0 96, P_COUNT 104)",
-          TP[P_SPRD].min == 0 && TP[P_SPRD].max == 127 && TP[P_SPRD].def == 0 && P_SPRD + 1 == P_E0 && P_E0 == 96 &&
-          P_COUNT == 104 && str_eq(TP[P_SPRD].label, "SPRD") && motion_param(P_SPRD));
+          TP[P_SPRD].min == 0 && TP[P_SPRD].max == 127 && TP[P_SPRD].def == 0 && P_SPRD + 1 == P_FXTYPE && P_FXCHAR + 1 == P_E0 && P_E0 == 100 &&
+          P_COUNT == 108 && str_eq(TP[P_SPRD].label, "SPRD") && motion_param(P_SPRD));
     h1 = phrase_child(HOST_SYNTH, 1, sp_mono0);
     h2 = phrase_child(HOST_SYNTH, 1, sp_mono127);
     check("MONO: SPRD 127 plays bit for bit as SPRD 0 (one voice: on PAN)", h1 && h1 == h2);

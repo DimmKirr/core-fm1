@@ -33,7 +33,7 @@ static int led_get(const uint8_t *nl, uint32_t id)
 }
 
 static const uint8_t FAM_BTN[FAM_COUNT] = {B_HOME, B_ENV, B_LFO, B_SCL, B_EDIT, B_GLO, B_SAVE,
-                                           B_ARP, B_SEQ, B_GLO};   /* GLO: mixer + global settings; REC is transport */
+                                           B_ARP, B_SEQ, B_GLO, B_FX};   /* GLO: mixer + global settings; REC is transport */
 
 static uint32_t cur_fam(void)                       /* (an engine's own envelope / LFO page: ENV / LFO, ui.c native_page) */
 {
@@ -1837,7 +1837,6 @@ static void ui_input(void)
         case B_SEQ:
         case B_REC:                                     /* tap / hold: above */
         case B_SAVE:
-        case B_FX:                                      /* retired panel button */
         case B_GLO:
         case B_SCL:
         case B_EDIT:

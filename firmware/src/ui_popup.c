@@ -257,7 +257,7 @@ static uint32_t page_sheet(void)
     if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS)
         return 3;
     fam = cur_page()->fam;
-    return fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO ? 1u : 0u;
+    return fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO || fam == FAM_FX ? 1u : 0u;
 }
 static void page_sheet_open(void)
 {

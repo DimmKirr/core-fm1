@@ -13,7 +13,7 @@
 #define NPOLY 8                  /* the voices of an engine without its own cap (its per-voice state: engines.c eng_state) */
 #define NPART 4                  /* synth parts: tracks 1..4 */
 #ifndef MELODEE_RAM_AUDIO
-#define MELODEE_RAM_AUDIO 0       /* resident audio profile: full dry audio graph executes in SRAM */
+#define MELODEE_RAM_AUDIO 0       /* resident audio profile: full audio graph executes in SRAM */
 #endif
 #ifndef VBUDGET
 #define VBUDGET (MELODEE_RAM_AUDIO ? 18u : 16u) /* shared weighted voices; RAM profile uses 18 with CPU1 online
@@ -96,6 +96,7 @@ enum {                          /* per-track parameters */
     P_MPCDEG,                                  /* QNT MPC: the scale degree MPC pad H02 plays, 1 = the root */
     P_LN0, P_LN1, P_LN2, P_LN3, P_LN4, P_LN5, P_LN6, P_LN7, /* DRUM lane levels, 127 = original gain */
     P_LSYNC, P_LTRIG, P_LPOL, P_SPRD, /* Felucca 1.4 common LFO controls and stereo spread */
+    P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR, /* new FX; legacy effect IDs remain inert */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };

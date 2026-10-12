@@ -234,7 +234,7 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
         if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != sizeof(project_store_t)) ||
-            (a[1] == 1u && len != sizeof(persist_t) && len != sizeof ed_bk_set) ||
+            (a[1] == 1u && len != sizeof(persist_t) && len != sizeof ed_bk_set && len != sizeof(persist_t)+sizeof(tmpl_fx_legacy_t)) ||
             (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != sizeof(project_store_t)) ||
             ((a[1] == 6u || a[1] == 7u || a[1] == 17u || a[1] == 18u) && len && len != sizeof(up_bank_t)) ||
             (a[1] == 8u && len) ||

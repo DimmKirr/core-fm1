@@ -93,7 +93,7 @@ static int compact_project(void)
     corrupt = packed; corrupt.raw[68] = 255; uint32_t sum = proj_hash(corrupt.raw, sizeof corrupt - 4u);
     memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
     bad += check("compact parameter range is validated even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));
-    corrupt = packed; uint32_t probability_byte = 68u + P_COUNT + 2u + 8u; corrupt.raw[probability_byte] = 127;
+    corrupt = packed; uint32_t probability_byte = 68u + P_COUNT - PROJ_FX_FIELDS + 2u + 8u; corrupt.raw[probability_byte] = 127;
     sum = proj_hash(corrupt.raw, sizeof corrupt - 4u); memcpy(corrupt.raw + sizeof corrupt - 4u, &sum, 4);
     bad += check("invalid probability is refused even with a correct hash", !proj_import(&after, &corrupt, sizeof corrupt));
     project_save(1); motion_clear(t); t->p[P_FM1_LEVEL] = 127; step_set_chance(&t->step[3], 100);
@@ -110,6 +110,7 @@ static void pack_np(project_store_t *out, const project_t *q, const motion_store
     uint8_t *b = out->raw; uint32_t pos = 68u, t, i, sum;
     proj_pack(out, q);
     memset(b + 68, 0, PROJ_FM6_OFF - 68u);
+    uint32_t magic=0x46554E43u;memcpy(b,&magic,4);memcpy(b+8,q->g,sizeof q->g);
     b[66] = (uint8_t)np;
     for (t = 0; t < NTRK; t++) {
         for (i = 0; i < np; i++) b[pos++] = (uint8_t)(q->t[t].p[i < np - 8u ? i : i - (np - 8u) + P_E0] + 64);
@@ -129,7 +130,7 @@ static int older_count(void)
 {
     int bad = 0, ok; ui_power_on(); track_t *t = &trk[0];
     project_t before, after; project_store_t old; motion_store_t m;
-    const uint32_t np = P_COUNT - 2u, e0 = np - 8u;
+    const uint32_t np = 104u, e0 = np - 8u;
     uint32_t i, k;
     for (k = 0; k < NTRK; k++)
         for (i = 0; i < 8u; i++) trk[k].p[P_E0 + i] = (int16_t)(ENGINES[trk[k].eng_req]->edit[i].min + (int16_t)(k + i) %
@@ -149,7 +150,7 @@ static int older_count(void)
         for (i = 0; i < e0; i++) ok &= after.t[k].p[i] == before.t[k].p[i];
         for (i = e0; i < P_E0; i++) ok &= after.t[k].p[i] == param_desc_of(after.t[k].engine, i)->def;
     }
-    bad += check("FUN16 of P_COUNT - 2: E0..E7 in place, the two added parameters their defaults, the rest kept", ok &&
+    bad += check("FUN16 of P_COUNT 104: E0..E7 in place, FX defaults, the rest kept", ok &&
         after.t[0].p[P_FM1_ATK] == 33 && !memcmp(after.t[0].step, before.t[0].step, sizeof before.t[0].step));
     bad += check("  its motion: its E0 -> P_E0, REV and FM OP1 ATK kept",
         after.motion.count == 3u && after.motion.event[0].param == P_LEVEL && after.motion.event[1].param == P_E0 &&

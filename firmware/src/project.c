@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Projects: four slots in NOR, each holding 32 independent pattern banks.
- * FBKK (pattern_store.c) contains the FUN16 sound/current-pattern record below.
+ * FBKK (pattern_store.c) contains the FUN17 sound/current-pattern record below.
  * Hardware retains only slot names/occupancy in RAM; full records use one
  * main-loop staging buffer. Host fixtures also provide a RAM storage backend.
  *
- * Only today's record (FUN16, written since Melodee 1.0.0) is read: 1.2's boot pass rewrote older ones, and
+ * FUN17 and its immediate predecessor FUN16 are read: 1.2's boot pass rewrote older ones, and
  * archives of before 1.0.0 restore through 1.2. A record keeps np (byte 66), the P_COUNT it was written with;
  * one of an older count maps by count (params_by_count, proj_motion_ids). Its bytes `parts` (NPART) and `phys`
  * (PROJ_PHYS) stay as written. Tracks of retired engines (DIGITAL, ANALOG ..) keep their engine bytes and play
@@ -13,7 +13,9 @@
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
-#define PROJ_MAGIC 0x46554E43u                 /* FUN16: LFO 2, SPREAD (P_COUNT 104), the delay back */
+#define PROJ_MAGIC 0x46554E44u                 /* FUN17: four FX bytes per track in the reserved global wire padding */
+#define PROJ_FX_WIRE_OFF (8u + 2u * G_RESERVED4)
+#define PROJ_FX_FIELDS 4u
 #define PROJ_PHYS 2u                           /* project_t.phys: PHYS without DUST and DRUM (see the top) */
 #define PROJ_NAME_LEN 12u                      /* the name: FUN7 bytes PROJ_NAME_OFF.. (the reserved tail's end) */
 typedef struct {                               /* one track */
@@ -85,7 +87,7 @@ static uint8_t proj_p5_origin_value(const project_t *p,uint32_t track)
 #define PROJ_P5_ORIGIN_MAX 128u /* native Prophet user collection */
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(G_COUNT == 27u, "FUN7 globals retain original IDs");
-_Static_assert(sizeof(project_store_t) == 13212u, "FUN16 size");
+_Static_assert(sizeof(project_store_t) == 13212u, "FUN17 keeps the FUN16 extent");
 #define PROJ_DEF_SOUND 0xFFu                   /* preset byte: the track's power-on sound, no steps (kept from an
                                                 * import of before 1.0) */
 #define PROJ_DEF_KEEP 0xFEu                    /* .. the 808 DRUM sound, steps and the rest kept (old drums) */
@@ -116,10 +118,10 @@ static int proj_ok(const project_t *q)
 
 static int proj_unpack(project_t *q, const uint8_t *b);
 static int proj_fn_none(project_t *q);
-/* n bytes of a stored project -> q: today's record (FUN16), or a project_t (host RAM slots); 0 = not a project */
+/* FUN17 / FUN16 or a project_t (host RAM slots) -> q; 0 = not a project. */
 static int proj_import(project_t *q, const void *b, int n)
 {
-    if (n == (int)PROJ_STORE_SIZE && ((const uint32_t *)b)[0] == PROJ_MAGIC)
+    if (n == (int)PROJ_STORE_SIZE && (((const uint32_t *)b)[0] == PROJ_MAGIC || ((const uint32_t *)b)[0] == 0x46554E43u))
         return proj_unpack(q, b) && proj_fn_none(q);
     if (n == (int)sizeof *q && proj_ok((const project_t *)b)) {
         memcpy(q, b, sizeof *q);
@@ -206,6 +208,11 @@ static int proj_pack(project_store_t *out, const project_t *q)
     b[65] = (uint8_t)banks; b[67] = (uint8_t)(banks >> 8);
     for (t = 0; t < NTRK; t++) {
         for (i = 0; i < P_COUNT; i++) {
+            if (i>=P_FXTYPE && i<=P_FXCHAR) {
+                const param_desc_t *d=&TP[i];
+                if(q->t[t].p[i]<d->min || q->t[t].p[i]>d->max)return 0;
+                b[PROJ_FX_WIRE_OFF+t*PROJ_FX_FIELDS+i-P_FXTYPE]=(uint8_t)q->t[t].p[i];continue;
+            }
             if (q->t[t].p[i] < -64 || q->t[t].p[i] > 127) return 0;
             b[pos++] = (uint8_t)(q->t[t].p[i] + 64);
         }
@@ -253,18 +260,23 @@ static void proj_motion_ids(motion_store_t *m, uint32_t np)
         if (np < P_COUNT && m->event[i].param >= np - 8u && m->event[i].param < np)
             m->event[i].param = (uint8_t)(m->event[i].param + P_COUNT - np);
 }
-/* today's serialized record (FUN16, PROJ_STORE_SIZE bytes) -> q */
+/* FUN17 / FUN16 share fixed patches/timing offsets. FUN17 stores new FX in
+ * global wire padding and omits them from the sequential parameter bytes;
+ * np still names the runtime layout, so engine motion IDs remain unambiguous. */
 static int proj_unpack(project_t *q, const uint8_t *b)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66];
     const uint32_t end = PROJ_NAME_OFF - PROJ_DRUM_BYTES - PROJ_REC_DIR_BYTES - PROJ_P5_BYTES - RECORD_MAX * 8u -
                          NTRK * FM6_PACKED - PROJ_CZ_BYTES;
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + PROJ_STORE_SIZE - 4u, 4);
-    if (magic != PROJ_MAGIC || size != PROJ_STORE_SIZE || sum != proj_hash(b, PROJ_STORE_SIZE - 4u) ||
-        np < 8u || np > P_COUNT || 68u + NTRK * (np + 2u + NSTEP * 9u) + sizeof q->chain + sizeof q->motion > end)
+    if ((magic != PROJ_MAGIC && magic != 0x46554E43u) || size != PROJ_STORE_SIZE || sum != proj_hash(b, PROJ_STORE_SIZE - 4u) ||
+        np < 8u || np > P_COUNT || (magic==PROJ_MAGIC && np!=P_COUNT) ||
+        68u + NTRK * (np - (magic==PROJ_MAGIC?PROJ_FX_FIELDS:0u) + 2u + NSTEP * 9u) + sizeof q->chain + sizeof q->motion > end)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
-    memcpy(q->g, b + 8, sizeof q->g); q->sel = b[62]; q->parts = b[63]; q->phys = b[64];
+    memcpy(q->g, b + 8, sizeof q->g);
+    if(magic==PROJ_MAGIC)for(i=G_RESERVED4;i<=G_RESERVED11;i++)q->g[i]=0;
+    q->sel = b[62]; q->parts = b[63]; q->phys = b[64];
     {
         uint32_t banks = b[65] | (uint32_t)b[67] << 8;
         if (banks & 0xF000u) return 0;
@@ -272,7 +284,12 @@ static int proj_unpack(project_t *q, const uint8_t *b)
     }
     for (t = 0; t < NTRK; t++) {
         int16_t values[P_COUNT], def[P_COUNT];
-        for (i = 0; i < np; i++) { if (b[pos] > 191u) return 0; values[i] = (int16_t)b[pos++] - 64; }
+        for (i = 0; i < np; i++) {
+            if(magic==PROJ_MAGIC && i>=P_FXTYPE && i<=P_FXCHAR){
+                uint32_t value=b[PROJ_FX_WIRE_OFF+t*PROJ_FX_FIELDS+i-P_FXTYPE];
+                if(value>(uint32_t)TP[i].max)return 0;values[i]=(int16_t)value;
+            }else {if(b[pos]>191u)return 0;values[i]=(int16_t)b[pos++]-64;}
+        }
         q->t[t].engine = b[pos++]; q->t[t].preset = b[pos++];
         for (i = 0; i < P_COUNT; i++) def[i] = param_desc_of(q->t[t].engine % NENGINES, i)->def;
         params_by_count(q->t[t].p, values, np, def);
@@ -623,6 +640,7 @@ static int project_restore_runtime(const project_t *input)
     panic_req = (1u << NTRK) - 1u;
     fm1_irq_off();                                      /* the audio ISR must not see half a project */
     seq_stop();
+    fx_clear_all();
     transport_req = 0;
     pattern_init();
     memcpy(recording, p->recording, sizeof recording);
@@ -729,7 +747,7 @@ static void project_load(uint32_t slot)
  * from it (every pattern empty, LEN / DIV / SWG / GATE their defaults, no name, SLOT on a free slot), and power-on
  * loads it when BOOT is OFF or its slot empty. No flash sector is free: it follows the settings in their record
  * (set_rec, its size and magic last). P_COUNT, G_COUNT or FM6_PACKED changing changes it (the assert): convert. */
-#define TMPL_MAGIC 0x464C5054u                    /* "TPLF", written since Melodee 1.0.0; older ones: protected */
+#define TMPL_MAGIC 0x474C5054u                    /* "TPLG": new FX parameters; TPLF converts explicitly below */
 typedef struct {
     int16_t g[G_COUNT];
     uint8_t sel, rsv;                             /* (G_COUNT odd: the tracks start on a word) */
@@ -741,6 +759,17 @@ typedef struct {
     drum_patch_t drum[NTRK];
     uint32_t size, magic;                         /* last: the record's end */
 } tmpl_t;
+typedef struct {
+    int16_t g[G_COUNT];
+    uint8_t sel, rsv;                             /* (G_COUNT odd: the tracks start on a word) */
+    struct { uint8_t engine, preset; int16_t p[104]; } t[NTRK];
+    uint8_t fm6[NTRK][FM6_PACKED];
+    uint8_t fm6_fn[NTRK][FM6_NFN];                /* (TPL6) */
+    cz_patch_t cz[NTRK];
+    p5_patch_t p5[NTRK];
+    drum_patch_t drum[NTRK];
+    uint32_t size, magic;                         /* last: the record's end */
+} tmpl_fx_legacy_t;
 _Static_assert(sizeof(tmpl_t) == 2u * G_COUNT + 2u + NTRK * (2u + 2u * P_COUNT) + NTRK * (FM6_PACKED + FM6_NFN) + PROJ_CZ_BYTES + PROJ_P5_BYTES + NTRK*sizeof(drum_patch_t) + 8u,
                "template layout (P_COUNT, G_COUNT, FM6_PACKED: a conversion)");
 static struct { persist_t p; tmpl_t t; } set_rec __attribute__((section(".pool")));   /* the settings record */
@@ -757,14 +786,18 @@ static int template_used(void) { return tmpl.magic == TMPL_MAGIC && tmpl.size ==
 static int tmpl_blob_valid(const uint8_t *b, uint32_t len)
 {
     uint32_t size, magic;
-    if (len != sizeof(tmpl_t)) return 0;
-    memcpy(&size, b + __builtin_offsetof(tmpl_t, size), 4); memcpy(&magic, b + __builtin_offsetof(tmpl_t, magic), 4);
-    if (size != len || magic != TMPL_MAGIC) return 0;
+    int old=len==sizeof(tmpl_fx_legacy_t);
+    if (!old && len != sizeof(tmpl_t)) return 0;
+    memcpy(&size, b + len-8u, 4); memcpy(&magic, b + len-4u, 4);
+    if (size != len || magic != (old?0x464C5054u:TMPL_MAGIC)) return 0;
+    uint32_t pc=old?__builtin_offsetof(tmpl_fx_legacy_t,p5):__builtin_offsetof(tmpl_t,p5);
+    uint32_t cc=old?__builtin_offsetof(tmpl_fx_legacy_t,cz):__builtin_offsetof(tmpl_t,cz);
+    uint32_t dc=old?__builtin_offsetof(tmpl_fx_legacy_t,drum):__builtin_offsetof(tmpl_t,drum);
     for (uint32_t k = 0; k < NTRK; k++) {
         p5_patch_t p;
-        memcpy(&p, b + __builtin_offsetof(tmpl_t, p5) + k * sizeof p, sizeof p);
-        if (!cz_patch_valid(b + __builtin_offsetof(tmpl_t, cz) + k * sizeof(cz_patch_t)) || !p5_patch_valid(&p) ||
-            !drum_patch_valid((const drum_patch_t *)(b + __builtin_offsetof(tmpl_t, drum) + k * sizeof(drum_patch_t))))
+        memcpy(&p, b + pc + k * sizeof p, sizeof p);
+        if (!cz_patch_valid(b + cc + k * sizeof(cz_patch_t)) || !p5_patch_valid(&p) ||
+            !drum_patch_valid((const drum_patch_t *)(b + dc + k * sizeof(drum_patch_t))))
             return 0;
     }
     return 1;
@@ -773,6 +806,22 @@ static int tmpl_blob_valid(const uint8_t *b, uint32_t len)
 static int tmpl_take(const uint8_t *b, uint32_t len)
 {
     memset(&tmpl, 0, sizeof tmpl);
+    if (len == sizeof(tmpl_fx_legacy_t)) {
+        uint32_t magic,size;memcpy(&magic,b+len-4u,4);memcpy(&size,b+len-8u,4);
+        if(magic!=0x464C5054u || size!=len)return 0;
+        const tmpl_fx_legacy_t *old=(const tmpl_fx_legacy_t *)b;
+        memcpy(tmpl.g,old->g,sizeof tmpl.g);tmpl.sel=old->sel;
+        for(uint32_t k=0;k<NTRK;k++){
+            int16_t def[P_COUNT];for(uint32_t i=0;i<P_COUNT;i++)def[i]=param_desc_of(old->t[k].engine%NENGINES,i)->def;
+            tmpl.t[k].engine=old->t[k].engine;tmpl.t[k].preset=old->t[k].preset;
+            params_by_count(tmpl.t[k].p,old->t[k].p,104u,def);
+        }
+        memcpy(tmpl.fm6,old->fm6,sizeof tmpl.fm6);memcpy(tmpl.fm6_fn,old->fm6_fn,sizeof tmpl.fm6_fn);
+        memcpy(tmpl.cz,old->cz,sizeof tmpl.cz);memcpy(tmpl.p5,old->p5,sizeof tmpl.p5);memcpy(tmpl.drum,old->drum,sizeof tmpl.drum);
+        tmpl.magic=TMPL_MAGIC;tmpl.size=sizeof tmpl;
+        if(!tmpl_blob_valid((const uint8_t *)&tmpl,sizeof tmpl)){memset(&tmpl,0,sizeof tmpl);return 0;}
+        return 1;
+    }
     if (!tmpl_blob_valid(b, len)) return 0;
     memcpy(&tmpl, b, sizeof tmpl);
     for (uint32_t k = 0; k < NTRK; k++)

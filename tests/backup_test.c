@@ -281,6 +281,19 @@ int main(void)
     bad += check("a USB reset after LIST: GET is stale (5)", get(2, 0, 16) == 5u);
 
     /* settings */
+    {
+        static uint8_t old_settings[sizeof(persist_t)+sizeof(tmpl_fx_legacy_t)];
+        persist_t defaults;settings_export(&defaults);memcpy(old_settings,&defaults,sizeof defaults);
+        FILE *f=fopen("tests/fixtures/fx/tplf.bin","rb");
+        uint32_t n=f?(uint32_t)fread(old_settings+sizeof defaults,1,sizeof(tmpl_fx_legacy_t),f):0;
+        if(f)fclose(f);
+        bad+=check("previous TPLF settings archive restores through PUT and remains dry",
+            n==sizeof(tmpl_fx_legacy_t) && put_all(1,old_settings,sizeof old_settings,st_crc32(old_settings,sizeof old_settings))==0 &&
+            template_used() && tmpl.t[0].p[P_E0]==17 && !tmpl.t[0].p[P_FXTYPE]);
+        uint32_t before=erases;old_settings[sizeof defaults+__builtin_offsetof(tmpl_fx_legacy_t,cz)+2u]=255;
+        bad+=check("damaged previous template is refused before any flash erase",
+            put_all(1,old_settings,sizeof old_settings,st_crc32(old_settings,sizeof old_settings))==2 && erases==before);
+    }
     reset();
     memset(&ps, 0, sizeof ps);
     settings_export(&ps);

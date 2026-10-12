@@ -9,6 +9,7 @@ static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "
 static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
+static const char *const N_FX[] = {"OFF", "PHASER", "WIDTH", "FORMANT", "TAPE", "SPIT", "ECHO", "ROOM"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
 static const char *const N_QUANT[] = {"OFF", "SNAP", "WHITE", "ALL", "MPC"};   /* Q_OFF .. Q_MPC (seq.c kb_map, midi_map) */
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
@@ -121,6 +122,10 @@ static void fm6_freq_text(char *val, const char **unit, int coarse)
 }
 
 static const param_desc_t TP[P_COUNT] = {
+    [P_FXTYPE] = PE("FX", N_FX, 0),
+    [P_FXMIX] = PD("MIX", F_PCT, 0, 127, 0),
+    [P_FXRATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
+    [P_FXCHAR] = PD("CHAR", F_PCT, 0, 127, 64),
     [P_LN0] = PD("KICK", F_PCT, 0, 127, 127),
     [P_LN1] = PD("SNARE", F_PCT, 0, 127, 127),
     [P_LN2] = PD("CLAP", F_PCT, 0, 127, 127),
@@ -233,6 +238,14 @@ static const param_desc_t GP[G_COUNT] = {
 static uint32_t scale_count(const track_t *t);          /* seq.c */
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
+    if (id >= P_FXRATE && id <= P_FXCHAR) {
+        static param_desc_t fx_desc;
+        static const char *const character[] = {"CHAR", "DEPTH", "DEPTH", "FOCUS", "JITTER", "BITE", "REPEAT", "DECAY"};
+        fx_desc=TP[id];uint32_t type=(uint32_t)clamp(t->p[P_FXTYPE],0,7);
+        if(id==P_FXCHAR)fx_desc.label=character[type];
+        else if(type>=6u){fx_desc.label=type==6u?"TIME":"SIZE";fx_desc.fmt=F_PCT;}
+        return &fx_desc;
+    }
     if (t->eng_req == 2u && id >= P_FM1_ATK && id <= P_FM4_LEVEL)
         return &CZ_ED[id - P_FM1_ATK];
     if (id == P_MPCDEG) {                             /* a degree of the track's scale */
@@ -411,7 +424,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 
 /* ------------------------------------------------------------ pages --- */
 enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
-       FAM_COUNT };
+       FAM_FX, FAM_COUNT };
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
        SC_FM6, SC_FMOP, SC_CZ, SC_CZ1, SC_P5, SC_P5STORE, SC_DRUM, SC_DRUMHIT };                         /* FM6: its patch, functions; operator fm6_opsel;
                                                                   * CZ1: a native CZ-1 tone (cz_edit.h) */
@@ -436,6 +449,7 @@ typedef struct {
 
 #define G_TRK_RECQ 0xFEu                                 /* a global page's column that is the selected track's P_RECQ */
 static const page_t PAGES[] = {
+    {"FX", FAM_FX, SC_TRACK, GR_NONE, {P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR}},
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* the former fourth slot: SEQ > TEMPO's QNT */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},

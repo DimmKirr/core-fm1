@@ -42,8 +42,8 @@
 # MOD (tests/mod_test.c): the modulation matrix: slots that do nothing are bit-identical, every source on each
 #                   kind of destination, clamping, MIDI CC1 / CC11 / aftertouch routing, the cost of 4 active
 #                   slots (PHYS at most +5%, mixed dry path at most 90 instructions/sample), demos in build/mod_demo/.
-# NO EFFECTS (tests/no_effects_test.c): legacy FX values/automation do not process audio or allocate,
-#                   old notes survive, MIDI sends and the retired physical FX button have no effect.
+# LEGACY FX (tests/no_effects_test.c): legacy values/automation do not process audio or allocate,
+#                   old notes survive, retired MIDI sends are inert, FX opens only the new knob page.
 # MOD / SPREAD (tests/mod_spread_test.c): the matrix's S&H / SLEW sources and DEPTH destination, SPREAD's sides.
 # LAYERS / SCREEN (tests/layer_screen_test.c): GLO/SCL/EDIT double-tapped layers, SCREEN OFF, LFO 2.
 # INPUT (tests/input_test.c): the key / button debounce of hal/fm1_input.h against the TIMER5 scan and bouncing
@@ -205,6 +205,8 @@ phys_ref() {
 
 # ------------------------------------------------------------------ tests ---
 # the longest first: they set the length of the run
+sound && t "FX: seven inserts, dry bypass, stability, memory and frozen legacy storage" fx_test -O1 $FW
+core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
 sound && [ $TABLES = 1 ] && job dsp_tracks
 

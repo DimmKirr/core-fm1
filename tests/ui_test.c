@@ -124,6 +124,9 @@ static int check(const char *what, int ok)
 static void ui_power_on(void)
 {
     uint32_t i;
+    fx_clear_all();
+    for(uint32_t k=0;k<NPART;k++)resource_release(RES_FX0+k);
+    memset(fx_state,0,sizeof fx_state);
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);
     memset(&chain, 0, sizeof chain);
@@ -2392,7 +2395,7 @@ static int test_layer(void)
     ok=ui.home && !ui.layer && !(kb_mask & (1u<<panel.btn[B_FX]));
     key_down(white(0));frame();ok &= gates()>0 && !kb_layer;
     key_up(white(0));btn_up(B_FX);frame();
-    bad += check("retired FX button: no page, layer or key capture",ok && ui.home && !ui.layer);
+    bad += check("FX opens its page on release, with no layer or key capture",ok && !ui.home && cur_page()->fam==FAM_FX && !ui.layer);
     return bad;
 }
 

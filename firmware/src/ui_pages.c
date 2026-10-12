@@ -682,6 +682,7 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
     uint32_t e = TSEL->eng_req % NENGINES, c;
     *cut = -1;
     *res = 0;
+    if(pg->fam==FAM_FX)return 9u;
     if (pg->graph == GR_ARP || pg->graph == GR_STEPS)
         return pg->graph == GR_ARP ? 5u : 6u;
     if (pg->fam == FAM_ARP)                             /* ARP 2: the notes it plays too */
@@ -700,12 +701,33 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
     }
     return *cut >= 0 ? 3u : 0u;
 }
+/* FX follows R5: four rings, a rounded track-colour picture, compact labels.
+ * WIDTH explicitly names its two sides and the mono tradeoff. */
+static void pv_fx(void)
+{
+    uint32_t type=(uint32_t)clamp(TSEL->p[P_FXTYPE],0,FX_COUNT-1);
+    static const char *const hint[FX_COUNT]={"Dry signal","Moving notches","All-pass L / dry R","Random vowels","Phase / crossover jitter","Jumping resonance","Short lo-fi echoes","Small lo-fi space"};
+    int32_t mix=TSEL->p[P_FXMIX],cha=TSEL->p[P_FXCHAR],py=50*16;
+    cv_text_on(12,8,&AF_X,hint[type],T_MID,T_PANEL);
+    for(int32_t x=0;x<208;x++){
+        int32_t ph=(int32_t)(sine_i((uint32_t)x*0x06000000u)>>10);
+        int32_t y=50*16;
+        if(type==FX_PHASER || type==FX_WIDTH)y+=ph*mix/9;
+        else if(type==FX_FORMANT)y-=((ph+32)*mix)/15;
+        else if(type==FX_TAPE || type==FX_SPIT)y+=(ph*((x*(cha+1)/32)%32))/4;
+        else if(type>=FX_ECHO)y+=(ph*mix*(208-x))/1900;
+        y=clamp(y,27*16,76*16);cv_vspan_aa(16+x,py,y,type&&mix?T_THEME:T_DIM);py=y;
+    }
+    const char *foot=fx_state[song.sel%NPART].failed?"MEMORY FULL":type==FX_WIDTH?"Mono changes the tone":type==FX_OFF || !mix?"Turn MIX to hear FX":"OCT+ sound actions";
+    cv_text_on(12,88,&AF_X,foot,T_DIM,T_PANEL);
+}
 static void pv_picture(void)
 {
     int32_t cut, res;
     uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u, i;
     int32_t pp = pic == 6u && song.playing ? (int32_t)(TSEL->seq_idx % (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP)) : -1;
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
+    if(pic==9u)sig^=(uint32_t)fx_state[song.sel%NPART].failed*347u;
     if (pic >= 5u) {                                    /* ARP, PATTERN: the keys and steps */
         sig ^= steps_hash(TSEL) + (song.playing ? 1u + TSEL->seq_idx * 257u : 0u) * 2246822519u;
         for (i = 0; i < TSEL->nheld && i < 16u; i++)
@@ -733,6 +755,7 @@ static void pv_picture(void)
         if (pic == 5u) pv_arp();
         else if (pic == 6u) pv_steps();
         else if (pic == 3u) pv_filter(cut, res);
+        else if (pic == 9u) pv_fx();
         else stage_wave(T_THEME, 8 + dy / 2, PV_PIC_H - 16 - dy);
         cv_oy = 0;
         cv_blit(0, (uint32_t)(PV_PIC_Y + dy));

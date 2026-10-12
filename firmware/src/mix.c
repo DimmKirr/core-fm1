@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Dry mixer: engine output -> track level/pan -> master. DC blocking and
- * bounded output limiting protect the DAC; there are no effects or sends. */
+/* Engine output -> optional stereo insert -> track level -> master.
+ * The bypass retains the original level/pan/spread path exactly. */
+#include "fx.c"
 static volatile uint32_t kb_mask, kb_layer;
 static volatile uint8_t kb_lock;
 #define LIM_T 18000
@@ -149,18 +150,39 @@ static void mix_solo(track_t *t,int32_t *b,uint32_t n)
     }
     solo_gain[ti]=from;
 }
+static __attribute__((noinline,section(".dsp_text"))) void mix_fx_samples(track_t *t,uint32_t n)
+{
+    uint32_t ti=(uint32_t)(t-trk);int32_t lvl=LEVEL_Q12[t->p[P_LEVEL]&127],pk=t->peak;
+    int32_t gain=solo_gain[ti],to=!t->p[P_MUTE] && (!track_solo || ((track_solo>>ti)&1u))?32768:0;
+    for(uint32_t i=0;i<n;i++){
+        gain+=mix_clamp(to-gain,-256,256);
+        int32_t l=fx_scale(fx_left[i],(uint32_t)gain*2u),r=fx_scale(fx_right[i],(uint32_t)gain*2u);
+        l=mix_clamp((l>>2)*lvl/1024,-524287,524287);r=mix_clamp((r>>2)*lvl/1024,-524287,524287);
+        mix_l[i]+=l;mix_r[i]+=r;int32_t a=l<0?-l:l,c=r<0?-r:r;if(c>a)a=c;if(a>pk)pk=a;
+#if MELODEE_USB_AUDIO
+        if(track_capture_on)track_capture[i*NTRK+ti]=(l+r)/2;
+#endif
+    }
+    solo_gain[ti]=gain;t->peak=pk;
+}
 static void mix_part(track_t *t,uint32_t n)
 {
     mod_begin(t);
     spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON);
-    if(track_render_audio(t,part_buf,n,0)){
-        mix_solo(t,part_buf,n);
-        if(spread_on)mix_spread(t,part_buf,n);
-        else{
+    int rendered=track_render_audio(t,part_buf,n,0);
+    if(rendered || t->p[P_FXTYPE] || fx_state[(uint32_t)(t-trk)].mix){
+        if(!rendered){memset(part_buf,0,n*sizeof *part_buf);if(spread_on)memset(spread_buf,0,n*sizeof *spread_buf);}
+        if(fx_process(t,part_buf,n)){
+            void (*volatile run)(track_t *,uint32_t)=mix_fx_samples;run(t,n);
+        }else{
+            mix_solo(t,part_buf,n);
+            if(spread_on)mix_spread(t,part_buf,n);
+            else{
             mix_cache_t *mc=&mix_cache[(uint32_t)(t-trk)];
             if(!mc->valid || mc->level!=t->p[P_LEVEL] || mc->pan!=t->p[P_PAN])mix_cache_update(t,mc);
             void (*volatile mix)(track_t *,int32_t *,uint32_t,const mix_cache_t *)=mix_mono_samples;
             mix(t,part_buf,n,mc);
+            }
         }
     }
     if(mod.on)mod_end(t);

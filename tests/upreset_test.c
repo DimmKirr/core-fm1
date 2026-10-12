@@ -220,7 +220,7 @@ int main(void)
         up_set_value(&r, i, (int16_t)i);
     up_params(&r, v, def);
     ok = P_RESERVED45 == 45 && P_RESERVED48 + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD &&
-         P_VOIC + 1 == P_MPCDEG && P_MPCDEG + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SPRD + 1 == P_E0 && P_E0 == 96 && P_COUNT == 104;
+         P_VOIC + 1 == P_MPCDEG && P_MPCDEG + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SPRD + 1 == P_FXTYPE && P_FXCHAR + 1 == P_E0 && P_E0 == 100 && P_COUNT == 108;
     for (i = 0; i < 45u; i++)
         ok &= v[i] == (int16_t)i;
     for (i = P_RESERVED45; i < P_E0; i++)

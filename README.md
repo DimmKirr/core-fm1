@@ -130,7 +130,7 @@ and patterns; settings represented by multiple patch bytes can use multiple even
   moving its playhead and turning most controls no longer resend the whole screen.
 - **More sound and performance:** dual-core rendering is on by default, DSP signal paths use the
   FM-1's native single-precision FPU. Modulation, stereo spread and screen sleep are included;
-  all external effects and their hold/latch controls have been removed.
+  the retired hold/latch controls are gone; **FX** opens the selected track's new insert page.
 - **808 and 909 kits:** both DRUM kits synthesize every voice in real time. The 909 kick, snare,
   toms, rim and clap use circuit models from
   [fm1-x0x](https://github.com/charlesvestal/fm1-x0x/tree/201e5c5c1ac056a028a006bd1eabb23ac1bb174d);
@@ -285,7 +285,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Arpeggiator** with REPEAT and a beat LED, 70 scales with a white-key mode, glide,
   MONO / LEGATO / UNISON
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources
-- **Dry mixer:** track level, pan and synth voice spread, with output protection; no effects or sends
+- **Dry mixer:** track level, pan and synth voice spread, optional per-track FX, with output protection
 - **Quick layers:** hold GLO, SCL or EDIT for shortcuts on the keys and knobs; double-press to lock
   a layer. Multi-level undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
 - **Presets:** browse by category (BASS, LEAD, PAD, KEYS, ORGAN, STRING, BRASS, WIND, PLUCK, BELL, DRUM, FX), favourites or
@@ -480,11 +480,29 @@ replaces that event. **RECORDING FULL** leaves existing recordings intact; clear
 recorded steps makes space for new takes. Notes held longer than 128
 nominal steps are capped at that duration.
 
-External effects have been removed from every build: no distortion insert, chorus, delay, reverb,
-slicer or performance effects. Their former controls, key assignments and latch preferences are
-absent. Older projects and presets still load their notes and synth settings; retired effect
-values and automation have no effect on playback.
-Older 152-note recordings keep their original timing when loaded and saved in the expanded format.
+Each track has one FX insert. Press **FX**: KNOB 1 chooses **OFF, PHASER, WIDTH,
+FORMANT, TAPE, SPIT, ECHO, ROOM**; KNOB 2 sets **MIX**; KNOB 3 sets rate (Echo's
+time / Room's size); KNOB 4 sets depth, focus, jitter, bite, repeats or decay.
+The page follows `docs/design`: four rings, a track-colour picture, the normal
+name picker, OCT+ sound actions and OCT- back to Stage. FX settings belong to
+the sound and save with user presets, projects and templates. Init sound is dry.
+
+Phaser sweeps four all-pass sections per side. Width processes the left side
+and keeps the right dry; collapsing it to mono changes its tone. Formant jumps
+among five vowel shapes. Tape jitters two parallel crossover filters, sometimes
+inverts the middle band, and rolls off the top. Spit abruptly retunes a resonant
+band-pass and saturates it. Echo is a short, reduced-rate delay (10–370 ms,
+8 KiB per enabled track); Room is a small damped four-comb space (2 KiB).
+Their deliberately lo-fi sound keeps memory bounded. Turning MIX to zero or
+selecting OFF fades to dry and releases the time-effect buffer. An allocation
+failure keeps that track dry and shows MEMORY FULL; bypass and re-enable to retry.
+
+Old FX/slicer sends, IDs, motion and key assignments remain inert. Previous
+FUN16 projects, FBKK banks, TPLF templates and old user presets load with the new
+FX off. FUN17 keeps the exact project and bank extent by storing the four new
+FX bytes per track in reserved *wire* global padding; runtime globals remain
+unchanged. Four mono USB recording stems include each insert, averaged after
+pan; Width therefore has the same mono tradeoff on a stem.
 
 With **CLK TRS** or **CLK USB**, musical timing follows MIDI clock pulses directly, so tempo
 changes do not shift the pattern. DIV sets the pattern's step length, while TEMPO QNT independently

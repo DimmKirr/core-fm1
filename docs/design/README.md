@@ -166,3 +166,14 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   INIT PROPHET, INIT TONE, INIT SID, FM6's INIT VOICE (the DX7 init voice, a preset after F24 so the stores keep the
   factory's numbers); DRUM its 808 kit. The browser's KNOB 4 (the engine) loads the engine's INIT, and each engine's
   INIT comes first in its sounds there; Init sound (the sound's sheet, EDIT held's black key) the engine's own.
+
+## FX inserts (2026-10-12)
+
+FX opens the selected track's insert. It is one R5 knob page: four rings over a
+rounded picture, the existing track palette, Rubik faces, sound bar and footer.
+KNOB 1: the effect-name picker; KNOB 2: MIX; KNOB 3: RATE (ECHO: TIME, ROOM: SIZE);
+KNOB 4: DEPTH / FOCUS / JITTER / BITE / REPEAT / DECAY. OCT+ opens the sound's
+actions, OCT- returns to Stage. FX held opens no keyboard layer. WIDTH says
+“All-pass L / dry R” and “Mono changes the tone”. MEMORY FULL appears in the
+picture when a time-effect buffer cannot be allocated. Screens for every effect
+and this state are rendered and linted in every palette by `tests/ui_render.c`.

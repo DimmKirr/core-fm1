@@ -41,7 +41,7 @@ On Linux x86-64 the toolchain runs natively and Docker is not needed.
 ```
 
 `MELODEE_RAM_AUDIO=1 ./build.sh` builds the resident audio performance profile.
-All builds use the dry mixer; external effects and their buffers have been removed.
+All builds retain a bit-identical dry bypass and support the bounded per-track FX inserts described in README.md.
 The optimized audio ISR, all enabled engine callbacks and their reachable helpers
 execute from ordinary SRAM; `tools/audio_ram.py` preserves existing low-SRAM DSP
 sections and uses volatile indirect calls across the XIP/SRAM boundary. Startup
@@ -56,9 +56,9 @@ code banks, using the linker-derived `_guard_ram_end`.
 The profile retains at least a 64 KiB contiguous resource arena for four engine
 states and off-record note history. Additional SRAM tails remain available.
 Factory banks and cold assets remain in flash; loaded patches and active engine
-state are in SRAM. Old effect values remain readable as inert format padding.
+state are in SRAM. Old effect values remain readable as inert format padding; the new FX use separate parameter IDs.
 Run the host suite with `MELODEE_RAM_AUDIO=1` when checking this target variant.
-Both target profiles reject linked effect processors. Host sound regressions
+Both target profiles reject the retired effect processors. Host sound regressions
 validate dry output against the original engines with all effect sends off.
 `tools/usb_audio_stats.py --parts` identifies cuts on each of the four tracks.
 The resident profile raises the shared voice budget from sixteen to eighteen
@@ -454,3 +454,21 @@ python3 web/publish_synth.py <pages checkout> --dual <synth>/build/melodee-synth
 
 `web/make_site.py` and the nightly workflow keep the synth-only packages, `firmware/synth.json` and
 its editor when they regenerate the site.
+
+## EQ accelerator experiment
+
+`MELODEE_HW_EQ=1` enables the AC79 hardware EQ backend. It is **off by default**
+until physical arithmetic, DMA completion time and sustained FM-1 load are
+measured. An impulse through four nontrivial all-pass sections is checked
+against the CPU reference before the first active filter effect. A failed
+probe, timeout or invalid output permanently selects the CPU path until reboot.
+The wait is bounded to 8192 register polls; audio never waits on an SDK mutex
+or semaphore. There are four logical biquads per stereo side per track (32
+maximum), time-shared through a single mono hardware lane. This is a logical
+budget, not evidence that the chip provides 32 independent physical filters.
+Echo and Room always use their small software buffers.
+
+The row/stride/control layout follows the locally installed AC79 V1.2.1 SDK's
+`eq.c` and `asm/eq.h`, also described by
+[JieLi's EQ documentation](https://doc.zh-jieli.com/AC79/zh-cn/master/module_example/audio/EQ.html).
+Host register-model tests cannot establish physical audio quality or CPU savings.
