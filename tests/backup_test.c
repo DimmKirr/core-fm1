@@ -283,7 +283,7 @@ int main(void)
     /* settings */
     {
         static uint8_t old_settings[sizeof(persist_t)+sizeof(tmpl_fx_legacy_t)];
-        persist_t defaults;settings_export(&defaults);memcpy(old_settings,&defaults,sizeof defaults);
+        persist_t defaults={0};settings_export(&defaults);memcpy(old_settings,&defaults,sizeof defaults);
         FILE *f=fopen("tests/fixtures/fx/tplf.bin","rb");
         uint32_t n=f?(uint32_t)fread(old_settings+sizeof defaults,1,sizeof(tmpl_fx_legacy_t),f):0;
         if(f)fclose(f);
