@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+"""Recovery asset replacement keeps signed firmware provenance and checksums."""
+import contextlib
+import io
+import json
+from pathlib import Path
+import shutil
+import sys
+import tempfile
+import unittest
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+import prepare_recovery_correction as C
+
+
+class CorrectionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.published, self.staged, self.output = root / "published", root / "staged", root / "output"
+        self.published.mkdir()
+        self.staged.mkdir()
+        self.old, self.new = "a" * 40, "b" * 40
+        cores = {"melodee-1.3.1.fwsc": {"sha256": C.sha256(b"old signed firmware")}}
+        self.original = {"version": C.VERSION, "commit": self.old, "core_builds": cores, "recovery_builds": {}}
+        self.build = {"version": C.VERSION, "commit": self.new, "core_builds": {}, "recovery_builds": {}}
+        (self.published / "melodee-1.3.1.fwsc").write_bytes(b"old signed firmware")
+        (self.published / "melodee-1.3.1-app.bin").write_bytes(b"old signed application")
+        for target in C.TARGETS:
+            name = f"fm1-recover-{C.VERSION}-{target}.zip"
+            info = {"commit": self.new, "version": C.VERSION, "target": target,
+                    "smoke_tests_passed": True, "worktree_dirty": False}
+            self.build["recovery_builds"][name] = info
+            blob = (json.dumps(info) + "\n").encode()
+            prefix = name[:-4] + "/"
+            with zipfile.ZipFile(self.staged / name, "w") as z:
+                z.writestr(prefix + "BUILD_INFO.json", blob)
+                z.writestr(prefix + "fm1-recover", b"tested executable")
+                z.writestr(prefix + "SHA256SUMS", f"{C.sha256(blob)}  BUILD_INFO.json\n"
+                           f"{C.sha256(b'tested executable')}  fm1-recover\n")
+            (self.published / name).write_bytes(b"old recovery archive")
+        self.write_info(self.published, self.original)
+        self.write_info(self.staged, self.build)
+
+    def write_info(self, folder, info):
+        (folder / "BUILD_INFO.json").write_text(json.dumps(info))
+        self.sums(folder)
+
+    def sums(self, folder):
+        (folder / "SHA256SUMS").write_text("".join(f"{C.sha256(p.read_bytes())}  {p.name}\n"
+                                                 for p in sorted(folder.iterdir()) if p.name != "SHA256SUMS"))
+
+    def prepare(self, verify=False):
+        with contextlib.redirect_stdout(io.StringIO()):
+            C.prepare(C.VERSION, self.published, self.staged, self.output, self.new, self.old, verify)
+
+    def test_replacement_and_public_verification_preserve_firmware(self):
+        self.prepare()
+        result = json.loads((self.output / "BUILD_INFO.json").read_text())
+        self.assertEqual(result["commit"], self.old)
+        self.assertEqual(result["core_builds"], self.original["core_builds"])
+        self.assertEqual(result["recovery_correction"]["commit"], self.new)
+        self.assertEqual(len(list(self.output.iterdir())), 6)
+        for p in self.output.iterdir():
+            shutil.copyfile(p, self.published / p.name)
+        self.prepare(verify=True)
+        self.assertEqual((self.published / "melodee-1.3.1.fwsc").read_bytes(), b"old signed firmware")
+        self.assertEqual((self.published / "melodee-1.3.1-app.bin").read_bytes(), b"old signed application")
+
+    def test_bad_original_checksum_is_rejected(self):
+        (self.published / "melodee-1.3.1.fwsc").write_bytes(b"damaged")
+        with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
+            self.prepare()
+        self.assertFalse(self.output.exists())
+
+    def test_original_firmware_must_match_signed_tag(self):
+        self.original["commit"] = "c" * 40
+        self.write_info(self.published, self.original)
+        with self.assertRaisesRegex(RuntimeError, "signed tag"):
+            self.prepare()
+
+    def test_missing_platform_is_rejected(self):
+        self.build["recovery_builds"].pop(next(iter(self.build["recovery_builds"])))
+        self.write_info(self.staged, self.build)
+        with self.assertRaisesRegex(RuntimeError, "all four"):
+            self.prepare()
+
+    def test_unpublished_correction_cannot_pass_verification(self):
+        with self.assertRaisesRegex(RuntimeError, "differs from tested builds"):
+            self.prepare(verify=True)
+
+    def test_extra_unchecksummed_file_is_rejected(self):
+        (self.staged / "unexpected").write_bytes(b"uncovered")
+        with self.assertRaisesRegex(RuntimeError, "every asset"):
+            self.prepare()
+
+
+if __name__ == "__main__":
+    unittest.main()
