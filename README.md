@@ -45,6 +45,7 @@ M-VAVE's; they are written out in `tools/gen_voices.py`, which is the readable s
 | **The keys** | 27 of them, F3 to G5. **OCT-** / **OCT+** move it two octaves either way. A key stops the note it started, so changing octave mid-chord does the right thing. |
 | **PRESETS** | The voice. It changes under anything still sounding, so you can hold a chord and walk through the bank. |
 | **HOME** | The algorithm drawn out, the voice name, the meter. |
+| **A / B** | The voice line starts with the side you are listening to. **PLAY** flips it, **REC** copies this side onto the other. |
 
 ## Editing it
 
@@ -66,12 +67,39 @@ it bending something else. Change the algorithm and watch that word change; that
 **ALGORITHM** is on its own knob and works from any page, so you can hold a note, keep your eyes on an
 operator's envelope, and move it through all 32.
 
+## Taking it apart
+
+You cannot hear what an operator does by reading its numbers. You hear it by taking it away and putting it
+back, so four buttons do nothing but that.
+
+| Button | |
+| --- | --- |
+| **ARP** | Switch the selected operator off, and on again. |
+| **SEQ** | Solo it: every other operator off. Press again and all six come back. Its light stays on while *anything* is switched off, so you cannot forget. |
+| **PLAY** | Switch to the other side of the A/B compare. Lit on **B**. |
+| **REC** | Copy this side onto the other one, so there is something to come back to. |
+
+The switches are not part of the voice — a DX7's were front-panel switches, not voice data — so they are not
+saved, they survive an A/B switch, and changing voice brings all six back on.
+
+**Solo a modulator and you hear nothing.** That is not a bug and it is worth sitting with: a modulator is
+never heard, only felt. The diagram says so — the operator is alive, every carrier is struck through, and the
+output bus at the bottom turns red to show that nothing is reaching it.
+
+<p align="center"><img src="docs/solo.png" width="240" alt="FM Lab with operator 2 soloed under algorithm 16: operator 2 is outlined in white and the other five are greyed and struck through in red, and the output bus at the bottom of the screen is red to show that nothing reaches it"></p>
+
+The way to use A/B is: land on a sound, press **REC** to copy it across, press **PLAY** to move to the other
+side, change *one* thing, then flip back and forth. Hearing the same parameter two ways in succession tells
+you far more than hearing it once. Each side carries its own voice number and its own `*`, so you can also
+park a factory voice on one side and your edit of it on the other.
+
 ## The two drawings
 
 **HOME draws the algorithm.** Filled boxes are carriers — the operators you hear. Outlined boxes are
 modulators, which you only hear through whatever they are bending. The orange box and the loop beside it is
 the one carrying feedback. The white outline is the operator **SELECT** has picked, so you can see where the
-thing you are editing sits before you edit it.
+thing you are editing sits before you edit it. An operator that is switched off is struck through in red, and
+its wires fade out with it.
 
 Each box brightens with how hard that operator is actually working, read straight out of the running voice.
 Hold a note and watch a modulator fade while its carrier holds: that is the envelope you cannot hear doing
@@ -142,8 +170,18 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 ## Trying a change without the hardware
 
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
-buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. The script in
-`tests/host.c` holds a chord and edits it, which is the thing most worth listening to.
+buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. The script built into
+`tests/host.c` holds a chord and edits it, which is the thing most worth listening to. Two more scripts go
+with it:
+
+```sh
+tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
+tests/run_host.sh tests/operators.txt     # the operator switches and the A/B compare, sound checked
+```
+
+`tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
+carrier, switching that carrier off or soloing any of the modulators has to produce *exact* silence, and an
+A/B flip has to come back to a sample-identical sound.
 
 ## Where to go next
 

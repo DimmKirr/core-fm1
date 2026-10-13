@@ -61,6 +61,17 @@ move in PK is the size of that effect. The headroom the UI actually spends is th
 main loop's, which has no deadline. The number to watch would be the frame rate,
 not CPU -- and the drawing stays smooth.
 
+Switching operators off while it sounds (step 5)
+------------------------------------------------
+8 notes held, operators switched off and soloed, sides flipped: CPU 26 PK 32.
+Unchanged again, and for a simpler reason than step 4's: the mute mask is applied
+in patch_publish, which runs once per changed parameter, not once per block. By
+the time the ISR sees the voice it is an ordinary 156 bytes with some zeroes in
+it, and dx_update costs the same whatever those bytes say. A switched-off
+operator still runs -- its envelope floors at 16<<16 and it multiplies through at
+nothing. Not free in principle, but free in the meter, and keeping it running is
+what lets it come back mid-note without a click.
+
 What it means
 -------------
 NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better

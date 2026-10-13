@@ -1,7 +1,7 @@
 # Every one of the 32 algorithms, drawn, with a chord held so the operator boxes are lit.
 #
-# Run it:   build/host/fmlab build/host/alg tests/algorithms.txt
-# Out come  build/host/alg-<t>.ppm, one per algorithm, in order: t = 600 is algorithm 1.
+# Run it:   build/host/fmlab build/host/algorithms tests/algorithms.txt
+# Out come  build/host/algorithms-<t>.ppm, one per algorithm, in order: t = 600 is algorithm 1.
 #
 # The diagram is derived from DX_ALG, the same table dx_compute_ext obeys, so these pictures are
 # the routing you actually hear. Compare them against the chart in any DX7 manual.
@@ -75,3 +75,4 @@
 9900 shot
 10000 keys 0
 10300 end
+

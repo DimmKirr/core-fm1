@@ -3,13 +3,19 @@
 # Run firmware/src/fmlab.c on this computer (tests/host.c): build/host/fmlab.wav and the screens as PNG.
 #
 #   tests/run_host.sh                       the built-in script
-#   tests/run_host.sh tests/algorithms.txt  all 32 algorithms, drawn, as build/host/alg-*.png
+#   tests/run_host.sh tests/algorithms.txt  all 32 algorithms, drawn, as build/host/algorithms-*.png
+#   tests/run_host.sh tests/operators.txt   the operator switches and the A/B compare
+#
+# A script's output is named after it, so the runs do not overwrite each other.
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p build/host
 script="$1"
 out=build/host/fmlab
-case "$script" in */algorithms.txt) out=build/host/alg ;; esac
+if [ -n "$script" ]; then
+    name=${script##*/}
+    out=build/host/${name%.*}
+fi
 cc -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER="\"${APP_VER:-dev}\"" -Ifirmware/src -Ifirmware/gen -o build/host/fmlab firmware/src/fmlab.c
 rm -f "$out"-*.ppm "$out"-*.png
 build/host/fmlab "$out" $script
@@ -22,3 +28,6 @@ for p in sorted(Path("build/host").glob(Path(os.environ["OUT"]).name + "-*.ppm")
     p.unlink()
     print("screen ->", p.with_suffix(".png"))
 PY
+case "$script" in
+*/operators.txt) python3 tests/wavcheck.py "$out".wav ;;    # the switches have to agree with the sound
+esac

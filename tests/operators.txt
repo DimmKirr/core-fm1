@@ -1,0 +1,77 @@
+# FM Lab -- the operator switches and the A/B compare (step 5).
+#
+#   build/host/fmlab build/host/operators tests/operators.txt
+#
+# Algorithm 16 is forced first, because it has exactly one carrier (OP1) with the other five
+# stacked behind it -- which makes every claim below checkable in the WAV as well as on screen:
+# switch OP1 off and the voice must go silent, solo any of the others and it must go silent too.
+# The ALGORITHM knob is relative, so it is wound hard against its bottom stop and then up 15.
+#
+# The chord is struck fresh for each step rather than held throughout, so that what is measured
+# is the switch and not the voice's own decay.
+#
+# The A/B step at the end doubles as the check that the OPERATOR page edits the operator it names:
+# it drops the LEVEL of the operator the header calls OP1, and under algorithm 16 that is the
+# carrier, so the sound has to get quieter rather than merely change colour.
+0 btn 8
+200 enc 1 -99
+300 enc 1 15
+
+# nothing switched off: the reference
+1000 keys 0x4880
+1300 shot
+1600 keys 0
+
+# OP1 off. It is the only carrier, so this is silence, and the output bus goes red.
+1700 btn 10
+1800 keys 0x4880
+2100 shot
+2400 keys 0
+
+# and on again
+2500 btn 10
+2600 keys 0x4880
+2900 shot
+3200 keys 0
+
+# OP2 soloed. A modulator is never heard, only felt, so this is silent too.
+3300 enc 0 1
+3400 btn 11
+3500 keys 0x4880
+3800 shot
+4100 keys 0
+
+# all six back on
+4200 btn 11
+4300 keys 0x4880
+4600 shot
+4900 keys 0
+
+# A/B: copy this side onto the other and switch to it. Nothing should change yet.
+5000 btn 13
+5100 btn 12
+5200 keys 0x4880
+5500 shot
+5800 keys 0
+
+# now change one thing on B: OP1's level down 20
+5900 btn 6
+6000 enc 0 -1
+6100 enc 2 -20
+6200 keys 0x4880
+6500 shot
+6800 keys 0
+
+# back to A: the same voice, without the change
+6900 btn 12
+7000 keys 0x4880
+7300 shot
+7600 keys 0
+
+# and over to B once more
+7700 btn 12
+7800 keys 0x4880
+8100 shot
+8400 keys 0
+8800 end
+

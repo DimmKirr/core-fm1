@@ -24,7 +24,21 @@
  *   SELECT       which operator (1..6) the EDIT and ENV pages show, and which box HOME outlines
  *   ALGORITHM    the algorithm, on any page
  *   SEL          the next bank on the page (the knobs are KNOB1.., left to right)
+ *   SAVE         back to the factory voice
  *   FX           clear the PK mark on the load meter
+ *
+ * Listening, which is the other half of it. You cannot hear what an operator does by reading its
+ * numbers; you hear it by taking it away and putting it back.
+ *
+ *   ARP          switch the selected operator off, and on again
+ *   SEQ          solo it: every other operator off, and again for all six back on
+ *   PLAY         the other side of the A/B compare
+ *   REC          copy this side onto the other one, so there is something to come back to
+ *
+ * The switches are not part of the voice -- a DX7's were front-panel switches, not voice data -- so
+ * they are applied on the way to the ISR and `edit` never carries them. Soloing a modulator is
+ * silent, because a modulator is never heard, only felt: the output bus in the diagram turns red to
+ * say so. That is the whole carrier-and-modulator distinction in one button.
  *
  * The two drawings are read out of the engine rather than kept alongside it: the diagram comes from
  * DX_ALG, the table dx_compute_ext obeys, and the envelope from the same arithmetic dx_env_advance
@@ -56,6 +70,18 @@ static uint8_t pbuf[2][156];
 static volatile uint8_t pcur;                   /* the ISR reads pbuf[pcur] */
 static uint8_t modified;                        /* the voice differs from the factory one */
 
+/* The operator switches: bit op (0 = OP6 .. 5 = OP1) means that operator is switched off. They are
+ * a way of listening, not part of the sound -- a DX7's were front-panel switches, not voice data --
+ * so they live outside `edit`, are not saved, and survive an A/B switch. */
+static uint8_t opmute;
+
+/* A/B: two patches, one of them in `edit` and the other stashed here, with the switch swapping
+ * them. Land on a sound, copy it across, change one thing, and flip back and forth: hearing the
+ * same parameter two ways in succession is how you find out what it does. */
+static uint8_t other[156];
+static uint8_t ab;                              /* which side `edit` is: 0 = A, 1 = B */
+static uint8_t other_mod, other_voice;
+
 /* ---- main loop -> audio ISR: a single-producer ring of note events */
 enum { EV_ON = 1, EV_OFF, EV_PATCH, EV_PANIC };
 typedef struct { uint8_t kind, note, vel; } ev_t;
@@ -81,7 +107,20 @@ static void ev_push(uint32_t kind, uint32_t note, uint32_t vel)
 
 static void patch_publish(void)                 /* main loop: hand `edit` to the ISR */
 {
-    memcpy(pbuf[pcur ^ 1u], edit, 156);
+    uint8_t *d = pbuf[pcur ^ 1u];
+    uint32_t op;
+    memcpy(d, edit, 156);
+    /* The switches are applied on the way out, so `edit` -- what is drawn, compared and reverted --
+     * never carries them. An operator goes off by having its output level taken to zero, which is
+     * what the DX7's switch did. Its keyboard level scaling goes with it: a + curve adds to the
+     * output level before the level is used, so leaving it in would let a "switched off" operator
+     * creep back at the top or bottom of the keyboard. */
+    for (op = 0; op < 6u; op++)
+        if (opmute >> op & 1u) {
+            d[op * 21u + 16u] = 0;              /* output level */
+            d[op * 21u + 9u] = 0;               /* L depth */
+            d[op * 21u + 10u] = 0;              /* R depth */
+        }
     RING_PUBLISH();                             /* the buffer is filled before the ISR is told to read it */
     pcur ^= 1u;
     ev_push(EV_PATCH, 0, 0);
@@ -303,11 +342,15 @@ static const struct { const char *name; const param_t *p; uint8_t n, perop, rows
 #define PAGE_ROWS ((uint32_t)PAGE[page].rows)
 #define PAGE_NBANK (((uint32_t)PAGE[page].n + PAGE_ROWS - 1u) / PAGE_ROWS)
 
-static uint8_t page, bank, opsel = 5;           /* opsel indexes the 156 bytes: 0 = OP6 .. 5 = OP1 */
+static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
 
+/* The 156 bytes hold the operators in the DX7's own order, OP6 first, and dx7_core.c indexes
+ * DX_ALG with the same number -- so the block index and the engine's operator index are the one
+ * thing, and opsel is both. (Proven by muting each block in turn under algorithm 16, which has a
+ * single carrier: block 5 is the one that silences it, and carriers() puts that carrier at index 5.) */
 static uint32_t p_at(const param_t *p)          /* where this parameter lives in the 156 */
 {
-    return p->where == P_OP ? (uint32_t)(5u - opsel) * 21u + p->idx : p->idx;
+    return p->where == P_OP ? (uint32_t)opsel * 21u + p->idx : p->idx;
 }
 
 static const char *const WAVE[] = {"TRIANGLE", "SAW DOWN", "SAW UP", "SQUARE", "SINE", "SAMP/HOLD"};
@@ -355,7 +398,11 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
 static void draw_voice(uint32_t vi, uint32_t y)
 {
     char s[28];
-    uint32_t i = putn(s, 0, vi + 1u, 2);
+    uint32_t i = 0;
+    s[i++] = (char)('A' + ab);                  /* which side of the compare you are listening to */
+    s[i++] = ' ';
+    s[i++] = ' ';
+    i = putn(s, i, vi + 1u, 2);
     s[i++] = ' ';
     i = put(s, i, DX_VOICE_NAME[vi]);
     if (modified) { s[i++] = ' '; s[i++] = '*'; }
@@ -531,7 +578,8 @@ static uint16_t op_shade(uint32_t op, uint32_t lev)
 
 static void alg_box(int32_t x, int32_t y, uint32_t op, int carrier, int sel)
 {
-    uint16_t c = op_shade(op, op_now(op));
+    uint32_t off = (opmute >> op) & 1u;
+    uint16_t c = off ? RGB(70, 70, 70) : op_shade(op, op_now(op));
     char s[2];
     if (carrier) {                              /* filled: you hear this one */
         cv_rect(x, y, a_bw, a_bh, c);
@@ -551,6 +599,8 @@ static void alg_box(int32_t x, int32_t y, uint32_t op, int carrier, int sel)
     s[1] = 0;
     if (a_bh >= 14)
         cv_text(x + (a_bw - 5) / 2, y + (a_bh - 13) / 2, &FONT_S, s, carrier ? C_BLACK : c);
+    if (off)                                    /* struck through: switched off */
+        cv_line(x + 1, y + a_bh - 2, x + a_bw - 2, y + 1, RGB(190, 85, 85));
 }
 
 static void draw_alg(void)
@@ -564,22 +614,30 @@ static void draw_alg(void)
         int32_t cx = a_bx(op) + a_bw / 2, ty = a_by(op) + a_bh;
         m = a_mods[op];
         for (k = 0; k < 6u; k++) {
+            /* a wire out of a switched-off operator carries nothing: draw it as nearly gone, so
+             * the picture shows what is reaching the output and what is not */
+            uint16_t wc = (opmute >> k & 1u) ? RGB(38, 38, 38) : C_OFF;
             if (!(m >> k & 1u)) continue;
-            cv_line(a_bx(k) + a_bw / 2, a_by(k) + a_bh, a_bx(k) + a_bw / 2, ty + 3, C_OFF);
-            cv_line(a_bx(k) + a_bw / 2, ty + 3, cx, ty + 3, C_OFF);
+            cv_line(a_bx(k) + a_bw / 2, a_by(k) + a_bh, a_bx(k) + a_bw / 2, ty + 3, wc);
+            cv_line(a_bx(k) + a_bw / 2, ty + 3, cx, ty + 3, wc);
         }
         if (m) cv_line(cx, ty + 3, cx, ty, C_OFF);
         if (a_fb >> op & 1u) {                  /* the feedback loop, round the right-hand side */
             int32_t x = a_bx(op) + a_bw, y = a_by(op);
-            cv_line(x, y + 3, x + 4, y + 3, RGB(200, 150, 90));
-            cv_line(x + 4, y + 3, x + 4, y + a_bh - 3, RGB(200, 150, 90));
-            cv_line(x + 4, y + a_bh - 3, x, y + a_bh - 3, RGB(200, 150, 90));
+            uint16_t fc = (opmute >> op & 1u) ? RGB(60, 45, 35) : RGB(200, 150, 90);
+            cv_line(x, y + 3, x + 4, y + 3, fc);
+            cv_line(x + 4, y + 3, x + 4, y + a_bh - 3, fc);
+            cv_line(x + 4, y + a_bh - 3, x, y + a_bh - 3, fc);
         }
     }
     for (op = 0; op < 6u; op++)                 /* a carrier reaches the output: show where it goes */
         if (cs >> op & 1u)
-            cv_line(a_bx(op) + a_bw / 2, a_by(op) + a_bh, a_bx(op) + a_bw / 2, a_ybase + 3, C_OFF);
-    cv_rect(a_x0, a_ybase + 3, a_dx * (int32_t)a_ncol, 2, C_OFF);
+            cv_line(a_bx(op) + a_bw / 2, a_by(op) + a_bh, a_bx(op) + a_bw / 2, a_ybase + 3,
+                    (opmute >> op & 1u) ? RGB(38, 38, 38) : C_OFF);
+    /* The output bus goes red when every carrier is switched off. Solo a modulator and you hear
+     * nothing -- which is the point, because a modulator is never heard, only felt -- and this is
+     * the line that says so rather than leaving you wondering what broke. */
+    cv_rect(a_x0, a_ybase + 3, a_dx * (int32_t)a_ncol, 2, (cs & ~(uint32_t)opmute) ? C_OFF : RGB(130, 50, 50));
     for (op = 0; op < 6u; op++)
         alg_box(a_bx(op), a_by(op), op, (cs >> op & 1u) != 0, op == opsel);
     cv_blit(0, ALG_Y);
@@ -719,7 +777,9 @@ static void draw_eg(const dx_env_t *e, const dx_env_t *live, uint32_t seg)
 }
 
 /* The envelope to draw: the live one if this operator is sounding, otherwise one built the way a
- * note at middle C would build it, so the page is never blank. */
+ * note at middle C would build it, so the page is never blank. The shape always comes from `edit`,
+ * so a switched-off operator still shows the envelope it would have -- but it gets no marker,
+ * because the one the ISR is running has been taken to the floor and would sit there. */
 static void draw_eg_now(uint32_t seg)
 {
     dx_env_t scratch;
@@ -727,7 +787,7 @@ static void draw_eg_now(uint32_t seg)
     const uint8_t *o = &edit[opsel * 21u];
     int rs = 0, ol = dx_op_level(o, 60, 100, &rs);
     dx_env_init(&scratch, o, o + 4, ol, rs);
-    if (v < NV && dxv[v].on && (v_lit >> v & 1u))
+    if (v < NV && dxv[v].on && (v_lit >> v & 1u) && !(opmute >> opsel & 1u))
         draw_eg(&scratch, &dxv[v].env[opsel], seg);
     else
         draw_eg(&scratch, 0, seg);
@@ -768,6 +828,8 @@ static void draw_head(void)
         /* a carrier is heard; a modulator is only felt. Which one an operator is depends on the
          * algorithm, so it has to be read out of the table rather than remembered. */
         i = put(s, i, (carriers(edit[134]) >> opsel & 1u) ? " CAR" : " MOD");
+        if (opmute >> opsel & 1u)
+            i = put(s, i, " OFF");
     }
     nb = PAGE_NBANK;
     if (nb > 1u) {
@@ -804,7 +866,45 @@ static void load_voice(uint32_t vi)
     memcpy(edit, DX_VOICES[vi], 156);
     dx_sanitize(edit);
     modified = 0;
+    opmute = 0;                                 /* a new voice arrives with all six operators on */
     patch_publish();
+}
+
+/* The operator switches. ON/OFF is the primitive and SOLO is everything-else-off, which is the
+ * pair that gets used: ON/OFF to ask what one operator was contributing, SOLO to hear it alone.
+ * Soloing a modulator is silent, and is meant to be -- see the output bus in draw_alg. */
+static void op_toggle(uint32_t op)
+{
+    opmute ^= (uint8_t)(1u << op);
+    patch_publish();
+}
+
+static void op_solo(uint32_t op)
+{
+    uint8_t only = (uint8_t)(0x3Fu & ~(1u << op));
+    opmute = (opmute == only) ? 0u : only;      /* solo the same one twice: everything back on */
+    patch_publish();
+}
+
+/* A/B. The switch swaps the two patches outright, so every page keeps reading `edit` and nothing
+ * else in the file has to know the compare exists. The voice number and the edited mark travel
+ * with the patch, or the name under the diagram would belong to the other side. */
+static void ab_swap(uint8_t *voice)
+{
+    uint32_t i;
+    uint8_t t;
+    for (i = 0; i < 156u; i++) { t = edit[i]; edit[i] = other[i]; other[i] = t; }
+    t = modified;   modified = other_mod;   other_mod = t;
+    t = *voice;     *voice = other_voice;   other_voice = t;
+    ab ^= 1u;
+    patch_publish();
+}
+
+static void ab_copy(uint8_t voice)              /* this side onto the other: a place to come back to */
+{
+    memcpy(other, edit, 156);
+    other_mod = modified;
+    other_voice = voice;
 }
 
 static void app_main(void)
@@ -816,12 +916,13 @@ static void app_main(void)
     int32_t oct_drawn = 99;
     uint8_t held[27] = {0}, shown[4] = {255, 255, 255, 255};
     uint8_t page_drawn = 255, bank_drawn = 255, op_drawn = 255, voice_drawn = 255, mod_drawn = 255;
-    uint8_t alg_drawn = 255, alg_op_drawn = 255;
+    uint8_t alg_drawn = 255, alg_op_drawn = 255, mute_drawn = 255, ab_drawn = 255;
 
     settings_load(&set, sizeof set);
     if (set.oct < -2 || set.oct > 2) set.oct = 0;
     if (set.voice >= DX_NVOICES) set.voice = 0;
     load_voice(set.voice);
+    ab_copy(set.voice);                         /* both sides start as the same sound */
     memcpy(pbuf[pcur ^ 1u], edit, 156);         /* both halves valid before the ISR ever reads one */
 
     lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -861,6 +962,14 @@ static void app_main(void)
         if (b & (1u << BTN_SEL) && PAGE[page].n)           /* the next bank of parameters */
             bank = (uint8_t)((bank + 1u) % PAGE_NBANK);
         if (b & (1u << BTN_SAVE)) load_voice(set.voice);   /* back to the factory voice */
+        if (b & (1u << BTN_ARP)) op_toggle(opsel);         /* the selected operator, off and on */
+        if (b & (1u << BTN_SEQ)) op_solo(opsel);           /* only the selected operator */
+        if (b & (1u << BTN_PLAY)) {                        /* the other side of the compare */
+            ab_swap(&set.voice);
+            dirty = 1;
+            t_change = fm1_ms;
+        }
+        if (b & (1u << BTN_REC)) ab_copy(set.voice);       /* put this side on the other one too */
 
         if ((enc = fm1_enc_take(ENC_PRESETS)) != 0) {      /* the voice, under the sounding notes */
             int32_t vi = (int32_t)set.voice + enc;
@@ -916,6 +1025,9 @@ static void app_main(void)
         fm1_led_key(BTN_ENV, page == PAGE_EG);
         fm1_led_key(BTN_LFO, page == PAGE_LFO);
         fm1_led_key(BTN_GLO, page == PAGE_GLO);
+        fm1_led_key(BTN_ARP, (opmute >> opsel) & 1u);      /* this operator is off */
+        fm1_led_key(BTN_SEQ, opmute != 0u);                /* something is off: you are not hearing it all */
+        fm1_led_key(BTN_PLAY, ab != 0u);                   /* lit on side B */
 
         if (page != page_drawn) {               /* a new page: clear once, then only what changes */
             page_drawn = page;
@@ -927,16 +1039,17 @@ static void app_main(void)
                 draw_text_box(0, 18, 240, &FONT_L, APP_NAME, C_ACC, 1);
             repaint = 1;
         }
-        if (page != PAGE_HOME && (bank != bank_drawn || opsel != op_drawn || repaint)) {
+        if (page != PAGE_HOME && (bank != bank_drawn || opsel != op_drawn || opmute != mute_drawn || repaint)) {
             bank_drawn = bank;
             op_drawn = opsel;
             draw_head();
             shown[0] = shown[1] = shown[2] = shown[3] = 255;
             eg_dirty = 1;
         }
-        if (set.voice != voice_drawn || modified != mod_drawn || repaint) {
+        if (set.voice != voice_drawn || modified != mod_drawn || ab != ab_drawn || repaint) {
             voice_drawn = (uint8_t)set.voice;
             mod_drawn = modified;
+            ab_drawn = ab;
             draw_voice(set.voice, page == PAGE_HOME ? 44u : 188u);
             if (page != PAGE_HOME) { bank_drawn = 255; }   /* the header may name a changed algorithm */
         }
@@ -945,7 +1058,7 @@ static void app_main(void)
         if (page == PAGE_HOME) {
             /* the whole diagram only when the shape of it changes: the live brightness is six
              * small blits on the tick below, which is a great deal cheaper than 240 x 136 */
-            if (edit[134] != alg_drawn || opsel != alg_op_drawn) {
+            if (edit[134] != alg_drawn || opsel != alg_op_drawn || opmute != mute_drawn) {
                 alg_drawn = edit[134];
                 alg_op_drawn = opsel;
                 draw_alg();
@@ -962,7 +1075,7 @@ static void app_main(void)
                 }
             }
         }
-
+        mute_drawn = opmute;
         if (fm1_ms - t_live > 60u) {            /* the displays that follow the sound, ~16 times a second */
             t_live = fm1_ms;
             if (page == PAGE_HOME) {
