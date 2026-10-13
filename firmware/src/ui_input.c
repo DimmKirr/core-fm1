@@ -758,7 +758,7 @@ static void edit_param(uint32_t slot, int32_t steps)
             return;
         }
         if (slot == 1u) {
-            track_select((uint32_t)clamp((int32_t)song.sel + (steps > 0 ? 1 : -1), 0, NTRK - 1));
+            track_select((uint32_t)clamp((int32_t)song.sel + (steps > 0 ? 1 : -1), 0, (int32_t)trk_n() - 1));
             return;
         }
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
@@ -1551,6 +1551,77 @@ static void notes_bulk_copy(void){note_copy_arm();}
 static const sheet_row_t SHEET_NOTE_BULK[]={{"Move: KNOB 1",0,0,note_move_arm,0},{"Copy: KNOB 1",0,0,notes_bulk_copy,0},{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0},{"Delete selected",0,0,notes_bulk_delete,0},{"Clear selection",0,0,bulk_clear,0}};
 static void notes_bulk_sheet_open(void){sheet_open("Selected notes","",SHEET_NOTE_BULK,NELEM(SHEET_NOTE_BULK));}
 
+/* SELECT on HOME (both its pages): the menu's HOME SELECT (ui.c home_select): BPM (the header shows it), the selected
+ * track's MOD WHEEL (as MIDI CC1 on its channel: the matrix's MW, FM6's and the Prophet's wheel; sent to MIDI OUT as
+ * its keys are), LEVEL, the song's SWING, TRANSPOSE, the CHORD its keys play (SCL > CHORD's CHRD: a name a detent),
+ * ARP RATE, its next PATTERN (as SEQ held + SELECT), or nothing.
+ * What it set: a header message ("MOD WHEEL 64") */
+static void home_select_turn(int32_t s)
+{
+    track_t *t = TSEL;
+    char v[16], b[24];
+    const char *unit = "";
+    int32_t x;
+    switch (home_select()) {
+    case HS_BPM:
+        song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, GP[G_BPM].max - GP[G_BPM].min), GP[G_BPM].min,
+                                       GP[G_BPM].max);
+        ui.bpm_t = 40;
+        return;
+    case HS_MOD:
+        x = clamp((int32_t)t->mw + accel(EN_SELECT, s, 127), 0, 127);
+        t->mw = (uint8_t)x;
+        fm1_irq_off();                                  /* (MIDI OUT's queue is the audio ISR's) */
+        midi_out_event(0x0Bu | (0xB0u | trk_midi_ch(song.sel)) << 8 | 1u << 16 | (uint32_t)x << 24);
+        fm1_irq_on();
+        fmt_int(v, x);
+        ui_say("MOD WHEEL ", v);
+        return;
+    case HS_LEVEL:
+    case HS_TRANS:
+    case HS_CHORD:
+    case HS_ARATE: {
+        uint32_t hs = home_select(), id = hs == HS_LEVEL ? P_LEVEL : hs == HS_TRANS ? P_TRANS : hs == HS_CHORD ? P_CHRD : P_ARATE;
+        const param_desc_t *d = &TP[id];
+        x = d->fmt == F_ENUM ? (s > 0 ? 1 : -1) : accel(EN_SELECT, s, desc_range(d));   /* (names: one a detent) */
+        t->p[id] = (int16_t)clamp(t->p[id] + x, d->min, d->max);
+        motion_capture(t, id, t->p[id]);
+        param_format(d, t->p[id], v, &unit);
+        str_cpy(b, "T1 ", sizeof b);
+        b[1] = (char)('1' + song.sel % NTRK);
+        str_cpy(b + 3, HS_NAME[home_select()], sizeof b - 3u);
+        str_cpy(b + str_len(b), " ", 2);
+        if (unit && unit[0]) {
+            str_cpy(v + str_len(v), " ", 2);
+            str_cpy(v + str_len(v), unit, sizeof v - str_len(v));
+        }
+        ui_say(b, v);
+        return;
+    }
+    case HS_SWING:
+        song.g[G_SWING] = (int16_t)clamp(song.g[G_SWING] + accel(EN_SELECT, s, GP[G_SWING].max - GP[G_SWING].min),
+                                         GP[G_SWING].min, GP[G_SWING].max);
+        param_format(&GP[G_SWING], song.g[G_SWING], v, &unit);
+        str_cpy(v + str_len(v), unit, 4);
+        ui_say("SWING ", v);
+        return;
+    case HS_PATTERN: {
+        uint32_t from = t->pattern_next < NPAT ? t->pattern_next : t->pattern;
+        x = clamp((int32_t)from + (s > 0 ? 1 : -1), 0, NPAT - 1u);
+        if (pattern_request(t, (uint32_t)x)) {
+            ui_message("STOP SONG TO SWITCH");
+            return;
+        }
+        fmt_int(v, x + 1);
+        ui_say(song.playing ? "NEXT PATTERN " : "PATTERN ", v);
+        ui.force = 1;
+        return;
+    }
+    default:
+        return;
+    }
+}
+
 /* Confirmed writes are infrequent; keep their dispatch out of every input frame. */
 static void ui_confirm_accept(void)
 {
@@ -1584,6 +1655,8 @@ static void ui_confirm_accept(void)
             if (ui.song_row > chain_config.count) ui.song_row = chain_config.count;
             ui_message("ROW DELETED");
         }
+    } else if (kind == CF_DEL_TRACK) {
+        track_remove(ui.confirm_trk % NTRK);
     } else if (kind == CF_TAKE_JAM) {
         jam_take();
     } else if (kind == CF_NEW_SONG) {
@@ -1816,8 +1889,12 @@ static void ui_input(void)
     } else if (seq == BT_TAP) {
         open_family(FAM_SEQ);
     }
-    if (home == BT_TAP)                                 /* HOME acts on release: a hold opens the menu */
-        go_home();
+    if (home == BT_TAP && ui.home && !pop.on) {         /* HOME acts on release (a hold opens the menu); on HOME: its */
+        ui.home_pg = (uint8_t)!ui.home_pg;              /* other page (ui_view.c) */
+        ui.force = 1;
+    } else if (home == BT_TAP) {
+        go_home();                                      /* (to the page it was on) */
+    }
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     if (step_page() && live_rec_sel() && !ui.step_mods) { /* armed: follow recording
                                                          * (not while ENV / SCL are held: a note edit) */
@@ -2015,7 +2092,7 @@ static void ui_input(void)
     }
     if ((s = panel_enc(EN_ALGO)) != 0) {           /* ALGORITHM: the selected track, on every page */
         step_edit_combo();
-        track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+        track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_n() - 1));
     }
     if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT: pages; with SEQ / a step key / ENV / SCL: below */
         step_edit_combo();
@@ -2029,6 +2106,8 @@ static void ui_input(void)
         } else if (!ui.home) {                          /* the section's pages (BPM: SEQ > TEMPO; the notes, the hits:
                                                          * KNOB 1) */
             page_scroll(s);
+        } else {                                        /* HOME: what the menu's HOME SELECT says */
+            home_select_turn(s);
         }
     }
     for (k = 0; !knob_layer && k < 4u; k++) {

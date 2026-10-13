@@ -820,6 +820,254 @@ static int test_tracks(void)
     return bad;
 }
 
+/* The tracks in use (tracks.c): a new song has one; Stage's sheet adds the next (its power-on sound, every pattern
+ * empty, the browser open on it) and removes the selected one (stopped, after its question): the tracks after it move
+ * down with their sound, patterns, song column, motion and takes, the last place left empty. The count is the
+ * project's and the template's; a track not in use plays nothing and cannot be selected */
+static int trk_quiet(const track_t *t)
+{
+    uint32_t i;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active || t->v[i].gate)
+            return 0;
+    return !t->xp_n;
+}
+static void one_note(track_t *t, uint32_t i, uint32_t note)
+{
+    step_clear(&t->step[i]);
+    t->step[i].time = ST_NOTE;
+    t->step[i].n = 1;
+    t->step[i].note[0] = (uint8_t)note;
+    t->step[i].vel = 100;
+}
+static int test_track_count(void)
+{
+    int bad = 0, ok;
+    uint32_t i, n;
+    char a[32], b[40];
+    ui_power_on();
+    stop_transport();
+    memset(proj_slot, 0, sizeof proj_slot);
+    memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+    project_new_blank();
+    go_home(); frame();
+    bad += check("a new song: one track, T1 selected", trk_n() == 1u && song.sel == 0);
+    bad += check("  no pattern at all: Stage's card shows no pattern pill, no steps (a synth)", stage_seq_idle(0));
+    one_note(&trk[0], 3, 60);
+    ok = !stage_seq_idle(0);
+    track_defaults_steps(&trk[0]);
+    song.rec = 1;
+    ok &= !stage_seq_idle(0);
+    song.rec = 0;
+    bad += check("  a note, or armed to record: they come back", ok && stage_seq_idle(0));
+    turn(EN_ALGO, 1);
+    bad += check("  ALGORITHM: no other track to select", song.sel == 0);
+    trk[2].engine = trk[2].eng_req;
+    trk_note_on(&trk[2], 60, 100);
+    bad += check("  a track not in use plays nothing", trk_quiet(&trk[2]));
+    bad += check("  MIDI channel 2 (ROUT CH1-4): the selected track, as channels past the tracks", midi_track(1) == TSEL &&
+                 midi_track(0) == &trk[0]);
+    hold(B_OCTUP);
+    bad += check("Stage: OCT+ held: its sheet, Add track (T2) and Remove track (-) at its foot", pop.on == POP_SHEET &&
+                 pop.rows == SHEET_STAGE && str_eq(pop.rows[pop.n - 2u].label, "Add track") &&
+                 str_eq(pop.rows[pop.n - 1u].label, "Remove track"));
+    sheet_do("Remove track");
+    bad += check("  Remove track with one: refused (ONLY ONE TRACK), no question", trk_n() == 1u && !ui.confirm &&
+                 msg_is("ONLY ONE TRACK"));
+    trk[1].p[P_LEVEL] = 5;                              /* (left over in the empty place: Add starts it again) */
+    one_note(&trk[1], 7, 50);
+    go_home(); frame();
+    hold(B_OCTUP);
+    sheet_do("Add track");
+    bad += check("Add track: T2 in use, selected, the browser open on it", trk_n() == 2u && song.sel == 1 && !ui.home &&
+                 cur_page()->graph == GR_BROWSE && msg_is("TRACK 2 ADDED"));
+    bad += check("  its place's power-on sound, the mix's defaults, every pattern empty", trk[1].eng_req == TRK_DEF[1][0] &&
+                 trk[1].p[P_LEVEL] == TP[P_LEVEL].def && seq_is_empty(&trk[1]) && pattern_empty(1, 3));
+    press(B_OCTDN);
+    bad += check("  OCT-: back to Stage, the sound kept", ui.home && trk[1].eng_req == TRK_DEF[1][0]);
+    for (n = 0; n < 4u; n++) {
+        hold(B_OCTUP);
+        sheet_do("Add track");
+        press(B_OCTDN);
+    }
+    bad += check("  four at most (TRACKS FULL)", trk_n() == NTRK && msg_is("TRACKS FULL"));
+    /* four tracks told apart: each its level, a note, a pattern in bank 3 of T2, motion, a take, a song row */
+    for (i = 0; i < NTRK; i++) {
+        trk[i].p[P_LEVEL] = (int16_t)(40 + 10 * i);
+        track_defaults_steps(&trk[i]);
+        one_note(&trk[i], i, 60 + i);
+    }
+    set_engine_of(&trk[2], ENGI_DRUM);
+    trk[2].p[P_E0] = 4;
+    pattern_at(1, 3)->step[5].time = ST_NOTE; pattern_at(1, 3)->step[5].n = 1; pattern_at(1, 3)->step[5].note[0] = 70;
+    pattern_at(2, 3)->step[6].time = ST_NOTE; pattern_at(2, 3)->step[6].n = 1; pattern_at(2, 3)->step[6].note[0] = 72;
+    motion_set_event(&trk[1], 4, P_PAN, 10);
+    motion_set_event(&trk[2], 6, P_PAN, 20);
+    motion_set_event(&trk[3], 8, P_PAN, 30);
+    chain_config.count = 1;
+    chain_config.row[0].repeat = 2;
+    for (i = 0; i < NTRK; i++)
+        chain_patterns[0][i] = (uint8_t)i;
+    track_select(1);
+    project_save(0);                                    /* (the slot it came from stays its slot) */
+    song.playing = 1;
+    go_home(); frame();
+    hold(B_OCTUP);
+    sheet_do("Remove track");
+    bad += check("Remove track playing: refused (STOP FIRST)", trk_n() == NTRK && !ui.confirm && msg_is("STOP FIRST"));
+    stop_transport();
+    hold(B_OCTUP);
+    sheet_do("Remove track");
+    confirm_text(a, b);
+    bad += check("Remove track: its question (Remove track 2?)", ui.confirm == CF_DEL_TRACK && ui.confirm_trk == 1u &&
+                 str_eq(a, "REMOVE TRACK 2?"));
+    press(B_OCTDN);
+    bad += check("  No: nothing removed", trk_n() == NTRK && !ui.confirm);
+    hold(B_OCTUP);
+    sheet_do("Remove track");
+    ui_confirm_accept();
+    ok = trk_n() == 3u && song.sel == 1 && msg_is("TRACK 2 REMOVED") && proj_cur == 0u;
+    bad += check("  Yes: three tracks, the one after it selected in its place, still project A's", ok);
+    ok = trk[0].p[P_LEVEL] == 40 && trk[0].step[0].note[0] == 60 &&
+         trk[1].p[P_LEVEL] == 60 && trk[1].eng_req == ENGI_DRUM && trk[1].p[P_E0] == 4 && trk[1].step[2].note[0] == 62 &&
+         trk[2].p[P_LEVEL] == 70 && trk[2].step[3].note[0] == 63;
+    bad += check("  T3, T4 moved down a place: their sound, level and steps", ok);
+    bad += check("  their patterns too (old T3's bank 3 is T2's; old T2's gone)", pattern_at(1, 3)->step[6].note[0] == 72 &&
+                 pattern_at(1, 3)->step[5].time != ST_NOTE);
+    bad += check("  the song's row: T1 0, then old T3's 2, old T4's 3; the last place 0",
+                 chain_config.count == 1u && chain_config.row[0].repeat == 2u && chain_patterns[0][0] == 0u &&
+                 chain_patterns[0][1] == 2u && chain_patterns[0][2] == 3u && chain_patterns[0][3] == 0u);
+    ok = 1;
+    for (i = 0; i < motion.count; i++) {
+        uint32_t k = motion.event[i].place >> 6;
+        ok &= (k == 1u && motion.event[i].value == 20) || (k == 2u && motion.event[i].value == 30);
+    }
+    bad += check("  motion: old T2's gone, old T3's and T4's on T2 and T3", ok && motion.count == 2u);
+    ok = seq_is_empty(&trk[3]) && trk[3].eng_req == TRK_DEF[3][0];
+    for (i = 0; i < NPAT; i++)
+        ok &= pattern_empty(3, i);
+    bad += check("  the last place empty: its power-on sound, no patterns", ok);
+    trk_note_on(&trk[3], 60, 100);
+    bad += check("  and silent", trk_quiet(&trk[3]));
+    project_save(1);
+    project_new_blank();
+    bad += check("a new song: one track again", trk_n() == 1u);
+    project_load(1);
+    bad += check("a project keeps its count (3)", trk_n() == 3u && trk[2].step[3].note[0] == 63);
+    project_load(0);
+    bad += check("  the one saved with four: four", trk_n() == NTRK);
+    track_select(0);
+    go_home(); frame();
+    hold(B_OCTUP);
+    sheet_do("Remove track");
+    ui_confirm_accept();
+    bad += check("removing T1: T2 becomes T1 (the song's clock)", trk_n() == 3u && song.sel == 0 &&
+                 trk[0].p[P_LEVEL] == 50 && trk[0].step[1].note[0] == 61);
+    track_select(2);
+    hold(B_OCTUP);
+    sheet_do("Remove track");
+    ui_confirm_accept();
+    bad += check("removing the last: the one before selected", trk_n() == 2u && song.sel == 1);
+    return bad;
+}
+
+/* HOME's second page (ui_view.c): HOME tapped on Stage flips to it and back, SELECT turns the two, HOME from elsewhere
+ * returns to the one it was on; it draws the chord of the tracks' sounding notes, the selected track's colour winning;
+ * the knobs edit the sound as on Stage */
+static int test_home_view(void)
+{
+    int bad = 0, faded;
+    uint32_t on[4], k;
+    uint8_t of[128];
+    int16_t before;
+    ui_power_on();
+    go_home(); frame();
+    press(B_HOME);
+    bad += check("HOME on Stage: the second page (the chord view)", ui.home && ui.home_pg == 1u);
+    press(B_HOME);
+    bad += check("  HOME again: Stage", ui.home && ui.home_pg == 0u);
+    press(B_HOME);
+    open_family(FAM_EDIT); frame();
+    press(B_HOME);
+    bad += check("  HOME from EDIT: back to the page it was on", ui.home && ui.home_pg == 1u);
+    song.ntrk = 3;
+    for (k = 0; k < NTRK; k++) trk[k].engine = trk[k].eng_req;
+    memset(&view, 0, sizeof view);
+    track_select(1);
+    input_on(&trk[0], 45, 100);
+    input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); input_on(TSEL, 69, 100);
+    view_notes(on, of, &faded);
+    bad += check("the notes sounding: T1's A2, T2's C4 E4 A4, each its track", !faded && ((on[1] >> (45 - 32)) & 1u) &&
+                 of[45] == 0u && ((on[1] >> (60 - 32)) & 1u) && of[60] == 1u && of[69] == 1u);
+    frame(); frame();
+    bad += check("  drawn (a frame each way)", view.wheel && view.keys);
+    for (k = 0; k < NTRK; k++) for (uint32_t i = 0; i < NVOICE; i++) trk[k].v[i].gate = 0;
+    view_notes(on, of, &faded);
+    bad += check("  let go: the last ones, faded", faded && ((on[1] >> (60 - 32)) & 1u));
+    before = TSEL->p[ENGINES[TSEL->eng_req]->knob[0]];
+    turn(EN_K1, 3);
+    bad += check("  KNOB 1: the sound's, as on Stage", ui.home_pg == 1u &&
+                 (TSEL->eng_req == ENGI_PROPHET || TSEL->eng_req == ENGI_CZ || TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != before));
+    ui_power_on();
+    return bad;
+}
+
+/* SELECT on HOME: the menu's HOME SELECT (BPM by default; MOD WHEEL, LEVEL, SWING, TRANSPOSE, ARP RATE, PATTERN, OFF),
+ * never a page turn; kept with the settings */
+static int test_home_select(void)
+{
+    int bad = 0;
+    int16_t bpm;
+    ui_power_on();
+    HOME_SELECT = 0;
+    go_home(); frame();
+    bpm = song.g[G_BPM];
+    turn(EN_SELECT, 1);
+    bad += check("SELECT on HOME: BPM by default, no page turn", song.g[G_BPM] > bpm && ui.home_pg == 0u);
+    HOME_SELECT = HS_MOD;
+    turn(EN_SELECT, 3);
+    bad += check("  MOD WHEEL: the selected track's CC1, said in the header", TSEL->mw > 0 && !memcmp(ui.msg, "MOD WHEEL ", 10));
+    HOME_SELECT = HS_LEVEL;
+    track_select(0);
+    {
+        int16_t lv = TSEL->p[P_LEVEL];
+        turn(EN_SELECT, -2);
+        bad += check("  LEVEL: the selected track's, down", TSEL->p[P_LEVEL] < lv && !memcmp(ui.msg, "T1 LEVEL ", 9));
+    }
+    HOME_SELECT = HS_TRANS;
+    turn(EN_SELECT, 1);
+    bad += check("  TRANSPOSE: +1", TSEL->p[P_TRANS] == 1);
+    HOME_SELECT = HS_CHORD;
+    TSEL->p[P_CHRD] = 0;
+    turn(EN_SELECT, 5);
+    bad += check("  CHORD: the keys' chord, a name a detent (OFF -> DIA3), said in the header", TSEL->p[P_CHRD] == 1 &&
+                 !memcmp(ui.msg, "T1 CHORD DIA3", 13));
+    turn(EN_SELECT, 1); turn(EN_SELECT, 1); turn(EN_SELECT, 1); turn(EN_SELECT, 1);
+    bad += check("  .. DOM7 four on", TSEL->p[P_CHRD] == 5 && !memcmp(ui.msg, "T1 CHORD DOM7", 13));
+    HOME_SELECT = HS_PATTERN;
+    stop_transport();
+    turn(EN_SELECT, 1);
+    bad += check("  PATTERN stopped: pattern 2 at once", TSEL->pattern == 1u);
+    HOME_SELECT = HS_OFF;
+    bpm = song.g[G_BPM];
+    turn(EN_SELECT, 1);
+    bad += check("  OFF: nothing", song.g[G_BPM] == bpm && TSEL->pattern == 1u);
+    HOME_SELECT = 200;
+    bad += check("  an unknown stored value: BPM", home_select() == HS_BPM);
+    {
+        persist_t p;
+        memset(&p, 0, sizeof p);
+        HOME_SELECT = HS_SWING;
+        settings_export(&p);
+        HOME_SELECT = 0;
+        settings_import(&p, (int)sizeof p);
+        bad += check("  kept with the settings", home_select() == HS_SWING);
+    }
+    HOME_SELECT = 0;
+    ui_power_on();
+    return bad;
+}
+
 /* key k of colour black (1) / white (0) at place p (seq.c key_place) */
 static uint32_t key_at(int black, uint32_t p)
 {
@@ -4503,14 +4751,27 @@ static int test_new_song(void)
     turn(EN_K1, 1); turn(EN_K1, 1);                     /* D */
     turn(EN_K3, 1);
     press(B_OCTUP);
-    bad += check("  OCT+: the ROLES screen", nw.on == 2);
-    turn(EN_K2, 1); turn(EN_K2, 1);                     /* track 2: BASS */
+    bad += check("  OCT+: the ROLES screen, track 1 KEEP, the others -- (no template: one track)", nw.on == 2 &&
+                 nw.role[0] == NR_KEEP && nw.role[1] == NR_NONE && nw.role[3] == NR_NONE);
+    turn(EN_K2, 1); turn(EN_K2, 1); turn(EN_K2, 1);     /* track 2: BASS */
     press(B_OCTUP);
     for (k = 0; k < NTRK; k++) empty &= seq_is_empty(&trk[k]);
     song.sel = 1; cur_entry(&src, &k); song.sel = 0;
     bad += check("  OCT+ creates it: HOME, every pattern empty, D on every track, the tempo, track 2 a BASS sound, no slot",
                  !new_on() && ui.home && empty && trk[0].p[P_ROOT] == 2 && trk[3].p[P_ROOT] == 2 && song.g[G_BPM] == nw.bpm &&
                  entry_cat(src, k) == CAT_BASS && proj_cur == PROJ_NO_SLOT && msg_is("NEW SONG"));
+    bad += check("  two tracks: those with a role", trk_n() == 2u);
+    go_page(GR_SLOTS);
+    for (i = 0; i < 6u; i++) turn(EN_K1, 1);
+    turn(EN_K3, 1);
+    press(B_OCTUP);
+    press(B_OCTUP);
+    turn(EN_K1, -1);                                    /* track 1: -- */
+    turn(EN_K3, 1); turn(EN_K3, 1); turn(EN_K3, 1);     /* track 3: BASS */
+    press(B_OCTUP);
+    cur_entry(&src, &k);
+    bad += check("  track 1 --, track 3 BASS: one track, the BASS sound as track 1", !new_on() && trk_n() == 1u &&
+                 song.sel == 0 && entry_cat(src, k) == CAT_BASS);
     go_page(GR_SLOTS);
     for (i = 0; i < 6u; i++) turn(EN_K1, 1);
     turn(EN_K3, 1);
@@ -4567,6 +4828,9 @@ int main(void)
     bad += test_save();
     bad += test_actions();
     bad += test_tracks();
+    bad += test_track_count();
+    bad += test_home_view();
+    bad += test_home_select();
     bad += test_grid();
     bad += test_screen();
     bad += test_favorites();

@@ -450,6 +450,10 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER,
        S_NOTES_SLIDE, S_NOTES_MIXED, S_NOTES_CHORD, S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_NOTES_REC, S_NOTES_ERASE, S_NOTES_DRUM_REC, S_NOTES_DRUM_ERASE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_MENU_CLICK, S_MENU_CLICK_LEVEL, S_MENU_COUNTIN, S_MENU_PREVIEW, S_MENU_ADD, S_MENU_AUTOSAVE_ON, S_MENU_AUTOSAVE_OFF, S_DRUM_SOUND_808, S_DRUM_SOUND_909, S_DRUM_MIX_909, S_DRUM_HIT_909, S_DRUM_HIT_FREE, S_DRUM_HIT_LONG,
        S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_PATGRID, S_PATGRID_STOPPED, S_PATGRID_SHEET, S_PATGRID_COPY, S_PATGRID_REPLACE, S_PATGRID_DELETE, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES,
+       S_STAGE_T1, S_STAGE_T1_ARP, S_STAGE_T1_KNOBS, S_STAGE_T1_SYNTH, S_STAGE_T1_SYNTH_ARP, S_STAGE_T2, S_STAGE_T3, S_SHEET_STAGE, S_CONFIRM_TRACK,
+       S_VIEW, S_VIEW_LETGO, S_VIEW_NOTE, S_VIEW_EMPTY, S_VIEW_KNOBS, S_VIEW_SLASH, S_MENU_HOME_SEL, S_HOME_SEL_MOD, S_HOME_SEL_CHORD,
+       S_HOME_SEL_LEVEL,
+       S_MIXER_T1, S_MIXER_T2, S_MIXER_T3, S_PATGRID_T2, S_SONG_T2, S_GLO_T2, S_NEW_ROLES_T1,
        S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG,
        S_REF_ENV, S_REF_LFO, S_REF_EDIT_OSC, S_REF_MIXER, S_REF_NOTES, S_REF_SETTINGS, S_REF_DIALOG,
        S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_PICKER_MODE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
@@ -475,6 +479,10 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
     "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "menu_autosave_on", "menu_autosave_off", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long",
     "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "patterns", "patterns_stopped", "patterns_sheet", "patterns_copy", "patterns_replace", "patterns_delete", "project_new", "new_key", "new_roles",
+    "stage_1track", "stage_1track_arp", "stage_1track_knobs", "stage_1track_synth", "stage_1track_synth_arp", "stage_2tracks", "stage_3tracks", "sheet_stage", "confirm_track",
+    "view", "view_letgo", "view_note", "view_empty", "view_knobs", "view_slash", "menu_home_select", "home_select_mod", "home_select_chord",
+    "home_select_level",
+    "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "new_roles_1track",
     "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "menu_clock", "confirm_restart", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_separate", "fx_sends", "fx_bus1", "fx_bus2", "fx_bus3"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
@@ -1000,6 +1008,74 @@ static void setup(int s)
         if (s == S_NEW_ROLES) { nw.on = 2; nw.role[0] = NR_DRUMS; nw.role[1] = NR_BASS; nw.role[2] = NR_CHORDS; }
         else { ui.hot_col = 2; ui.hot_t = 30; }
         break;
+    /* the tracks in use (tracks.c): one (a chord held; ARP, HOLD, CHORD, the scale, pattern 3 next, armed; a knob
+     * turning), two (track 2 selected), three (track 2 waiting for pattern 3, track 3 armed); Stage's sheet on Add
+     * track; Remove track's question */
+    case S_STAGE_T1:
+    case S_STAGE_T1_ARP:
+    case S_STAGE_T1_KNOBS:
+        song.ntrk = 1; song.sel = 0; eng(ENGI_PROPHET); demo_pat16(&trk[0], DEMO_ACID); trk[0].seq_idx = 5; go_home();
+        input_on(TSEL, 57, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100);
+        if (s == S_STAGE_T1_ARP) {
+            TSEL->p[P_AMODE] = 3; TSEL->p[P_AHOLD] = 1; TSEL->p[P_CHRD] = 1; TSEL->p[P_QUANT] = Q_SNAP;
+            TSEL->pattern_next = 2; song.rec = 1;
+        }
+        if (s == S_STAGE_T1_KNOBS) { ui.hot_col = 0; ui.hot_t = 30; stage_out(); }
+        break;
+    case S_STAGE_T1_SYNTH:                               /* one track, no pattern at all (a synth): no pill, no steps */
+    case S_STAGE_T1_SYNTH_ARP:
+        song.ntrk = 1; song.sel = 0; song.playing = 0; eng(ENGI_PROPHET); pattern_init(); track_defaults_steps(&trk[0]);
+        go_home(); input_on(TSEL, 57, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100);
+        if (s == S_STAGE_T1_SYNTH_ARP) { TSEL->p[P_AMODE] = 1; TSEL->p[P_AHOLD] = 1; TSEL->p[P_QUANT] = Q_SNAP; }
+        break;
+    /* HOME's second page (ui_view.c): three tracks, a bass note on T1 and an Am7 on T2 (selected); let go; one note;
+     * nothing played yet; a knob turning (the knobs over the wheel's top); C/E (an inversion) */
+    case S_VIEW: case S_VIEW_LETGO: case S_VIEW_NOTE: case S_VIEW_EMPTY: case S_VIEW_KNOBS: case S_VIEW_SLASH: {
+        uint32_t k;
+        song.ntrk = 3; go_home(); ui.home_pg = 1;
+        memset(&view, 0, sizeof view);
+        for (k = 0; k < NTRK; k++) trk[k].engine = trk[k].eng_req;
+        trk[0].peak = 9000; trk[1].peak = 4000; trk[2].peak = 300;
+        if (s == S_VIEW_EMPTY) { TSEL->p[P_ROOT] = 9; TSEL->p[P_SCALE] = 2; break; }   /* (A minor) */
+        track_select(1);
+        if (s == S_VIEW_NOTE) { input_on(TSEL, 62, 100); break; }
+        if (s == S_VIEW_SLASH) {
+            input_on(&trk[0], 40, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); input_on(TSEL, 67, 100);
+            break;
+        }
+        input_on(&trk[0], 45, 100);
+        input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); input_on(TSEL, 67, 100); input_on(TSEL, 69, 100);
+        if (s == S_VIEW_KNOBS) { ui.hot_col = 0; ui.hot_t = 30; stage_out(); }
+        if (s == S_VIEW_LETGO) {
+            uint32_t on[4]; uint8_t of[128]; int f;
+            view_notes(on, of, &f);                      /* (seen sounding once) */
+            input_off(&trk[0], 45); input_off(TSEL, 60); input_off(TSEL, 64); input_off(TSEL, 67); input_off(TSEL, 69);
+            for (k = 0; k < NTRK; k++) for (uint32_t i = 0; i < NVOICE; i++) trk[k].v[i].gate = 0;
+        }
+        break;
+    }
+    case S_STAGE_T2: song.ntrk = 2; go_home(); track_select(1); input_on(TSEL, 62, 100); break;
+    case S_STAGE_T3: song.ntrk = 3; go_home(); trk[1].pattern_next = 2; song.rec = 4u; break;
+    case S_SHEET_STAGE: song.ntrk = 2; song.playing = 0; go_home(); page_sheet_open(); pop.sel = 5; break;
+    case S_CONFIRM_TRACK: song.ntrk = 3; song.playing = 0; go_home(); track_select(1); confirm_open(CF_DEL_TRACK, 1); break;
+    /* .. MIXER with one, two (track 2 selected, its PAN turned), three (track 3 muted, track 1 armed); PATTERNS and SONG
+     * with two; GLO with two (track 2 muted); NEW SONG's roles as they open without a template */
+    case S_MIXER_T1: case S_MIXER_T2: case S_MIXER_T3:
+        song.ntrk = (uint8_t)(1 + s - S_MIXER_T1); go_page(GR_TRK);
+        trk[0].p[P_LEVEL] = 100; trk[1].p[P_LEVEL] = 84; trk[2].p[P_LEVEL] = 64; trk[0].p[P_PAN] = -20; trk[1].p[P_PAN] = 24;
+        trk[0].peak = 9000;
+        if (s == S_MIXER_T2) { track_select(1); ui.hot_col = 1; ui.hot_t = 30; }
+        if (s == S_MIXER_T3) { trk[2].p[P_MUTE] = 1; song.rec = 1; }
+        break;
+    case S_PATGRID_T2:
+        song.ntrk = 2; song.playing = 0; pattern_switch(&trk[0], 1); my_steps(&trk[0]); pattern_switch(&trk[0], 0);
+        go_page(GR_PATGRID); break;
+    case S_SONG_T2:
+        song.ntrk = 2; song.playing = 0; chain_config.count = 2;
+        chain_config.row[0] = (chain_row_t){0, 2}; chain_config.row[1] = (chain_row_t){1, 4};
+        memset(chain_patterns[1], 1, NTRK); ui.song_row = 1; go_page(GR_SONG); break;
+    case S_GLO_T2: song.ntrk = 2; go_home(); ui.layer = LAYER_GLO; trk[1].p[P_MUTE] = 1; break;
+    case S_NEW_ROLES_T1: song.playing = 0; new_open(); nw.on = 2; break;
     case S_STAGE_DRUM:
         drum(0); go_home(); trk[3].seq_idx = 9; drum_flash[3] = 1u | 8u | 32u; break;
     case S_STAGE_CZ:
@@ -1211,6 +1287,12 @@ static void setup(int s)
         ui.hot_col=2;ui.hot_t=30;break;
     case S_MENU_ADD: ui.menu=1;ui.menu_sel=MI_ADD;settings_chord_add=1;break;
     case S_MENU_AUTOSAVE_ON: ui.menu=1;ui.menu_sel=MI_AUTOSAVE;settings_autosave=1;break;
+    /* HOME SELECT: the menu's row on MOD WHEEL; SELECT just turned on Stage (MOD WHEEL), on the chord view (LEVEL) */
+    case S_MENU_HOME_SEL: ui.menu = 1; ui.menu_sel = MI_HOME_SEL; HOME_SELECT = HS_MOD; break;
+    case S_HOME_SEL_MOD: go_home(); HOME_SELECT = HS_MOD; home_select_turn(64); HOME_SELECT = 0; break;
+    case S_HOME_SEL_CHORD:
+        song.ntrk = 1; go_home(); HOME_SELECT = HS_CHORD; TSEL->p[P_CHRD] = 5; home_select_turn(1); HOME_SELECT = 0; break;
+    case S_HOME_SEL_LEVEL: go_home(); ui.home_pg = 1; memset(&view, 0, sizeof view); HOME_SELECT = HS_LEVEL; home_select_turn(-3); HOME_SELECT = 0; break;
     case S_MENU_AUTOSAVE_OFF: ui.menu=1;ui.menu_sel=MI_AUTOSAVE;settings_autosave=0;break;
     case S_MENU_HOLD: ui.menu = 1; ui.menu_sel = MI_HOLD; settings_hold = 2; break;
 #if MELODEE_USB_AUDIO

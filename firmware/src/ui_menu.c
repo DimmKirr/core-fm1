@@ -3,7 +3,8 @@
 /* Melodee menu (HOME held): COLOR, HOLD (the layer threshold), LIGHTS (the keys' and buttons'
  * glow: ui_input.c ui_leds), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (IN+OUT, IN, OUT or OFF; usb.c ua_off_set),
  * USB INPUT (stereo master or four track stems; usb.c ua_tracks_set),
- * AUTOSAVE (automatic project saves after five seconds stopped and untouched),
+ * AUTOSAVE (automatic project saves after five seconds stopped and untouched), HOME SELECT (what SELECT turns on HOME:
+ * ui.c HS_*),
  * OVERCLOCK (the boot clock: overclock.c; closing with a new clock asks to restart),
  * CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
  * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information. */
@@ -13,14 +14,14 @@ enum { MI_COLOR, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB, MI_USB_INPUT,
 #endif
-       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_ACCEL, MI_SCREEN, MI_CLOCK, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
+       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_ACCEL, MI_HOME_SEL, MI_SCREEN, MI_CLOCK, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO", "USB INPUT",
 #endif
                                               "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY",
-                                              "AUTOSAVE", "KNOB ACCEL", "SCREEN OFF", "OVERCLOCK", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
+                                              "AUTOSAVE", "KNOB ACCEL", "HOME SELECT", "SCREEN OFF", "OVERCLOCK", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
 static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
@@ -276,6 +277,7 @@ static void draw_menu(void)
                   i==MI_PREVIEW?(settings_preview?"ON":"OFF"):(settings_chord_add?"ADD":"HOLD");
             if (i == MI_ACCEL) value = PREF_BITS & PREF_ACCEL_OFF ? "OFF" : "ON";
             if (i == MI_AUTOSAVE) value = settings_autosave ? "ON" : "OFF";
+            if (i == MI_HOME_SEL) value = HS_NAME[home_select()];
             if (i == MI_SCREEN) value = (const char *const[]){"NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"}[scr_get()];
             if (i == MI_CLOCK) value = OC_NAME[oc_get()];
             if (i == MI_LIGHTS) value = LIGHTS_NAME[settings_lights % LIGHTS_N];
@@ -401,6 +403,11 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         uint32_t on = s > 0 ? 1u : s < 0 ? 0u : !!(PREF_BITS & PREF_ACCEL_OFF);
         PREF_BITS = (uint8_t)(on ? PREF_BITS & ~PREF_ACCEL_OFF : PREF_BITS | PREF_ACCEL_OFF);
         ui.force=1; ok=0;
+    }
+    if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_HOME_SEL) {   /* KNOB 1 steps, OCT+ steps and wraps */
+        uint32_t v = home_select();
+        HOME_SELECT = (uint8_t)(s > 0 ? (v + 1u < HS_N ? v + 1u : v) : s < 0 ? (v ? v - 1u : 0u) : (v + 1u) % HS_N);
+        ui.force = 1; ok = 0;
     }
     if ((s || ok) && ui.menu==1 && ui.menu_sel==MI_SCREEN) {
         uint32_t value=scr_get(), top=4u;

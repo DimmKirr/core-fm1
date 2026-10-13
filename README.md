@@ -314,7 +314,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 
 - **Five selectable instruments:** PROPHET, FM6, CZ-1, SID and DRUM, each with factory presets;
   DRUM contains synthesized 808 and 909 kits
-- **Four tracks**, one instrument and sound per track. FM6 plays up to 16 voices; PROPHET plays up
+- **One to four tracks**, one instrument and sound per track: a new song starts with one, so the FM-1 can be a
+  single synth; add more when the song needs them. FM6 plays up to 16 voices; PROPHET plays up
   to eight voices per track in the default dual-core build (five if CPU1 is unavailable or disabled).
   ALGORITHM selects the track on every page. Running several eight-voice Prophet tracks together
   has not yet been stress-tested on hardware
@@ -360,7 +361,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   second core (18 budget units instead of 16). A new clock needs a restart: closing the menu offers one (unsaved song
   changes are lost), or it applies at the next power-on. If a 360 MHz session crashes, hangs or loses its second
   core, the FM-1 goes back to 320 MHz and says **CPU FAULT: 320 MHZ**
-- **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4, channel 10 the first DRUM track (GLO >
+- **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4 (those in use), channel 10 the first DRUM track (GLO >
   SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
   GLO > SYSTEM KNOB 1 shows the USB or the TRS input's status (RX while it receives; both always play)
@@ -374,13 +375,20 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 ![FM-1 controls](docs/panel.jpg)
 
 - **SELECT** turns the pages of the open section (both ways); **MASTER** sets the volume,
-  **ALGORITHM** picks the track (T1–T4), and **PRESETS** browses its sounds. KNOB 1 moves across
+  **ALGORITHM** picks the track (T1 up to the last one in use), and **PRESETS** browses its sounds. KNOB 1 moves across
   lists and grids, KNOB 2 moves down; on parameter pages KNOB 1–4 edit the four controls
 - **BPM**, the song's **SWG** and the selected track's recording **QNT** are on **SEQ > TEMPO**:
   the project's, saved and loaded with it (power-on: the BOOT project's, the template's or 120);
   GLO > GLOBAL keeps CLK and TUNE, the device's
 - SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
-  HOME returns home
+  HOME returns home; on HOME, tap HOME again for its second page: the chord in the middle of a wheel
+  of the twelve notes in fifths (the key's notes marked, the notes sounding lit in their track's colour and joined
+  into the chord's shape), each track's level pulsing in the corners, the output's waveform and four octaves of keys
+  lit as they sound. The knobs and octave buttons work there as on Stage
+- **SELECT on HOME** turns what you choose in the menu (hold HOME): **HOME SELECT** BPM (default), MOD WHEEL (the
+  selected track's, as MIDI CC1; also sent to MIDI out), LEVEL, SWING, TRANSPOSE, CHORD (the chord its keys play:
+  OFF, DIA3, DIA7, MAJ, MIN, DOM7, MAJ7, MIN7, SUS4, POW), ARP RATE, PATTERN (the selected track's next pattern) or OFF.
+  The header shows the value
 - **Held:** GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the PATTERNS grid with
   the song under it, REC captures (below).
 - **Undo:** hold SAVE to undo the last sound or pattern load or Capture; hold it again to go further back (up to 8
@@ -388,6 +396,12 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   covers the step edits first
   When editing synth steps, SCL and EDIT use the editing controls below instead.
 - **FX** opens the track's three insert pages; SELECT moves between the slots.
+- **Tracks:** a new song has one track. On Stage, hold OCT+ for the sheet: **Add track** adds the next one (up to
+  four) with its own starting sound and empty patterns, selects it and opens the sound browser on it (OCT− keeps
+  the starting sound). **Remove track** removes the selected track after a question, stopped only: the tracks after
+  it move down a place with their sounds, patterns, song sections, motion and recordings. Stage, MIXER, PATTERNS,
+  SONG and GLO show the tracks in use; with one, Stage shows its sound across the screen in large type. Projects and
+  the template keep their number of tracks; projects from before keep all four
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
   transport. While playing, REC waits for that track's next pattern start, records one pass and
   automatically disarms at its end while playback continues. While stopped and armed, the first
@@ -405,9 +419,10 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   or STORE. Release, then tap OCT+ for **Send selected** over USB SysEx, **Erase selected** (one confirmation),
   or **Clear selection**. Empty slots are skipped. Single-slot **Send** is also available in USER.
 - **New song:** SAVE > PROJECT, turn KNOB 1 past TMPL to **NEW**, KNOB 3 to pick it and OCT+ (unsaved changes ask
-  first). Set the key (KNOB 1 ROOT, 2 SCALE) and tempo (KNOB 3), OCT+; give each track a role with KNOB 1–4 (KEEP,
-  DRUMS, BASS, CHORDS, LEAD, PAD), OCT+ creates it: your template's sounds (none saved: the power-on ones), a role's
-  first sound where the template's does not fit it, every pattern empty
+  first). Set the key (KNOB 1 ROOT, 2 SCALE) and tempo (KNOB 3), OCT+; give each track a role with KNOB 1–4 (--
+  for no track, KEEP, DRUMS, BASS, CHORDS, LEAD, PAD), OCT+ creates it: the tracks with a role, in order (track 1
+  KEEP and the rest -- to start with, or as many as your template has), your template's sounds (none saved: the
+  power-on ones), a role's first sound where the template's does not fit it, every pattern empty
 - **SAVE + REC** saves the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
   the transport first; a new project opens SAVE > PROJECT on a free slot. **Autosave:** stopped and untouched for
   5 seconds (no key, button, knob or MIDI), a project that has a slot saves itself there when it changed.
@@ -589,7 +604,8 @@ selects the grid committed at recording end. The DRUM grid keeps its white-key s
 
 On **SAVE > PROJECT**, KNOB 2 **BOOT** selects OFF or project A–D to load at power-on.
 KNOB 1 **SLOT** also offers **TMPL**: save your sounds and settings there as the template for new
-projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK, TUNE, MIDI
+projects, with empty patterns and its number of tracks. BOOT OFF uses the template when one is saved, else one track
+with the power-on sound. CLK, TUNE, MIDI
 and ROUT persist between starts; loading a project or template applies its own settings. DRUM is the
 device's own setting.
 

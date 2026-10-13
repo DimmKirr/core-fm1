@@ -7,8 +7,9 @@
  *
  * FUN18, FUN17 and FUN16 are read: 1.2's boot pass rewrote older ones, and
  * archives of before 1.0.0 restore through 1.2. A record keeps np (byte 66), the P_COUNT it was written with;
- * one of an older count maps by count (params_by_count, proj_motion_ids). Its bytes `parts` (NPART) and `phys`
- * (PROJ_PHYS) stay as written. Tracks of retired engines (DIGITAL, ANALOG ..) keep their engine bytes and play
+ * one of an older count maps by count (params_by_count, proj_motion_ids). Its byte `parts` is the tracks in use
+ * (1..NTRK; written NPART before, older firmware never reads it: it loads every track, those not in use empty); `phys`
+ * (PROJ_PHYS) stays as written. Tracks of retired engines (DIGITAL, ANALOG ..) keep their engine bytes and play
  * silent.
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
@@ -30,7 +31,7 @@ typedef struct {
     uint32_t magic, size;
     int16_t g[G_COUNT];
     uint8_t sel;                               /* the selected track */
-    uint8_t parts;                             /* NPART; 0: track 4 is the old GM drum part (see the top) */
+    uint8_t parts;                             /* the tracks in use, 1..NTRK (song.ntrk); else all NTRK */
     uint8_t phys;                              /* PROJ_PHYS: PHYS MODEL values as today; 1: MODEL 4 was DRUM;
                                                 * 0 (a reserved byte before 1.0): MODEL 2 was DUST */
     uint8_t rsv;
@@ -492,7 +493,7 @@ static void project_capture(project_t *p)
     for (i = 0; i < G_COUNT; i++)
         p->g[i] = song.g[i];
     p->sel = song.sel;
-    p->parts = NPART;
+    p->parts = (uint8_t)trk_n();
     p->phys = PROJ_PHYS;
     p->chain = chain_config;
     for (i = 0; i < NTRK; i++) {
@@ -725,7 +726,8 @@ static int project_restore_runtime(const project_t *input)
             memcpy(fm6_fn[k], p->fm6_fn_ok && fm6_fn_ok(p->fm6_fn[k]) ? p->fm6_fn[k] : FM6_FNDEF, FM6_NFN);
         }
     }
-    song.sel = (uint8_t)(p->sel < NTRK ? p->sel : 0u);
+    song.ntrk = (uint8_t)(p->parts - 1u < NTRK ? p->parts : NTRK);
+    song.sel = (uint8_t)(p->sel < song.ntrk ? p->sel : 0u);
     fm1_irq_on();
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = PROJ_NO_SLOT;                            /* (project_load: its slot) */
@@ -776,7 +778,8 @@ static void project_load(uint32_t slot)
 #define TMPL_MAGIC 0x4A4C5054u                    /* "TPLJ": selectable send routing; TPLI / TPLH / TPLG / TPLF convert */
 typedef struct {
     int16_t g[PROJ_GLOBALS];
-    uint8_t sel, rsv;                             /* (G_COUNT odd: the tracks start on a word) */
+    uint8_t sel, ntrk;                            /* (G_COUNT odd: the tracks start on a word); ntrk: the tracks in
+                                                   * use, 0 (a template of before) all NTRK */
     struct { uint8_t engine, preset; int16_t p[P_COUNT]; } t[NTRK];
     uint8_t fm6[NTRK][FM6_PACKED];
     uint8_t fm6_fn[NTRK][FM6_NFN];                /* (TPL6) */
@@ -847,7 +850,7 @@ static int tmpl_take(const uint8_t *b,uint32_t len)
 {
     memset(&tmpl,0,sizeof tmpl);if(!tmpl_blob_valid(b,len))return 0;
     uint32_t np=tmpl_param_count(len),off=2u*PROJ_GLOBALS+2u;
-    memcpy(tmpl.g,b,sizeof tmpl.g);tmpl.sel=b[2u*PROJ_GLOBALS];
+    memcpy(tmpl.g,b,sizeof tmpl.g);tmpl.sel=b[2u*PROJ_GLOBALS];tmpl.ntrk=b[2u*PROJ_GLOBALS+1u]<=NTRK?b[2u*PROJ_GLOBALS+1u]:0u;
     for(uint32_t k=0;k<NTRK;k++){
         int16_t def[P_COUNT],values[P_COUNT];tmpl.t[k].engine=b[off++];tmpl.t[k].preset=b[off++];
         for(uint32_t i=0;i<P_COUNT;i++)def[i]=param_desc_of(tmpl.t[k].engine%NENGINES,i)->def;
@@ -905,6 +908,7 @@ static void template_save(void)
     tmpl.master[12]=(uint8_t)song.g[G_FXRETURN];
     tmpl.master[13]=(uint8_t)song.g[G_FXMODE];
     tmpl.sel = song.sel;
+    tmpl.ntrk = (uint8_t)trk_n();
     for (k = 0; k < NTRK; k++) {
         tmpl.t[k].engine = trk[k].eng_req;
         tmpl.t[k].preset = trk[k].preset;
@@ -958,7 +962,7 @@ static void template_load(void)
     p->g[G_FXRETURN]=tmpl.master[12];
     p->g[G_FXMODE]=tmpl.master[13];
     p->sel = tmpl.sel;
-    p->parts = NPART;
+    p->parts = tmpl.ntrk ? tmpl.ntrk : NPART;
     p->phys = PROJ_PHYS;
     chain_defaults(&p->chain);
     for (k = 0; k < NTRK; k++) {
@@ -987,6 +991,8 @@ static void template_load(void)
     ui_message("TEMPLATE LOADED");
 }
 
+/* NEW SONG (ui_new.c): the tracks a new song starts with: the template's (one of before: all), else one */
+static uint32_t template_tracks(void) { return !template_used() ? 1u : tmpl.ntrk ? tmpl.ntrk : NTRK; }
 /* NEW SONG (ui_new.c): the template's key and tempo (track 1's ROOT, the song's SCALE, BPM), when there is one */
 static void template_key(uint32_t *root, uint32_t *scale, int32_t *bpm)
 {
@@ -1028,6 +1034,7 @@ static void project_new_blank(void)
     proj_cur = PROJ_NO_SLOT;
     proj_name[0] = 0;
     song.sel = 0;
+    song.ntrk = 1;                                      /* (one track to start with: Stage's sheet adds more) */
     song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
 }
 /* the music differs from its slot (none: it holds notes): a new song asks first. Packs the project (proj_wire_u) */
@@ -1060,6 +1067,7 @@ static void project_boot(void)
             project_load(settings_boot - 1u);
         return;
     }
+    song.ntrk = 1;                                      /* the power-on sounds: one track (theirs: the template's) */
     if (template_used()) {
         if (bootguard.failed)
             ui_message("TEMPLATE SKIPPED");
@@ -1068,6 +1076,7 @@ static void project_boot(void)
     }
     song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
 }
+#include "tracks.c"                               /* adding and removing tracks */
 #if MELODEE_FLASH && MELODEE_SLICE
 #include "slice_store.c"                          /* SLICE's MAN slices, kept in the user slots */
 #endif

@@ -236,8 +236,10 @@ static void patterns_draw(void)
     uint32_t k;
     pt_numbers();
     pt_song();
-    for (k = 0; k < NTRK; k++)
+    for (k = 0; k < trk_n(); k++)
         pt_row(k);
+    if (ui.force && trk_n() < NTRK)                     /* (the rows of tracks not in use: empty) */
+        lcd_fill(0, PT_ROW_Y + (int32_t)trk_n() * PT_ROW_H, 240, (NTRK - trk_n()) * PT_ROW_H, T_BG);
 }
 /* a pattern queued on any track (PATTERNS' OCT- clears them before it leaves) */
 static int patterns_queued(void)
@@ -258,6 +260,8 @@ static void patgrid_edit(uint32_t k, int32_t steps)
         ui.force = 1;
         return;
     }
+    if (k >= trk_n())                                   /* (no track there) */
+        return;
     uint32_t from = t->pattern_next < NPAT ? t->pattern_next : t->pattern;
     if (pattern_request(t, (uint32_t)clamp((int32_t)from + (steps > 0 ? 1 : -1), 0, NPAT - 1u)))
         ui_message("STOP SONG TO SWITCH");
@@ -325,7 +329,7 @@ static struct { uint32_t first, ncols, sel, total, bars, play; int32_t px; } sg;
 static uint32_t sg_row_bars(uint32_t r)                 /* a row's bars: its longest pattern's (x its repeats) */
 {
     uint32_t k, b = 1;
-    for (k = 0; k < NTRK; k++)
+    for (k = 0; k < trk_n(); k++)
         if (pat_bars(k, chain_patterns[r][k]) > b)
             b = pat_bars(k, chain_patterns[r][k]);
     return b * chain_config.row[r].repeat;
@@ -433,22 +437,23 @@ static void sg_labels(void)                             /* the sections' letters
     cv_blit(0, SG_TOP_H);
 }
 /* track k's blocks: a pattern over sections in a row as one (the selected track's block in the row picked alone,
- * outlined); an empty pattern: nothing (picked: dashed) */
+ * outlined); an empty pattern: nothing (picked: dashed); a track not in use: its row's lines alone */
 static void sg_row(uint32_t k)
 {
     const track_t *t = &trk[k];
     uint16_t tc = t->p[P_MUTE] ? T_DIM : T_TRK(k);
+    uint32_t live = k < trk_n(), cols = live ? SG_COLS : 0u;
     uint32_t j, h = fnv1(2166136261u, sg.first + 16u * sg.ncols + 256u * sg.sel + 4096u * (k == song.sel) +
-                                     65536u * (uint32_t)(t->p[P_MUTE] != 0));
+                                     65536u * (uint32_t)(t->p[P_MUTE] != 0) + 131072u * live);
     h = fnv1(fnv1(h, (uint32_t)(sg.px + 1)), ux.gen * 977u + ux.pal * 31u + t->pattern_gen);
-    for (j = 0; j < SG_COLS && sg.first + j < chain_config.count; j++)
+    for (j = 0; j < cols && sg.first + j < chain_config.count; j++)
         h = fnv1(h, chain_patterns[sg.first + j][k] + 16u * (uint32_t)pattern_used(k, chain_patterns[sg.first + j][k]));
     if (!ui.force && h == sgv.row[k])
         return;
     sgv.row[k] = h;
     cv_begin(240, SG_ROW_H, T_BG);
     sg_lines(0, SG_ROW_H);
-    for (j = 0; j < SG_COLS && sg.first + j < chain_config.count; ) {
+    for (j = 0; j < cols && sg.first + j < chain_config.count; ) {
         uint32_t r = sg.first + j, p = chain_patterns[r][k], e = j + 1u, pick = k == song.sel && r == sg.sel;
         int used = pattern_used(k, p);
         int32_t x = 9 + SG_COL_W * (int32_t)j, w;

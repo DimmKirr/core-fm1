@@ -67,6 +67,28 @@ Stage (`stage_note_overlay`), all positions in device pixels:
   level at x 222: a 3 px bar over a 10 x 2 line.
 - Drum track: the lanes BD SD CP CH OH RS as chips 32 x 14 at y 132 (hitting: filled), the waveform dimmed above.
 
+Tracks in use (2026-10-13, `firmware/src/tracks.c`): one to four, always from track 1. Stage's columns share the
+four's place (x 4 .. 236): two 114 px (the sound 15 px), three 74 px (5 px apart); every column's content centred, the
+four's too (Kerem 2026-10-13; an armed column's role keeps clear of its REC dot); one
+track is the synth build's card across it, centred (role 12 px, the sound 30 px, the pattern and ARP / HOLD / CHORD /
+scale as pills each in a track colour, the four colours' bars, the 16 steps in a row, the level as the big ring; a
+track with no pattern at all, none waiting, not armed: no pattern pill, no steps, the ring in the middle). MIXER's
+strips follow Stage's columns (centred); PATTERNS and SONG draw the rows in use; GLO blanks
+the keys and cards of the others. Stage's sheet ends with **Add track** (the next, its value T2..; the browser opens
+on it) and **Remove track** (the selected; red, its question "Remove track 2?"). NEW SONG's roles start at `--` (no
+track). Renders: `stage_1track*` (`_synth`: no pattern), `stage_2tracks`, `stage_3tracks`, `sheet_stage`, `confirm_track`, `mixer_*track*`,
+`patterns_2tracks`, `song_2tracks`, `layer_glo_2tracks`, `new_roles_1track`.
+
+HOME's second page (2026-10-13, `firmware/src/ui_view.c`; HOME tapped on HOME, two page dots in the header; HOME
+from elsewhere returns to the page it was on; SELECT is not a page turn on HOME: it turns the menu's HOME SELECT, a
+header message saying the value): a wheel of the twelve notes in fifths centred (160 x 158
+at 40, 19; the key's notes marked, its root larger), the notes sounding on the tracks in use (not DRUM) lit in their
+track's colour and joined into the chord's shape, the chord's root ringed; in the middle the chord (root L, quality M
+on its baseline, the notes S in the selected track's colour), one note L, nothing yet the key (M, mid); let go: the
+last notes faded. Track pulses (32 x 32) in the wheel's corners, the waveform (rows 179 .. 204), keys C2 .. B5 (rows
+208 .. 237). Stage's knobs drop in over the wheel's top. Renders: `view`, `view_letgo`, `view_note`, `view_empty`,
+`view_knobs`, `view_slash`.
+
 ## Navigation (R6)
 
 One way to move on every screen with something to move through (Kerem, 2026-10-10):

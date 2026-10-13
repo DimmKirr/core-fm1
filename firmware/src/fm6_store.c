@@ -18,7 +18,7 @@
  * Dexed or any DX7 librarian can edit a track live; SAVE keeps its whole voice. */
 static uint8_t fm6_buf[FM6_RX] __attribute__((section(".pool")));   /* main loop: dumps out */
 
-static int fm6_is(uint32_t k) { return k < NPART && trk[k].eng_req == ENGI_FM6; }
+static int fm6_is(uint32_t k) { return k < trk_n() && trk[k].eng_req == ENGI_FM6; }
 
 static int fm6_sx_track(uint32_t ch)                     /* the FM6 track a DX7 message on channel ch is for, -1 */
 {

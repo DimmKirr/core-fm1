@@ -1,15 +1,20 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* NEW SONG (SAVE > PROJECT, KNOB 1 past TMPL: NEW, then LOAD's OCT+): a new project from the template (none saved:
  * the power-on sounds), every pattern empty, in two screens. KEY: KNOB 1 ROOT, 2 SCALE, 3 TEMPO. ROLES: KNOB k track
- * k's role: KEEP (the template's sound) or DRUMS BASS CHORDS LEAD PAD: the first sound of that category, unless the
- * template's sound already is one. OCT+ next / create, OCT- back / cancel. Stopped only: the base loads like a project */
+ * k's role: -- (no track), KEEP (the template's sound) or DRUMS BASS CHORDS LEAD PAD: the first sound of that category,
+ * unless the template's sound already is one. The tracks with a role are the song's, in their order (the template's
+ * KEEP, the others --: one without a template). OCT+ next / create, OCT- back / cancel. Stopped only: the base loads like
+ * a project */
 static void template_key(uint32_t *root, uint32_t *scale, int32_t *bpm);   /* project.c */
+static uint32_t template_tracks(void);
+static int track_remove(uint32_t k);                                       /* tracks.c */
+static void track_blank(uint32_t k);
 static int32_t accel(uint32_t role, int32_t s, int32_t range);            /* ui_input.c */
 static void project_new_blank(void);
 static int project_dirty(void);
-enum { NR_KEEP, NR_DRUMS, NR_BASS, NR_CHORDS, NR_LEAD, NR_PAD, NR_N };
-static const char *const NR_NAME[NR_N] = {"KEEP", "DRUMS", "BASS", "CHORDS", "LEAD", "PAD"};
-static const uint8_t NR_CAT[NR_N] = {CAT_NONE, CAT_DRUM, CAT_BASS, CAT_KEYS, CAT_LEAD, CAT_PAD};
+enum { NR_NONE, NR_KEEP, NR_DRUMS, NR_BASS, NR_CHORDS, NR_LEAD, NR_PAD, NR_N };
+static const char *const NR_NAME[NR_N] = {"--", "KEEP", "DRUMS", "BASS", "CHORDS", "LEAD", "PAD"};
+static const uint8_t NR_CAT[NR_N] = {CAT_NONE, CAT_NONE, CAT_DRUM, CAT_BASS, CAT_KEYS, CAT_LEAD, CAT_PAD};
 static struct {
     uint8_t on;                                     /* 0 closed, 1 KEY, 2 ROLES */
     uint8_t root, scale, role[NTRK];
@@ -24,6 +29,8 @@ static void new_open(void)
     int32_t b = song.g[G_BPM];
     template_key(&r, &s, &b);                       /* (the template's, when there is one) */
     memset(&nw, 0, sizeof nw);
+    for (uint32_t k = 0; k < template_tracks() && k < NTRK; k++)
+        nw.role[k] = NR_KEEP;                       /* (the others: --) */
     nw.root = (uint8_t)r;
     nw.scale = (uint8_t)s;
     nw.bpm = (int16_t)b;
@@ -54,12 +61,13 @@ static void new_create(void)
     if (transport_busy()) { ui_message("STOP FIRST"); return; }
     if (template_used()) template_load();
     else project_new_blank();
+    song.ntrk = NTRK;                               /* (every place: the roles say which stay) */
     sel = song.sel;
     undo_depth++;                                   /* (no undo levels: a new project) */
     for (k = 0; k < NTRK; k++) {
         uint32_t src, kk, cs, ck;
         track_t *t = &trk[k];
-        if (nw.role[k] == NR_KEEP)
+        if (nw.role[k] <= NR_KEEP)
             continue;
         song.sel = (uint8_t)k;
         cur_entry(&cs, &ck);
@@ -78,6 +86,18 @@ static void new_create(void)
     }
     undo_depth--;
     song.sel = (uint8_t)sel;
+    for (k = NTRK; k-- > 0u;) {                     /* the places with no role: the last ones empty, one between moves */
+        if (nw.role[k] != NR_NONE || trk_n() < 2u)  /* the tracks after down (one track stays) */
+            continue;
+        if (k + 1u == trk_n()) {
+            track_blank(k);
+            song.ntrk = (uint8_t)k;
+        } else {
+            track_remove(k);
+        }
+    }
+    if (song.sel >= trk_n())
+        song.sel = 0;
     for (k = 0; k < NTRK; k++)
         trk[k].p[P_ROOT] = (int16_t)nw.root;
     TSEL->p[P_SCALE] = (int16_t)nw.scale;
@@ -160,8 +180,8 @@ static void new_keys(int create) { new_keys_row(create ? "Create" : "Roles", cre
  * engine; KEEP: the template's sound, dim; the knob turning: outlined */
 static void new_role_col(uint32_t k)
 {
-    uint32_t kk, src = nw.role[k] ? new_role_sound(nw.role[k], &kk) : USER_NONE, e, n, cut;
-    int hot = ui.hot_t && ui.hot_col == k, on = nw.role[k] != 0u;
+    uint32_t kk, src = nw.role[k] > NR_KEEP ? new_role_sound(nw.role[k], &kk) : USER_NONE, e, n, cut;
+    int hot = ui.hot_t && ui.hot_col == k, on = nw.role[k] > NR_KEEP;
     uint16_t bg = hot ? T_LIFT : T_PANEL;
     char nm[16], tag[6], l[8] = "Track 1", w[16];
     int32_t x = 4;
@@ -175,8 +195,14 @@ static void new_role_col(uint32_t k)
         const aafont_t *rf = text_w(&AF_M, NR_NAME[nw.role[k]]) <= CARD_W - 6 ? &AF_M : &AF_S;
         cv_text_on(rf == &AF_M ? 3 : x, rf == &AF_M ? 30 : 33, rf, NR_NAME[nw.role[k]], on ? T_TRK(k) : T_DIM, bg);
     }
-    if (src == USER_NONE) {
-        str_cpy(nm, nw.role[k] || !template_used() ? "--" : "Template", sizeof nm);
+    if (nw.role[k] == NR_NONE) {                        /* no track: the role alone */
+        nm[0] = 0;
+        e = 0xFFu;
+    } else if (src == USER_NONE && nw.role[k] == NR_KEEP && !template_used()) {   /* KEEP: the power-on sound */
+        entry_label(TRK_DEF[k % NTRK][0], TRK_DEF[k % NTRK][1], tag, nm);
+        e = TRK_DEF[k % NTRK][0];
+    } else if (src == USER_NONE) {
+        str_cpy(nm, nw.role[k] > NR_KEEP ? "--" : "Template", sizeof nm);
         e = 0xFFu;
     } else {
         entry_label(src, kk, tag, nm);

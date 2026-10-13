@@ -230,7 +230,7 @@ static void draw_head(void)
     sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
-          (ui.home ? 0u : ui.page * 2654435761u) + page_sheet() * 524287u;
+          (ui.home ? ui.home_pg * 40503u : ui.page * 2654435761u) + page_sheet() * 524287u;
     if (bpm != ui.roll_bpm) {
         char a[8];
         fmt_int(a, ui.roll_bpm);
@@ -282,8 +282,16 @@ static void draw_head(void)
             fmt_int(b + 4, (int32_t)chain.row + 1);
             x = cv_text_on(x + 2, 4, &AF_X, b, T_MID, T_BG) + 6;
         }
-        if (!ui.home)                                   /* a page: where it is in its family */
+        if (!ui.home) {                                 /* a page: where it is in its family */
             head_pages(x + 6, 232 - cw - (low ? 20 : 0) - (page_sheet() ? 16 : 0));
+        } else {                                        /* HOME: its two pages (Stage, the chord view) */
+            uint32_t i;
+            for (i = 0, x += 6; i < 2u; i++) {
+                int32_t w = i == ui.home_pg ? 12 : 4;
+                cv_rrect(x, 7, w, 4, 2, i == ui.home_pg ? T_THEME : T_LINE, T_BG);
+                x += w + 5;
+            }
+        }
         if (low)                                        /* the battery, only when it runs low */
             cv_icon_mid(232 - cw - 18, H_HEAD / 2, 12, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
         if (page_sheet())                               /* the page has a sheet (OCT+ held) */
@@ -301,12 +309,15 @@ static void draw_head(void)
 /* full redraw: the strips (header, cards, panel, footer; Stage: its panel and lanes) cover the rest; only the BG
  * between them is filled */
 static void stage_frame(void);
+static void view_frame(void);                           /* ui_view.c */
 static void draw_frame(int stage)
 {
     uint32_t i;
     lcd_fill(0, H_HEAD, 240, Y_LABEL - H_HEAD, T_BG);
     lcd_fill(0, Y_SEP_END, 240, Y_GRAPH - Y_SEP_END, T_BG);
-    if (stage)
+    if (stage && ui.home_pg)
+        view_frame();
+    else if (stage)
         stage_frame();
     else
         lcd_fill(0, Y_GRAPH + H_GRAPH, 240, Y_FOOT - Y_GRAPH - H_GRAPH, T_BG);
@@ -667,6 +678,7 @@ static void engine_columns(void)                        /* EDIT held: KNOB 1 the
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
 }
 #include "ui_stage.c"                                   /* Stage (HOME) */
+#include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
 #include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
 static void draw_columns(void)
@@ -998,6 +1010,11 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "REPLACE OLD TEMPLATE?", 24);
         str_cpy(b, "Old settings/template replaced", 32);
         break;
+    case CF_DEL_TRACK:                                  /* Stage's sheet: the tracks after it move down a place */
+        str_cpy(a, "REMOVE TRACK 1?", 24);
+        a[13] = (char)('1' + k % NTRK);
+        str_cpy(b, "Its sound, patterns and motion", 32);
+        break;
     case CF_RESTART:                                 /* the menu closed with another clock */
         str_cpy(a, "RESTART NOW?", 24);
         str_cpy(b, "Unsaved song changes are lost", 32);
@@ -1099,7 +1116,9 @@ static void draw_page(void)
         melodee_dbg.stage = 4;
         draw_columns();
         melodee_dbg.stage = 5;
-        if (ui.home)                                    /* Stage: its panel and the lanes (ui_stage.c), no footer */
+        if (ui.home && ui.home_pg)                      /* HOME's second page (ui_view.c) */
+            view_draw();
+        else if (ui.home)                               /* Stage: its panel and the lanes (ui_stage.c), no footer */
             stage_draw();
         else
             draw_graph();

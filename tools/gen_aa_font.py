@@ -47,9 +47,10 @@ PHASES, PHASES_L = 2, 2                # horizontal phases per glyph (aa_raster.
 # 2 px per byte, so the labels draw at full speed
 HUFF = [("M", "L")]
 # L draws "Melodee", the UPDATE MODE countdown digit, the HOME notes / chord roots, the calibration's control names
-# (panel.c B_NAME / E_NAME), NAME's name and NEW SONG's key (R6): every letter, the digits and the name's signs; the
-# space as its range and the rest as extras (ui_test.c checks that every L string is covered)
-L_CHARS = " #+./-_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+# (panel.c B_NAME / E_NAME), NAME's name and NEW SONG's key (R6): every letter, the digits and the name's signs, and
+# the one-track Stage's sound name (the factory names' ' ( ) too); the space as its range and the rest as extras
+# (ui_test.c checks that every L string is covered)
+L_CHARS = " #'()+./-_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 
 def preset(name):

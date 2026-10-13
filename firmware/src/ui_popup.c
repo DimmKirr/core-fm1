@@ -39,6 +39,8 @@ static uint32_t slot_kind(void);                        /* ui_slots.c */
 static void step_delete_edit(void);                     /* ui_input.c */
 static int live_rec_sel(void);
 static void slot_save_sheet(void);
+static int track_remove(uint32_t k);                    /* tracks.c */
+static void track_add(void);
 
 static void pop_close(void)
 {
@@ -76,6 +78,23 @@ static void ps_undo(void) { undo_step(0); }
 static const sheet_row_t SHEET_SOUND[] = {
     {"Init sound", 0, 0, 0, CF_INIT_SOUND}, {"Save as user\x85", 0, 0, ps_save, 0}, {"Favourite", ps_fav_v, 0, ps_fav, 0},
     {"Undo last load", 0, 0, ps_undo, 0}, {"Sound designer", 0, 0, designer_open, 0}};
+/* Stage's: the sound's, then the tracks: the one added (the next), the one removed (the selected: its question) */
+static void ps_trk_v(char *b, uint32_t k, int none)
+{
+    if (none) {
+        str_cpy(b, "-", 4);
+        return;
+    }
+    b[0] = 'T';
+    b[1] = (char)('1' + k % NTRK);
+    b[2] = 0;
+}
+static void ps_add_v(char *b) { ps_trk_v(b, trk_n(), trk_n() >= NTRK); }
+static void ps_remove_v(char *b) { ps_trk_v(b, song.sel, trk_n() < 2u); }
+static const sheet_row_t SHEET_STAGE[] = {
+    {"Init sound", 0, 0, 0, CF_INIT_SOUND}, {"Save as user\x85", 0, 0, ps_save, 0}, {"Favourite", ps_fav_v, 0, ps_fav, 0},
+    {"Undo last load", 0, 0, ps_undo, 0}, {"Sound designer", 0, 0, designer_open, 0},
+    {"Add track", ps_add_v, 0, track_add, 0}, {"Remove track", ps_remove_v, 0, 0, CF_DEL_TRACK}};
 /* the song's (SONG) */
 static int ps_song_free(void)
 {
@@ -265,7 +284,10 @@ static void page_sheet_open(void)
     switch (page_sheet()) {
     case 1:
         sound_name(TSEL, nm);
-        sheet_open(nm[0] ? nm : "Sound", ENGINES[eng_idx(TSEL->eng_req)]->name, SHEET_SOUND, NELEM(SHEET_SOUND));
+        if (ui.home)
+            sheet_open(nm[0] ? nm : "Sound", ENGINES[eng_idx(TSEL->eng_req)]->name, SHEET_STAGE, NELEM(SHEET_STAGE));
+        else
+            sheet_open(nm[0] ? nm : "Sound", ENGINES[eng_idx(TSEL->eng_req)]->name, SHEET_SOUND, NELEM(SHEET_SOUND));
         break;
     case 2:
         fmt_int(nm, chain_config.count);
@@ -296,6 +318,10 @@ static int cf_refused(uint32_t cf)
     int edit = cf == CF_DEL_ROW || cf == CF_CLEAR_SONG || cf == CF_CLEAR_SEQ || cf == CF_CLEAR_MOTION || cf == CF_DEL_PAT;
     if (edit && chain_busy())
         ui_message("STOP TO EDIT");
+    else if (cf == CF_DEL_TRACK && trk_n() < 2u)
+        ui_message("ONLY ONE TRACK");
+    else if (cf == CF_DEL_TRACK && transport_busy())
+        ui_message("STOP FIRST");
     else if ((cf == CF_DEL_ROW && ui.song_row >= chain_config.count) ||
              (cf == CF_DEL_PAT && pattern_empty(song.sel % NTRK, TSEL->pattern)))
         ui_message("NOTHING TO DELETE");

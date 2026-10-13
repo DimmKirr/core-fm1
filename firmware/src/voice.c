@@ -483,7 +483,7 @@ static void mono_remove(track_t *t, uint32_t note)
 static void trk_note_on_work(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t any = 0, i, mode = trk_vmode(t);
-    if (t->p[P_MUTE])
+    if (t->p[P_MUTE] || (uint32_t)(t - trk) >= trk_n())   /* (a track not in use: silent) */
         return;
     if (t->xf_on || t->eng_req != t->engine) {          /* engine switch under way: after the fade */
         for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)

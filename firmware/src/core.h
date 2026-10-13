@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE core types: tracks, voices, engines, parameters.
- * Four tracks, each a synth part: its own engine, preset, parameters, voices and 64-step
- * pattern. The parts share one budget of VBUDGET units of sounding voices (voice.c). Drums are the DRUM
+ * Up to four tracks (one to start with: song.ntrk), each a synth part: its own engine, preset, parameters, voices and
+ * 64-step pattern. The parts share one budget of VBUDGET units of sounding voices (voice.c). Drums are the DRUM
  * engine (synthesized 808 on the General MIDI map) on any part.
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
 #include <stdint.h>
@@ -423,7 +423,8 @@ typedef struct {
                                   * 2: NAME (ui_name.c): no key plays */
     uint8_t rec;                 /* live recording armed: bit per track */
     uint8_t rec_wait, rec_pass;   /* waiting for loop zero, or recording one pattern pass */
-    uint8_t sel;                 /* selected track 0..NTRK-1: keys, pages, editor */
+    uint8_t sel;                 /* selected track 0..trk_n()-1: keys, pages, editor */
+    uint8_t ntrk;                /* tracks in use: 1..ntrk play, the rest wait empty and silent (0: all NTRK) */
     int8_t octave;
     uint32_t tick;               /* sub-blocks since play */
     uint32_t cpu_q8;             /* audio ISR load, 1/256 */
@@ -434,6 +435,9 @@ typedef struct {
 static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
+/* The tracks in use: 1..trk_n(), always from track 1 (it clocks the song). The others keep their structs, sound and
+ * play nothing (voice.c trk_note_on), are drawn nowhere and get a fresh sound when added (project.c track_add) */
+static inline uint32_t trk_n(void) { return song.ntrk - 1u < NTRK ? song.ntrk : NTRK; }
 
 #include "microtonal.h"
 

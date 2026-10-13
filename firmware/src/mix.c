@@ -188,10 +188,10 @@ static int32_t batch_pcm[NPART][CTL],batch_spread[NPART][CTL];
 static uint32_t batch_rendered[NPART];static uint8_t batch_spread_on[NPART],batch_ready;
 static __typeof__(mod) batch_mod[NPART];
 static int16_t batch_params[NPART][P_COUNT];
-static __attribute__((noinline)) void mix_prepare_batch(uint32_t n)
+static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt)   /* nt: the tracks in use */
 {
     audio_batch_active=1;
-    for(uint32_t p=0;p<NPART;p++){
+    for(uint32_t p=0;p<nt;p++){
         track_t *t=&trk[p];mod_begin(t);batch_mod[p]=mod;memcpy(batch_params[p],t->p,sizeof t->p);
         spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON);
         batch_spread_on[p]=spread_on;spread_buf=batch_spread[p];
@@ -279,10 +279,11 @@ static __attribute__((noinline)) void mix_block(int32_t *out,uint32_t n)
     AP_START(events_start);events_block(n);AP_END(AP_EVENTS,events_start);
     fx_bus_select();fx_send_on=(uint8_t)fx_bus_active();if(fx_send_on){memset(fx_send_l,0,n*sizeof *fx_send_l);memset(fx_send_r,0,n*sizeof *fx_send_r);
         if(fx_bus_separate){memset(fx_send_extra_l,0,sizeof fx_send_extra_l);memset(fx_send_extra_r,0,sizeof fx_send_extra_r);}}
+    uint32_t nt=trk_n();                                /* (the tracks not in use: none of their CPU) */
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
-    mix_prepare_batch(n);
+    mix_prepare_batch(n,nt);
 #endif
-    for(uint32_t i=0;i<NPART;i++)mix_part(&trk[i],n);
+    for(uint32_t i=0;i<nt;i++)mix_part(&trk[i],n);
 #if MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
     batch_ready=0;part_buf=part_storage;spread_buf=spread_storage;
 #endif

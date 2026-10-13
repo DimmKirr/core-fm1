@@ -74,6 +74,12 @@ static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the brows
 /* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..3 OVERCLOCK (overclock.c). */
 #define PREF_BITS (favorites.factory[15][30])
 #define PREF_ACCEL_OFF 2u
+/* HOME SELECT (the menu): what SELECT turns on HOME, kept in favorites.factory[15][25] (0, any other: BPM) */
+enum { HS_BPM, HS_MOD, HS_LEVEL, HS_SWING, HS_TRANS, HS_CHORD, HS_ARATE, HS_PATTERN, HS_OFF, HS_N };
+static const char *const HS_NAME[HS_N] = {"BPM", "MOD WHEEL", "LEVEL", "SWING", "TRANSPOSE", "CHORD", "ARP RATE", "PATTERN",
+                                          "OFF"};
+#define HOME_SELECT (favorites.factory[15][25])
+static uint32_t home_select(void) { return HOME_SELECT < HS_N ? HOME_SELECT : HS_BPM; }
 
 static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */
 
@@ -97,6 +103,7 @@ static uint8_t sync_reload;                  /* engine / preset / project / user
 static struct {
     uint8_t designer_mode;       /* the sound designer: START, the stages (ui_designer.c) */
     uint8_t home;
+    uint8_t home_pg;             /* HOME's page: 0 Stage, 1 the chord view (ui_view.c); HOME tapped on HOME turns it */
     uint8_t drum_sound;
     uint8_t page;                /* index into PAGES */
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
@@ -185,7 +192,7 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
        CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE,
-       CF_RESTART };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
+       CF_RESTART, CF_DEL_TRACK };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
                                       * over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to over a
                                       * pattern in use */
 
@@ -1093,10 +1100,10 @@ static const param_desc_t *home_param(uint32_t k, int16_t **vp)
     return page_desc(stage_page(), k & 3u, vp);
 }
 
-/* select track i (KNOB 1 on TRACKS, the editor): its sound, pages and pattern from now on */
+/* select track i (ALGORITHM, SONG's KNOB 2, the editor; one in use): its sound, pages and pattern from now on */
 static void track_select(uint32_t i)
 {
-    if (i >= NTRK || i == song.sel)
+    if (i >= trk_n() || i == song.sel)
         return;
     browse_commit();                             /* (a sound still pending loads into the track it was meant for) */
     momentary_restore();

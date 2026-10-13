@@ -263,10 +263,11 @@ static void layer_key(uint32_t l, uint32_t k)
 
     if (l == LAYER_GLO) {
         if (key_black(k)) {
-            if (p < NTRK)
+            if (p < trk_n())
                 trk[p].p[P_MUTE] = (int16_t)!trk[p].p[P_MUTE];
         } else if (p < NTRK) {
-            lys.solo |= 1u << k;                        /* (layer_masks: track_solo while held) */
+            if (p < trk_n())                            /* (a track not in use: nothing) */
+                lys.solo |= 1u << k;                    /* (layer_masks: track_solo while held) */
         } else if (p == 4u) {
             for (i = 0; i < NTRK; i++)
                 trk[i].p[P_MUTE] = 0;
@@ -313,8 +314,10 @@ static void layer_keys(uint32_t keys)
 static void layer_knob(uint32_t k, int32_t s)
 {
     uint32_t l = layer_open();
-    if (l == LAYER_GLO) {                        /* T1..T4 LEVEL, recorded as on MIXER */
+    if (l == LAYER_GLO) {                        /* T1..T4 LEVEL (those in use), recorded as on MIXER */
         int16_t *vp = &trk[k].p[P_LEVEL];
+        if (k >= trk_n())
+            return;
         *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, TP[P_LEVEL].max - TP[P_LEVEL].min), TP[P_LEVEL].min, TP[P_LEVEL].max);
         motion_capture(&trk[k], P_LEVEL, *vp);
     } else if (l == LAYER_EDIT) {                       /* SECTION, No., FAV */
@@ -397,8 +400,9 @@ static uint32_t layer_leds(void)
     for (k = 0; k < 27u; k++) {
         uint32_t p = key_place(k), b = (uint32_t)key_black(k), on = 0, e;
         if (l == LAYER_GLO) {
-            on = b ? p < NTRK && glo_sounding(p) :
-                 p < NTRK ? ((lys.solo >> k) & 1u) | blink : p == 4u ? blink : p == 7u && !song.g[G_CLOCK] && blink;
+            on = b ? p < trk_n() && glo_sounding(p) :
+                 p < NTRK ? p < trk_n() && (((lys.solo >> k) & 1u) | blink) : p == 4u ? blink :
+                 p == 7u && !song.g[G_CLOCK] && blink;
         } else if (l == LAYER_SCL) {                    /* the root lit, the scale's notes blink */
             e = (k + 5u + 12u - root) % 12u;
             on = e == 0u || (((mask >> e) & 1u) && blink);
@@ -557,7 +561,8 @@ static void layer_glo_keys(int32_t h)
     cv_text_on(8, 6, &AF_X, "Keys", T_MID, T_PANEL);
     for (i = 0; i < 8u; i++) {
         int32_t x = x0 + (int32_t)i * (kw + 1);
-        int on = i < NTRK && ((track_solo >> i) & 1u), none = !WL[i][0][0], dim = i == 7u && song.g[G_CLOCK];
+        int on = i < NTRK && ((track_solo >> i) & 1u), none = !WL[i][0][0] || (i < NTRK && i >= trk_n()),
+            dim = i == 7u && song.g[G_CLOCK];
         uint16_t f = on ? T_TRK(i) : none ? ux_mix(T_PANEL, T_SURF, 50) : T_SURF, ink = on ? T_INK : dim ? T_DIM : T_TEXT;
         cv_rrect(x, wy, kw, h - wy - 6, 4, f, T_PANEL);
         if (!none) {
@@ -570,6 +575,10 @@ static void layer_glo_keys(int32_t h)
         int m = trk[i].p[P_MUTE] != 0;
         uint16_t f = m ? T_REC : T_LIFT;
         char n[2] = {(char)('1' + i), 0};
+        if (i >= trk_n()) {                             /* (a track not in use: its key blank) */
+            cv_rrect(x, by, 26, bh, 4, ux_mix(T_PANEL, T_SURF, 50), T_PANEL);
+            continue;
+        }
         cv_rrect(x, by, 26, bh, 4, f, T_PANEL);
         cv_text_c(x + 13, by + bh - 28, &AF_X, "Mute", m ? T_TEXT : T_SEC, f);
         cv_text_c(x + 13, by + bh - 15, &AF_X, n, m ? T_TEXT : T_SEC, f);
@@ -583,6 +592,10 @@ static void layer_cards(uint32_t l)
     uint32_t c;
     if (l == LAYER_GLO) {                        /* T1..T4 LEVEL (the track's icon; muted: dim) */
         for (c = 0; c < NTRK; c++) {
+            if (c >= trk_n()) {                         /* (a track not in use: an empty card) */
+                draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
+                continue;
+            }
             param_format(&TP[P_LEVEL], trk[c].p[P_LEVEL], val, &unit);
             draw_column(c, "LEVEL", val, unit, glo_sounding(c) ? VAL(c) : T_DIM, RATIO(&TP[P_LEVEL], trk[c].p[P_LEVEL]),
                         trk_icon(c, 1));
@@ -620,7 +633,7 @@ static void draw_layer(void)
         layer_cards(l);
     }
     if (l == LAYER_GLO)
-        sig += track_solo * 31u + (uint32_t)song.g[G_CLOCK] * 5u +
+        sig += track_solo * 31u + (uint32_t)song.g[G_CLOCK] * 5u + trk_n() * 40503u +
                (uint32_t)(trk[0].p[P_MUTE] | trk[1].p[P_MUTE] << 1 | trk[2].p[P_MUTE] << 2 | trk[3].p[P_MUTE] << 3) * 131u;
     else if (l == LAYER_SCL)
         sig += (uint32_t)TSEL->p[P_SCALE] * 31u;
