@@ -71,7 +71,8 @@ static uint32_t user_of(const track_t *t)    /* user preset slot its sound came 
 static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "favorites.c"
-/* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..3 OVERCLOCK, bit 4 its failed retune (overclock.c). */
+/* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..4 retired (OVERCLOCK until
+ * 1.4: left as saved, never read). */
 #define PREF_BITS (favorites.factory[15][30])
 #define PREF_ACCEL_OFF 2u
 #define PREF_PICK_OFF 32u
@@ -188,12 +189,11 @@ static int designer_foot(void);
 static void (*designer_quit)(int discard);   /* designer_close while it is open (project.c: a project loading) */
 
 #include "screen.c"
-#include "overclock.c"                         /* OVERCLOCK: the boot clock (main.c oc_boot) */
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
        CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE,
-       CF_RESTART, CF_DEL_TRACK };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
+       CF_DEL_TRACK };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
                                       * over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to over a
                                       * pattern in use */
 

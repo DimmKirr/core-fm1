@@ -18,7 +18,7 @@
 #endif
 #ifndef VBUDGET
 #define VBUDGET (MELODEE_RAM_AUDIO ? 18u : 16u) /* shared weighted voices; RAM profile uses 18 with CPU1 online
-                                                 * at 360 MHz (voice.c voice_budget: scaled with the clock) */
+                                                 * at 360 MHz (voice.c voice_budget: scaled with a kept 320) */
 #endif
 #ifndef MELODEE_ADMISSION
 #define MELODEE_ADMISSION 0 /* enable only with a calibrated performance contract */
@@ -463,18 +463,9 @@ static volatile uint32_t fm1_ms;  /* milliseconds since boot (TIMER4-based, TIME
 /* boot-loop guard (main.c): two boots in a row that die in the first 30 s -> UBOOT */
 #define BOOTGUARD_MAGIC 0x42475244u
 struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".noinit")));
-/* OVERCLOCK (main.c oc_boot): live, a session that retuned the PLL or runs off the SPL's 360 MHz and has not ended in
- * an intended reset (a crash, the watchdog or a failed clock switch leave it set: the next boot writes no PLL and
- * saves 360); OC_LIVE_RETUNE also, from the PLL write until 30 s after boot (still set at the next boot: the retune
- * failed, overclock.c PREF_OC_LOST). Gone at power-off. */
-#define OC_GUARD_MAGIC 0x4F43474Bu
-#define OC_LIVE 1u
-#define OC_LIVE_RETUNE 2u
-struct { uint32_t magic, live; } oc_guard __attribute__((section(".noinit")));
 static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an update): not a failed boot */
 {
     bootguard.pending = 0;
-    oc_guard.live = 0;
 }
 
 /* GLO solo belongs to the mixer, independently of quick-layer effects. */
