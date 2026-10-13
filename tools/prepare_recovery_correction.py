@@ -48,6 +48,8 @@ def prepare(version, published, staged, output, commit, firmware_commit, verify=
     names = [f"fm1-recover-{version}-{target}.zip" for target in TARGETS]
     if set(build["recovery_builds"]) != set(names):
         raise RuntimeError("Correction requires all four recovery platforms")
+    source_hashes = {name: sha256((ROOT / "tools" / name).read_bytes())
+                     for name in ("fm1_recover.py", "fm1_install.py", "fm1pkg_make.py", "build_recovery.py")}
     for target, name in zip(TARGETS, names):
         with zipfile.ZipFile(staged / name) as archive:
             prefix = name[:-4] + "/"
@@ -56,6 +58,11 @@ def prepare(version, published, staged, output, commit, firmware_commit, verify=
                     info["version"] != version or info["target"] != target or
                     not info["smoke_tests_passed"] or info.get("worktree_dirty", False)):
                 raise RuntimeError(f"Wrong, dirty or untested recovery archive: {name}")
+            if info.get("source_sha256") != source_hashes:
+                raise RuntimeError(f"Recovery source hashes differ from correction checkout: {name}")
+            executable = "fm1-recover.exe" if target == "windows-x64" else "fm1-recover"
+            if sha256(archive.read(prefix + executable)) != info.get("executable_sha256"):
+                raise RuntimeError(f"Recovery executable differs from build provenance: {name}")
             covered = set()
             for line in archive.read(prefix + "SHA256SUMS").decode().splitlines():
                 digest, path = line.split("  ", 1)

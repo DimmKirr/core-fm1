@@ -33,15 +33,19 @@ class CorrectionTests(unittest.TestCase):
         for target in C.TARGETS:
             name = f"fm1-recover-{C.VERSION}-{target}.zip"
             info = {"commit": self.new, "version": C.VERSION, "target": target,
-                    "smoke_tests_passed": True, "worktree_dirty": False}
+                    "smoke_tests_passed": True, "worktree_dirty": False,
+                    "source_sha256": {name: C.sha256((ROOT / "tools" / name).read_bytes())
+                                      for name in ("fm1_recover.py", "fm1_install.py", "fm1pkg_make.py", "build_recovery.py")},
+                    "executable_sha256": C.sha256(b"tested executable")}
             self.build["recovery_builds"][name] = info
             blob = (json.dumps(info) + "\n").encode()
             prefix = name[:-4] + "/"
+            executable = "fm1-recover.exe" if target == "windows-x64" else "fm1-recover"
             with zipfile.ZipFile(self.staged / name, "w") as z:
                 z.writestr(prefix + "BUILD_INFO.json", blob)
-                z.writestr(prefix + "fm1-recover", b"tested executable")
+                z.writestr(prefix + executable, b"tested executable")
                 z.writestr(prefix + "SHA256SUMS", f"{C.sha256(blob)}  BUILD_INFO.json\n"
-                           f"{C.sha256(b'tested executable')}  fm1-recover\n")
+                           f"{C.sha256(b'tested executable')}  {executable}\n")
             (self.published / name).write_bytes(b"old recovery archive")
         self.write_info(self.published, self.original)
         self.write_info(self.staged, self.build)
@@ -97,6 +101,17 @@ class CorrectionTests(unittest.TestCase):
         (self.staged / "unexpected").write_bytes(b"uncovered")
         with self.assertRaisesRegex(RuntimeError, "every asset"):
             self.prepare()
+
+    def test_source_drift_after_build_is_rejected(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "tools").mkdir()
+            for name in ("fm1_recover.py", "fm1_install.py", "fm1pkg_make.py", "build_recovery.py"):
+                (root / "tools" / name).write_bytes(b"different source")
+            with patch.object(C, "ROOT", root):
+                with self.assertRaisesRegex(RuntimeError, "source hashes differ"):
+                    self.prepare()
 
 
 if __name__ == "__main__":
