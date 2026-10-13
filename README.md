@@ -14,7 +14,7 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.1** ([what's new](#whats-new-in-131)).
+**Melodee 1.3.2** ([what's new](#whats-new-in-132)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -28,6 +28,34 @@ runs Felucca.
   into a computer; choose **Synth only** in the installer, edit it with its own
   [synth editor](https://keremimo.github.io/melodee/webapp/synth-editor/) ([BUILDING.md](BUILDING.md#synth-only-firmware))
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.3.2
+
+A fix for FM-1s that stayed on a black screen and came back as **WL82 UBOOT1.00** after
+installing 1.3.0 or 1.3.1.
+
+- **360 MHz by default again:** 1.3.0 started at 320 MHz, which retunes the FM-1's clock
+  at every start, before the screen and USB come up. On some units, often the ones that
+  had trouble with the second core, that retune fails, and two failed starts in a row
+  entered UBOOT. Melodee now starts at the boot loader's 360 MHz and leaves the clock
+  alone, as 1.2.1 did. 320 MHz stays available in the HOME-held menu's **OVERCLOCK**.
+- **Clock guard:** a 320 MHz session that crashes or hangs is followed by a start that
+  leaves the clock untouched and saves 360 MHz (**CPU FAULT: 360 MHZ**). If the retune
+  itself fails, the FM-1 says **PLL FAULT: 360 MHZ** once and OVERCLOCK reads
+  **360 ONLY** from then on. The retune also runs only once the watchdog reads back as
+  armed (after [johnskiller](https://github.com/johnskiller)'s follow-ups to keremimo/melodee#27).
+- **No automatic switch to 320 MHz:** a crash or a lost second core at 360 MHz no longer
+  moves the FM-1 to 320 MHz for its next start.
+- **Settings:** the 320 MHz default that 1.3.0 and 1.3.1 saved reads as 360 MHz. Choose
+  320 MHz in OVERCLOCK again if you want it.
+- **Second core:** once retired, the second core stays off until power-off from that
+  moment.
+- **Official V15 recovery:** the recovery downloads accept the unmodified M-VAVE
+  `FM-1.fwsc`, as the corrected 1.3.1 archives did.
+
+If an FM-1 is stuck in UBOOT, restore it with the
+[recovery tool](BUILDING.md#recover-a-black-screen-fm-1) or M-VAVE's updater, then install
+1.3.2. On 1.3.0 or 1.3.1 and still running, set OVERCLOCK to 360 MHz before updating.
 
 ## What's new in 1.3.1
 
@@ -65,9 +93,8 @@ available in the installer and release downloads.
   effects. Hold HOME and choose USB INPUT > 4 TRACKS for isolated mono stems.
 - **Optional autosave:** hold HOME and set AUTOSAVE to OFF to keep project saves manual.
   It defaults ON, remembers the choice across power-offs, and leaves manual SAVE working.
-- **Clock choice:** the HOME menu's OVERCLOCK chooses 360 MHz (default, the boot loader's clock)
-  or 320 MHz for the next start. A fault at 320 MHz returns the device to 360 MHz; an FM-1 whose
-  clock retune fails is marked **360 ONLY**.
+- **Clock choice:** the HOME menu's OVERCLOCK chooses 320 MHz (default) or 360 MHz for
+  the next start. A CPU fault at 360 MHz returns the device to 320 MHz.
 - **Installer options:** stable, next nightly and the separate synth-only firmware
   remain selectable, with Standard and Single core variants for each.
 - **Compatibility:** earlier Melodee project and template layouts load with their
