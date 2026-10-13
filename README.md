@@ -16,10 +16,10 @@ For a black-screen device already in ROM UBOOT, use the
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
 **Melodee 1.3.4** ([what's new](#whats-new-in-134)).
 
-Release candidate: **[Melodee 1.4.0-rc.2](https://github.com/keremimo/melodee/releases/tag/v1.4.0-rc.2)**
-([release notes](docs/RELEASE_1.4.0-rc.2.md)); choose **RC** in the web installer.
+Release candidate: **[Melodee 1.4.0-rc.3](https://github.com/keremimo/melodee/releases/tag/v1.4.0-rc.3)**
+([release notes](docs/RELEASE_1.4.0-rc.3.md)); choose **RC** in the web installer.
 It adds track management, a HOME chord view, assignable SELECT, motion editing and
-audio performance improvements. The stable installer remains on 1.3.3.
+audio performance improvements. The stable installer remains on 1.3.4.
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
