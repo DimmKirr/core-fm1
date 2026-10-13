@@ -4,8 +4,8 @@
 
   tools/fm1_retained_ram.py retained-ram.bin [more.bin ...]
 
-Layout of Melodee 1.3.x (app.ld NOINIT, link order): fm1_crash, melodee_dbg, bootguard, then fm1_core1_bar
-(dual core only) and oc_guard. The loader leaves this RAM alone (loader.ld), so a unit that entered UBOOT
+Layout (app.ld NOINIT, link order): fm1_crash, melodee_dbg, bootguard, then fm1_core1_bar (dual core only),
+oc_guard (1.3.0 .. 1.4.0-rc.2 only) and panel. The loader leaves this RAM alone (loader.ld), so a unit that entered UBOOT
 through the boot guard still holds what its last boots left here.
 """
 import struct
@@ -16,7 +16,8 @@ CRASH = ('magic', 'count', 'vec', 'pc', 'rets', 'emu', 'dbg', 'sp', 'psr', 'icfg
 DBG = ('magic', 'halves', 'max_us', 'nested', 'in_audio', 'late', 'timer_irqs', 'ui_frames', 'last_us', 'cpu_q8',
        'boots', 'stage', 'page', 'home', 'prev_stage', 'prev_page', 'prev_home', 'prev_rst', 'prev_frames')
 RST = ('power-on', 'VDDIO low', 'watchdog', 'VCM', 'long press', '1.2 V', 'soft (P33)')
-MAGIC = {'crash': 0x43525348, 'dbg': 0x44424731, 'bootguard': 0x42475244, 'bar': 0x52414231, 'oc': 0x4F43474B}
+MAGIC = {'crash': 0x43525348, 'dbg': 0x44424731, 'bootguard': 0x42475244, 'bar': 0x52414231, 'oc': 0x4F43474B,
+         'panel': 0x50414E35}
 
 
 def words(b, off, names):
@@ -47,15 +48,24 @@ def decode(b):
     g = words(b, 0x8C, ('magic', 'failed', 'pending'))
     out.append('bootguard  ' + ('failed %(failed)d pending %(pending)d' % g if g['magic'] == MAGIC['bootguard']
                                 else 'no record'))
-    # dual core: fm1_core1_bar at 0x98, oc_guard at 0xA0; single core: oc_guard at 0x98. The bar's magic is written
-    # only once CPU1 was barred (power-on garbage before), so the layout follows oc_guard's own magic
-    single = struct.unpack_from('<I', b, 0x98)[0] == MAGIC['oc']
-    if not single:
+    # after bootguard: fm1_core1_bar (dual core only), then oc_guard (1.3.0 .. 1.4.0-rc.2 only), then panel ("PAN5").
+    # The bar's magic is written only once CPU1 was barred (power-on garbage before), so the layout follows the
+    # magics that are always there: oc_guard's, else the panel's
+    word = lambda off: struct.unpack_from('<I', b, off)[0]
+    if word(0x98) == MAGIC['oc']:
+        dual, oc_at = False, 0x98
+    elif word(0xA0) == MAGIC['oc']:
+        dual, oc_at = True, 0xA0
+    else:
+        dual, oc_at = word(0x98) != MAGIC['panel'], None
+    if dual:
         bar = words(b, 0x98, ('magic', 'barred'))
         out.append('core1 bar  ' + ('barred %(barred)d' % bar if bar['magic'] == MAGIC['bar'] else 'not set since power-on'))
-    oc = words(b, 0x98 if single else 0xA0, ('magic', 'live'))
-    out.append('oc_guard   ' + ('live %d (%s layout)' % (oc['live'], 'single-core' if single else 'dual-core')
-                                if oc['magic'] == MAGIC['oc'] else 'no record (before 1.3.0?)'))
+    if oc_at is None:
+        out.append('oc_guard   none (%s layout: 1.3.4 / 1.4 and later, or before 1.3.0)' % ('dual-core' if dual else 'single-core'))
+    else:
+        out.append('oc_guard   live %d (%s layout, 1.3.x)' % (words(b, oc_at, ('magic', 'live'))['live'],
+                                                            'dual-core' if dual else 'single-core'))
     return '\n'.join(out)
 
 

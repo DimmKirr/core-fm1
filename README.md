@@ -393,14 +393,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   Computer playback and the monitor click stay out of recordings. Both support 16/24-bit audio at 44.1 kHz;
   each device can be disabled with **USB AUDIO**. Changing USB options reconnects automatically; reselect the
   input in your DAW if needed. No driver needed
-- **Overclock:** the HOME-held menu's OVERCLOCK sets the clock the FM-1 starts at: **360 MHz** (the default,
-  M-VAVE's clock, set by the boot loader and left alone) or **320 MHz** (JieLi's own clock table, retuned at every
-  start). 360 MHz gives more voices with the second core (18 budget units instead of 16). Switching to 320 MHz
-  needs a restart: closing the menu offers one (unsaved song changes are lost), or it applies at the next
-  power-on. Switching to 360 MHz applies at the next power-on (**360 MHZ AT POWER-ON**). If a
-  320 MHz session crashes, hangs or loses its second core, the FM-1 goes back to 360 MHz and says **CPU FAULT: 360
-  MHZ**. On some FM-1s the retune itself fails (1.3.0 and 1.3.1 then entered UBOOT after an update): such a unit
-  says **PLL FAULT: 360 MHZ** once, and OVERCLOCK reads **360 ONLY** from then on
+- **System clock:** Melodee runs at 360 MHz, the clock the FM-1's boot loader sets, and never changes it. The
+  OVERCLOCK menu of 1.3.x is gone: on some FM-1s its clock change left the device in UBOOT
 - **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4, channel 10 the first DRUM track (GLO >
   SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
@@ -818,7 +812,7 @@ You can leave a tip with [ko-fi](https://ko-fi.com/keremimo).
   [keremimo](https://github.com/keremimo) (white-key scales, #2), [ChanceTheMaker](https://github.com/ChanceTheMaker)
   (TRS MIDI, bend, sustain and clock, palettes, favourites, editor display settings: #8, #10, #11, #12),
   [andreahaku](https://github.com/andreahaku) (sample recording and trim, #29; SLICE manual slices and tests, #27, #22),
-  [johnskiller](https://github.com/johnskiller) (the boot-time SYS clock retune behind OVERCLOCK, keremimo/melodee#27)
+  [johnskiller](https://github.com/johnskiller) (the SYS clock register findings and the 1.3 clock option, keremimo/melodee#27)
 
 ## Licence
 
