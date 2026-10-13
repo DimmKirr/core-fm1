@@ -115,7 +115,7 @@ letters show as `?`).
 For anything more, a canvas: draw into a buffer, then send it in one go (no flicker):
 
 ```c
-cv_begin(240, 56, C_BLACK);                 /* w x h, cleared; w * h <= CV_MAX (240 x 64) */
+cv_begin(240, 56, C_BLACK);                /* w x h, cleared; w * h <= CV_MAX (240 x 136) */
 cv_rect(x, y, w, h, colour);
 cv_line(x0, y0, x1, y1, colour);
 cv_pset(x, y, colour);
@@ -123,7 +123,9 @@ cv_text(x, y, &FONT_S, "text", colour);     /* returns x after the text; text_w(
 cv_blit(0, 140);                            /* to the screen at (0, 140) */
 ```
 
-A bigger canvas: raise `CV_MAX` in platform.c (2 bytes a pixel, in the pool: 240 x 240 is 113 KB of 336).
+A bigger canvas: raise `CV_MAX` in platform.c **and in tests/host.c** (2 bytes a pixel, in the pool: 240 x 240
+is 113 KB of 336). `cv_begin` clamps a canvas that will not fit rather than failing, so a mismatch between the
+two shows up as a stale strip on the screen instead of an error; fmlab.c carries a compile-time check for it.
 
 ## Sound
 

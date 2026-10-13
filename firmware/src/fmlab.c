@@ -16,15 +16,19 @@
  * envelopes or the phases. Turn an operator's level while a chord rings and you hear exactly what
  * that operator was doing.
  *
- *   HOME         the keyboard and the voice
+ *   HOME         the algorithm, drawn, with each operator lit by how hard it is working
  *   EDIT         the selected operator: level, ratio, detune, sensitivities, keyboard scaling
- *   ENV          the selected operator's envelope: four rates, four levels
+ *   ENV          the selected operator's envelope, drawn to scale, a segment at a time
  *   LFO          speed, delay, pitch and amplitude depth, wave
  *   GLO          algorithm, feedback, key sync, transpose, the pitch envelope
- *   SELECT       which operator (1..6) the EDIT and ENV pages show
+ *   SELECT       which operator (1..6) the EDIT and ENV pages show, and which box HOME outlines
  *   ALGORITHM    the algorithm, on any page
- *   SEL          the next bank of four on the page (the knobs are KNOB1..4, left to right)
+ *   SEL          the next bank on the page (the knobs are KNOB1.., left to right)
  *   FX           clear the PK mark on the load meter
+ *
+ * The two drawings are read out of the engine rather than kept alongside it: the diagram comes from
+ * DX_ALG, the table dx_compute_ext obeys, and the envelope from the same arithmetic dx_env_advance
+ * and dx_env_sample use. Neither can drift out of agreement with what you are hearing.
  *
  * Rules of the road (the chip has no FPU and no libgcc): integers only, no float, no 64-bit division.
  * tests/host.c runs this file on a computer: the screen as a PNG, the sound as a WAV.
@@ -91,6 +95,7 @@ static struct {
 } vst[NV];
 static uint32_t ages;
 static volatile uint32_t v_lit;                 /* bit v: voice v sounds (the main loop reads, for the LEDs) */
+static volatile uint8_t v_last;                 /* the newest note: the one the displays follow */
 
 /* The voice's transpose, u[144], 24 = none. dx7_core.c does not read it (sloopDX did not either), so
  * it is applied here, at the one place a note reaches the engine. vst[].note stays the note that was
@@ -117,6 +122,7 @@ static void v_on(uint32_t note, uint32_t vel)
     vst[pick].held = 1;
     vst[pick].age = ++ages;
     dx_init(&dxv[pick], pbuf[pcur], tnote(note), (int)vel);
+    v_last = (uint8_t)pick;                     /* the envelope and the diagram follow the newest note */
 }
 
 static void v_off(uint32_t note)
@@ -249,14 +255,14 @@ static const param_t PG_OP[] = {
     {"L CURVE", P_OP, 11, 3,  K_CURVE},
     {"R CURVE", P_OP, 12, 3,  K_CURVE},
 };
-static const param_t PG_EG[] = {
+static const param_t PG_EG[] = {                /* a rate and the level it is heading for, paired */
     {"RATE 1",  P_OP, 0, 99, K_NUM},
-    {"RATE 2",  P_OP, 1, 99, K_NUM},
-    {"RATE 3",  P_OP, 2, 99, K_NUM},
-    {"RATE 4",  P_OP, 3, 99, K_NUM},
     {"LEVEL 1", P_OP, 4, 99, K_NUM},
+    {"RATE 2",  P_OP, 1, 99, K_NUM},
     {"LEVEL 2", P_OP, 5, 99, K_NUM},
+    {"RATE 3",  P_OP, 2, 99, K_NUM},
     {"LEVEL 3", P_OP, 6, 99, K_NUM},            /* where it sits while the key is held */
+    {"RATE 4",  P_OP, 3, 99, K_NUM},
     {"LEVEL 4", P_OP, 7, 99, K_NUM},            /* where it goes when you let go */
 };
 static const param_t PG_LFO[] = {
@@ -284,13 +290,18 @@ static const param_t PG_GLO[] = {
 };
 
 enum { PAGE_HOME = 0, PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_GLO };
-static const struct { const char *name; const param_t *p; uint8_t n, perop; } PAGE[] = {
-    {"FM LAB",    0,      0,                              0},
-    {"OPERATOR",  PG_OP,  sizeof PG_OP / sizeof PG_OP[0],   1},
-    {"ENVELOPE",  PG_EG,  sizeof PG_EG / sizeof PG_EG[0],   1},
-    {"LFO",       PG_LFO, sizeof PG_LFO / sizeof PG_LFO[0], 0},
-    {"GLOBAL",    PG_GLO, sizeof PG_GLO / sizeof PG_GLO[0], 0},
+/* rows: how many parameters a bank shows at once, and y0 where the first one sits. The envelope
+ * page shows only two, because the graph above them is worth more than two more numbers -- and a
+ * rate with the level it is heading for is the pair that actually means something together. */
+static const struct { const char *name; const param_t *p; uint8_t n, perop, rows, y0; } PAGE[] = {
+    {"FM LAB",    0,      0,                                0, 4, 56},
+    {"OPERATOR",  PG_OP,  sizeof PG_OP / sizeof PG_OP[0],   1, 4, 56},
+    {"ENVELOPE",  PG_EG,  sizeof PG_EG / sizeof PG_EG[0],   1, 2, 124},
+    {"LFO",       PG_LFO, sizeof PG_LFO / sizeof PG_LFO[0], 0, 4, 56},
+    {"GLOBAL",    PG_GLO, sizeof PG_GLO / sizeof PG_GLO[0], 0, 4, 56},
 };
+#define PAGE_ROWS ((uint32_t)PAGE[page].rows)
+#define PAGE_NBANK (((uint32_t)PAGE[page].n + PAGE_ROWS - 1u) / PAGE_ROWS)
 
 static uint8_t page, bank, opsel = 5;           /* opsel indexes the 156 bytes: 0 = OP6 .. 5 = OP1 */
 
@@ -304,11 +315,9 @@ static const char *const CURVE[] = {"-LIN", "-EXP", "+EXP", "+LIN"};
 static const char NOTE_NAME[12][3] = {"C ", "C#", "D ", "D#", "E ", "F ", "F#", "G ", "G#", "A ", "A#", "B "};
 /* ---- the screen */
 #define C_ACC RGB(180, 140, 255)                /* lilac, as the logo */
-#define C_KEY RGB(210, 210, 210)
 #define C_OFF RGB(90, 90, 90)
 #define C_LBL RGB(150, 150, 150)                /* parameter names: present, but not the thing you read */
 #define KEY0 53u                                /* key 0 = F3 */
-static int black(uint32_t note) { return (0x54Au >> (note % 12u)) & 1u; }
 
 static uint32_t put(char *s, uint32_t i, const char *t) { while (*t) s[i++] = *t++; return i; }
 static uint32_t putn(char *s, uint32_t i, uint32_t v, uint32_t w)   /* right-aligned in w, space-padded */
@@ -354,6 +363,16 @@ static void draw_voice(uint32_t vi, uint32_t y)
     draw_text_box(0, y, 240, &FONT_S, s, modified ? C_ACC : C_WHITE, 1);
 }
 
+/* ---- the algorithm, drawn from the engine's own routing table
+ *
+ * DX_ALG[alg][op] is what dx_compute_ext actually obeys, so a diagram derived from it cannot
+ * disagree with what you hear. Per operator: bits 0-1 the bus it writes (0 = the output, so a
+ * carrier), bit 2 add rather than replace, bits 4-5 the bus it reads, bit 6 feedback in, bit 7
+ * feedback out. Operators run in index order, which is OP6 first.
+ *
+ * So the modulators of an operator are whichever operators wrote its input bus since that bus was
+ * last overwritten. A bus is not cleared when it is read -- dx_compute_ext leaves it in place --
+ * which is how one operator comes to modulate several carriers, as in algorithms 19 to 25. */
 static uint32_t carriers(uint32_t alg)          /* bit op: operator at index op feeds the output */
 {
     uint32_t op, m = 0;
@@ -363,12 +382,363 @@ static uint32_t carriers(uint32_t alg)          /* bit op: operator at index op 
     return m;
 }
 
+#define ALG_UNSET 255u
+static uint8_t a_mods[6];                       /* bit m: operator m modulates this one */
+static uint8_t a_row[6], a_col[6];              /* 0 = the bottom row, where the carriers are */
+static uint8_t a_ncol, a_nrow, a_fb;            /* a_fb: bit op, operator op is in the feedback loop */
+
+static void alg_mods(uint32_t alg)
+{
+    uint8_t pend[3] = {0, 0, 0};                /* who has written bus 1 and 2 and not been read yet */
+    uint32_t op;
+    a_fb = 0;
+    for (op = 0; op < 6u; op++) {
+        uint32_t fl = DX_ALG[alg & 31u][op], inb = (fl >> 4) & 3u, outb = fl & 3u;
+        a_mods[op] = inb ? pend[inb] : 0u;
+        if (outb) pend[outb] = (uint8_t)((fl & 4u) ? pend[outb] | (1u << op) : (1u << op));
+        if (fl & 0xC0u) a_fb |= (uint8_t)(1u << op);
+    }
+}
+
+/* Place the tree the way the DX7 manual draws it: carriers along the bottom, a modulator one row
+ * above the highest thing it feeds, and a shared modulator centred over everything it feeds.
+ * Walked with an explicit stack -- the audio ISR borrows this stack, and RULES.md says not to
+ * spend it. Checked against the printed algorithm chart for all 32. */
+static void alg_layout(uint32_t alg)
+{
+    uint8_t stack[8], took[8];
+    uint32_t sp, op, k, col = 0, maxcol = 0, maxrow = 0;
+    alg_mods(alg);
+    for (op = 0; op < 6u; op++) { a_row[op] = (uint8_t)ALG_UNSET; a_col[op] = (uint8_t)ALG_UNSET; }
+
+    /* Rows. a_mods[op] only ever names operators of lower index, because the bus has to be written
+     * before it is read and the engine runs the operators in index order. So one descending pass
+     * settles every row: by the time it reaches an operator, everything it feeds is already done. */
+    for (op = 0; op < 6u; op++)
+        if ((DX_ALG[alg & 31u][op] & 3u) == 0u) a_row[op] = 0;
+    for (op = 6u; op-- > 0u; ) {
+        if (a_row[op] == (uint8_t)ALG_UNSET) continue;
+        for (k = 0; k < op; k++)
+            if ((a_mods[op] >> k & 1u) &&
+                (a_row[k] == (uint8_t)ALG_UNSET || a_row[k] < a_row[op] + 1u))
+                a_row[k] = (uint8_t)(a_row[op] + 1u);
+    }
+
+    /* Columns, depth first from each carrier in DX7 order. An operator whose modulators this walk
+     * had to place sits centred over them; one that brought nothing new takes the next free
+     * column. That is what keeps the carriers of algorithm 24 side by side instead of stacked. */
+    for (op = 6u; op-- > 0u; ) {
+        if (a_row[op] != 0u || a_col[op] != (uint8_t)ALG_UNSET) continue;
+        sp = 0; stack[0] = (uint8_t)op; took[0] = 0;
+        for (;;) {
+            uint32_t cur = stack[sp], kid = 6u;
+            for (k = 6u; k-- > 0u; )            /* modulators in display order, OP1 first */
+                if ((a_mods[cur] >> k & 1u) && a_col[k] == (uint8_t)ALG_UNSET) { kid = k; break; }
+            if (kid < 6u && sp < 7u) {
+                took[sp] = 1; stack[++sp] = (uint8_t)kid; took[sp] = 0; continue;
+            }
+            if (took[sp]) {
+                uint32_t lo = 255u, hi = 0;
+                for (k = 0; k < 6u; k++)
+                    if ((a_mods[cur] >> k & 1u) && a_col[k] != (uint8_t)ALG_UNSET) {
+                        if (a_col[k] < lo) lo = a_col[k];
+                        if (a_col[k] > hi) hi = a_col[k];
+                    }
+                a_col[cur] = (uint8_t)((lo + hi) / 2u);
+            } else {
+                a_col[cur] = (uint8_t)col++;
+            }
+            if (!sp) break;
+            sp--;
+        }
+    }
+    for (op = 0; op < 6u; op++)                 /* an operator nothing reaches still has to go somewhere */
+        if (a_col[op] == (uint8_t)ALG_UNSET) { a_row[op] = 0; a_col[op] = (uint8_t)col++; }
+
+    /* A modulator feeding more than one operator gets centred over all of them. Done bottom up, so
+     * the operators it feeds have their final columns by the time it is moved. */
+    for (k = 1u; k < 6u; k++)
+        for (op = 0; op < 6u; op++) {
+            uint32_t n = 0, lo = 255u, hi = 0, c;
+            if (a_row[op] != k) continue;
+            for (c = 0; c < 6u; c++)
+                if (a_mods[c] >> op & 1u) {
+                    n++;
+                    if (a_col[c] < lo) lo = a_col[c];
+                    if (a_col[c] > hi) hi = a_col[c];
+                }
+            if (n > 1u) a_col[op] = (uint8_t)((lo + hi) / 2u);
+        }
+
+    for (op = 0; op < 6u; op++) {
+        if (a_col[op] > maxcol) maxcol = a_col[op];
+        if (a_row[op] > maxrow) maxrow = a_row[op];
+    }
+    a_ncol = (uint8_t)(maxcol + 1u);
+    a_nrow = (uint8_t)(maxrow + 1u);
+}
+
+/* where the diagram lives, and how big a box is */
+#define ALG_Y 64
+#define ALG_H 136
+/* cv_begin clamps a canvas that will not fit instead of failing, which shows up as a stale strip at
+ * the bottom of the screen rather than as an error. Catch the mismatch at compile time instead. */
+typedef char fmlab_canvas_fits[(240u * ALG_H <= CV_MAX) ? 1 : -1];
+static int32_t a_bw, a_bh, a_x0, a_dx, a_dy, a_ybase;
+
+static void alg_metrics(void)
+{
+    int32_t used;
+    a_dx = 236 / (int32_t)a_ncol;
+    a_bw = a_dx - 6;
+    if (a_bw > 40) a_bw = 40;
+    if (a_bw < 14) a_bw = 14;
+    a_dy = (ALG_H - 10) / (int32_t)a_nrow;
+    if (a_dy > 44) a_dy = 44;                   /* two rows should not sprawl over the whole screen */
+    a_bh = a_dy - 6;
+    if (a_bh > 26) a_bh = 26;
+    if (a_bh < 10) a_bh = 10;
+    a_x0 = (240 - a_dx * (int32_t)a_ncol) / 2;
+    used = a_dy * (int32_t)a_nrow;              /* centre the stack, output bus and all */
+    a_ybase = ALG_H - 6 - (ALG_H - 10 - used) / 2;
+}
+static int32_t a_bx(uint32_t op) { return a_x0 + a_dx * (int32_t)a_col[op] + (a_dx - a_bw) / 2; }
+static int32_t a_by(uint32_t op) { return a_ybase - a_dy * ((int32_t)a_row[op] + 1) + (a_dy - a_bh) / 2; }
+
+/* How loud an operator is right now, 0..255. level_in is what the engine feeds to exp2 to get the
+ * operator's gain, so it is already logarithmic -- which is the useful thing to see, and is how a
+ * DX7 envelope is specified in the first place. A 32-bit aligned read can race the ISR; the worst
+ * that does is draw one frame from a value a block old. */
+static uint32_t op_now(uint32_t op)
+{
+    uint32_t v = v_last;
+    int32_t l;
+    if (v >= NV || !dxv[v].on || !(v_lit >> v & 1u))
+        return 0;
+    l = dxv[v].level_in[op];
+    if (l <= 0) return 0;
+    l >>= 16;                                   /* 0 .. 16 << 8 */
+    return l >= 4080 ? 255u : (uint32_t)l * 255u / 4080u;
+}
+
+static uint16_t op_shade(uint32_t op, uint32_t lev)
+{
+    uint32_t t = 40u + lev * 215u / 255u;       /* never black: an idle operator is still there */
+    if (!(a_fb >> op & 1u))
+        return RGB((t * 180u) / 255u, (t * 140u) / 255u, t);
+    return RGB(t, (t * 150u) / 255u, (t * 90u) / 255u);   /* feedback: warmer, so it stands out */
+}
+
+static void alg_box(int32_t x, int32_t y, uint32_t op, int carrier, int sel)
+{
+    uint16_t c = op_shade(op, op_now(op));
+    char s[2];
+    if (carrier) {                              /* filled: you hear this one */
+        cv_rect(x, y, a_bw, a_bh, c);
+    } else {
+        cv_rect(x, y, a_bw, 2, c);
+        cv_rect(x, y + a_bh - 2, a_bw, 2, c);
+        cv_rect(x, y, 2, a_bh, c);
+        cv_rect(x + a_bw - 2, y, 2, a_bh, c);
+    }
+    if (sel) {                                  /* the operator the OP and ENV pages are editing */
+        cv_rect(x - 3, y - 3, a_bw + 6, 1, C_WHITE);
+        cv_rect(x - 3, y + a_bh + 2, a_bw + 6, 1, C_WHITE);
+        cv_rect(x - 3, y - 3, 1, a_bh + 6, C_WHITE);
+        cv_rect(x + a_bw + 2, y - 3, 1, a_bh + 6, C_WHITE);
+    }
+    s[0] = (char)('0' + (6u - op));
+    s[1] = 0;
+    if (a_bh >= 14)
+        cv_text(x + (a_bw - 5) / 2, y + (a_bh - 13) / 2, &FONT_S, s, carrier ? C_BLACK : c);
+}
+
+static void draw_alg(void)
+{
+    uint32_t op, m, k, cs;
+    alg_layout(edit[134]);
+    alg_metrics();
+    cs = carriers(edit[134]);
+    cv_begin(240, ALG_H, C_BLACK);
+    for (op = 0; op < 6u; op++) {               /* the wires first, so the boxes sit on top of them */
+        int32_t cx = a_bx(op) + a_bw / 2, ty = a_by(op) + a_bh;
+        m = a_mods[op];
+        for (k = 0; k < 6u; k++) {
+            if (!(m >> k & 1u)) continue;
+            cv_line(a_bx(k) + a_bw / 2, a_by(k) + a_bh, a_bx(k) + a_bw / 2, ty + 3, C_OFF);
+            cv_line(a_bx(k) + a_bw / 2, ty + 3, cx, ty + 3, C_OFF);
+        }
+        if (m) cv_line(cx, ty + 3, cx, ty, C_OFF);
+        if (a_fb >> op & 1u) {                  /* the feedback loop, round the right-hand side */
+            int32_t x = a_bx(op) + a_bw, y = a_by(op);
+            cv_line(x, y + 3, x + 4, y + 3, RGB(200, 150, 90));
+            cv_line(x + 4, y + 3, x + 4, y + a_bh - 3, RGB(200, 150, 90));
+            cv_line(x + 4, y + a_bh - 3, x, y + a_bh - 3, RGB(200, 150, 90));
+        }
+    }
+    for (op = 0; op < 6u; op++)                 /* a carrier reaches the output: show where it goes */
+        if (cs >> op & 1u)
+            cv_line(a_bx(op) + a_bw / 2, a_by(op) + a_bh, a_bx(op) + a_bw / 2, a_ybase + 3, C_OFF);
+    cv_rect(a_x0, a_ybase + 3, a_dx * (int32_t)a_ncol, 2, C_OFF);
+    for (op = 0; op < 6u; op++)
+        alg_box(a_bx(op), a_by(op), op, (cs >> op & 1u) != 0, op == opsel);
+    cv_blit(0, ALG_Y);
+}
+
+/* Only the boxes, for the live levels: redrawing the whole diagram several times a second would
+ * cost more of the CPU budget than the thing it is drawing. */
+static void draw_alg_levels(void)
+{
+    uint32_t op, cs = carriers(edit[134]);
+    for (op = 0; op < 6u; op++) {
+        int32_t x = a_bx(op) - 3, y = a_by(op) - 3;
+        cv_begin((uint32_t)(a_bw + 6), (uint32_t)(a_bh + 6), C_BLACK);
+        alg_box(3, 3, op, (cs >> op & 1u) != 0, op == opsel);
+        cv_blit((uint32_t)x, (uint32_t)(ALG_Y + y));
+    }
+}
+
+/* ---- the envelope, drawn by stepping it the way the engine does
+ *
+ * A DX7 envelope is four (rate, level) pairs. The level is where the segment is heading and the
+ * rate is how fast it gets there, so the same rate gives a different *time* depending on how far
+ * it has to travel -- which is the single most confusing thing about programming a DX7, and the
+ * reason this is drawn to scale rather than as four equal slopes.
+ *
+ * The maths below is dx_env_advance and dx_env_sample, solved for the segment length instead of
+ * run one block at a time: falling is linear, and rising is linear within each octave of level,
+ * so a handful of exact steps covers it. */
+#define EG_Y 44
+#define EG_H 72
+#define EG_FULL (16 << 24)                      /* the level the engine saturates at */
+
+static int32_t eg_target(const dx_env_t *e, uint32_t i)
+{
+    int32_t a = (int32_t)(dx_scaleoutlevel(e->levels[i]) >> 1);
+    a = (a << 6) + e->outlevel - 4256;
+    return (a < 16 ? 16 : a) << 16;
+}
+
+static int32_t eg_inc(const dx_env_t *e, uint32_t i)
+{
+    int32_t q = ((int32_t)e->rates[i] * 41) >> 6;
+    q += e->rate_scaling;
+    if (q > 63) q = 63;
+    return (4 + (q & 3)) << (2 + DX_LG_N + (q >> 2));
+}
+
+/* how many blocks dx_env_sample would need to walk from `from` to `to` */
+static uint32_t eg_blocks(int32_t from, int32_t to, int32_t inc)
+{
+    uint32_t n = 0;
+    if (inc <= 0) return 1u;
+    if (to <= from) {                           /* falling is linear, and the last step overshoots */
+        uint32_t d = (uint32_t)((from - to + inc - 1) / inc);
+        return d ? d : 1u;
+    }
+    if (from < (1716 << 16)) from = 1716 << 16; /* the jump a rising segment starts with */
+    while (from < to && n < 1000000u) {
+        int32_t band = (((from >> 24) + 1) << 24);
+        int32_t step = (((17 << 24) - from) >> 24) * inc;   /* the shift floors: this is the factor dx_env_sample uses */
+        int32_t lim = to < band ? to : band;
+        uint32_t k;
+        if (step <= 0) break;
+        k = (uint32_t)((lim - from + step - 1) / step);
+        if (!k) k = 1u;
+        n += k;
+        from += (int32_t)k * step;
+    }
+    return n ? n : 1u;            /* the block that jumps to 1716 also takes a step */
+}
+
+static int32_t eg_y(int32_t level)              /* level is already logarithmic: 1 unit = 6 dB */
+{
+    if (level < 0) level = 0;
+    if (level > EG_FULL) level = EG_FULL;
+    return (EG_H - 3) - (int32_t)(((int64_t)level * (EG_H - 4)) / EG_FULL);
+}
+
+/* The four segments to scale, a held-sustain gap between 3 and 4, and a marker where the envelope
+ * of the operator on screen has actually got to. `seg` is the segment being edited. */
+static void draw_eg(const dx_env_t *e, const dx_env_t *live, uint32_t seg)
+{
+    int32_t t[4], x[5], lvl[5];
+    uint32_t b[4], i, tot = 0;
+    const int32_t x0 = 4, x1 = 236, hold = 22;
+    int32_t span, acc;
+
+    lvl[0] = 0;
+    for (i = 0; i < 4u; i++) {
+        t[i] = eg_target(e, i);
+        b[i] = eg_blocks(lvl[i], t[i], eg_inc(e, i));
+        if (b[i] > 60000u) b[i] = 60000u;       /* a 90 s segment must not squash the other three */
+        lvl[i + 1] = t[i];
+        tot += b[i];
+    }
+    if (!tot) tot = 1u;
+
+    cv_begin(240, EG_H, C_BLACK);
+    cv_rect(0, EG_H - 2, 240, 1, RGB(40, 40, 40));
+
+    span = x1 - x0 - hold;
+    acc = 0;
+    x[0] = x0;
+    for (i = 0; i < 4u; i++) {                  /* widths in proportion to real time */
+        acc += (int32_t)b[i];
+        x[i + 1] = x0 + (int32_t)(((int64_t)acc * span) / (int32_t)tot);
+        if (x[i + 1] < x[i] + 3) x[i + 1] = x[i] + 3;
+        if (i == 2) { x[3] += hold; }           /* the key is held here, for as long as you hold it */
+    }
+    if (x[4] > x1) x[4] = x1;
+
+    for (i = 0; i < 4u; i++) {
+        uint16_t c = (i == seg) ? C_ACC : RGB(95, 100, 135);
+        int32_t xa = (i == 3) ? x[3] : x[i], ya = eg_y(lvl[i]), yb = eg_y(lvl[i + 1]);
+        if (i == 3) {                           /* the sustain, flat, before the release */
+            cv_line(x[2] + 1, eg_y(lvl[3]), x[3], eg_y(lvl[3]), RGB(90, 95, 120));
+            ya = eg_y(lvl[3]);
+        }
+        cv_line(xa, ya, x[i + 1], yb, c);
+        if (i == seg) {                         /* the segment the two knobs are moving */
+            cv_line(xa, EG_H - 2, xa, EG_H - 6, C_ACC);
+            cv_line(x[i + 1], EG_H - 2, x[i + 1], EG_H - 6, C_ACC);
+        }
+    }
+
+    if (live) {                                 /* where this operator's envelope is right now */
+        uint32_t ix = live->ix < 4u ? live->ix : 3u;
+        int32_t lo = lvl[ix], hi = lvl[ix + 1], l = live->level, xa, xb, px;
+        xa = (ix == 3u) ? x[3] : x[ix];
+        xb = x[ix + 1];
+        px = (hi == lo) ? xb : xa + (int32_t)(((int64_t)(l - lo) * (xb - xa)) / (hi - lo));
+        if (px < x0) px = x0;
+        if (px > x1) px = x1;
+        cv_rect(px - 1, eg_y(l) - 1, 3, 3, C_WHITE);
+    }
+    cv_blit(0, EG_Y);
+}
+
+/* The envelope to draw: the live one if this operator is sounding, otherwise one built the way a
+ * note at middle C would build it, so the page is never blank. */
+static void draw_eg_now(uint32_t seg)
+{
+    dx_env_t scratch;
+    uint32_t v = v_last;
+    const uint8_t *o = &edit[opsel * 21u];
+    int rs = 0, ol = dx_op_level(o, 60, 100, &rs);
+    dx_env_init(&scratch, o, o + 4, ol, rs);
+    if (v < NV && dxv[v].on && (v_lit >> v & 1u))
+        draw_eg(&scratch, &dxv[v].env[opsel], seg);
+    else
+        draw_eg(&scratch, 0, seg);
+}
+
 /* One parameter row: name on the left, value on the right, and a bar underneath so the amount is
  * visible at a glance. The knob that moves it is KNOB1..4, top to bottom. */
 static void draw_row(uint32_t slot, const param_t *p, uint32_t v)
 {
     char s[32];
-    uint32_t y = 56u + slot * 32u, i;
+    uint32_t y = PAGE[page].y0 + slot * 32u, i;
     cv_begin(240, 30, C_BLACK);
     if (p) {
         uint32_t w = p->max ? (uint32_t)(228u * v) / p->max : 0u;
@@ -399,7 +769,7 @@ static void draw_head(void)
          * algorithm, so it has to be read out of the table rather than remembered. */
         i = put(s, i, (carriers(edit[134]) >> opsel & 1u) ? " CAR" : " MOD");
     }
-    nb = ((uint32_t)PAGE[page].n + 3u) / 4u;
+    nb = PAGE_NBANK;
     if (nb > 1u) {
         i = put(s, i, "  ");
         i = putn(s, i, bank + 1u, 1);
@@ -409,24 +779,6 @@ static void draw_head(void)
     s[i] = 0;
     draw_text_box(0, 24, 240, &FONT_S, s, C_ACC, 1);
 }
-
-static void draw_keys(uint32_t lit)             /* bit k: key k sounds */
-{
-    uint32_t k, w = 0;
-    cv_begin(240, 56, C_BLACK);
-    for (k = 0; k < 27u; k++)                   /* 16 white keys of 14 px from x = 8 */
-        if (!black(KEY0 + k)) {
-            cv_rect(8 + (int32_t)w * 14, 0, 13, 56, lit >> k & 1u ? C_ACC : C_KEY);
-            w++;
-        }
-    for (k = 0, w = 0; k < 27u; k++)            /* the black ones on the line between two white */
-        if (black(KEY0 + k))
-            cv_rect(8 + (int32_t)w * 14 - 5, 0, 9, 34, lit >> k & 1u ? C_ACC : C_BLACK);
-        else
-            w++;
-    cv_blit(0, 140);
-}
-
 
 static void draw_status(int32_t oct, uint32_t nv, uint32_t cpu, uint32_t pk)
 {
@@ -459,10 +811,12 @@ static void app_main(void)
 {
     struct { int8_t oct; uint8_t voice; } set = {0, 0};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1;
-    uint32_t lit_drawn = ~0u, nv_drawn = ~0u, cpu_drawn = ~0u, pk_drawn = ~0u;
+    uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
+    uint32_t nv_drawn = ~0u, cpu_drawn = ~0u, pk_drawn = ~0u;
     int32_t oct_drawn = 99;
     uint8_t held[27] = {0}, shown[4] = {255, 255, 255, 255};
     uint8_t page_drawn = 255, bank_drawn = 255, op_drawn = 255, voice_drawn = 255, mod_drawn = 255;
+    uint8_t alg_drawn = 255, alg_op_drawn = 255;
 
     settings_load(&set, sizeof set);
     if (set.oct < -2 || set.oct > 2) set.oct = 0;
@@ -504,8 +858,8 @@ static void app_main(void)
         if (b & (1u << BTN_ENV))  { page = PAGE_EG;  bank = 0; }
         if (b & (1u << BTN_LFO))  { page = PAGE_LFO; bank = 0; }
         if (b & (1u << BTN_GLO))  { page = PAGE_GLO; bank = 0; }
-        if (b & (1u << BTN_SEL) && PAGE[page].n)           /* the next four parameters */
-            bank = (uint8_t)((bank + 1u) % (((uint32_t)PAGE[page].n + 3u) / 4u));
+        if (b & (1u << BTN_SEL) && PAGE[page].n)           /* the next bank of parameters */
+            bank = (uint8_t)((bank + 1u) % PAGE_NBANK);
         if (b & (1u << BTN_SAVE)) load_voice(set.voice);   /* back to the factory voice */
 
         if ((enc = fm1_enc_take(ENC_PRESETS)) != 0) {      /* the voice, under the sounding notes */
@@ -527,8 +881,8 @@ static void app_main(void)
             modified = 1;
             patch_publish();
         }
-        for (e = 0; e < 4u; e++) {                         /* KNOB1..4: the four parameters shown */
-            uint32_t pi = (uint32_t)bank * 4u + e;
+        for (e = 0; e < PAGE_ROWS; e++) {                  /* KNOB1..n: the parameters on screen */
+            uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
             const param_t *p;
             int32_t v;
             if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || pi >= PAGE[page].n)
@@ -566,6 +920,8 @@ static void app_main(void)
         if (page != page_drawn) {               /* a new page: clear once, then only what changes */
             page_drawn = page;
             bank_drawn = op_drawn = 255;
+            alg_drawn = alg_op_drawn = 255;
+            eg_dirty = 1;
             lcd_fill(0, 0, 240, 208, C_BLACK);
             if (page == PAGE_HOME)
                 draw_text_box(0, 18, 240, &FONT_L, APP_NAME, C_ACC, 1);
@@ -576,28 +932,49 @@ static void app_main(void)
             op_drawn = opsel;
             draw_head();
             shown[0] = shown[1] = shown[2] = shown[3] = 255;
+            eg_dirty = 1;
         }
         if (set.voice != voice_drawn || modified != mod_drawn || repaint) {
             voice_drawn = (uint8_t)set.voice;
             mod_drawn = modified;
-            draw_voice(set.voice, page == PAGE_HOME ? 64u : 188u);
+            draw_voice(set.voice, page == PAGE_HOME ? 44u : 188u);
             if (page != PAGE_HOME) { bank_drawn = 255; }   /* the header may name a changed algorithm */
         }
         repaint = 0;
 
         if (page == PAGE_HOME) {
-            if (lit != lit_drawn) { lit_drawn = lit; draw_keys(lit); }
+            /* the whole diagram only when the shape of it changes: the live brightness is six
+             * small blits on the tick below, which is a great deal cheaper than 240 x 136 */
+            if (edit[134] != alg_drawn || opsel != alg_op_drawn) {
+                alg_drawn = edit[134];
+                alg_op_drawn = opsel;
+                draw_alg();
+            }
         } else {
-            for (e = 0; e < 4u; e++) {
-                uint32_t pi = (uint32_t)bank * 4u + e;
+            for (e = 0; e < PAGE_ROWS; e++) {
+                uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
                 const param_t *p = pi < PAGE[page].n ? &PAGE[page].p[pi] : 0;
                 uint8_t v = p ? edit[p_at(p)] : (uint8_t)254u;   /* 254 marks "this row is empty" */
                 if (shown[e] != v) {
                     shown[e] = v;
                     draw_row(e, p, p ? v : 0u);
+                    eg_dirty = 1;
                 }
             }
-            lit_drawn = ~0u;
+        }
+
+        if (fm1_ms - t_live > 60u) {            /* the displays that follow the sound, ~16 times a second */
+            t_live = fm1_ms;
+            if (page == PAGE_HOME) {
+                draw_alg_levels();
+            } else if (page == PAGE_EG) {
+                uint32_t snd = v_lit ? 1u : 0u; /* when it goes quiet, one last pass clears the marker */
+                if (snd || snd != eg_live || eg_dirty) {
+                    eg_live = snd;
+                    eg_dirty = 0;
+                    draw_eg_now(bank);
+                }
+            }
         }
 
         if (fm1_ms - t_meter > 250u) {          /* the meter moves every block: redraw it 4 times a second */

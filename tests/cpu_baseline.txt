@@ -41,15 +41,36 @@ envelope where it stood, so it is a few hundred cycles per voice and never a
 retrigger. Spinning ALGORITHM costs the extra 1 % because it also re-reads which
 operators are carriers.
 
+Drawing while it sounds (step 4)
+--------------------------------
+Same day, same voice. Step 4 added the two live drawings and raised CV_MAX from
+240x64 to 240x136, so this is the measurement that matters most:
+
+    8 notes held, HOME page        CPU 26 %   PK 33 %
+    8 notes held, ENVELOPE page    CPU 26 %   PK 33 %
+
+Nothing moved, and nothing clicked. HOME re-blits only the six operator boxes
+(~1.3 k pixels each) about 16 times a second; ENVELOPE redraws the whole 240x72
+graph at the same rate and is the more expensive of the two, yet neither is
+visible in the meter.
+
+The reason is structural rather than lucky: all drawing happens in app_main, and
+CPU/PK measure the audio ISR, which pre-empts it. Painting can only hurt the
+audio by stealing memory bandwidth from the ISR or by holding it off, and a 1 %
+move in PK is the size of that effect. The headroom the UI actually spends is the
+main loop's, which has no deadline. The number to watch would be the frame rate,
+not CPU -- and the drawing stays smooth.
+
 What it means
 -------------
 NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better
 spent on what the instrument is for (drawing envelopes, the algorithm, operator
-levels) than on more voices.
+levels) than on more voices. Step 4 spent some of it and cost nothing measurable.
 
 Watch this number again after:
   - raising NV
-  - raising CV_MAX / drawing more per frame (the UI steals from the same CPU)
+  - raising CV_MAX / drawing more per frame (the UI steals memory bandwidth, and
+    at some point the main loop stops keeping up even if the ISR does)
   - anything per-sample added to app_audio
   - DX_LG_N changed from 6 (smaller blocks cost more per sample)
   - anything that makes a knob detent do more than publish 156 bytes

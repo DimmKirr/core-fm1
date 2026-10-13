@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* A fake FM-1 on a computer: the app (firmware/src/fmlab.c) runs unchanged on it. platform.c includes
  * this file instead of the hardware when DINGHY_HOST is set. A script presses keys, turns encoders and
- * sends MIDI over time; out come the screen (PPM, at the times SHOT asks) and the sound (WAV, as the
+ * sends MIDI over time; out come the screen (PPM, at the times SHOT asks, or the "T shot" lines of a
+ * script) and the sound (WAV, as the
  * FM-1 sends it over USB).
  *
  *   tests/run_host.sh            (cc + sh)
@@ -74,7 +75,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
                 fb[(y + j) * 240u + x + i] = (uint16_t)(c >> 8 | c << 8);
             }
 }
-#define CV_MAX (240u * 64u)
+#define CV_MAX (240u * 136u)         /* must match platform.c, or the host silently clamps a canvas */
 #include "gfx.c"
 
 static uint8_t host_store[256 + 4];
@@ -131,12 +132,14 @@ static const host_ev_t SCRIPT0[] = {
     {6600, 1u << 7 | 1u << 11 | 1u << 14, -1, ENC_KNOB2, 3, 0, 0, 0},   /* COARSE 3: a new ratio */
     {6900, 1u << 7 | 1u << 11 | 1u << 14, -1, ENC_ALGORITHM, 5, 0, 0, 0},
     {7300, 1u << 7 | 1u << 11 | 1u << 14, BTN_SEL, -1, 0, 0, 0, 0},     /* second bank of four */
-    {7500, 1u << 7 | 1u << 11 | 1u << 14, BTN_ENV, -1, 0, 0, 0, 0},     /* ENVELOPE page */
-    {7700, 1u << 7 | 1u << 11 | 1u << 14, -1, ENC_KNOB3, -60, 0, 0, 0}, /* RATE 3 down: a slow decay */
-    {8000, 1u << 7 | 1u << 11 | 1u << 14, BTN_LFO, -1, 0, 0, 0, 0},
-    {8200, 1u << 7 | 1u << 11 | 1u << 14, -1, ENC_KNOB3, 60, 0, 0, 0},  /* PITCH MOD: audible wobble */
-    {8400, 1u << 7 | 1u << 11 | 1u << 14, -1, ENC_KNOB1, 20, 0, 0, 0},  /* LFO SPEED up */
+    {7500, 1u << 7 | 1u << 11 | 1u << 14, BTN_ENV, -1, 0, 0, 0, 0},     /* ENVELOPE page: graph + 2 rows */
+    {7700, 1u << 7 | 1u << 11 | 1u << 14, BTN_SEL, -1, 0, 0, 0, 0},     /* segment 2: RATE 2 / LEVEL 2 */
+    {7900, 1u << 7 | 1u << 11 | 1u << 14, -1, ENC_KNOB1, -60, 0, 0, 0}, /* RATE 2 down: a slow decay */
+    {8100, 1u << 7 | 1u << 11 | 1u << 14, -1, ENC_KNOB2, -30, 0, 0, 0}, /* and it decays further */
+    {8400, 1u << 7 | 1u << 11 | 1u << 14, BTN_HOME, -1, 0, 0, 0, 0},    /* the algorithm, lit by the sound */
+    {8700, 1u << 7 | 1u << 11 | 1u << 14, -1, ENC_SELECT, 1, 0, 0, 0},  /* the box moves to OP4 */
     {9000, 0, -1, -1, 0, 0, 0, 0},
+    {9200, 0, -1, ENC_ALGORITHM, 10, 0, 0, 0},                          /* a different diagram */
     {9400, 0, BTN_SAVE, -1, 0, 0, 0, 0},                                /* back to the factory voice */
     {9600, 1u << 7 | 1u << 11 | 1u << 14, -1, -1, 0, 0, 0, 0},
     {10200, 0, -1, -1, 0, 0, 0, 0},
@@ -144,20 +147,24 @@ static const host_ev_t SCRIPT0[] = {
 };
 static const host_ev_t *script = SCRIPT0;
 static uint32_t script_n = sizeof SCRIPT0 / sizeof SCRIPT0[0], end_ms = 11200, frame_fps;
-static const uint32_t SHOT[] = {1000, 3000, 4500, 6700, 7900, 8600, 10600};
+static const uint32_t SHOT[] = {1000, 3000, 4500, 6700, 8000, 8300, 8900, 9300, 10600};
+static const uint32_t *shots = SHOT;
+static uint32_t shots_n = sizeof SHOT / sizeof SHOT[0];
 
 static void read_script(const char *path)
 {
     static host_ev_t ev[4096];
+    static uint32_t shot_at[512];
     char line[256], what[16];
     FILE *f = fopen(path, "r");
-    uint32_t n = 0;
+    uint32_t n = 0, ns = 0;
     if (!f) { perror(path); exit(1); }
     while (fgets(line, sizeof line, f) && n < 4096u) {
         host_ev_t e = {0, 0, -1, -1, 0, 0, 0, 0};
         unsigned a = 0, b = 0, c = 0;
         if (line[0] == '#' || sscanf(line, "%u %15s", &e.t, what) != 2) continue;
         if (!strcmp(what, "end")) { end_ms = e.t; continue; }
+        if (!strcmp(what, "shot")) { if (ns < 512u) shot_at[ns++] = e.t; continue; }
         if (!strcmp(what, "keys")) { sscanf(line, "%*u %*s %i", (int *)&e.keys); }
         else if (!strcmp(what, "btn")) { sscanf(line, "%*u %*s %d", &e.btn); }
         else if (!strcmp(what, "enc")) { sscanf(line, "%*u %*s %d %d", &e.enc, &e.encd); }
@@ -168,6 +175,7 @@ static void read_script(const char *path)
     fclose(f);
     script = ev;
     script_n = n;
+    if (ns) { shots = shot_at; shots_n = ns; }  /* "T shot" lines replace the built-in list */
 }
 
 static const char *host_out = "build/host/fmlab";
@@ -247,8 +255,8 @@ static void platform_poll(void)                 /* one call = one millisecond */
             snprintf(name, sizeof name, "%s-%05u.ppm", host_out, frame++);
             write_ppm_as(name);
         }
-    } else if (shot < sizeof SHOT / sizeof SHOT[0] && fm1_ms == SHOT[shot])
-        write_ppm(SHOT[shot++]);
+    } else if (shot < shots_n && fm1_ms == shots[shot])
+        write_ppm(shots[shot++]);
     if (fm1_ms >= end_ms) {
         write_wav();
         exit(0);

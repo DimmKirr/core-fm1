@@ -22,7 +22,7 @@ FM Lab is built on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), whose 
 [dxsloop](https://github.com/zvenson/dxsloop), which is Sven Trogus's integer port of
 [Dexed](https://github.com/asb2m10/dexed) / Google's `music-synthesizer-for-android`.
 
-<p align="center"><img src="docs/screen.png" width="240" alt="FM Lab's OPERATOR page: operator 3, its level, ratio, fine tune and detune, each with a bar"></p>
+<p align="center"><img src="docs/screen.png" width="240" alt="FM Lab drawing algorithm 16: operator 1 filled at the bottom as the only carrier, fed by operators 2, 3 and 5, with 4 above 3 and 6 above 5 carrying the feedback"> <img src="docs/envelope.png" width="240" alt="FM Lab drawing an envelope to scale, with the second segment picked out and its rate and level on the two knobs below"></p>
 
 > **Status: runs on the FM-1.** Measured on the device: 8 voices of six operators cost about 26 % of the audio
 > ISR's budget, and editing while eight notes sound costs nothing on top of that. See
@@ -44,18 +44,18 @@ M-VAVE's; they are written out in `tools/gen_voices.py`, which is the readable s
 | --- | --- |
 | **The keys** | 27 of them, F3 to G5. **OCT-** / **OCT+** move it two octaves either way. A key stops the note it started, so changing octave mid-chord does the right thing. |
 | **PRESETS** | The voice. It changes under anything still sounding, so you can hold a chord and walk through the bank. |
-| **HOME** | The keyboard, the voice name, the meter. |
+| **HOME** | The algorithm drawn out, the voice name, the meter. |
 
 ## Editing it
 
-The five buttons along the top are the pages. The four knobs under the screen are whatever that page shows;
-**SEL** steps to the next four when a page has more than four (the header says `2/4`).
+The five buttons along the top are the pages. The knobs under the screen are whatever that page shows;
+**SEL** steps to the next set when a page has more than fits (the header says `2/4`).
 
 | Button | Page | What is on it |
 | --- | --- | --- |
-| **HOME** | | keyboard and voice |
+| **HOME** | | the algorithm diagram and the voice |
 | **EDIT** | OPERATOR | level, coarse, fine, detune / mode, velocity sensitivity, amp mod, rate scaling / break point, both depths, both curves |
-| **ENV** | ENVELOPE | the four rates and the four levels of the selected operator's envelope |
+| **ENV** | ENVELOPE | the envelope drawn to scale, and one segment's rate and level at a time |
 | **LFO** | LFO | speed, delay, pitch mod, amp mod, wave, key sync, pitch mod sensitivity |
 | **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, and the pitch envelope |
 
@@ -65,6 +65,26 @@ it bending something else. Change the algorithm and watch that word change; that
 
 **ALGORITHM** is on its own knob and works from any page, so you can hold a note, keep your eyes on an
 operator's envelope, and move it through all 32.
+
+## The two drawings
+
+**HOME draws the algorithm.** Filled boxes are carriers — the operators you hear. Outlined boxes are
+modulators, which you only hear through whatever they are bending. The orange box and the loop beside it is
+the one carrying feedback. The white outline is the operator **SELECT** has picked, so you can see where the
+thing you are editing sits before you edit it.
+
+Each box brightens with how hard that operator is actually working, read straight out of the running voice.
+Hold a note and watch a modulator fade while its carrier holds: that is the envelope you cannot hear doing
+the thing you *can* hear.
+
+**ENV draws the envelope, to scale.** This is the part of a DX7 that catches everyone out: a *rate* is a
+speed, not a time, so the same rate takes longer the further it has to travel, and four equal-looking rates
+are nothing like four equal segments. The graph is stepped with the engine's own arithmetic, so the widths
+are the real times and the heights are the real levels — in dB, which is how the levels are specified.
+
+**SEL** walks the four segments, and the knobs give you that segment's rate and its level together, which is
+the pair that means something. The segment you are on is picked out in colour, and the white dot is where the
+envelope of the selected operator has actually got to in the note you are holding.
 
 **SAVE** puts the voice back the way the factory wrote it. The voice name shows a `*` while you have changed
 anything.
