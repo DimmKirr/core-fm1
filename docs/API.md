@@ -95,6 +95,7 @@ prev = keys;
 | | |
 | --- | --- |
 | `fm1_led_key(id, on)` | a button (`BTN_...`) or a key (`KEY_LED(k)`, k = 0..26) lit or not |
+| `fm1_led_key_glow(id, on)` | the same id in the glow layer; an LED in several layers takes the brightest, so a glow under a lit LED shows only once the lit layer goes out — which is how a key pulses without going dark |
 | `fm1_led[col]`, `fm1_led_dim[col]` | the raw layers, for many LEDs at once (see `hal/fm1_input.h`); `_dim` glows at ~1/24 |
 
 ## Screen

@@ -29,7 +29,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'bank.txt') {
     if ($LASTEXITCODE) { throw 'could not make the test .syx files' }
 }
 
-& build\host\fmlab.exe $out @args
+& build\host\fmlab.exe $out @args | Tee-Object "$out.log"
 if ($LASTEXITCODE) { throw 'run failed' }
 
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'operators.txt') {
@@ -39,4 +39,8 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'operators.txt') {
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'bank.txt') {
     python tests\syxcheck.py $out            # and what was stored with what was sent
     if ($LASTEXITCODE) { throw 'the bank does not match what was sent to it' }
+}
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'panel.txt') {
+    python tests\panelcheck.py $out          # and the panel with what it is supposed to do
+    if ($LASTEXITCODE) { throw 'the panel does not behave' }
 }

@@ -372,3 +372,19 @@ static void fm1_led_key(uint32_t id, int on)
                     fm1_led[p] &= (uint8_t)~(1u << r);
             }
 }
+
+/* the same key in the glow layer (~1/24 as bright). An LED in several layers takes the brightest,
+ * so leaving the glow on under a lit LED costs nothing and shows through the moment it goes out:
+ * that is how a key pulses without ever going fully dark. (FM Lab's; the layer is dinghy's.) */
+static void fm1_led_key_glow(uint32_t id, int on)
+{
+    uint32_t p, r;
+    for (p = 0; p < FM1_NCOL; p++)
+        for (r = 1; r < 5u; r++)
+            if (FM1_KEYMAP[r][p] == (int8_t)id) {
+                if (on)
+                    fm1_led_dim[p] |= (uint8_t)(1u << r);
+                else
+                    fm1_led_dim[p] &= (uint8_t)~(1u << r);
+            }
+}

@@ -1,0 +1,57 @@
+# FM Lab -- the panel: pages that walk their own banks, and the black keys that pick an operator.
+#
+#   build/host/fmlab build/host/panel tests/panel.txt
+#
+# Nothing here is about sound, so there is no chord to listen to. What is checked is the MIDI the
+# instrument sends -- a key that picks an operator must send nothing at all -- and the screens,
+# which have to differ when the bank moves on and come back around when it wraps.
+0 btn 8
+
+# OPERATOR has thirteen parameters four at a time, so four banks. Press EDIT five times: the first
+# arrives at the page, the next three walk it, and the fifth is back where it started.
+200 btn 6
+400 shot
+600 btn 6
+800 shot
+1000 btn 6
+1200 shot
+1400 btn 6
+1600 shot
+1800 btn 6
+2000 shot
+
+# ENVELOPE is a page of its own: arriving starts at its first bank, pressing again walks it.
+2200 btn 4
+2400 shot
+2600 btn 4
+2800 shot
+
+# Back to OPERATOR -- a different page, so its first bank again, not the bank ENV was left on.
+3000 btn 6
+3200 shot
+
+# F#4 is the sixth black key: OP6. It must change the screen and send no note.
+3400 keys 0x2000
+3600 keys 0
+3800 shot
+
+# F#3 is the first: OP1. A different operator, so a different screen again.
+4000 keys 0x2
+4200 keys 0
+4400 shot
+
+# A white key on the same page is still a key.
+4600 keys 0x1
+4800 keys 0
+
+# And on HOME the black key is an ordinary key once more.
+5000 btn 8
+5200 keys 0x2000
+5400 keys 0
+
+# Held across a page change: the note was started as a note, so it has to end as one. If the page
+# took the key away on the way up, this note would hang.
+5600 keys 0x1
+5800 btn 6
+6000 keys 0
+6200 end

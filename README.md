@@ -45,7 +45,7 @@ so a bank fills them exactly.
 
 | | |
 | --- | --- |
-| **The keys** | 27 of them, F3 to G5. **OCT-** / **OCT+** move it two octaves either way. A key stops the note it started, so changing octave mid-chord does the right thing. |
+| **The keys** | 27 of them, F3 to G5. **OCT-** / **OCT+** move it two octaves either way; the button lights for a shift that way and pulses once you are at the end of the travel. A key stops the note it started, so changing octave mid-chord does the right thing. |
 | **PRESETS** | The voice. It changes under anything still sounding, so you can hold a chord and walk through the bank. 20 factory voices, then your 32, numbered `U01` to `U32`. |
 | **SAVE** | Keep the sound you are on. Press, turn **PRESETS** to pick the slot, press again. Any other button backs out. |
 | **HOME** | The algorithm drawn out, the voice name, the meter. |
@@ -54,7 +54,9 @@ so a bank fills them exactly.
 ## Editing it
 
 The five buttons along the top are the pages. The knobs under the screen are whatever that page shows;
-**SEL** steps to the next set when a page has more than fits (the header says `2/4`).
+when a page has more than fits, the header says `2/4` and there are two ways to the rest: **SEL**, which is
+the shorter reach once your hands are on the knobs, or pressing that page's own button again — the button
+that got you there also walks you through it, and wraps around to the start.
 
 | Button | Page | What is on it |
 | --- | --- | --- |
@@ -64,7 +66,12 @@ The five buttons along the top are the pages. The knobs under the screen are wha
 | **LFO** | LFO | speed, delay, pitch mod, amp mod, wave, key sync, pitch mod sensitivity |
 | **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, and the pitch envelope |
 
-**SELECT** picks which operator the OPERATOR and ENVELOPE pages are showing. The header names it and says
+**SELECT** picks which operator the OPERATOR and ENVELOPE pages are showing. So do the low six black keys,
+the ones the panel prints `OP1` to `OP6` under: on those two pages they jump straight to their operator
+instead of sounding, because there you are pointing at an operator rather than playing one. All six glow
+while they mean that, and the one you are editing is lit outright. On every other page they are keys again.
+
+The header names the operator and says
 whether it is a `CAR` or a `MOD` — whether, under the algorithm you are on, you hear it directly or only feel
 it bending something else. Change the algorithm and watch that word change; that is most of what FM is.
 
@@ -114,7 +121,8 @@ speed, not a time, so the same rate takes longer the further it has to travel, a
 are nothing like four equal segments. The graph is stepped with the engine's own arithmetic, so the widths
 are the real times and the heights are the real levels — in dB, which is how the levels are specified.
 
-**SEL** walks the four segments, and the knobs give you that segment's rate and its level together, which is
+**SEL** — or **ENV** again — walks the four segments, and the knobs give you that segment's rate and its
+level together, which is
 the pair that means something. The segment you are on is picked out in colour, and the white dot is where the
 envelope of the selected operator has actually got to in the note you are holding.
 
@@ -221,12 +229,13 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Three more scripts go with it:
+which is the thing most worth listening to. Four more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
 tests/run_host.sh tests/operators.txt     # the operator switches and the A/B compare, sound checked
 tests/run_host.sh tests/bank.txt          # saving, and .syx in and out, data and sound checked
+tests/run_host.sh tests/panel.txt         # the pages and the operator keys, screens and MIDI checked
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -236,6 +245,12 @@ A/B flip has to come back to a sample-identical sound.
 `tests/syxcheck.py` does the same for the bank: a voice sent in has to be the bytes that land in flash, a
 dump sent back has to be the bytes in flash, a bad checksum has to change nothing, and a voice saved and
 reloaded has to be a sample-identical sound. `tests/mksyx.py` generates the patches it uses.
+
+`tests/panelcheck.py` checks the panel without looking at it. A black key that picks an operator has to send
+*nothing* — the run's own MIDI log is the evidence — while a key that is still a key has to send a note on
+and the matching note off, including one held across a page change. The screens it compares byte for byte:
+walking a page's banks has to give four different screens and then the first one back, and arriving at a
+page from elsewhere has to start it over.
 
 ## Where to go next
 

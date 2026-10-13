@@ -419,6 +419,34 @@ static const struct { const char *name; const param_t *p; uint8_t n, perop, rows
 
 static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
 
+/* Go to a page; pressing the button for the page you are already on walks its banks and wraps. */
+static void page_to(uint8_t p)
+{
+    if (page != p) {
+        page = p;
+        bank = 0;
+    } else if (PAGE[page].n) {
+        bank = (uint8_t)((bank + 1u) % PAGE_NBANK);
+    }
+}
+
+/* The panel prints OP1..OP6 under the low six black keys, and the stock firmware uses them that
+ * way. On the two pages whose whole subject is one operator -- OPERATOR and ENVELOPE -- so do we:
+ * the key picks the operator instead of sounding, because there you are pointing at one rather
+ * than playing it. On every other page they are ordinary keys. Returns the engine's operator
+ * index (0 = OP6 .. 5 = OP1, as opsel counts) or -1 for "this is a note". */
+static const uint8_t OP_KEY[6] = {1, 3, 5, 8, 10, 13};   /* F#3 G#3 A#3 C#4 D#4 F#4 = OP1..OP6 */
+static int op_key(uint32_t k)
+{
+    uint32_t i;
+    if (page != PAGE_OP && page != PAGE_EG)
+        return -1;
+    for (i = 0; i < 6u; i++)
+        if (OP_KEY[i] == k)
+            return (int)(5u - i);
+    return -1;
+}
+
 /* The 156 bytes hold the operators in the DX7's own order, OP6 first, and dx7_core.c indexes
  * DX_ALG with the same number -- so the block index and the engine's operator index are the one
  * thing, and opsel is both. (Proven by muting each block in turn under algorithm 16, which has a
@@ -1076,6 +1104,7 @@ static void app_main(void)
 {
     struct { int8_t oct; uint8_t voice; uint8_t slot; } set = {0, 0, 0};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1;
+    uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
     uint32_t nv_drawn = ~0u, cpu_drawn = ~0u, pk_drawn = ~0u, vkey_drawn = ~0u;
     int32_t oct_drawn = 99;
@@ -1108,11 +1137,18 @@ static void app_main(void)
         prev = keys;
         for (k = 0; k < 27u; k++) {             /* a key stops the note it started: the octave may change */
             if (down >> k & 1u) {
-                held[k] = (uint8_t)(base + k);
-                ev_push(EV_ON, held[k], 100);
-                midi_send(0x90, held[k], 100);
+                int fn = op_key(k);
+                if (fn >= 0) {
+                    opsel = (uint8_t)fn;        /* pointing at an operator, not playing one */
+                } else {
+                    held[k] = (uint8_t)(base + k);
+                    sounding |= 1u << k;
+                    ev_push(EV_ON, held[k], 100);
+                    midi_send(0x90, held[k], 100);
+                }
             }
-            if (up >> k & 1u) {
+            if ((up >> k & 1u) && (sounding >> k & 1u)) {
+                sounding &= ~(1u << k);
                 ev_push(EV_OFF, held[k], 0);
                 midi_send(0x80, held[k], 0);
             }
@@ -1124,11 +1160,14 @@ static void app_main(void)
         if (b & (1u << BTN_OCT_DOWN) && set.oct > -2) { set.oct--; dirty = 1; t_change = fm1_ms; }
         if (b & (1u << BTN_OCT_UP) && set.oct < 2) { set.oct++; dirty = 1; t_change = fm1_ms; }
         if (b & (1u << BTN_FX)) cpu_peak = 0;              /* clear the worst-block mark */
-        if (b & (1u << BTN_HOME)) { page = PAGE_HOME; bank = 0; }
-        if (b & (1u << BTN_EDIT)) { page = PAGE_OP;  bank = 0; }
-        if (b & (1u << BTN_ENV))  { page = PAGE_EG;  bank = 0; }
-        if (b & (1u << BTN_LFO))  { page = PAGE_LFO; bank = 0; }
-        if (b & (1u << BTN_GLO))  { page = PAGE_GLO; bank = 0; }
+        /* A page button moves to its page; pressing it again walks that page's banks of parameters,
+         * so the button that got you there is also the one that shows you the rest. SEL still does
+         * it too -- it is the shorter reach when you are already turning knobs. */
+        if (b & (1u << BTN_HOME)) page_to(PAGE_HOME);
+        if (b & (1u << BTN_EDIT)) page_to(PAGE_OP);
+        if (b & (1u << BTN_ENV))  page_to(PAGE_EG);
+        if (b & (1u << BTN_LFO))  page_to(PAGE_LFO);
+        if (b & (1u << BTN_GLO))  page_to(PAGE_GLO);
         if (b & (1u << BTN_SEL) && PAGE[page].n)           /* the next bank of parameters */
             bank = (uint8_t)((bank + 1u) % PAGE_NBANK);
         if (b & (1u << BTN_SAVE)) {                        /* press to pick a slot, press again to write */
@@ -1210,8 +1249,25 @@ static void app_main(void)
             }
         for (k = 0; k < 27u; k++)
             fm1_led_key(KEY_LED(k), lit >> k & 1u);
-        fm1_led_key(BTN_OCT_DOWN, set.oct < 0);
-        fm1_led_key(BTN_OCT_UP, set.oct > 0);
+        {                                       /* the OP1..OP6 keys: all six glow where they work,
+                                                 * and the one you are editing is lit outright */
+            int opk = page == PAGE_OP || page == PAGE_EG;
+            for (k = 0; k < 6u; k++)
+                fm1_led_key_glow(KEY_LED(OP_KEY[k]), opk);
+            if (opk)
+                fm1_led_key(KEY_LED(OP_KEY[5u - opsel]), 1);
+        }
+        /* The octave buttons: lit for a shift that way, and pulsing at the end of the travel. The
+         * pulse rides the glow layer, so the LED dips rather than going dark -- a limit, not an
+         * alarm. ~1.1 Hz, lit for two thirds of it. */
+        {
+            uint32_t ph = (fm1_ms % 900u) < 600u;
+            int lo = set.oct < 0, hi = set.oct > 0;
+            fm1_led_key(BTN_OCT_DOWN, lo && (set.oct > -2 || ph));
+            fm1_led_key(BTN_OCT_UP, hi && (set.oct < 2 || ph));
+            fm1_led_key_glow(BTN_OCT_DOWN, set.oct == -2);
+            fm1_led_key_glow(BTN_OCT_UP, set.oct == 2);
+        }
         fm1_led_key(BTN_HOME, page == PAGE_HOME);
         fm1_led_key(BTN_EDIT, page == PAGE_OP);
         fm1_led_key(BTN_ENV, page == PAGE_EG);

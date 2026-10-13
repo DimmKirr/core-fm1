@@ -38,6 +38,7 @@ static uint32_t fm1_input_edges(uint32_t *released) { uint32_t b = host_edges; h
 static uint32_t fm1_input_note_edges(void) { return 0; }   /* (the script sets fm1_in.notes) */
 static int32_t fm1_enc_take(uint32_t e) { int32_t d = e < 7u ? host_enc[e] : 0; if (e < 7u) host_enc[e] = 0; return d; }
 static void fm1_led_key(uint32_t id, int on) { (void)id; (void)on; }
+static void fm1_led_key_glow(uint32_t id, int on) { (void)id; (void)on; }
 #define FM1_ADC_MASTER 0u
 #define FM1_ADC_BATT 1u
 static int32_t fm1_adc_read(uint32_t ch) { return ch == FM1_ADC_MASTER ? 1023 : 800; }
