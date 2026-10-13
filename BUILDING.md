@@ -523,33 +523,6 @@ metadata are available as an Actions artifact and in `gh-pages/firmware`.
 `web/publish_nightly.py` updates the existing Pages checkout while keeping its
 published release packages and editor.
 
-## Synth-only firmware
-
-The `synth-only` branch is a one-track sound module for playing and recording into a computer: every
-synth with its sound pages, ARP, CHORD and SCALES, the effects (drive, chorus, delay, reverb), and
-stereo master capture on the USB audio input. It has no sequencer, songs or project saving; PLAY holds
-the ARP, and the last sound comes back at power-on. It keeps the main firmware's flash layout, so the
-projects and presets saved on the FM-1 stay and return with Standard. The branch is never merged into
-`next`.
-
-The installer offers it as an option (Synth only, dual or single core) when the site carries it, with
-its own editor at `webapp/synth-editor/`. Build both variants on `synth-only` from one commit
-(`--nightly` stamps `synth-<commit>` with identity `FM-1_900`), then add them to a Pages checkout from
-this branch's `web/`:
-
-```
-# on synth-only
-MELODEE_RAM_AUDIO=1 ./build.sh --nightly
-MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --nightly
-# from next's web/: the packages, the source commit, the synth-only checkout's web/ (its editor)
-python3 web/publish_synth.py <pages checkout> --dual <synth>/build/melodee-synth-nightly.fwsc \
-  --single <synth>/build/melodee-synth-nightly-1core.fwsc --version synth-<commit> \
-  --commit <full commit> --built-at <UTC time> --web <synth>/web
-```
-
-`web/make_site.py` and the nightly workflow keep the synth-only packages, `firmware/synth.json` and
-its editor when they regenerate the site.
-
 ## EQ accelerator experiment
 
 `MELODEE_HW_EQ=1` enables the AC79 hardware EQ backend. It is **off by default**

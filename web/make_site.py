@@ -9,9 +9,6 @@
   firmware/melodee-VER-1core.fwsc   the same release built with MELODEE_DUAL_CORE=0, for FM-1s that crash
                                     with the dual-core build; the installer offers both
   firmware/melodee-nightly*.fwsc    next's development builds (nightly.json; publish_nightly.py), kept as published
-  firmware/melodee-synth*.fwsc      the synth-only firmware, both cores (synth.json; publish_synth.py: the
-                                    synth-only branch, one track, no sequencer), kept as published; optional
-  webapp/synth-editor/              the synth-only branch's editor (publish_synth.py), kept as published
   webapp/installer/index.html       index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
   webapp/editor/index.html          editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
   src/                              not touched
@@ -55,7 +52,7 @@ def check_package(pkg):
 
 
 def release_packages(out):
-    """a published site's release: its version and its two packages' paths (publish_nightly.py, publish_synth.py)"""
+    """A published site's release version and its two package paths."""
     out = Path(out)
     manifest = out / "firmware/release.json"
     if manifest.exists():
@@ -99,9 +96,7 @@ def channel(spec, label, stem, branch):
                    "builtAt": spec["builtAt"], "pkg": {k: "../../firmware/" + f[3] for k, f in files.items()}}
 
 
-def main(pkg, single, version, out, nightly=None, installer_only=False, synth=None):
-    """synth: the synth-only firmware ({pkg: {dual, single}, version, commit, builtAt, web}: web, the synth-only
-    branch's web/ for its editor); None keeps what the site has"""
+def main(pkg, single, version, out, nightly=None, installer_only=False):
     pkg, single, out = Path(pkg), Path(single), Path(out)
     raw, product = check_package(pkg)
     raw1, product1 = check_package(single)
@@ -112,11 +107,6 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, synth=No
     if nightly is None:
         nightly = published(out, "nightly")
     nightly_files, nightly_meta = channel(nightly, "nightly", "melodee-nightly", "next") if nightly else ({}, None)
-    if synth is None:
-        synth = published(out, "synth")
-    synth_files, synth_meta = channel(synth, "synth", "melodee-synth", "synth-only") if synth else ({}, None)
-    if synth_meta:
-        synth_meta["editor"] = "../synth-editor/"
     html = (HERE / "index_pkg.html").read_text(encoding="utf-8")
     lib = strip_module((HERE / "fm1pkg.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1ota.js").read_text(encoding="utf-8")) + "\n" + \
@@ -125,7 +115,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, synth=No
     name, name1 = f"melodee-{v}.fwsc", f"melodee-{v}-1core.fwsc"
     release_meta = {"version": version, "product": product,
                     "pkg": {"dual": "../../firmware/" + name, "single": "../../firmware/" + name1}}
-    meta = json.dumps({**release_meta, "nightly": nightly_meta, "synth": synth_meta})
+    meta = json.dumps({**release_meta, "nightly": nightly_meta})
     for mark in ("/*LIB*/", "/*META*/"):
         if html.count(mark) != 1:
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
@@ -133,27 +123,23 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, synth=No
     inst, ed, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "firmware"
     for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
-    keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-1core.fwsc", "melodee-synth.fwsc",
-            "melodee-synth-1core.fwsc"}
+    keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-1core.fwsc"}
     for old in fw.glob("melodee-*.fwsc"):
         if old.name not in keep:
             old.unlink()
+    (fw / "synth.json").unlink(missing_ok=True)
+    retired_editor = out / "webapp" / "synth-editor"
+    if retired_editor.exists():
+        shutil.rmtree(retired_editor)
     (inst / "index.html").write_text(html, encoding="utf-8")
     for src, dest in ((pkg, fw / name), (single, fw / name1)):
         if src.resolve() != dest.resolve():
             shutil.copy(src, dest)
     (fw / "release.json").write_text(json.dumps(release_meta, indent=2) + "\n")
-    for files, chan, label in ((nightly_files, nightly_meta, "nightly"), (synth_files, synth_meta, "synth")):
-        if chan:
-            for path, data, identity, filename in files.values():
-                (fw / filename).write_bytes(data)
-            (fw / f"{label}.json").write_text(json.dumps(chan, indent=2) + "\n")
-    if synth and synth.get("web"):                  # the synth-only branch's editor (its protocol: one track, FX)
-        web, sed = Path(synth["web"]), out / "webapp" / "synth-editor"
-        sed.mkdir(parents=True, exist_ok=True)
-        shutil.copy(web / "editor.html", sed / "index.html")
-        for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
-            shutil.copy(web / f, sed / f)
+    if nightly_meta:
+        for path, data, identity, filename in nightly_files.values():
+            (fw / filename).write_bytes(data)
+        (fw / "nightly.json").write_text(json.dumps(nightly_meta, indent=2) + "\n")
     lic = HERE.parent / "LICENSES"                  # the packages hold JieLi SDK files (Apache-2.0): their
     (fw / "LICENSES").mkdir(exist_ok=True)          # licence travels next to it, with Melodee's own
     names = sorted(f.name for f in lic.glob("*.txt"))
@@ -177,7 +163,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, synth=No
             '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
             '<a href="webapp/installer/">Melodee installer</a>\n', encoding="utf-8")
     print(f"site: {out}: webapp/installer ({len(html)} B), webapp/editor, firmware/{name} ({len(raw)} B) and "
-          f"{name1} ({len(raw1)} B), {product}" + (f"; synth {synth_meta['version']}" if synth_meta else ""))
+          f"{name1} ({len(raw1)} B), {product}")
 
 
 if __name__ == "__main__":

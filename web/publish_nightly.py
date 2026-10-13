@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Update an existing Pages checkout with the next nightlies (dual and single core); preserve its release/editor
-and the synth-only firmware."""
+"""Update an existing Pages checkout with next nightlies; preserve its release and editor."""
 import argparse
 from make_site import main, release_packages
 

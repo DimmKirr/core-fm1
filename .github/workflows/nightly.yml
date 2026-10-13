@@ -92,7 +92,7 @@ jobs:
           cd .nightly-pages
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add webapp/installer/index.html firmware
+          git add webapp firmware
           if ! git diff --cached --quiet; then
             git commit -m 'build: publish next nightly variants'
             git push origin HEAD:gh-pages
