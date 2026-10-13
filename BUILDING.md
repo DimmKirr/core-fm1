@@ -501,6 +501,12 @@ release tails before adopting it in a release.
 
 ## Nightly builds from `next`
 
+The installer also offers the published **Release candidate** in dual- and
+single-core variants when one is available. It uses the verified GitHub release
+packages; Standard remains the stable default. `web/publish_rc.py <pages checkout>
+<release assets directory>` checks the candidate's package hashes and build
+metadata before adding it. Stable and nightly updates preserve the RC channel.
+
 The web installer keeps the released standard and single-core packages and
 adds two development builds from `next`: dual core and single core, both with
 `MELODEE_RAM_AUDIO=1`. The clock is chosen on the device (OVERCLOCK, above).

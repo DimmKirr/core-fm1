@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
 from make_site import main
 from publish_nightly import publish
+from publish_rc import publish as publish_rc
 
 
 def package(path, product, variant):
@@ -22,6 +23,48 @@ def package(path, product, variant):
 
 
 class NightlySite(unittest.TestCase):
+    def test_release_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dual = package(root / "release.fwsc", "FM-1_91032", 1)
+            single = package(root / "single.fwsc", "FM-1_91032", 2)
+            normal = package(root / "next.fwsc", "FM-1_900", 3)
+            slow = package(root / "slow.fwsc", "FM-1_900", 4)
+            site, assets = root / "site", root / "assets"
+            assets.mkdir()
+            version = "1.4.0-rc.1"
+            rc_dual = package(assets / f"melodee-{version}.fwsc", "FM-1_91040", 5)
+            rc_single = package(assets / f"melodee-{version}-1core.fwsc", "FM-1_91040", 6)
+            builds = {p.name: {"MELODEE_DUAL_CORE": cores, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+                      for p, cores in ((rc_dual, 1), (rc_single, 0))}
+            (assets / "BUILD_INFO.json").write_text(json.dumps({"version": version, "product": "FM-1_91040",
+                "commit": "a" * 40, "builtAt": "2026-10-13T16:40:00Z", "core_builds": builds}))
+            (assets / "SHA256SUMS").write_text("".join(f"{info['sha256']}  {name}\n" for name, info in builds.items()))
+            main(dual, single, "1.3.2", site)
+            editor = site / "webapp/editor/index.html"
+            editor.write_text("existing published editor")
+            publish(site, normal, slow, "next-abcdef0", "b" * 40, "2026-10-13T16:00:00Z")
+            publish_rc(site, assets)
+            # Nightly and stable regeneration must retain the published RC bytes.
+            publish(site, normal, slow, "next-abcdef0", "b" * 40, "2026-10-13T16:00:00Z")
+            main(dual, single, "1.3.2", site, installer_only=True)
+            self.assertEqual(editor.read_text(), "existing published editor")
+            for p in (rc_dual, rc_single):
+                self.assertEqual((site / "firmware" / p.name).read_bytes(), p.read_bytes())
+            for name, source in (("melodee-1.3.2.fwsc", dual), ("melodee-1.3.2-1core.fwsc", single),
+                                 ("melodee-nightly.fwsc", normal), ("melodee-nightly-1core.fwsc", slow)):
+                self.assertEqual((site / "firmware" / name).read_bytes(), source.read_bytes())
+            self.assertEqual(json.loads((site / "firmware/release.json").read_text())["version"], "1.3.2")
+            rc = json.loads((site / "firmware/rc.json").read_text())
+            self.assertEqual((rc["version"], rc["product"], rc["commit"]), (version, "FM-1_91040", "a" * 40))
+            installer = site / "webapp/installer/index.html"
+            self.assertIn('"rc": {"version": "1.4.0-rc.1"', installer.read_text())
+            before = installer.read_bytes()
+            rc_single.write_bytes(rc_single.read_bytes() + b"corrupted")
+            with self.assertRaises(SystemExit):
+                publish_rc(site, assets)
+            self.assertEqual(installer.read_bytes(), before)
+
     def test_publish(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

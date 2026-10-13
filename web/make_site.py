@@ -9,6 +9,7 @@
   firmware/melodee-VER-1core.fwsc   the same release built with MELODEE_DUAL_CORE=0, for FM-1s that crash
                                     with the dual-core build; the installer offers both
   firmware/melodee-nightly*.fwsc    next's development builds (nightly.json; publish_nightly.py), kept as published
+  firmware/melodee-*-rc.*.fwsc      published release candidate (rc.json; publish_rc.py), kept as published
   webapp/installer/index.html       index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
   webapp/editor/index.html          editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
   src/                              not touched
@@ -96,7 +97,7 @@ def channel(spec, label, stem, branch):
                    "builtAt": spec["builtAt"], "pkg": {k: "../../firmware/" + f[3] for k, f in files.items()}}
 
 
-def main(pkg, single, version, out, nightly=None, installer_only=False):
+def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None):
     pkg, single, out = Path(pkg), Path(single), Path(out)
     raw, product = check_package(pkg)
     raw1, product1 = check_package(single)
@@ -107,6 +108,13 @@ def main(pkg, single, version, out, nightly=None, installer_only=False):
     if nightly is None:
         nightly = published(out, "nightly")
     nightly_files, nightly_meta = channel(nightly, "nightly", "melodee-nightly", "next") if nightly else ({}, None)
+    if rc is None:
+        rc = published(out, "rc")
+    rc_files, rc_meta = {}, None
+    if rc:
+        if not re.fullmatch(r"\d\.\d{1,2}\.\d-rc\.\d+", rc["version"]):
+            raise SystemExit("Release candidate version must be X.Y.Z-rc.N")
+        rc_files, rc_meta = channel(rc, "release candidate", f"melodee-{rc['version']}", "next")
     html = (HERE / "index_pkg.html").read_text(encoding="utf-8")
     lib = strip_module((HERE / "fm1pkg.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1ota.js").read_text(encoding="utf-8")) + "\n" + \
@@ -115,7 +123,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False):
     name, name1 = f"melodee-{v}.fwsc", f"melodee-{v}-1core.fwsc"
     release_meta = {"version": version, "product": product,
                     "pkg": {"dual": "../../firmware/" + name, "single": "../../firmware/" + name1}}
-    meta = json.dumps({**release_meta, "nightly": nightly_meta})
+    meta = json.dumps({**release_meta, "nightly": nightly_meta, "rc": rc_meta})
     for mark in ("/*LIB*/", "/*META*/"):
         if html.count(mark) != 1:
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
@@ -124,6 +132,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False):
     for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
     keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-1core.fwsc"}
+    keep.update(file[3] for file in rc_files.values())
     for old in fw.glob("melodee-*.fwsc"):
         if old.name not in keep:
             old.unlink()
@@ -140,6 +149,10 @@ def main(pkg, single, version, out, nightly=None, installer_only=False):
         for path, data, identity, filename in nightly_files.values():
             (fw / filename).write_bytes(data)
         (fw / "nightly.json").write_text(json.dumps(nightly_meta, indent=2) + "\n")
+    if rc_meta:
+        for path, data, identity, filename in rc_files.values():
+            (fw / filename).write_bytes(data)
+        (fw / "rc.json").write_text(json.dumps(rc_meta, indent=2) + "\n")
     lic = HERE.parent / "LICENSES"                  # the packages hold JieLi SDK files (Apache-2.0): their
     (fw / "LICENSES").mkdir(exist_ok=True)          # licence travels next to it, with Melodee's own
     names = sorted(f.name for f in lic.glob("*.txt"))

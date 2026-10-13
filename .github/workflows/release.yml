@@ -171,7 +171,7 @@ jobs:
           python tools/prepare_recovery_correction.py 1.3.1 build/verified-release \
             build/release-assets build/verified-correction --verify-published
       - uses: actions/checkout@v4
-        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           ref: gh-pages
           path: .nightly-pages
@@ -189,8 +189,20 @@ jobs:
             git commit -m "release: publish Melodee $version"
             git push origin HEAD:gh-pages
           fi
+      - name: Publish release candidate beside stable and nightly
+        if: startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, '-rc.')
+        run: |
+          python web/publish_rc.py .nightly-pages build/release-assets
+          cd .nightly-pages
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add webapp firmware
+          if ! git diff --cached --quiet; then
+            git commit -m "release: publish candidate $GITHUB_REF_NAME"
+            git push origin HEAD:gh-pages
+          fi
       - name: Request Pages rebuild
-        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+        if: startsWith(github.ref, 'refs/tags/') && (!contains(github.ref_name, '-') || contains(github.ref_name, '-rc.'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"

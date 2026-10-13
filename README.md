@@ -17,7 +17,8 @@ Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current rel
 **Melodee 1.3.2** ([what's new](#whats-new-in-132)).
 
 Release candidate: **[Melodee 1.4.0-rc.1](https://github.com/keremimo/melodee/releases/tag/v1.4.0-rc.1)**
-([release notes](docs/RELEASE_1.4.0-rc.1.md)). It adds track management, a HOME chord
+([release notes](docs/RELEASE_1.4.0-rc.1.md)); choose **RC** in the web installer.
+It adds track management, a HOME chord
 view, assignable SELECT and audio performance improvements. The stable installer
 remains on 1.3.2.
 

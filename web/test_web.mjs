@@ -1509,9 +1509,11 @@ async function installerBuilds() {
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",
       pkg:{dual:"melodee-1.0.2.fwsc",single:"melodee-1.0.2-1core.fwsc"},
+      rc:{version:"1.4.0-rc.1",product:"FM-1_91040",commit:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        pkg:{dual:"melodee-1.4.0-rc.1.fwsc",single:"melodee-1.4.0-rc.1-1core.fwsc"}},
       nightly:{version:"next-abcdef0",product:"FM-1_900",commit:"abcdef0123456789abcdef0123456789abcdef0123",builtAt:"2026-10-11T02:00:00Z",
         pkg:{dual:"melodee-nightly.fwsc",single:"melodee-nightly-1core.fwsc"}}}));
-  const ALL = ["dual", "single", "nightly-dual", "nightly-single"];
+  const ALL = ["dual", "single", "rc-dual", "rc-single", "nightly-dual", "nightly-single"];
   const fetched = [], installed = [], elements = new Map();
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, {checked:id === "build-dual", disabled:false, textContent:"", value:0, listeners:{},
@@ -1523,7 +1525,7 @@ async function installerBuilds() {
     document:{documentElement:{}, querySelectorAll:() => [], getElementById:element},
     window:{addEventListener() {}},
     fetch:async (url) => { fetched.push(url); return {ok:true, arrayBuffer:async () => new Uint8Array(Buffer.from(url)).buffer}; },
-    productOf:(pkg) => /nightly|synth/.test(String.fromCharCode(...pkg)) ? "FM-1_900" : "FM-1_91002", logicalImage:(pkg) => String.fromCharCode(...pkg),
+    productOf:(pkg) => /-rc\./.test(String.fromCharCode(...pkg)) ? "FM-1_91040" : /nightly/.test(String.fromCharCode(...pkg)) ? "FM-1_900" : "FM-1_91002", logicalImage:(pkg) => String.fromCharCode(...pkg),
     Updater:class { async find() { return null; } async install(image, product) { installed.push([image, product]); } },
   });
   vm.runInContext(script, context);
@@ -1554,7 +1556,19 @@ async function installerBuilds() {
   await element("build-dual").listeners.change();
   await element("go").listeners.click();
   ok(installed.at(-1)[1] === "FM-1_91002" && fetched.length === 4, "installer: returning from nightly restores release identity without refetching");
-
+  for (const [kind, file, tag] of [["rc-dual", "melodee-1.4.0-rc.1.fwsc", "dual core"], ["rc-single", "melodee-1.4.0-rc.1-1core.fwsc", "single core"]]) {
+    for (const k of ALL) element("build-" + k).checked = k === kind;
+    await element("build-" + kind).listeners.change();
+    ok(element("status").textContent === `Melodee 1.4.0-rc.1 (release candidate, ${tag})`, "installer: RC reports its exact version and core variant");
+    await element("go").listeners.click();
+    const [image, product] = installed.at(-1);
+    ok(image === file + "?commit=" + "a".repeat(40) && product === "FM-1_91040", "installer: each RC installs its published package and identity");
+  }
+  ok(!element("rc-options").hidden && element("rc-version").textContent === "1.4.0-rc.1", "installer: RC version is visible");
+  for (const k of ALL) element("build-" + k).checked = k === "dual";
+  await element("build-dual").listeners.change();
+  await element("go").listeners.click();
+  ok(installed.at(-1)[1] === "FM-1_91002" && fetched.length === 6, "installer: returning from RC restores stable without refetching");
 }
 async function installerBuildRaces() {
   const script = readFileSync(join(HERE, "index_pkg.html"), "utf8").match(/<script type="module">([\s\S]*?)<\/script>/)[1]
@@ -1574,7 +1588,7 @@ async function installerBuildRaces() {
   const finish = url => pending.get(url)({ok:true,arrayBuffer:async()=>Uint8Array.from(Buffer.from(url)).buffer});
   const tick = () => new Promise(resolve=>setImmediate(resolve));
   vm.runInContext(script, context);
-  ok(element("nightly-options").hidden, "installer: no nightly choices on a site without them");
+  ok(element("rc-options").hidden && element("nightly-options").hidden, "installer: unavailable RC/nightly channels are hidden");
   element("build-dual").checked=false;element("build-single").checked=true;
   const single = element("build-single").listeners.change();
   ok(element("go").disabled,"installer: Install is disabled while the selected package loads");
