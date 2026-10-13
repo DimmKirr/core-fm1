@@ -450,9 +450,13 @@ static volatile uint32_t fm1_ms;  /* milliseconds since boot (TIMER4-based, TIME
 /* boot-loop guard (main.c): two boots in a row that die in the first 30 s -> UBOOT */
 #define BOOTGUARD_MAGIC 0x42475244u
 struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".noinit")));
-/* OVERCLOCK (main.c oc_boot): live, a session above OFF that has not ended in an intended reset (a crash, the
- * watchdog or a failed clock switch leave it set: the next boot goes back to OFF). Gone at power-off. */
+/* OVERCLOCK (main.c oc_boot): live, a session that retuned the PLL or runs off the SPL's 360 MHz and has not ended in
+ * an intended reset (a crash, the watchdog or a failed clock switch leave it set: the next boot writes no PLL and
+ * saves 360); OC_LIVE_RETUNE also, from the PLL write until 30 s after boot (still set at the next boot: the retune
+ * failed, overclock.c PREF_OC_LOST). Gone at power-off. */
 #define OC_GUARD_MAGIC 0x4F43474Bu
+#define OC_LIVE 1u
+#define OC_LIVE_RETUNE 2u
 struct { uint32_t magic, live; } oc_guard __attribute__((section(".noinit")));
 static inline void reset_intended(void)         /* a reset on purpose (UBOOT, an update): not a failed boot */
 {

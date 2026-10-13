@@ -384,7 +384,7 @@ static void state(void)                          /* a playing song with steps on
     uint32_t i;
     ui_power_on();
     settings_boot = 0;
-    oc_put(OC_OFF);
+    oc_put(OC_320);
     memset(&tmpl, 0, sizeof tmpl);
 #if MELODEE_USB_AUDIO
     ua_off_want = 0; ua_tracks = ua_tracks_want = 0;
@@ -1217,7 +1217,7 @@ static void setup(int s)
     case S_MENU_USB: ui.menu = 1; ui.menu_sel = MI_USB; ua_off_want = UA_OFF_IN; break;   /* (OUT only) */
     case S_MENU_USB_STEREO: ui.menu = 1; ui.menu_sel = MI_USB_INPUT; ua_tracks_want = 0; break;
     case S_MENU_USB_TRACKS: ui.menu = 1; ui.menu_sel = MI_USB_INPUT; ua_tracks_want = 1; break;
-    case S_MENU_CLOCK: ui.menu = 1; ui.menu_sel = MI_CLOCK; oc_put(OC_MEDIUM); break;       /* OVERCLOCK at 360 MHz */
+    case S_MENU_CLOCK: ui.menu = 1; ui.menu_sel = MI_CLOCK; oc_put(OC_360); break;          /* OVERCLOCK at 360 MHz */
     case S_CONFIRM_RESTART: ui.confirm = CF_RESTART; break; /* the menu closed with a new clock */
 #endif
     /* the GLO SCL EDIT layers (ui_layer.c): just opened (a peek), and in use: GLO with T2 muted, T3 soloed (its key

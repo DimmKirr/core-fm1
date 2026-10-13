@@ -277,7 +277,7 @@ static void draw_menu(void)
             if (i == MI_ACCEL) value = PREF_BITS & PREF_ACCEL_OFF ? "OFF" : "ON";
             if (i == MI_AUTOSAVE) value = settings_autosave ? "ON" : "OFF";
             if (i == MI_SCREEN) value = (const char *const[]){"NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"}[scr_get()];
-            if (i == MI_CLOCK) value = OC_NAME[oc_get()];
+            if (i == MI_CLOCK) value = oc_lost() ? "360 ONLY" : OC_NAME[oc_get()];   /* the retune failed here */
             if (i == MI_LIGHTS) value = LIGHTS_NAME[settings_lights % LIGHTS_N];
 #if MELODEE_USB_AUDIO
             if (i == MI_USB_INPUT) value = ua_tracks_want ? "4 TRACKS" : "STEREO";
@@ -409,9 +409,9 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         ui.force=1; ok=0;
     }
     if ((s || ok) && ui.menu==1 && ui.menu_sel==MI_CLOCK) {   /* KNOB 1 right 360, left 320; OCT+ toggles */
-        uint32_t value=oc_get(), top=OC_N-1u;
+        uint32_t value=oc_get(), top=OC_N-1u;                  /* (360 ONLY after a failed retune: no change) */
         value=s>0?(value<top?value+1u:value):s<0?(value?value-1u:0u):(value+1u)%(top+1u);
-        oc_put(value);
+        if (!oc_lost()) oc_put(value);
         ui.force=1; ok=0;
     }
     if (ok && ui.menu == 1) {
