@@ -14,7 +14,7 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.2** ([what's new](#whats-new-in-132)).
+**Melodee 1.3.3** ([what's new](#whats-new-in-133)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -28,6 +28,16 @@ runs Felucca.
   into a computer; choose **Synth only** in the installer, edit it with its own
   [synth editor](https://keremimo.github.io/melodee/webapp/synth-editor/) ([BUILDING.md](BUILDING.md#synth-only-firmware))
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.3.3
+
+- **No clock change at 360 MHz, ever:** 1.3.2 still retuned the clock once, on the first
+  start after updating from a 1.3.0 or 1.3.1 that ran at 320 MHz (the clock survives the
+  update's restart). On the FM-1s that cannot take a retune, that was the step that fails.
+  At 360 MHz, Melodee now never touches the clock: a 320 MHz left by the update stays until
+  the next power-off, and the FM-1 comes up at 360 MHz from then on.
+- **Switching to 360 MHz** in OVERCLOCK applies at the next power-on and says
+  **360 MHZ AT POWER-ON**; switching to 320 MHz still offers a restart.
 
 ## What's new in 1.3.2
 
