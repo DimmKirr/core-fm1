@@ -402,53 +402,24 @@ without a misread down to SYSVDD 6 (1.11 V): the margin varies from chip to chip
 Melodee does not change a supply rail: what an FM-1 board and its regulators take
 at other levels is unknown, so the rails stay where the boot loader sets them.
 
-### OVERCLOCK: the boot clock
+### The boot clock
 
-The HOME-held menu's OVERCLOCK (`overclock.c`, `main.c` `oc_boot`) picks the SYS
-clock at boot, before CPU1, the audio ISR and the LCD start. The retune is PR #27's
-by [johnskiller](https://github.com/johnskiller) (`hal/fm1_clock.h`): PLL2_CON1's
-multiplier on the SPL's post-divider chain, 2 MHz a step and 2/3 of the VCO.
+Melodee runs at the clock the boot loader sets, 360 MHz, and never writes the PLL
+(`hal/fm1_clock.h` only reads it). PR #27 by [johnskiller](https://github.com/johnskiller),
+with [charlesvestal](https://github.com/charlesvestal)'s register reads, found the SYS
+multiplier in PLL2_CON1 (0x119AC): the SPL's 268 means 24 MHz / 12 x 270 = 540 MHz, and
+CLK_CON2 selects 2/3, so SYS 360 / HSB 180 / LSB 60 / SFC 90 MHz.
 
-| Setting | Multiplier | SYS / HSB / LSB / SFC (MHz) |
-| --- | --- | --- |
-| 360 MHz (default) | 270 (the SPL's, not written) | 360 / 180 / 60 / 90 |
-| 320 MHz | 240 | 320 / 160 / 53.3 / 80 |
-
-The rails stay at the boot levels. A 396 MHz test (multiplier 297, JieLi's
-overclock rails) crashed on a healthy unit and is not offered; the switch still
-recognises 297 at boot and moves away from it. TIMER4 (the 24 MHz crystal), the
-audio I2S (its own ALNK PLL) and USB/UART (PLL48M) do not move; the LCD SPI
-follows LSB (10.7 / 12 MHz). The switch accepts any of those multipliers at boot
-(a soft reset can keep the last one) and leaves an unfamiliar one untouched; it and its rollback each wait on RC16M for at least
-20 ms plus the cache handshake (not a PLL lock bit), bounded by 40 ms and a spin
-limit, and only with the watchdog re-armed and read back (`fm1_wdt_arm`, after
-johnskiller's PR #27 follow-ups 9ee4cda and c7c3a65; without that it stays put). A
-settled rollback, an unfamiliar clock or an unproven watchdog raises the undo flag in editor
-command 79 (v[5]); a failed rollback waits in SRAM for the watchdog.
-
-The setting lives in `favorites.factory[15][30]` bits 2..3, beside KNOB ACCEL, so
-older firmware keeps it: 3 is 320 MHz, anything else 360 (1.3.0 and 1.3.1 stored 0
-for their 320 MHz default; 360 is stored as 1, which they read as 360 too). 320 MHz
-applies at the next start; closing the menu with it asks to restart (the settings
-are saved first, the transport stopped). 360 MHz applies at the next power-on: it
-never writes the PLL, and a soft reset (a restart, UBOOT, an update) keeps the
-running clock, so the menu says **360 MHZ AT POWER-ON** instead.
-
-1.3.0 and 1.3.1 defaulted to 320 MHz, so every start after an update from a 360 MHz
-firmware, and every power-on, retuned the PLL before the LCD and USB came up. On
-some FM-1s (the ones whose CPU1 also misbehaves) that retune fails: the watchdog
-resets, the next start retunes and fails again, and the boot guard enters UBOOT
-behind a black screen. Now 360 MHz never writes the PLL, not even to leave a 320
-MHz that an update's soft reset kept (1.3.2 did, once, on the first start after an
-update from a 320 MHz session), and `oc_guard` (`.noinit`, gone
-at power-off) marks a session that retuned or runs at 320 MHz as live until an
-intended reset (the restart, UBOOT, an update). A boot that finds it set (a crash,
-the watchdog, a switch that never returned) writes no PLL, keeps the clock it finds
-and saves 360 MHz; a CPU1 retirement at 320 MHz sets 360 for the next start.
-`OC_LIVE_RETUNE` covers the PLL write until the main loop's 30 s mark: still set at
-the next boot, or a settled rollback (`fm1_clock_set` 2), sets bit 4 (`PREF_OC_LOST`):
-the FM-1 says **PLL FAULT: 360 MHZ**, OVERCLOCK reads **360 ONLY**, and its PLL is
-never written again.
+1.3.0 to 1.4.0-rc.2 offered a boot-time retune to 320 MHz (OVERCLOCK; the default in
+1.3.0 and 1.3.1). On some FM-1s, the ones whose CPU1 also misbehaves, the retune failed
+before the LCD and USB came up: the watchdog reset, the next start retuned and failed
+again, and the boot guard entered UBOOT behind a black screen (a retained-RAM capture of
+a bricked 1.3.0 unit showed every start stopping between the clock code and the
+splash). 1.3.2 and 1.3.3 made 360 MHz the default and guarded the option; 1.4 removes
+it. Its setting bits in `favorites.factory[15][30]` (2..4) are left as saved and never
+read. A soft reset keeps the PLL, so after an update from a session at 320 MHz the
+FM-1 runs at 320 until its next power-off; `main.c` `clock_boot` reads the multiplier
+for the voice budget.
 With CPU1 the shared voice budget follows the clock (16 or 18 units in the
 resident profile); one core keeps 16.
 
@@ -513,7 +484,7 @@ metadata before adding it. Stable and nightly updates preserve the RC channel.
 
 The web installer keeps the released standard and single-core packages and
 adds two development builds from `next`: dual core and single core, both with
-`MELODEE_RAM_AUDIO=1`. The clock is chosen on the device (OVERCLOCK, above).
+`MELODEE_RAM_AUDIO=1`. Both run at the boot loader's clock (above).
 Save a complete backup in the editor before trying a nightly. Selecting
 Standard in the installer returns to the released firmware.
 
