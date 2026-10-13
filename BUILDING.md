@@ -167,10 +167,10 @@ Or, to install your own build from the web installer, make a local copy of the s
 
 ```
 # Build both variants from the same source; release outputs are kept separately.
-MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.3
-MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.3
-python3 web/make_site.py build/release-1.3.3/melodee-1.3.3.fwsc \
-  build/release-1.3.3-1core/melodee-1.3.3-1core.fwsc 1.3.3 /tmp/melodee-site
+MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.4
+MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.4
+python3 web/make_site.py build/release-1.3.4/melodee-1.3.4.fwsc \
+  build/release-1.3.4-1core/melodee-1.3.4-1core.fwsc 1.3.4 /tmp/melodee-site
 cd /tmp/melodee-site && python3 -m http.server 8000
 # open http://localhost:8000/webapp/installer/
 ```
@@ -187,7 +187,7 @@ If it appears as USB **4c4a:8057**, with inquiry identity **WL82 / UBOOT1.00**, 
 already in mask-ROM UBOOT. `tools/fm1_recover.py` can recover it over a normal USB data
 cable, without an RP2040. It does not force a running device into UBOOT.
 
-The [1.3.3 release downloads](https://github.com/keremimo/melodee/releases/tag/v1.3.3)
+The [1.3.4 release downloads](https://github.com/keremimo/melodee/releases/tag/v1.3.4)
 include standalone recovery archives for Windows x64, Linux x64, macOS Intel/x64
 and Apple Silicon/arm64. Extract the matching archive and follow its `RECOVERY.md`,
 also available [here](docs/RECOVERY.md). Python, libusb and the RAM helper are bundled.
