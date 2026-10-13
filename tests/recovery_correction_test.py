@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -112,6 +113,25 @@ class CorrectionTests(unittest.TestCase):
             with patch.object(C, "ROOT", root):
                 with self.assertRaisesRegex(RuntimeError, "source hashes differ"):
                     self.prepare()
+
+    def test_windows_checkout_preserves_exact_recovery_source_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "core.autocrlf", "true"], check=True)
+            shutil.copyfile(ROOT / ".gitattributes", root / ".gitattributes")
+            (root / "tools").mkdir()
+            names = ("fm1_recover.py", "fm1_install.py", "fm1pkg_make.py", "build_recovery.py")
+            for name in names:
+                shutil.copyfile(ROOT / "tools" / name, root / "tools" / name)
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(root), "-c", "commit.gpgsign=false",
+                            "-c", "user.name=Recovery Test", "-c", "user.email=recovery-test@example.invalid",
+                            "commit", "--quiet", "-m", "fixture"], check=True)
+            shutil.rmtree(root / "tools")
+            subprocess.run(["git", "-C", str(root), "checkout", "--", "tools"], check=True)
+            for name in names:
+                self.assertEqual((root / "tools" / name).read_bytes(), (ROOT / "tools" / name).read_bytes())
 
 
 if __name__ == "__main__":

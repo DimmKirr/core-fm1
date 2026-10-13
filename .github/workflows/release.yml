@@ -4,6 +4,7 @@ on:
   push:
     branches: [next, release/recovery-v1.3.1]
     paths:
+      - '.gitattributes'
       - '.github/workflows/release.yml'
       - 'tools/fm1_recover.py'
       - 'tools/build_recovery.py'
