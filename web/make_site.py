@@ -97,6 +97,29 @@ def channel(spec, label, stem, branch):
                    "builtAt": spec["builtAt"], "pkg": {k: "../../firmware/" + f[3] for k, f in files.items()}}
 
 
+def release_history(out, current):
+    """Only validated stable package pairs are offered; keep their published bytes."""
+    releases = {current["version"]: current}
+    fw = Path(out) / "firmware"
+    for dual in fw.glob("melodee-*.fwsc"):
+        match = re.fullmatch(r"melodee-(\d+\.\d+\.\d+)\.fwsc", dual.name)
+        if not match or int(match[1].split(".")[0]) < 1 or match[1] == current["version"]:
+            continue
+        version = match[1]
+        single = fw / f"melodee-{version}-1core.fwsc"
+        if not single.exists():
+            continue
+        raw, product = check_package(dual)
+        raw1, product1 = check_package(single)
+        if product != product1 or raw == raw1:
+            raise SystemExit(f"{version}: historical releases need matching, distinct core builds")
+        releases[version] = {"version": version, "product": product,
+                               "pkg": {"dual": "../../firmware/" + dual.name,
+                                       "single": "../../firmware/" + single.name}}
+    return [current] + [releases[v] for v in sorted(releases, key=lambda v: tuple(map(int, v.split("."))), reverse=True)
+                        if v != current["version"]]
+
+
 def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None):
     pkg, single, out = Path(pkg), Path(single), Path(out)
     raw, product = check_package(pkg)
@@ -123,7 +146,8 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
     name, name1 = f"melodee-{v}.fwsc", f"melodee-{v}-1core.fwsc"
     release_meta = {"version": version, "product": product,
                     "pkg": {"dual": "../../firmware/" + name, "single": "../../firmware/" + name1}}
-    meta = json.dumps({**release_meta, "nightly": nightly_meta, "rc": rc_meta})
+    releases = release_history(out, release_meta)
+    meta = json.dumps({**release_meta, "nightly": nightly_meta, "rc": rc_meta, "releases": releases})
     for mark in ("/*LIB*/", "/*META*/"):
         if html.count(mark) != 1:
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
@@ -133,6 +157,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
         d.mkdir(parents=True, exist_ok=True)
     keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-1core.fwsc"}
     keep.update(file[3] for file in rc_files.values())
+    keep.update(Path(path).name for release in releases for path in release["pkg"].values())
     for old in fw.glob("melodee-*.fwsc"):
         if old.name not in keep:
             old.unlink()
@@ -145,6 +170,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
         if src.resolve() != dest.resolve():
             shutil.copy(src, dest)
     (fw / "release.json").write_text(json.dumps(release_meta, indent=2) + "\n")
+    (fw / "releases.json").write_text(json.dumps(releases, indent=2) + "\n")
     if nightly_meta:
         for path, data, identity, filename in nightly_files.values():
             (fw / filename).write_bytes(data)

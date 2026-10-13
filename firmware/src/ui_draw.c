@@ -333,6 +333,20 @@ static void draw_frame(int stage)
  * and value in the accent. ratio: 0..1000 for the gauge, -1 = no gauge. icon: ICON_* (icons.c), ICON_AUTO = by label;
  * a label too long to share the card with its icon goes without it.
  * vc: the value's colour (T_THEME, T_DIM inactive, T_ACCENT the knob just turned) */
+/* A binary value remains readable without touching its encoder. */
+static int binary_value(const char *val)
+{
+    return str_eq(val, "ON") || str_eq(val, "On") ? 1 : str_eq(val, "OFF") || str_eq(val, "Off") ? 0 : -1;
+}
+static void binary_badge(int32_t xc, int32_t y, int32_t h, const char *val, uint16_t bg)
+{
+    int on = binary_value(val);
+    int32_t w = text_w(&AF_X, on ? "ON" : "OFF") + 14;
+    uint16_t fill = on ? T_THEME : T_SURF;
+    cv_rrect(xc - w / 2, y, w, h, 5, on ? T_THEME : T_LINE, bg);
+    if (!on) cv_rrect(xc - w / 2 + 1, y + 1, w - 2, h - 2, 4, fill, T_LINE);
+    cv_text_c(xc, y + (h - 10) / 2, &AF_X, on ? "ON" : "OFF", on ? T_INK : T_MID, fill);
+}
 static uint8_t stage_drop_rows;                         /* Stage's knobs dropping in: the cards' bottom rows only, 0 all */
 static void col_old_value(uint32_t c, char *ov)          /* the value card c drew before (in its cache key), 16 bytes */
 {
@@ -348,6 +362,7 @@ enum { CS_CARD, CS_STRIP, CS_RING, CS_FADER, CS_CHIP, CS_CAPTURE };   /* how dra
                                                                       * CS_CAPTURE: kept for a list's rows, ui_list.c) */
 static void list_capture(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc);
 static uint8_t col_style;                               /* (ui_pages.c pv_column) */
+static void pv_value_c(uint32_t c, int32_t xc, int32_t y, const char *val, const char *unit, uint16_t vc, uint16_t bg, int32_t room);
 static void pv_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
                       int hot);
 static void draw_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc,
@@ -444,7 +459,10 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
             cv_text_fit(lx, 3, &AF_X, label, lc, cbg, COL_W - 2 - lx);
         if (kid >= 0)                                   /* "[OCT+]": the keycap (accent: it would act; DIM: it would not) */
             x = cv_keycap(6, 17, (uint32_t)kid, vc == T_ACCENT || vc == T_DIM ? vc : T_KEY, T_INK, cbg);
-        else if (vf == &AF_M)                           /* the value: 15 px, baseline 30 */
+        else if (str_eq(val, "ON") || str_eq(val, "OFF")) {
+            pv_value_c(c, COL_W / 2, 16, val, "", vc, cbg, room);
+            x = COL_W - 6;
+        } else if (vf == &AF_M)                           /* the value: 15 px, baseline 30 */
             x = roll_text(c, 6, 15, val, vc);
         else
             x = cv_text_fit(6, vf == &AF_S ? 19 : 21, vf, val, vc, cbg, room - uw);

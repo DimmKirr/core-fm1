@@ -154,6 +154,7 @@ web_tests() {                                     # the editor mock's tables mus
     fi
     if command -v node >/dev/null 2>&1; then
         step "web pages: editor protocol + native CZ patches, package builder, update protocol" node web/test_web.mjs
+        step "installer UI: release selection, fetch races, cache and write lock" node web/test_installer.mjs
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
     else
         echo "== skip web tests (no node)"

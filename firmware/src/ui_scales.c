@@ -49,11 +49,11 @@ static void scales_draw(void)
         b[0] = (char)('1' + song.sel % NTRK);
         str_cpy(b + 1, " \xB7 SCALES", 12);
         w = text_w(&AF_X, b) + 14;
-        cv_rrect(6, 4, w, 16, 5, T_THEME, T_BG);
-        cv_text_on(13, 6, &AF_X, b, T_INK, T_THEME);
+        cv_rrect(234 - w, 4, w, 16, 5, T_THEME, T_BG);
+        cv_text_on(241 - w, 6, &AF_X, b, T_INK, T_THEME);
         fmt_int(b, (int32_t)total);
         str_cpy(b + str_len(b), total == 1u ? " scale" : " scales", 8);
-        cv_text_r(234, 7, &AF_X, b, T_MID, T_BG);
+        cv_text_on(8, 7, &AF_X, b, T_MID, T_BG);
         cv_blit(0, 0);
     }
     sig = ui.scale_family * 7u + ux.gen * 977u + ux.pal * 31u + 2u;

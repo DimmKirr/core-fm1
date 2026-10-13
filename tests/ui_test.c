@@ -2281,6 +2281,21 @@ static int test_popups(void)
     bad += check("POPUPS: a list knob (WAVE) turning: its picker", pop.on == POP_PICK && pop.col == 1u);
     fm1_ms += 2000u; frame();
     bad += check("POPUPS: the picker goes once the knob rests", !pop.on);
+    uint8_t picker_page = ui.page;
+    PREF_BITS |= PREF_PICK_OFF; pop_close();
+    int16_t wave_before = TSEL->p[P_E0 + 1u]; turn(EN_K2, -1);
+    bad += check("POPUPS: disabling automatic pickers still edits the parameter inline",
+                 !pop.on && TSEL->p[P_E0 + 1u] != wave_before);
+    hold(B_HOME); ui.menu_sel = MI_PICKER; press(B_OCTUP);
+    bad += check("POPUPS: HOME menu toggles the picker preference without changing acceleration",
+                 !(PREF_BITS & PREF_PICK_OFF));
+    press(B_OCTUP); hold(B_HOME);
+    { persist_t stored = {0}; settings_export(&stored); PREF_BITS &= (uint8_t)~PREF_PICK_OFF;
+      settings_import(&stored, sizeof stored);
+      bad += check("POPUPS: picker preference survives settings export and restore", PREF_BITS & PREF_PICK_OFF); }
+    PREF_BITS &= (uint8_t)~PREF_PICK_OFF;
+    ui.home = 0; ui.page = picker_page; page_entered();
+
     turn(EN_K2, 1); turn(EN_K1, 1);
     bad += check("POPUPS: another knob turning closes it", !pop.on);
     turn(EN_K2, 1); press(B_OCTDN);
@@ -2557,6 +2572,63 @@ static int test_product_ux(void)
     bad += check("..Clear <lane>: its events gone, undoable", motion_count(TSEL) == 0 && msg_is("LANE CLEARED"));
     hold(B_SAVE);
     bad += check("motion-clear UNDO restores the recorded events", motion_count(TSEL) == 1);
+    {   /* Editing automation never clears neighbours, other tracks or banks. */
+        uint16_t ids[MO_MAX]; int16_t value;
+        ui_power_on_general(); motion_clear(TSEL);
+        motion_set_event(TSEL, 0, P_PAN, 10);
+        motion_set_event(TSEL, 4, P_PAN, 30);
+        motion_set_event(TSEL, 0, P_DETUNE, 12);
+        motion_set_event(&trk[1], 0, P_PAN, 20);
+        TSEL->pattern = 1; motion_set_event(TSEL, 0, P_PAN, 40); TSEL->pattern = 0;
+        go_page(GR_MOTION); mo.step = 0; mo.edit = 0;
+        uint32_t lanes = mo_lanes(ids);
+        for (mo.lane = 0; mo.lane < lanes && ids[mo.lane] != P_PAN; mo.lane++);
+        turn(EN_K3, 2); turn(EN_K4, 5);
+        bad += check("MOTION: K3 step, K4 inserts the held value without erasing other events",
+            mo.step == 2 && mo_value(P_PAN, 2, &value) && value == 15 && motion.count == 6);
+        motion_set_enabled(TSEL, 0); turn(EN_K4, -3);
+        bad += check("MOTION: changing a point keeps motion bypassed and leaves adjacent points intact",
+            !motion_enabled(TSEL) && mo_value(P_PAN, 2, &value) && value == 12 &&
+            mo_value(P_PAN, 4, &value) && value == 30 && mo_value(P_DETUNE, 0, &value) && value == 12);
+        fm1_in.buttons |= 1u << panel.btn[B_SEQ];
+        for (uint32_t tick = 0; tick < 52u; tick++) frame();
+        turn(EN_K4, 1);
+        fm1_in.buttons = 0; frame();
+        bad += check("MOTION: SEQ + K4 deletes only the selected point and consumes navigation",
+            motion.count == 5 && !mo_value(P_PAN, 2, &value) && motion_page() && msg_is("POINT CLEARED"));
+        fm1_in.buttons |= 1u << panel.btn[B_SEQ]; frame(); turn(EN_K2, 1);
+        fm1_in.buttons = 0; frame();
+        bad += check("MOTION: SEQ + K2 clears only this lane, preserving the other bank and track",
+            motion.count == 3 && !mo_events(P_PAN) && mo_events(P_DETUNE) == 1 && motion_page());
+        hold(B_SAVE);
+        bad += check("MOTION: undo restores the gesture's automation without changing other tracks",
+            motion.count == 5 && mo_events(P_PAN) == 2 && motion_count(&trk[1]) == 1);
+        memset(host_screen, 0xA5, sizeof host_screen); gfx_forget(); ui.force = 1; ui_draw(); ok = 1;
+        for (uint32_t y = H_HEAD; y < MO_Y0; y++) for (uint32_t x = 0; x < 240u; x++)
+            ok &= host_screen[y * 240u + x] == (uint16_t)((T_BG >> 8) | (T_BG << 8));
+        for (uint32_t y = MO_Y0 + MO_VIS * MO_H; y < PV_SOUND_Y; y++) for (uint32_t x = 0; x < 240u; x++)
+            ok &= host_screen[y * 240u + x] != 0xA5A5;
+        bad += check("MOTION: forced drawing clears both gaps left by the preceding screen", ok);
+        ui_power_on(); set_engine_of(TSEL, ENGI_FM6); motion_clear(TSEL);
+        motion_set_event(TSEL, 0, MO_NATIVE + 16u, (MO_TAG_FM6 << 8) | 40);
+        go_page(GR_MOTION); mo.lane = mo.step = 0; turn(EN_K4, 3);
+        bad += check("MOTION: native FM6 point editing preserves its engine tag and byte value",
+            motion.count == 1 && motion.event[0].value == ((MO_TAG_FM6 << 8) | 43));
+        ui_power_on(); set_engine_of(TSEL, ENGI_CZ); motion_clear(TSEL);
+        motion_set_event(TSEL, 0, MO_NATIVE + 2u, (MO_TAG_CZ << 8));
+        go_page(GR_MOTION); mo.lane = mo.step = 0; turn(EN_K4, 1);
+        bad += check("MOTION: packed CZ point edits skip invalid bitfield codes",
+            motion.count == 1 && motion.event[0].value == ((MO_TAG_CZ << 8) | 4));
+        hold(B_SEQ);
+        bad += check("MOTION: SEQ held without a knob still opens PATTERNS on release", cur_page()->graph == GR_PATGRID);
+        ui_power_on_general(); motion_clear(TSEL); motion_set_event(TSEL, 0, P_PAN, 10);
+        for (uint32_t step = 0; step < 63u; step++) motion_set_event(&trk[1], step, P_PAN, 20);
+        go_page(GR_MOTION); mo.lane = mo.step = 0; turn(EN_K3, 1); turn(EN_K4, 1);
+        bad += check("MOTION: full pool refuses insertion without clearing lanes or taking an undo",
+            motion.count == MOTION_MAX && motion_count(TSEL) == 1 && msg_is("MOTION FULL"));
+        chain.armed = 1; turn(EN_K4, 1);
+        bad += check("MOTION: a running or armed song refuses point edits", motion.count == MOTION_MAX && msg_is("STOP TO EDIT"));
+    }
     ui_power_on(); ui_leds();
     memset(led_pos, 0xFF, sizeof led_pos);
     led_pos[panel.btn[B_PLAY]] = 1; led_pos[panel.btn[B_REC]] = 2;

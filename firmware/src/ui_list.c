@@ -226,7 +226,10 @@ static void list_rows(uint32_t n, uint32_t row, uint32_t first, uint32_t vis,
                 cv_rect(0, y, 3, 20, T_THEME);
             }
             cv_text_on(12, y + 3, &AF_S, lb, on ? T_TEXT : T_SEC, bg);
-            {
+            if (binary_value(v) >= 0) {
+                int32_t w = text_w(&AF_X, v) + 14;
+                binary_badge(228 - w / 2, y + 2, 16, v, bg);
+            } else {
                 int32_t w = text_w(&AF_S, v), x = 228 - (w < 104 ? w : 104);
                 cv_free_text(x, y + 3, &AF_S, v, vc == T_DIM ? T_DIM : on ? T_THEME : T_MID, bg, 104);
             }

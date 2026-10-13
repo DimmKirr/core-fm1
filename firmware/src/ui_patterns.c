@@ -379,16 +379,17 @@ static void sg_head(void)
         return;
     sgv.top = sig;
     cv_begin(240, SG_TOP_H, T_BG);
-    x = cv_text_on(8, 5, &AF_S, "Song", T_TEXT, T_BG);
-    if (sg.bars) {                                      /* its length at the tempo */
-        str_cpy(t, "\xb7 ", 4);
-        fmt_int(t + 2, (int32_t)(secs / 60u));
+    cv_text_r(234, 7, &AF_X, "SONG", T_TEXT, T_BG);
+    x = 8;
+    if (sg.bars && !ui.msg_t) {                         /* its length at the tempo */
+        str_cpy(t, "", 1);
+        fmt_int(t, (int32_t)(secs / 60u));
         str_cpy(t + str_len(t), secs % 60u < 10u ? ":0" : ":", 3);
         fmt_int(t + str_len(t), (int32_t)(secs % 60u));
-        cv_text_on(x + 6, 7, &AF_X, t, T_MID, T_BG);
+        cv_text_on(x, 7, &AF_X, t, T_MID, T_BG);
     }
     if (ui.msg_t) {
-        cv_free_text(100, 7, &AF_X, ui.msg, T_ACCENT, T_BG, 132);
+        cv_free_text(8, 7, &AF_X, ui.msg, T_ACCENT, T_BG, 180);
     } else if (jam_on || jam.n) {                       /* the jam: logging (a dot), its rows */
         if (jam_on) {
             str_cpy(b, "capturing jam", sizeof b);
@@ -397,9 +398,9 @@ static void sg_head(void)
             fmt_int(b + str_len(b), jam.n);
             str_cpy(b + str_len(b), jam.n > 1u ? " rows" : " row", 6);
         }
-        x = cv_text_r(232, 7, &AF_X, b, jam_on ? ux_mix(T_REC, T_TEXT, 30) : T_MID, T_BG);
+        x = cv_text_r(188, 7, &AF_X, b, jam_on ? ux_mix(T_REC, T_TEXT, 30) : T_MID, T_BG);
         if (jam_on)
-            cv_circle(232 - text_w(&AF_X, b) - 8, 12, 7, T_REC, T_BG);
+            cv_circle(188 - text_w(&AF_X, b) - 8, 12, 7, T_REC, T_BG);
     }
     cv_blit(0, 0);
 }

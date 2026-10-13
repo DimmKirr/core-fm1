@@ -23,7 +23,9 @@
   #status { margin-top: 16px; min-height: 1.6em; }
   .small { color: var(--dim); font-size: 13px; }
   progress { width: 100%; height: 4px; margin-top: 16px; }
-  pre { color: var(--dim); font-size: 12px; white-space: pre-wrap; margin-top: 16px; }
+  pre { color: var(--dim); font-size: 12px; white-space: pre-wrap; margin-top: 16px; max-height: 200px; overflow-y: auto; overflow-wrap: anywhere; }
+  select { font: inherit; max-width: 100%; padding: 4px; background: var(--bg); color: var(--fg); }
+  details { margin-bottom: 16px; }
 </style>
 </head>
 <body>
@@ -36,9 +38,13 @@
   <p class="small" data-t="beta"></p>
   <p class="small"><span data-t="brick"></span>
     <a href="https://github.com/keremimo/melodee/blob/next/docs/RECOVERY.md" target="_blank" rel="noopener" style="color:inherit" data-t="recoveryLink"></a></p>
-  <p><label><input type="radio" name="build" id="build-dual" checked> <span data-t="dual"></span></label><br>
-    <label><input type="radio" name="build" id="build-single"> <span data-t="single"></span></label></p>
-  <p class="small" data-t="singleWhy"></p>
+  <p><label><span data-t="releaseTitle"></span><br><select id="release"></select></label></p>
+  <p><label><input type="radio" name="build" id="build-dual" checked> <span data-t="dual"></span></label></p>
+  <details id="fallback-options">
+    <summary data-t="fallbackTitle"></summary>
+    <p><label><input type="radio" name="build" id="build-single"> <span data-t="single"></span></label></p>
+    <p class="small" data-t="singleWhy"></p>
+  </details>
   <section id="rc-options" hidden>
     <p><strong data-t="rcTitle"></strong> · <span id="rc-version"></span></p>
     <p><label><input type="radio" name="build" id="build-rc-dual"> <span data-t="rc-dual"></span></label><br>
@@ -82,6 +88,7 @@ const TEXT = {
     intro: "FM-1 を USB で接続してください。（Chrome か Edge で使えます）",
     warn: "書き込み中は USB を抜かないでください。",
     install: "インストール", other: "English",
+    releaseTitle: "安定版のバージョン", latest: "最新版", fallbackTitle: "詳細設定 / ハードウェアの互換性",
     rcTitle: "リリース候補", "rc-dual": "RC（デュアルコア）", "rc-single": "RC（シングルコア）",
     "rc-dualTag": "リリース候補・デュアルコア", "rc-singleTag": "リリース候補・シングルコア",
     rcWhy: "次のリリースのテスト版です。標準を選んでインストールすると安定版へ戻せます。",
@@ -94,7 +101,7 @@ const TEXT = {
     direct: "USB ケーブルはパソコンに直接つないでください。Probe や Transporter などの機材は不要です。",
     brick: "インストール後に起動しない場合は、USB の状態に応じた復旧手順を確認してください（公式 V15 への復旧にも対応）:",
     recoveryLink: "USB 復旧手順とダウンロード",
-    beta: "Melodee 1.0 は実地テスト版です。不具合は GitHub で知らせてください。このカスタムファームウェアを使ったことで FM-1 が壊れたり不具合が起きたりしても、作者は一切の責任を負いません。自己責任でお使いください。",
+    beta: "Melodee の不具合は GitHub で知らせてください。このカスタムファームウェアを使ったことで FM-1 が壊れたり不具合が起きたりしても、作者は一切の責任を負いません。自己責任でお使いください。",
     back: "M-VAVEから公式FM-1 V15を取得し、未変更のFM-1.fwscを選んでください。ファイルはこのブラウザ内で検証し、サーバーへ送りません。",
     stockTitle: "公式V15に戻す", stockFile: "公式FM-1.fwsc", stockGo: "バックアップして公式V15へ戻す",
     stockBackup: "現在の曲・保存曲・音色バンク・サンプル・設定を先に保存します。バックアップできない場合は、Melodeeを更新するか、データ消失を了承してバックアップを省略できます。復元はMelodeeを再インストールしてエディタから行います。",
@@ -125,6 +132,7 @@ const TEXT = {
     intro: "Connect the FM-1 by USB. (Works in Chrome or Edge.)",
     warn: "Do not unplug the USB cable while writing.",
     install: "Install", other: "日本語",
+    releaseTitle: "Stable release", latest: "Latest", fallbackTitle: "Advanced / Hardware fallback",
     rcTitle: "Release candidate", "rc-dual": "RC — dual core", "rc-single": "RC — single core",
     "rc-dualTag": "release candidate, dual core", "rc-singleTag": "release candidate, single core",
     rcWhy: "Preview of the next release, available for testing. Choose Standard to return to stable.",
@@ -137,7 +145,7 @@ const TEXT = {
     direct: "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
     brick: "If the FM-1 does not start after installation, follow the recovery steps for its USB mode (including official V15 recovery):",
     recoveryLink: "USB recovery instructions and downloads",
-    beta: "Melodee 1.0 is a field-testing release; please report problems on GitHub. The author accepts no responsibility if your FM-1 is damaged or misbehaves because of this custom firmware. Use it at your own risk.",
+    beta: "Please report Melodee problems on GitHub. The author accepts no responsibility if your FM-1 is damaged or misbehaves because of this custom firmware. Use it at your own risk.",
     back: "Get official FM-1 V15 from M-VAVE and select the unmodified FM-1.fwsc. The browser validates it locally; it is not sent to a server.",
     stockTitle: "Return to official V15", stockFile: "Official FM-1.fwsc", stockGo: "Back up and return to official V15",
     stockBackup: "Current music, saved music, sound banks, samples and settings are saved first. If backups are unavailable, update Melodee or choose to skip the backup and accept possible data loss. To restore an archive later, reinstall Melodee and use the editor.",
@@ -173,6 +181,7 @@ function applyLang() {
   document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t(e.dataset.t); });
   $("lang").textContent = t("other");
   $("stock-go").textContent = t($("stock-skip-backup").checked ? "stockGoNoBackup" : "stockGo");
+  if ($("release").options.length) releaseOptions();
   if (lastKey === "ready") ready();
   else if (lastKey) $("status").textContent = t(lastKey) + lastArg;
 }
@@ -185,12 +194,23 @@ const buildIds = ["dual", "single", "rc-dual", "rc-single", "nightly-dual", "nig
 const build = () => buildIds.find(k => $("build-" + k).checked) || "dual";
 const selection = () => {     /* the release, or a channel ("nightly-dual": meta.nightly's dual-core package) */
   const kind = build(), dash = kind.indexOf("-");
-  return dash < 0 ? {kind, channel: meta, key: kind} : {kind, channel: meta[kind.slice(0, dash)], key: kind.slice(dash + 1)};
+  return dash < 0 ? {kind, channel: (meta.releases || []).find(r => r.version === $("release").value) || meta, key: kind} : {kind, channel: meta[kind.slice(0, dash)], key: kind.slice(dash + 1)};
 };
 const ready = () => { lastKey = "ready"; $("status").textContent = `Melodee ${selection().channel.version} (${t(build() + "Tag")})`; };
-const log = (t) => { $("log").textContent += t + "\n"; };
+const log = (t) => { const box = $("log"); box.textContent += t + "\n"; box.scrollTop = box.scrollHeight; };
 let image = null;
 const meta = /*META*/;
+function releaseOptions() {
+  const selected = $("release").value || meta.version;
+  $("release").replaceChildren(...(meta.releases || [meta]).map(r => {
+    const option = document.createElement("option");
+    option.value = r.version;
+    option.textContent = `${r.version === meta.version ? t("latest") + " · " : ""}v${r.version}`;
+    option.selected = r.version === selected;
+    return option;
+  }));
+}
+releaseOptions();
 $("rc-options").hidden = !meta.rc;
 if (meta.rc) $("rc-version").textContent = meta.rc.version;
 $("nightly-options").hidden = !meta.nightly;
@@ -198,7 +218,7 @@ if (meta.nightly) $("nightly-info").textContent = `next · ${meta.nightly.commit
 const images = {};                // a build ("dual", "nightly-single" ..) -> its package's image, each fetched once
 
 let writing = false, stock = null, stockFileEpoch = 0, buildEpoch = 0;
-const lockInstaller = (on) => { writing = on; $("go").disabled = on || !image; buildIds.forEach(k => { $("build-" + k).disabled = on; }); $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; $("stock-skip-backup").disabled = on; };
+const lockInstaller = (on) => { writing = on; $("release").disabled = on; $("go").disabled = on || !image; buildIds.forEach(k => { $("build-" + k).disabled = on; }); $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; $("stock-skip-backup").disabled = on; };
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
 
 // the chosen build's package: Install stays off until it is loaded and checked
@@ -206,21 +226,27 @@ async function choose() {
   if (writing) return;
   if (!navigator.requestMIDIAccess) { sayK("nomidi"); return; }
   const {kind, channel, key} = selection(), epoch = ++buildEpoch;
+  const cacheKey = kind + ":" + (channel?.version || "") + ":" + (channel?.commit || "");
   image = null; $("go").disabled = true;
   try {
-    if (!images[kind]) {
+    if (!images[cacheKey]) {
       if (!channel) throw new Error(kind.startsWith("rc-") ? "Release candidate is not available yet" : "Nightly is not available yet");
       const url = channel.pkg[key] + (channel.commit ? "?commit=" + channel.commit : ""), r = await fetch(url);
       if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
       const pkg = new Uint8Array(await r.arrayBuffer());
       if (productOf(pkg) !== channel.product) { if (epoch === buildEpoch) sayK("badpkg"); return; }
-      images[kind] = logicalImage(pkg);
+      images[cacheKey] = logicalImage(pkg);
     }
     if (epoch !== buildEpoch) return;
-    image = images[kind]; if (!writing) ready(); lockInstaller(writing);
+    image = images[cacheKey]; if (!writing) ready(); lockInstaller(writing);
   } catch (e) { if (epoch === buildEpoch) sayK("loadfail", e.message); }
 }
 buildIds.forEach(k => $("build-" + k).addEventListener("change", choose));
+$("release").addEventListener("change", () => {
+  if (writing) return;
+  if (build().includes("-")) $("build-dual").checked = true;
+  choose();
+});
 choose();
 
 $("go").addEventListener("click", async () => {

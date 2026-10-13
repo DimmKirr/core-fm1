@@ -379,7 +379,7 @@ static void pick_touch(uint32_t c)
     const param_desc_t *d;
     if (pop.on == POP_PICK && pop.col != c)
         pop_close();
-    if (ui.home || pop.on == POP_SHEET || own_screen())
+    if (ui.home || pop.on == POP_SHEET || own_screen() || (PREF_BITS & PREF_PICK_OFF))
         return;
     d = page_desc(cur_page(), c, &vp);
     if (!d || !vp || d->fmt != F_ENUM || !d->names || d->max - d->min < 4 || pick_numbers(d))

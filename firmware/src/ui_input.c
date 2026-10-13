@@ -1708,7 +1708,13 @@ static void ui_input(void)
     uint32_t bank_notes = notes;
     uint32_t home = btn_hold(&ui.home_t0, B_HOME, now, 1);
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && !ui.confirm && !name_on());   /* held: MIXER */
-    uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
+    /* On MOTION, wait for release before navigating on a SEQ hold, so the
+     * button can be held as long as needed for lane/point clear gestures. */
+    uint32_t seq_long = motion_page() && ui.seq_t0 && !(ui.seq_t0 & 2u) &&
+        !(fm1_in.buttons & (1u << panel.btn[B_SEQ])) &&
+        now - (ui.seq_t0 & ~3u) > 700u * 1000u * FM1_TICKS_PER_US;
+    uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm && !motion_page());
+    if (seq_long) seq = BT_HOLD;
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
     uint32_t octup = btn_hold(&ui.oct_t0, B_OCTUP, now, page_sheet() != 0u);   /* held: the page's sheet */
     uint32_t oct;

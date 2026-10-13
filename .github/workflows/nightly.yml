@@ -83,7 +83,10 @@ jobs:
           path: .nightly-pages
           fetch-depth: 0
       - name: Publish installer and nightly packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          python web/import_releases.py .nightly-pages --repo "$GITHUB_REPOSITORY"
           commit=$(cat build/nightly-commit.txt)
           python web/publish_nightly.py .nightly-pages \
             --dual build/melodee-nightly.fwsc --single build/melodee-nightly-1core.fwsc \

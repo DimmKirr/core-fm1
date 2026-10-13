@@ -1437,7 +1437,8 @@ async function stockRestore() {
   async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false} = {}) {
     const calls = [], elements = new Map();
     const element = (id) => {
-      if (!elements.has(id)) elements.set(id, {checked:false, disabled:false, textContent:"", value:0, listeners:{},
+      if (!elements.has(id)) elements.set(id, {checked:false, disabled:false, textContent:"", value:0, listeners:{}, options:[],
+        replaceChildren(...options) { this.options = options; this.value = options.find(o => o.selected)?.value || options[0]?.value || ""; },
         addEventListener(k, fn) { this.listeners[k] = fn; }});
       return elements.get(id);
     };
@@ -1516,13 +1517,14 @@ async function installerBuilds() {
   const ALL = ["dual", "single", "rc-dual", "rc-single", "nightly-dual", "nightly-single"];
   const fetched = [], installed = [], elements = new Map();
   const element = (id) => {
-    if (!elements.has(id)) elements.set(id, {checked:id === "build-dual", disabled:false, textContent:"", value:0, listeners:{},
+    if (!elements.has(id)) elements.set(id, {checked:id === "build-dual", disabled:false, textContent:"", value:0, listeners:{}, options:[],
+      replaceChildren(...options) { this.options = options; this.value = options.find(o => o.selected)?.value || options[0]?.value || ""; },
       addEventListener(k, fn) { this.listeners[k] = fn; }});
     return elements.get(id);
   };
   const context = vm.createContext({
     navigator:{language:"en", requestMIDIAccess:async () => ({})},
-    document:{documentElement:{}, querySelectorAll:() => [], getElementById:element},
+    document:{documentElement:{}, querySelectorAll:() => [], getElementById:element, createElement:() => ({})},
     window:{addEventListener() {}},
     fetch:async (url) => { fetched.push(url); return {ok:true, arrayBuffer:async () => new Uint8Array(Buffer.from(url)).buffer}; },
     productOf:(pkg) => /-rc\./.test(String.fromCharCode(...pkg)) ? "FM-1_91040" : /nightly/.test(String.fromCharCode(...pkg)) ? "FM-1_900" : "FM-1_91002", logicalImage:(pkg) => String.fromCharCode(...pkg),
@@ -1575,12 +1577,13 @@ async function installerBuildRaces() {
     .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual",single:"single"}}));
   const elements = new Map(), pending = new Map(); let installDone, installed;
   const element = id => {
-    if (!elements.has(id)) elements.set(id, {checked:id === "build-dual",disabled:false,textContent:"",listeners:{},
+    if (!elements.has(id)) elements.set(id, {checked:id === "build-dual",disabled:false,textContent:"",listeners:{}, options:[],
+      replaceChildren(...options) { this.options = options; this.value = options.find(o => o.selected)?.value || options[0]?.value || ""; },
       addEventListener(k,fn) { this.listeners[k] = fn; }});
     return elements.get(id);
   };
   const context = vm.createContext({navigator:{language:"en",requestMIDIAccess:async()=>({})},
-    document:{documentElement:{},querySelectorAll:()=>[],getElementById:element},window:{addEventListener(){}},
+    document:{documentElement:{},querySelectorAll:()=>[],getElementById:element,createElement:()=>({})},window:{addEventListener(){}},
     fetch:url=>new Promise(resolve=>pending.set(url,resolve)),productOf:()=>"FM-1_91002",
     logicalImage:pkg=>String.fromCharCode(...pkg),
     Updater:class { async find(){ return null; } async install(img){installed=img;await new Promise(resolve=>installDone=resolve);} }

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
 from make_site import main
 from publish_nightly import publish
 from publish_rc import publish as publish_rc
+from import_releases import verify_pair
 
 
 def package(path, product, variant):
@@ -23,6 +24,46 @@ def package(path, product, variant):
 
 
 class NightlySite(unittest.TestCase):
+    def test_history_preserves_versions_and_core_variants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            site = root / "site"
+            old = package(root / "old.fwsc", "FM-1_91021", 1)
+            old_single = package(root / "old-single.fwsc", "FM-1_91021", 2)
+            current = package(root / "current.fwsc", "FM-1_91032", 3)
+            current_single = package(root / "current-single.fwsc", "FM-1_91032", 4)
+            main(old, old_single, "1.2.1", site)
+            main(current, current_single, "1.3.2", site)
+            releases = json.loads((site / "firmware/releases.json").read_text())
+            self.assertEqual([r["version"] for r in releases], ["1.3.2", "1.2.1"])
+            self.assertEqual([r["product"] for r in releases], ["FM-1_91032", "FM-1_91021"])
+            for source, name in ((old, "melodee-1.2.1.fwsc"), (old_single, "melodee-1.2.1-1core.fwsc")):
+                self.assertEqual((site / "firmware" / name).read_bytes(), source.read_bytes())
+            publish(site, old, old_single, "next-abcdef0", "a" * 40, "2026-10-13T16:00:00Z")
+            self.assertEqual(json.loads((site / "firmware/releases.json").read_text()), releases)
+            self.assertIn('"product": "FM-1_91021"', (site / "webapp/installer/index.html").read_text())
+            # An incomplete pair is never offered; a mismatched pair is refused.
+            stray = site / "firmware/melodee-1.1.0.fwsc"
+            package(stray, "FM-1_91010", 1)
+            main(current, current_single, "1.3.2", site)
+            self.assertFalse(stray.exists())
+            package(stray, "FM-1_91010", 1)
+            package(site / "firmware/melodee-1.1.0-1core.fwsc", "FM-1_91011", 2)
+            with self.assertRaises(SystemExit):
+                main(current, current_single, "1.3.2", site)
+
+    def test_history_checksums_before_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dual = package(root / "melodee-1.2.1.fwsc", "FM-1_91021", 1)
+            single = package(root / "melodee-1.2.1-1core.fwsc", "FM-1_91021", 2)
+            sums = root / "SHA256SUMS"
+            sums.write_text("".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in (dual, single)))
+            self.assertEqual(verify_pair(root, "1.2.1"), [dual.name, single.name])
+            single.write_bytes(single.read_bytes() + b"corrupted")
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                verify_pair(root, "1.2.1")
+
     def test_release_candidate(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -2,7 +2,7 @@
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 
-![Melodee 1.0.0: the Melodee logo and six firmware screens](docs/media/melodee-1.0.0.png)
+![Current Melodee screens: HOME, SONG, MOTION and FX](docs/media/melodee-screens.svg)
 
 **TL;DR:** connect your FM-1 to a computer by USB, open the
 [web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
@@ -403,9 +403,33 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Web:** editor for every parameter (with a 6-operator FM patch editor), step grid, mixer,
   preset library and FM6 voice editor; full backup and restore; return to the official firmware
 
+## Feature feedback improvements (in development)
+
+Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
+[issue #39](https://github.com/keremimo/melodee/issues/39). These changes add:
+
+- **Motion editing:** on SEQ > MOTION, KNOB 2 selects the lane, KNOB 3 selects the step,
+  and KNOB 4 changes its value. Editing a step without a point inserts one at the held
+  value. KNOB 1 controls motion playback. Hold SEQ and turn KNOB 2 to clear the selected
+  lane, or KNOB 4 to remove the selected point.
+  The lane’s OCT+ sheet also offers **Clear <parameter>**. Each edit or clear can be undone
+  with SAVE held. Other parameters, tracks and pattern banks are preserved; song playback
+  must be stopped before editing.
+- **Picker popups:** hold HOME and choose **PICKER POPUPS > OFF** to edit named parameters
+  inline. This device setting persists across restarts; action sheets and explicit list
+  selection remain available. ON keeps the existing automatic picker for longer named lists.
+- **UI feedback:** ON/OFF values have filled or outlined badges. SONG and SCALES put their
+  titles on the right, and MOTION clears the entire page background when entering.
+- **Installer:** choose a stable release explicitly; Standard stays the default and Single
+  core is under **Advanced / Hardware fallback**. The flashing log scrolls within a bounded
+  box. Previously published releases with both core variants are staged with verified
+  checksums and retained for later selection; the banner no longer names an outdated version.
+- **Documentation:** the screen strip comes from the firmware renderer, and the hardware
+  diagram matches the current buttons, HOME assignment, effects and shortcuts.
+
 ## Controls
 
-![FM-1 controls](docs/panel.jpg)
+![Current FM-1 controls in Melodee](docs/media/melodee-controls.svg)
 
 - **SELECT** turns the pages of the open section (both ways); **MASTER** sets the volume,
   **ALGORITHM** picks the track (T1 up to the last one in use), and **PRESETS** browses its sounds. KNOB 1 moves across

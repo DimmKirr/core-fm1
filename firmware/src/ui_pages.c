@@ -133,6 +133,10 @@ static void pv_mod_rows(void)
 static void pv_value_c(uint32_t c, int32_t xc, int32_t y, const char *val, const char *unit, uint16_t vc, uint16_t bg,
                        int32_t room)
 {
+    if (binary_value(val) >= 0) {
+        binary_badge(xc, y - 1, 18, val, bg);
+        return;
+    }
     const aafont_t *f = &AF_M;
     int32_t uw = unit[0] ? text_w(&AF_X, unit) + 2 : 0, w, x;
     if (text_w(f, val) + uw > room) f = &AF_S;
@@ -295,7 +299,9 @@ static void pv_column(uint32_t c, const char *label0, const char *val0, const ch
     }
     if (label[0])
         cv_text_fit(6, 2, &AF_X, label, lc, bg, CARD_W - 8);
-    if (val[0]) {
+    if (binary_value(val) >= 0) {
+        binary_badge(CARD_W / 2, 12, 16, val, bg);
+    } else if (val[0]) {
         int32_t uw = unit[0] ? text_w(&AF_X, unit) + 2 : 0;
         x = cv_free_text(6, 14, &AF_S, val, vc, bg, CARD_W - 8 - uw);
         if (unit[0] && x + uw <= CARD_W - 2)
