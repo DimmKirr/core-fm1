@@ -1604,6 +1604,9 @@ static int test_overclock(void)
     oc_restart = 0;
     oc_boot_mode = OC_320; hold(B_HOME); press(B_OCTDN);
     bad += check("OVERCLOCK: closing at the clock it booted with asks nothing", !ui.confirm);
+    hold(B_HOME); ui.menu_sel = MI_CLOCK; turn(EN_K1, 1); ui.msg_t = 0; press(B_OCTDN);
+    bad += check("OVERCLOCK: 320 to 360 asks no restart (it keeps the PLL), says it comes at power-on",
+                 !ui.confirm && !oc_restart && oc_get() == OC_360 && msg_is("360 MHZ AT POWER-ON"));
     for (uint32_t v = 0; v < 3u; v++) {
         PREF_BITS = (uint8_t)(v << PREF_OC_SHIFT);
         bad += check("OVERCLOCK: 1.3.0's 320 default, its 360 and an unreleased 396 all read as 360", oc_get() == OC_360);

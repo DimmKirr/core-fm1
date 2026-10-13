@@ -1,15 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* OVERCLOCK (HOME held, ui_menu.c): the SYS clock the FM-1 boots at (main.c oc_boot; the retune is PR #27's by
  * @johnskiller, hal/fm1_clock.h):
- *   360 MHz   the default: M-VAVE's boot clock (the SPL's), the PLL as the boot loader left it (what 1.2 ran)
+ *   360 MHz   the default: M-VAVE's boot clock (the SPL's); never writes the PLL (what 1.2 ran): a 320 that a soft
+ *             reset kept (an update, a restart) stays until the next power-off
  *   320 MHz   JieLi's own clock table: the PLL is retuned at every start
  * The supply rails stay where the boot loader sets them.
  * Kept in favorites.factory[15][30] bits 2..3 (favorites.c; older firmware leaves them alone): 3 is 320 MHz, any other
- * value 360 (1.3.0 and 1.3.1 stored 0 for their 320 default, 1 for 360, 2 for an unreleased 396). A new clock takes a
- * restart: closing the menu asks for one (oc_restart: main.c restarts once the settings are saved). On some FM-1s the
- * retune itself fails, and two such starts entered UBOOT through the boot guard: a session at 320 MHz or one that
- * retuned and then crashed, hung or lost CPU1 is set back to 360, and the next start leaves the PLL alone (main.c
- * oc_boot, oc_poll; core.h oc_guard). A retune that rolled back, or a session that died within 30 s of one, marks the
+ * value 360 (1.3.0 and 1.3.1 stored 0 for their 320 default, 1 for 360, 2 for an unreleased 396). 320 takes a restart:
+ * closing the menu asks for one (oc_restart: main.c restarts once the settings are saved); 360 the next power-on.
+ * On some FM-1s the retune itself fails, and two such starts entered UBOOT through the boot guard: a session at
+ * 320 MHz or one that retuned and then crashed, hung or lost CPU1 is set back to 360, and the next start leaves the
+ * PLL alone (main.c oc_boot, oc_poll; core.h oc_guard). A retune that rolled back, or a session that died within 30 s of one, marks the
  * unit (bit 4, PREF_OC_LOST: kept with the settings): OVERCLOCK then reads 360 ONLY and the PLL is never written. */
 enum { OC_320, OC_360, OC_N };
 static const char *const OC_NAME[OC_N] = {"320 MHz", "360 MHz"};

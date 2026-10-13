@@ -97,7 +97,7 @@ static void timer5_start(void)                 /* OSC /4 = 6 MHz, PRD 600 -> 10 
 int fm1_clock_undo;                            /* unfamiliar boot clock or settled rollback from the OVERCLOCK retune */
 
 /* OVERCLOCK (overclock.c): the saved mode's clock, before CPU1, the audio ISR and the LCD (it reads the new LSB at
- * fm1_lcd_baud). The supply rails are never touched. 360 MHz on the SPL's clock writes nothing (1.2's boot). The
+ * fm1_lcd_baud). The supply rails are never touched. 360 MHz never writes the PLL (1.2's boot). The
  * retune is the step that fails on some FM-1s, before the LCD and USB: two such starts in a row entered UBOOT through
  * the boot guard. So a session that retuned or runs at 320 MHz is marked (oc_guard.live) before the switch; if it
  * ends without an intended reset (a crash, the watchdog, a switch that never returned), the next start writes no PLL
@@ -118,9 +118,11 @@ static void oc_boot(void)
     live = oc_guard.live;
     mode = oc_boot_choose(live != 0, (live & OC_LIVE_RETUNE) != 0);
     m = fm1_clock_mult();
-    /* no PLL write: the clock found stays until power-off. The retune's only unrecoverable path ends in the watchdog,
-     * so it runs only with the watchdog re-armed and read back (fm1_wdt_arm: PR #27's follow-ups) */
-    if (live || oc_lost() || !m || m == mult[mode] || !fm1_wdt_arm(0x0D)) {
+    /* Only 320 MHz writes the PLL (a failed session, a marked unit: oc_boot_choose gave 360). 360 keeps the clock found:
+     * the SPL's at power-on, or a 320 that a soft reset (an update, a restart) kept, until the next power-off. The
+     * retune's only unrecoverable path ends in the watchdog, so it runs only with the watchdog re-armed and read back
+     * (fm1_wdt_arm: PR #27's follow-ups) */
+    if (mode != OC_320 || !m || m == FCLK_MULT_320 || !fm1_wdt_arm(0x0D)) {
         oc_guard.live = m != FCLK_MULT_360 ? OC_LIVE : 0u;
         fm1_clock_undo = m != mult[mode];
     } else {

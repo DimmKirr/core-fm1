@@ -14,7 +14,7 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.2** ([what's new](#whats-new-in-132)).
+**Melodee 1.3.3** ([what's new](#whats-new-in-133)).
 
 Release candidate: **[Melodee 1.4.0-rc.1](https://github.com/keremimo/melodee/releases/tag/v1.4.0-rc.1)**
 ([release notes](docs/RELEASE_1.4.0-rc.1.md)); choose **RC** in the web installer.
@@ -31,6 +31,16 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.3.3
+
+- **No clock change at 360 MHz, ever:** 1.3.2 still retuned the clock once, on the first
+  start after updating from a 1.3.0 or 1.3.1 that ran at 320 MHz (the clock survives the
+  update's restart). On the FM-1s that cannot take a retune, that was the step that fails.
+  At 360 MHz, Melodee now never touches the clock: a 320 MHz left by the update stays until
+  the next power-off, and the FM-1 comes up at 360 MHz from then on.
+- **Switching to 360 MHz** in OVERCLOCK applies at the next power-on and says
+  **360 MHZ AT POWER-ON**; switching to 320 MHz still offers a restart.
 
 ## What's new in 1.3.2
 
@@ -389,8 +399,9 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   input in your DAW if needed. No driver needed
 - **Overclock:** the HOME-held menu's OVERCLOCK sets the clock the FM-1 starts at: **360 MHz** (the default,
   M-VAVE's clock, set by the boot loader and left alone) or **320 MHz** (JieLi's own clock table, retuned at every
-  start). 360 MHz gives more voices with the second core (18 budget units instead of 16). A new clock needs a
-  restart: closing the menu offers one (unsaved song changes are lost), or it applies at the next power-on. If a
+  start). 360 MHz gives more voices with the second core (18 budget units instead of 16). Switching to 320 MHz
+  needs a restart: closing the menu offers one (unsaved song changes are lost), or it applies at the next
+  power-on. Switching to 360 MHz applies at the next power-on (**360 MHZ AT POWER-ON**). If a
   320 MHz session crashes, hangs or loses its second core, the FM-1 goes back to 360 MHz and says **CPU FAULT: 360
   MHZ**. On some FM-1s the retune itself fails (1.3.0 and 1.3.1 then entered UBOOT after an update): such a unit
   says **PLL FAULT: 360 MHZ** once, and OVERCLOCK reads **360 ONLY** from then on
