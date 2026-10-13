@@ -330,7 +330,11 @@ static void menu_close(void)
     ui.menu = 0;
     ui.force = 1;
     go_home();
-    if (oc_get() != oc_boot_mode)                      /* OVERCLOCK changed: it runs from the next start */
+    if (oc_get() == oc_boot_mode)                      /* OVERCLOCK changed: 320 from the next start, */
+        return;
+    if (oc_get() == OC_360)                            /* 360 from the next power-on (a restart keeps the PLL) */
+        ui_message("360 MHZ AT POWER-ON");
+    else
         confirm_open(CF_RESTART, 0);
 }
 

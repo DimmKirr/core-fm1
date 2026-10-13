@@ -428,15 +428,19 @@ command 79 (v[5]); a failed rollback waits in SRAM for the watchdog.
 
 The setting lives in `favorites.factory[15][30]` bits 2..3, beside KNOB ACCEL, so
 older firmware keeps it: 3 is 320 MHz, anything else 360 (1.3.0 and 1.3.1 stored 0
-for their 320 MHz default; 360 is stored as 1, which they read as 360 too). A new
-clock applies at the next start; closing the menu with one asks to restart (the
-settings are saved first, the transport stopped).
+for their 320 MHz default; 360 is stored as 1, which they read as 360 too). 320 MHz
+applies at the next start; closing the menu with it asks to restart (the settings
+are saved first, the transport stopped). 360 MHz applies at the next power-on: it
+never writes the PLL, and a soft reset (a restart, UBOOT, an update) keeps the
+running clock, so the menu says **360 MHZ AT POWER-ON** instead.
 
 1.3.0 and 1.3.1 defaulted to 320 MHz, so every start after an update from a 360 MHz
 firmware, and every power-on, retuned the PLL before the LCD and USB came up. On
 some FM-1s (the ones whose CPU1 also misbehaves) that retune fails: the watchdog
 resets, the next start retunes and fails again, and the boot guard enters UBOOT
-behind a black screen. Now 360 MHz writes nothing, and `oc_guard` (`.noinit`, gone
+behind a black screen. Now 360 MHz never writes the PLL, not even to leave a 320
+MHz that an update's soft reset kept (1.3.2 did, once, on the first start after an
+update from a 320 MHz session), and `oc_guard` (`.noinit`, gone
 at power-off) marks a session that retuned or runs at 320 MHz as live until an
 intended reset (the restart, UBOOT, an update). A boot that finds it set (a crash,
 the watchdog, a switch that never returned) writes no PLL, keeps the clock it finds
