@@ -218,7 +218,7 @@ if core; then
     t "resource lifetimes, cache eviction, tails and capacity" resources_test -O2 $FW
     t "audio worker: stalled jobs and wrapping deadlines" audio_worker_test
     t "cache RAM startup, memory faults and safe fallback" cache_ram_test
-    t "system clock retune and rollback" clock_test -O1
+    t "system clock: read only, never written" clock_test -O1
     job step "nightly and synth-only site preserve release and editor" python3 tests/nightly_site_test.py
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
     run "target budget: natural loops and FPU decoding" python3 tests/target_budget_test.py
