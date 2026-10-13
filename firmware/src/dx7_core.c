@@ -17,7 +17,12 @@
  *     dx_compute_ext): FM Lab has no drum track, and it keeps the operator loop to the synth path.
  *   - dx_playing() tests the carriers as (flags & 3) == 0 (out bus 0) instead of (flags & 4), which is
  *     Dexed's OUT_BUS_ADD and is also set on the bus-1 adder in algorithms 16 and 17: a voice there could
- *     report "still playing" forever when that operator's L4 > 0, and never be freed. */
+ *     report "still playing" forever when that operator's L4 > 0, and never be freed.
+ *   - dx_retune() and dx_env_rescale() added, for mono mode's legato: a note that slides into
+ *     another moves the pitch and re-scales the levels but must leave every envelope where it
+ *     stands, with the LFO and the pitch EG still running. dx_update() cannot do it -- it resets
+ *     the LFO, because a patch change should, and jumps each envelope to stage 2, which on a
+ *     decaying voice means L3 and so silence. */
 #ifndef DX_LG_N
 #define DX_LG_N 5                /* SLOOP renders blocks of CTL = 32 samples */
 #endif
@@ -115,6 +120,24 @@ static void dx_env_update(dx_env_t *e, const uint8_t *r, const uint8_t *l, int o
     e->rate_scaling = (int16_t)rate_scaling;
     if (e->down)
         dx_env_advance(e, 2);
+}
+
+/* FM Lab's. New rates and levels for a running envelope that must not be disturbed: the stage and
+ * the level stay exactly as they are, and only the target and speed of that stage are worked out
+ * again for the note we have slid to. dx_env_update() cannot be used, because its jump to stage 2
+ * is a patch change settling, and on a decaying voice it lands on L3 -- which for an e-piano is
+ * zero, so a slur would fall silent. */
+static void dx_env_rescale(dx_env_t *e, const uint8_t *r, const uint8_t *l, int ol, int rate_scaling)
+{
+    int i;
+    for (i = 0; i < 4; i++) {
+        e->rates[i] = r[i];
+        e->levels[i] = l[i];
+    }
+    e->outlevel = (int16_t)ol;
+    e->rate_scaling = (int16_t)rate_scaling;
+    if (e->active && e->ix < 4)
+        dx_env_advance(e, e->ix);
 }
 
 static void dx_env_init(dx_env_t *e, const uint8_t *r, const uint8_t *l, int ol, int rate_scaling)
@@ -414,6 +437,22 @@ static void dx_update(dxv_t *v, const uint8_t *p, int note, int vel)
     v->pmsens = DX_PMSENS[p[143] & 7];
     v->amdepth = (p[140] * 165) >> 6;
     dx_lfo_reset(&v->lfo, p + 137);
+}
+
+/* FM Lab's. Move a sounding voice to another note without starting it again: the operator pitches
+ * follow, and the levels are re-scaled because key scaling and velocity depend on the note, but the
+ * envelopes stay where they are and the LFO and pitch EG keep running. This is what legato is --
+ * the second note of a slur does not get its own attack -- and it is the one thing dx_update()
+ * cannot be used for, since a patch change is meant to restart the LFO and this is not one. */
+static void dx_retune(dxv_t *v, const uint8_t *p, int note, int vel)
+{
+    int op;
+    for (op = 0; op < 6; op++) {
+        const uint8_t *o = p + op * 21;
+        int rs, ol = dx_op_level(o, note, vel, &rs);
+        dx_env_rescale(&v->env[op], o, o + 4, ol, rs);
+        v->base[op] = dx_osc_freq(note, o[17], o[18], o[19], o[20]);
+    }
 }
 
 /* a new note from an unpacked voice (156 bytes); keeps nothing of the last one */

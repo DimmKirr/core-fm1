@@ -158,7 +158,7 @@ static void voice_name(uint32_t vi, char *out)
 }
 
 /* ---- main loop -> audio ISR: a single-producer ring of note events */
-enum { EV_ON = 1, EV_OFF, EV_PATCH, EV_PANIC };
+enum { EV_ON = 1, EV_OFF, EV_PATCH, EV_MONO, EV_PANIC };
 typedef struct { uint8_t kind, note, vel; } ev_t;
 #define EVQ 32u
 static ev_t evq[EVQ];
@@ -249,21 +249,92 @@ static void v_off(uint32_t note)
         }
 }
 
+/* ---- mono mode (FM Lab's; the DX7 has nothing to say about it, which is why the switch lives in
+ * settings and not in the voice -- a bank saved here is still a true DX7 dump).
+ *
+ * One voice, last-note priority, with fall-back: the newest key down is the one you hear, and
+ * letting it go drops you back to the key still under your finger rather than to silence. The
+ * envelopes start again only when nothing was already held, so a slur keeps the attack it began
+ * with and a separated note gets its own. On an FM patch that is a bigger difference than it sounds
+ * -- the attack is where most of the bright modulation lives, so legato playing is a different
+ * timbre, not just a different articulation. There is no portamento: the pitch steps. */
+#define MSTK 16                                 /* more fingers than this and the oldest is forgotten */
+static volatile uint8_t monomode;               /* the ISR's; the main loop asks for it with EV_MONO */
+static uint8_t mnote[MSTK], mvel[MSTK], mheld;  /* the keys down, oldest first; the top is what sounds */
+
+static uint32_t m_drop(uint32_t note)           /* take a key off the stack; 1 if it was there */
+{
+    uint32_t i;
+    for (i = 0; i < mheld; i++)
+        if (mnote[i] == note)
+            break;
+    if (i >= mheld)
+        return 0;
+    for (; i + 1u < mheld; i++) { mnote[i] = mnote[i + 1u]; mvel[i] = mvel[i + 1u]; }
+    mheld--;
+    return 1;
+}
+
+static void m_follow(uint32_t note, uint32_t vel, int again)
+{
+    vst[0].note = (uint8_t)note;
+    vst[0].vel = (uint8_t)vel;
+    vst[0].age = ++ages;
+    if (again)
+        dx_init(&dxv[0], pbuf[pcur], tnote(note), (int)vel);
+    else
+        dx_retune(&dxv[0], pbuf[pcur], tnote(note), (int)vel);
+    v_last = 0;
+}
+
+static void m_on(uint32_t note, uint32_t vel)
+{
+    uint32_t i, slur = mheld && dx_playing(&dxv[0]);
+    m_drop(note);                               /* the same key twice: it is only ever on once */
+    if (mheld == MSTK) {
+        for (i = 0; i + 1u < MSTK; i++) { mnote[i] = mnote[i + 1u]; mvel[i] = mvel[i + 1u]; }
+        mheld--;
+    }
+    mnote[mheld] = (uint8_t)note;
+    mvel[mheld] = (uint8_t)vel;
+    mheld++;
+    vst[0].held = 1;
+    m_follow(note, vel, !slur);
+}
+
+static void m_off(uint32_t note)
+{
+    if (!m_drop(note))
+        return;
+    if (!mheld) {
+        vst[0].held = 0;
+        dx_keyup(&dxv[0]);
+        return;
+    }
+    m_follow(mnote[mheld - 1u], mvel[mheld - 1u], 0);
+}
+
 static void ev_drain(void)                      /* audio ISR, before the render */
 {
     while (ev_r != ev_w) {
         const ev_t *e = &evq[ev_r % EVQ];
         uint32_t v;
         switch (e->kind) {
-        case EV_ON:  v_on(e->note, e->vel); break;
-        case EV_OFF: v_off(e->note); break;
+        case EV_ON:  if (monomode) m_on(e->note, e->vel); else v_on(e->note, e->vel); break;
+        case EV_OFF: if (monomode) m_off(e->note); else v_off(e->note); break;
         case EV_PATCH:                          /* the voice changed under the sounding notes */
             for (v = 0; v < NV; v++)
                 if (dxv[v].on)
                     dx_update(&dxv[v], pbuf[pcur], tnote(vst[v].note), (int)vst[v].vel);
             break;
+        case EV_MONO:                           /* the switch itself: start the new mode from silence */
+            monomode = (uint8_t)e->note;
+            for (v = 0; v < NV; v++) { dxv[v].on = 0; vst[v].held = 0; }
+            mheld = 0;
+            break;
         case EV_PANIC:
             for (v = 0; v < NV; v++) { dxv[v].on = 0; vst[v].held = 0; }
+            mheld = 0;
             break;
         default: break;
         }
@@ -446,6 +517,13 @@ static int op_key(uint32_t k)
             return (int)(5u - i);
     return -1;
 }
+
+/* The two black keys at the top of the keyboard, which the panel prints MONO and POLY under. They
+ * do the same on OPERATOR, where you are already deciding how the voice should behave. Mono is a
+ * setting of the instrument and not of the voice -- the DX7 format has no room for it, and we would
+ * rather a bank saved here stay a true DX7 dump than smuggle a byte into one. */
+#define MONO_KEY 20u                            /* C#5 */
+#define POLY_KEY 22u                            /* D#5 */
 
 /* The 156 bytes hold the operators in the DX7's own order, OP6 first, and dx7_core.c indexes
  * DX_ALG with the same number -- so the block index and the engine's operator index are the one
@@ -971,8 +1049,12 @@ static void draw_status(int32_t oct, uint32_t nv, uint32_t cpu, uint32_t pk)
     uint32_t i = put(s, 0, "OCT");
     s[i++] = oct < 0 ? '-' : '+';
     s[i++] = (char)('0' + (oct < 0 ? -oct : oct));
-    i = put(s, i, " VOX");
-    i = putn(s, i, nv, 1);
+    if (monomode) {                             /* the voice count says nothing when there is one */
+        i = put(s, i, " MONO");
+    } else {
+        i = put(s, i, " VOX");
+        i = putn(s, i, nv, 1);
+    }
     i = put(s, i, " CPU");
     i = putn(s, i, cpu > 999u ? 999u : cpu, 3);
     s[i++] = '%';
@@ -1102,14 +1184,14 @@ static int app_sysex(const uint8_t *p, uint32_t n)
 
 static void app_main(void)
 {
-    struct { int8_t oct; uint8_t voice; uint8_t slot; } set = {0, 0, 0};
+    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; } set = {0, 0, 0, 0};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
     uint32_t nv_drawn = ~0u, cpu_drawn = ~0u, pk_drawn = ~0u, vkey_drawn = ~0u;
     int32_t oct_drawn = 99;
     uint8_t held[27] = {0}, shown[4] = {255, 255, 255, 255};
-    uint8_t page_drawn = 255, bank_drawn = 255, op_drawn = 255;
+    uint8_t page_drawn = 255, bank_drawn = 255, op_drawn = 255, mono_drawn = 255;
     uint8_t alg_drawn = 255, alg_op_drawn = 255, mute_drawn = 255;
 
     bank_init();                                /* before the first load_voice: a slot may be the voice */
@@ -1117,6 +1199,8 @@ static void app_main(void)
     if (set.oct < -2 || set.oct > 2) set.oct = 0;
     if (set.voice >= NVOICE) set.voice = 0;
     if (set.slot >= NUSER) set.slot = 0;
+    set.mono = set.mono ? 1u : 0u;
+    ev_push(EV_MONO, set.mono, 0);              /* the ISR owns the mode: tell it what was stored */
     save_slot = set.slot;
     load_voice(set.voice);
     ab_copy(set.voice);                         /* both sides start as the same sound */
@@ -1140,6 +1224,12 @@ static void app_main(void)
                 int fn = op_key(k);
                 if (fn >= 0) {
                     opsel = (uint8_t)fn;        /* pointing at an operator, not playing one */
+                } else if (page == PAGE_OP && (k == MONO_KEY || k == POLY_KEY)) {
+                    set.mono = k == MONO_KEY;
+                    ev_push(EV_MONO, set.mono, 0);
+                    say(set.mono ? "MONO" : "POLY");
+                    t_change = fm1_ms;
+                    dirty = 1;
                 } else {
                     held[k] = (uint8_t)(base + k);
                     sounding |= 1u << k;
@@ -1256,6 +1346,10 @@ static void app_main(void)
                 fm1_led_key_glow(KEY_LED(OP_KEY[k]), opk);
             if (opk)
                 fm1_led_key(KEY_LED(OP_KEY[5u - opsel]), 1);
+            fm1_led_key_glow(KEY_LED(MONO_KEY), page == PAGE_OP);
+            fm1_led_key_glow(KEY_LED(POLY_KEY), page == PAGE_OP);
+            if (page == PAGE_OP)                /* and the mode you are in is the one that is lit */
+                fm1_led_key(KEY_LED(set.mono ? MONO_KEY : POLY_KEY), 1);
         }
         /* The octave buttons: lit for a shift that way, and pulsing at the end of the travel. The
          * pulse rides the glow layer, so the LED dips rather than going dark -- a limit, not an
@@ -1348,11 +1442,13 @@ static void app_main(void)
         if (fm1_ms - t_meter > 250u) {          /* the meter moves every block: redraw it 4 times a second */
             uint32_t cpu = cpu_q8 * 100u / 256u, pk = cpu_peak;
             t_meter = fm1_ms;
-            if (set.oct != oct_drawn || nv != nv_drawn || cpu != cpu_drawn || pk != pk_drawn) {
+            if (set.oct != oct_drawn || nv != nv_drawn || cpu != cpu_drawn || pk != pk_drawn
+                || monomode != mono_drawn) {
                 oct_drawn = set.oct;
                 nv_drawn = nv;
                 cpu_drawn = cpu;
                 pk_drawn = pk;
+                mono_drawn = monomode;
                 draw_status(set.oct, nv, cpu, pk);
             }
         }

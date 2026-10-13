@@ -25,6 +25,9 @@ case "$script" in
 esac
 build/host/fmlab "$out" $script > "$out".log   # the log is kept: panelcheck.py reads the MIDI out of it
 cat "$out".log
+case "$script" in                                           # while the screens are still PPMs
+*/panel.txt) python3 tests/panelcheck.py "$out" ;;          # the pages and the keys that are not keys
+esac
 OUT="$out" python3 - <<'PY'
 import os
 from pathlib import Path
@@ -37,5 +40,4 @@ PY
 case "$script" in
 */operators.txt) python3 tests/wavcheck.py "$out".wav ;;    # the switches have to agree with the sound
 */bank.txt) python3 tests/syxcheck.py "$out" ;;             # and what was stored with what was sent
-*/panel.txt) python3 tests/panelcheck.py "$out" ;;          # and the panel with what it is supposed to do
 esac

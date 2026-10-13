@@ -49,6 +49,7 @@ so a bank fills them exactly.
 | **PRESETS** | The voice. It changes under anything still sounding, so you can hold a chord and walk through the bank. 20 factory voices, then your 32, numbered `U01` to `U32`. |
 | **SAVE** | Keep the sound you are on. Press, turn **PRESETS** to pick the slot, press again. Any other button backs out. |
 | **HOME** | The algorithm drawn out, the voice name, the meter. |
+| **MONO / POLY** | The top two black keys, on the OPERATOR page. Mono is one voice, last note wins. |
 | **A / B** | The voice line starts with the side you are listening to. **PLAY** flips it, **REC** copies this side onto the other. |
 
 ## Editing it
@@ -77,6 +78,26 @@ it bending something else. Change the algorithm and watch that word change; that
 
 **ALGORITHM** is on its own knob and works from any page, so you can hold a note, keep your eyes on an
 operator's envelope, and move it through all 32.
+
+## One note at a time
+
+The top two black keys are marked `MONO` and `POLY`, and on the OPERATOR page that is what they do. Both
+glow there and the mode you are in is lit; the meter says `MONO` where it would otherwise count voices.
+
+Mono is one voice with **last-note priority**. The newest key down is the one you hear, and letting it go
+drops you back to the key still under your finger rather than to silence. The envelopes start again only
+when nothing was already held — so a note played on its own gets its own attack, and a note slurred into
+an existing one does not. There is no portamento: the pitch steps.
+
+That distinction is worth more on an FM synth than it sounds. The attack is where most of the bright
+modulation lives, so a slurred note is a different *timbre*, not just a different articulation — play a
+bass line legato and then detached and the sound changes, not only the phrasing. It is one of the easiest
+ways to hear what an operator's envelope is actually doing.
+
+The switch belongs to the instrument and not to the voice. The DX7 format has no byte for it, and a bank
+saved here should still be a real DX7 dump, so it lives with the octave and the current voice instead of
+in the patch. Changing it stops anything sounding, which is the honest thing to do when the voice
+allocator is being replaced underneath.
 
 ## Taking it apart
 
@@ -248,9 +269,12 @@ reloaded has to be a sample-identical sound. `tests/mksyx.py` generates the patc
 
 `tests/panelcheck.py` checks the panel without looking at it. A black key that picks an operator has to send
 *nothing* — the run's own MIDI log is the evidence — while a key that is still a key has to send a note on
-and the matching note off, including one held across a page change. The screens it compares byte for byte:
-walking a page's banks has to give four different screens and then the first one back, and arriving at a
-page from elsewhere has to start it over.
+and the matching note off, including one held across a page change. The screens it compares byte for byte,
+above the status line (the CPU meter below it drifts with the machine): walking a page's banks has to give
+four different screens and then the first one back, and arriving at a page from elsewhere has to start it
+over. Mono it checks by ear, so to speak — a chord in mono has to be a third of the same chord in poly, a
+slurred note has to come in at what is left of the one before it rather than at a fresh attack, and letting
+go of the newer of two held keys has to fall back to the older one instead of to silence.
 
 ## Where to go next
 

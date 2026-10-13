@@ -102,6 +102,17 @@ RAM went from 17064 to 24712 bytes of 98304: sx_frame grew 640 -> 4160 to hold a
 bulk dump, and bankmsg is 4104. Image 103112 -> 105484 of 581564. Both still
 comfortable.
 
+The panel tweaks
+----------------
+Image 105484 -> 105988 -> 106904 of 581564, RAM 24712 -> 24728 -> 24760 of
+98304, over the two panel commits. Nothing in either touches the audio path per
+sample, and the measured 26 % / PK 33 % on voice 6 BRASS with eight voices is
+unchanged.
+
+Mono mode uses one voice, so the figure there is roughly an eighth of the poly
+one. It is not a number to tune against: measure in poly, which is the worst
+case.
+
 What it means
 -------------
 NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better

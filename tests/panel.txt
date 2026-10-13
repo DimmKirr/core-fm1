@@ -54,4 +54,38 @@
 5600 keys 0x1
 5800 btn 6
 6000 keys 0
-6200 end
+
+# MONO and POLY are the top two black keys, and they only mean that on OPERATOR, where we still
+# are. Like the operator keys they must not sound. The proof that the switch did anything is the
+# chord: in mono it is one note, so it has to be markedly quieter than the same chord in poly.
+6400 keys 0x100000
+6600 keys 0
+6800 keys 0x4880
+7400 keys 0
+7600 keys 0x400000
+7800 keys 0
+8000 keys 0x4880
+8600 keys 0
+
+# Legato, which is the whole point of mono. Back to mono, and over to a plucked voice so that the
+# first note has visibly died away by the time the second arrives. Press the second while the first
+# is still down and it is a slur: no attack of its own, so it comes in at whatever is left. Strike
+# the same note cleanly afterwards and it is loud again.
+# (Keys 7 and 9 are white; the black ones on this page belong to the operators.)
+8800 keys 0x100000
+9000 keys 0
+9100 enc 6 12
+9300 keys 0x80
+10400 keys 0x280
+10700 keys 0
+11100 keys 0x200
+11400 keys 0
+
+# Fall-back: let go of the top note while an older one is still down and you drop back to that one
+# rather than to silence. A sustaining voice, so there is something left to hear.
+11700 enc 6 -7
+11900 keys 0x80
+12200 keys 0x280
+12500 keys 0x80
+13200 keys 0
+14000 end
