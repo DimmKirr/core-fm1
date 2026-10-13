@@ -97,26 +97,46 @@ static void timer5_start(void)                 /* OSC /4 = 6 MHz, PRD 600 -> 10 
 int fm1_clock_undo;                            /* unfamiliar boot clock or settled rollback from the OVERCLOCK retune */
 
 /* OVERCLOCK (overclock.c): the saved mode's clock, before CPU1, the audio ISR and the LCD (it reads the new LSB at
- * fm1_lcd_baud). The supply rails are never touched. A session above 320 MHz that ended without an intended reset (a crash, the watchdog, a switch
- * that never returned: oc_guard.live) comes back at 320, saved by oc_poll. The switch runs from .ram_text (the
- * system clock wobbles while the PLL restarts), through its function pointer; a failed rollback stays in SRAM on
- * RC16M for watchdog recovery and never returns here with an unverified PLL. */
+ * fm1_lcd_baud). The supply rails are never touched. 360 MHz on the SPL's clock writes nothing (1.2's boot). The
+ * retune is the step that fails on some FM-1s, before the LCD and USB: two such starts in a row entered UBOOT through
+ * the boot guard. So a session that retuned or runs at 320 MHz is marked (oc_guard.live) before the switch; if it
+ * ends without an intended reset (a crash, the watchdog, a switch that never returned), the next start writes no PLL
+ * and keeps the clock it finds, and 360 MHz is saved by oc_poll. A rollback here, or a session that died before the
+ * main loop's 30 s mark cleared OC_LIVE_RETUNE, marks the unit (overclock.c PREF_OC_LOST): it never writes the PLL
+ * again. The switch runs from .ram_text (the system clock wobbles while the PLL restarts), through its function
+ * pointer; a failed rollback stays in SRAM on RC16M for watchdog recovery and never returns here with an unverified
+ * PLL. */
 static void oc_boot(void)
 {
     static const uint16_t mult[OC_N] = { FCLK_MULT_320, FCLK_MULT_360 };
-    uint32_t mode, m;
+    uint32_t mode, m, live;
+    int rc;
     if (oc_guard.magic != OC_GUARD_MAGIC) {
         oc_guard.magic = OC_GUARD_MAGIC;
         oc_guard.live = 0;
     }
-    mode = oc_boot_choose(oc_guard.live != 0);
-    oc_guard.live = mode != OC_OFF;             /* before anything that can fail at the new clock */
-    fm1_clock_undo = fm1_clock_set(mult[mode]) != 0;
+    live = oc_guard.live;
+    mode = oc_boot_choose(live != 0, (live & OC_LIVE_RETUNE) != 0);
     m = fm1_clock_mult();
+    /* no PLL write: the clock found stays until power-off. The retune's only unrecoverable path ends in the watchdog,
+     * so it runs only with the watchdog re-armed and read back (fm1_wdt_arm: PR #27's follow-ups) */
+    if (live || oc_lost() || !m || m == mult[mode] || !fm1_wdt_arm(0x0D)) {
+        oc_guard.live = m != FCLK_MULT_360 ? OC_LIVE : 0u;
+        fm1_clock_undo = m != mult[mode];
+    } else {
+        oc_guard.live = OC_LIVE | OC_LIVE_RETUNE;      /* before anything that can fail at the new clock */
+        rc = fm1_clock_set(mult[mode]);
+        fm1_clock_undo = rc != 0;
+        m = fm1_clock_mult();
+        if (rc == 2)
+            oc_retune_failed();                     /* the PLL did not settle: rolled back to the clock found */
+        if (rc)                                     /* (1: nothing written, the SFC or cache never idle) */
+            oc_guard.live = m != FCLK_MULT_360 ? OC_LIVE : 0u;
+    }
     vbudget_cpu1 = VBUDGET * (m ? fm1_clock_mhz_of(m) : 360u) / 360u;   /* the voices CPU1 + CPU0 carry there */
 }
 
-/* main loop: a CPU1 retired above 320 MHz sets 320 for the next start; a reverted mode is saved and said; the
+/* main loop: a CPU1 retired at 320 MHz sets 360 for the next start; a reverted mode is saved and said; the
  * restart question answered Yes stops the transport, saves the settings and restarts */
 static void oc_poll(void)
 {
@@ -129,10 +149,11 @@ static void oc_poll(void)
         oc_core1_lost();
     }
 #endif
-    if (oc_reverted == 1) {
-        oc_reverted = 2;
+    if (oc_reverted == OC_CPU_FAULT || oc_reverted == OC_PLL_FAULT) {
+        uint32_t pll = oc_reverted == OC_PLL_FAULT;
+        oc_reverted = OC_SAID;
         settings_save();                        /* (the settings poll retries until it is written) */
-        ui_message("CPU FAULT: 320 MHZ");
+        ui_message(pll ? "PLL FAULT: 360 MHZ" : "CPU FAULT: 360 MHZ");
     }
     if (oc_restart) {
         if (transport_busy()) {
@@ -291,6 +312,7 @@ static void fm1_main(void)
         if (fm1_ms > 30000u && bootguard.pending) {     /* a crash or hang in the first 30 s counts */
             bootguard.pending = 0;
             bootguard.failed = 0;
+            oc_guard.live &= ~OC_LIVE_RETUNE;           /* the boot's PLL retune held */
         }
         {
             int32_t b = fm1_adc_read(FM1_ADC_BATT);     /* battery: slow IIR */

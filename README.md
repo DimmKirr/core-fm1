@@ -14,7 +14,7 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.1** ([what's new](#whats-new-in-131)).
+**Melodee 1.3.2** ([what's new](#whats-new-in-132)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -28,6 +28,34 @@ runs Felucca.
   into a computer; choose **Synth only** in the installer, edit it with its own
   [synth editor](https://keremimo.github.io/melodee/webapp/synth-editor/) ([BUILDING.md](BUILDING.md#synth-only-firmware))
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.3.2
+
+A fix for FM-1s that stayed on a black screen and came back as **WL82 UBOOT1.00** after
+installing 1.3.0 or 1.3.1.
+
+- **360 MHz by default again:** 1.3.0 started at 320 MHz, which retunes the FM-1's clock
+  at every start, before the screen and USB come up. On some units, often the ones that
+  had trouble with the second core, that retune fails, and two failed starts in a row
+  entered UBOOT. Melodee now starts at the boot loader's 360 MHz and leaves the clock
+  alone, as 1.2.1 did. 320 MHz stays available in the HOME-held menu's **OVERCLOCK**.
+- **Clock guard:** a 320 MHz session that crashes or hangs is followed by a start that
+  leaves the clock untouched and saves 360 MHz (**CPU FAULT: 360 MHZ**). If the retune
+  itself fails, the FM-1 says **PLL FAULT: 360 MHZ** once and OVERCLOCK reads
+  **360 ONLY** from then on. The retune also runs only once the watchdog reads back as
+  armed (after [johnskiller](https://github.com/johnskiller)'s follow-ups to keremimo/melodee#27).
+- **No automatic switch to 320 MHz:** a crash or a lost second core at 360 MHz no longer
+  moves the FM-1 to 320 MHz for its next start.
+- **Settings:** the 320 MHz default that 1.3.0 and 1.3.1 saved reads as 360 MHz. Choose
+  320 MHz in OVERCLOCK again if you want it.
+- **Second core:** once retired, the second core stays off until power-off from that
+  moment.
+- **Official V15 recovery:** the recovery downloads accept the unmodified M-VAVE
+  `FM-1.fwsc`, as the corrected 1.3.1 archives did.
+
+If an FM-1 is stuck in UBOOT, restore it with the
+[recovery tool](BUILDING.md#recover-a-black-screen-fm-1) or M-VAVE's updater, then install
+1.3.2. On 1.3.0 or 1.3.1 and still running, set OVERCLOCK to 360 MHz before updating.
 
 ## What's new in 1.3.1
 
@@ -356,11 +384,13 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   Computer playback and the monitor click stay out of recordings. Both support 16/24-bit audio at 44.1 kHz;
   each device can be disabled with **USB AUDIO**. Changing USB options reconnects automatically; reselect the
   input in your DAW if needed. No driver needed
-- **Overclock:** the HOME-held menu's OVERCLOCK sets the clock the FM-1 starts at: **320 MHz** (the default, JieLi's
-  own clock table) or **360 MHz** (M-VAVE's clock, what Melodee ran at before). 360 MHz gives more voices with the
-  second core (18 budget units instead of 16). A new clock needs a restart: closing the menu offers one (unsaved song
-  changes are lost), or it applies at the next power-on. If a 360 MHz session crashes, hangs or loses its second
-  core, the FM-1 goes back to 320 MHz and says **CPU FAULT: 320 MHZ**
+- **Overclock:** the HOME-held menu's OVERCLOCK sets the clock the FM-1 starts at: **360 MHz** (the default,
+  M-VAVE's clock, set by the boot loader and left alone) or **320 MHz** (JieLi's own clock table, retuned at every
+  start). 360 MHz gives more voices with the second core (18 budget units instead of 16). A new clock needs a
+  restart: closing the menu offers one (unsaved song changes are lost), or it applies at the next power-on. If a
+  320 MHz session crashes, hangs or loses its second core, the FM-1 goes back to 360 MHz and says **CPU FAULT: 360
+  MHZ**. On some FM-1s the retune itself fails (1.3.0 and 1.3.1 then entered UBOOT after an update): such a unit
+  says **PLL FAULT: 360 MHZ** once, and OVERCLOCK reads **360 ONLY** from then on
 - **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4 (those in use), channel 10 the first DRUM track (GLO >
   SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;

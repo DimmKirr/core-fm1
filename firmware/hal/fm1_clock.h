@@ -25,8 +25,9 @@
 #define FCLK_WRITE(a,v) (*(volatile uint32_t *)(uintptr_t)(a) = (v))
 #define FCLK_SYNC() __asm__ volatile("csync" ::: "memory")
 #define FCLK_RAM RAMFN
-/* The watchdog armed in fm1_cstart resets us; repeated failures enter
- * UBOOT through the existing bootguard. Never return into XIP on RC16M. */
+/* The watchdog resets us: the caller re-arms it and retunes only with a
+ * read-back that shows it armed (main.c oc_boot, fm1_wdt_arm). The next
+ * start then writes no PLL (core.h oc_guard). Never return into XIP on RC16M. */
 #define FCLK_FAILED() do { for (;;) FCLK_SYNC(); } while (0)
 #else
 #define FCLK_RAM
