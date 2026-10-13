@@ -9,7 +9,7 @@ import subprocess
 import zipfile
 
 from fm1_recover import APP_LO, Package, VERSION, sha256
-from fm1pkg_make import sfc
+from fm1pkg_make import release_product, sfc
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = ("windows-x64", "macos-arm64", "macos-x64", "linux-x64")
@@ -24,8 +24,7 @@ def main():
         raise RuntimeError("Recovery tool and release versions differ")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     out = args.directory
-    major, minor, patch = args.version.split(".")
-    expected = f"FM-1_9{major}{int(minor):02d}{patch}"
+    expected = release_product(args.version)
     packages = {}
     for suffix, cores in (("", 1), ("-1core", 0)):
         name = f"melodee-{args.version}{suffix}.fwsc"

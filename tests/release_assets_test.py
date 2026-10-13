@@ -16,14 +16,24 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import prepare_release as A
 from fm1_recover import APP_LO, Package, sha256
-from fm1pkg_make import sfc, ufw
+from fm1pkg_make import release_product, sfc, ufw
 from recovery_test import make_package
 
-MAJOR, MINOR, PATCH = A.VERSION.split(".")
+MAJOR, MINOR, PATCH = A.VERSION.split("-", 1)[0].split(".")
 PRODUCT = f"FM-1_9{MAJOR}{int(MINOR):02d}{PATCH}"
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_release_and_prerelease_identities(self):
+        for version, product in (("1.3.2", "FM-1_91032"), ("1.4.0-rc.1", "FM-1_91040"),
+                                 ("1.4.0", "FM-1_91040"), ("0.11.1-audio3", "FM-1_90111"),
+                                 ("0.10", "FM-1_9010")):
+            with self.subTest(version=version):
+                self.assertEqual(release_product(version), product)
+        for version in ("1.4.0-", "1.4.0-rc..1", "1.4.0/rc.1", "10.4.0", "1.4.10"):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                release_product(version)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.folder = Path(self.temp.name)
