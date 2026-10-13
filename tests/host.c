@@ -110,7 +110,7 @@ static void app_main(void);
 /* the script: at t ms, keys down (bit k = key k, 0 = F3), a button edge, an encoder's detents, a MIDI
  * message. A script file (the second argument) replaces it, a line each: "T keys MASK" (hex or decimal),
  * "T btn ID", "T enc ID STEPS", "T midi ST D1 D2", "T end" */
-typedef struct { uint32_t t, keys; int btn, enc, encd; uint8_t st, d1, d2; } host_ev_t;
+typedef struct { uint32_t t, keys; int btn, enc, encd; uint8_t st, d1, d2; const char *syx; } host_ev_t;
 static const host_ev_t SCRIPT0[] = {
     {200, 1u << 7, -1, -1, 0, 0, 0, 0},                                 /* C4 */
     {700, 1u << 7 | 1u << 11 | 1u << 14, -1, -1, 0, 0, 0, 0},           /* + E4 G4: a chord */
@@ -140,7 +140,7 @@ static const host_ev_t SCRIPT0[] = {
     {8700, 1u << 7 | 1u << 11 | 1u << 14, -1, ENC_SELECT, 1, 0, 0, 0},  /* the box moves to OP4 */
     {9000, 0, -1, -1, 0, 0, 0, 0},
     {9200, 0, -1, ENC_ALGORITHM, 10, 0, 0, 0},                          /* a different diagram */
-    {9400, 0, BTN_SAVE, -1, 0, 0, 0, 0},                                /* back to the factory voice */
+    {9400, 0, BTN_SAVE, -1, 0, 0, 0, 0},                                /* "SAVE TO U1": which slot? */
     {9600, 1u << 7 | 1u << 11 | 1u << 14, -1, -1, 0, 0, 0, 0},
     {10200, 0, -1, -1, 0, 0, 0, 0},
     {10400, 0, BTN_GLO, -1, 0, 0, 0, 0},
@@ -160,7 +160,7 @@ static void read_script(const char *path)
     uint32_t n = 0, ns = 0;
     if (!f) { perror(path); exit(1); }
     while (fgets(line, sizeof line, f) && n < 4096u) {
-        host_ev_t e = {0, 0, -1, -1, 0, 0, 0, 0};
+        host_ev_t e = {0, 0, -1, -1, 0, 0, 0, 0, 0};
         unsigned a = 0, b = 0, c = 0;
         if (line[0] == '#' || sscanf(line, "%u %15s", &e.t, what) != 2) continue;
         if (!strcmp(what, "end")) { end_ms = e.t; continue; }
@@ -169,6 +169,12 @@ static void read_script(const char *path)
         else if (!strcmp(what, "btn")) { sscanf(line, "%*u %*s %d", &e.btn); }
         else if (!strcmp(what, "enc")) { sscanf(line, "%*u %*s %d %d", &e.enc, &e.encd); }
         else if (!strcmp(what, "midi")) { sscanf(line, "%*u %*s %i %u %u", (int *)&a, &b, &c); e.st = (uint8_t)a; e.d1 = (uint8_t)b; e.d2 = (uint8_t)c; }
+        else if (!strcmp(what, "syx")) {        /* a .syx file, as if the host had sent it */
+            static char pool[32][256];
+            static uint32_t np;
+            if (np >= 32u || sscanf(line, "%*u %*s %255s", pool[np]) != 1) continue;
+            e.syx = pool[np++];
+        }
         else continue;
         ev[n++] = e;
     }
@@ -181,6 +187,67 @@ static void read_script(const char *path)
 static const char *host_out = "build/host/fmlab";
 static int16_t *wav;
 static uint32_t wav_n;
+
+/* the voice bank, as a file beside the WAV and the screenshots, so a run can see what the one
+ * before it saved -- the same way the flash sector behaves on the FM-1 */
+static int app_sysex(const uint8_t *p, uint32_t n);
+static void host_path(char *out, uint32_t max, const char *suffix)
+{
+    snprintf(out, max, "%s%s", host_out, suffix);
+}
+static int bank_read(void *p, uint32_t n)
+{
+    char name[512];
+    FILE *f;
+    size_t got;
+    host_path(name, sizeof name, "-bank.bin");
+    if (!(f = fopen(name, "rb"))) return -1;
+    got = fread(p, 1, n, f);
+    fclose(f);
+    return got == n ? 0 : -1;
+}
+static int bank_write(const void *p, uint32_t n)
+{
+    char name[512];
+    FILE *f;
+    host_path(name, sizeof name, "-bank.bin");
+    if (!(f = fopen(name, "wb"))) { perror(name); return -1; }
+    fwrite(p, 1, n, f);
+    fclose(f);
+    printf("%6u ms  bank written (%u B) -> %s\n", fm1_ms, n, name);
+    return 0;
+}
+static int sysex_send(const uint8_t *p, uint32_t n)      /* everything sent, in order, into one file */
+{
+    char name[512];
+    FILE *f;
+    host_path(name, sizeof name, "-out.syx");
+    if (!(f = fopen(name, "ab"))) { perror(name); return -1; }
+    fwrite(p, 1, n, f);
+    fclose(f);
+    printf("%6u ms  sysex out (%u B) -> %s\n", fm1_ms, n, name);
+    return 0;
+}
+
+/* a .syx file from the script: every F0..F7 frame in it, offered to the app as the platform would */
+static void host_syx(const char *path)
+{
+    static uint8_t buf[65536];
+    FILE *f = fopen(path, "rb");
+    uint32_t n, i = 0;
+    if (!f) { perror(path); exit(1); }
+    n = (uint32_t)fread(buf, 1, sizeof buf, f);
+    fclose(f);
+    while (i < n) {
+        uint32_t j;
+        if (buf[i] != 0xF0u) { i++; continue; }
+        for (j = i + 1u; j < n && buf[j] != 0xF7u; j++) ;
+        if (j >= n) break;
+        printf("%6u ms  sysex in (%u B) from %s: %s\n", fm1_ms, j - i - 1u, path,
+               app_sysex(buf + i + 1u, j - i - 1u) ? "taken" : "not ours");
+        i = j + 1u;
+    }
+}
 
 static void write_ppm_as(const char *name)
 {
@@ -225,7 +292,9 @@ static void platform_poll(void)                 /* one call = one millisecond */
     static int32_t blk[2u * HALF_FRAMES];
     fm1_ms++;
     while (step < script_n && script[step].t <= fm1_ms) {
-        if (script[step].st) {
+        if (script[step].syx)
+            host_syx(script[step].syx);
+        else if (script[step].st) {
             mq[mq_w % 64u][0] = script[step].st; mq[mq_w % 64u][1] = script[step].d1; mq[mq_w % 64u][2] = script[step].d2;
             mq_w++;
         } else if (script[step].btn >= 0)

@@ -21,6 +21,13 @@ if ($LASTEXITCODE) { throw 'build failed' }
 $out = 'build\host\fmlab'
 if ($args.Count) { $out = Join-Path 'build\host' ([IO.Path]::GetFileNameWithoutExtension($args[0])) }
 Remove-Item "$out-*.ppm" -ErrorAction SilentlyContinue
+# the bank file outlives a run, the way the flash sector does: clear it so a run starts from nothing
+Remove-Item "$out-bank.bin", "$out-out.syx" -ErrorAction SilentlyContinue
+
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'bank.txt') {
+    python tests\mksyx.py build\host          # the .syx files the script sends itself
+    if ($LASTEXITCODE) { throw 'could not make the test .syx files' }
+}
 
 & build\host\fmlab.exe $out @args
 if ($LASTEXITCODE) { throw 'run failed' }
@@ -28,4 +35,8 @@ if ($LASTEXITCODE) { throw 'run failed' }
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'operators.txt') {
     python tests\wavcheck.py "$out.wav"      # the switches have to agree with the sound
     if ($LASTEXITCODE) { throw 'the sound does not match the operator switches' }
+}
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'bank.txt') {
+    python tests\syxcheck.py $out            # and what was stored with what was sent
+    if ($LASTEXITCODE) { throw 'the bank does not match what was sent to it' }
 }

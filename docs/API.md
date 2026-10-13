@@ -153,7 +153,17 @@ USB-MIDI, class compliant, cable 0.
 | `midi_send(status, d1, d2)` | send one message (from the main loop only) |
 
 `status` includes the channel: `0x90` note on channel 1, `0x93` channel 4; a note on with velocity 0 is a
-note off. SysEx is the platform's (the updater): it does not reach the app.
+note off.
+
+```c
+static int  app_sysex(const uint8_t *p, uint32_t n);   /* non-zero = it was mine */
+static void sysex_send(const uint8_t *p, uint32_t n);  /* F0..F7, sent whole */
+```
+
+A SysEx frame is offered to `app_sysex` first, with `p`/`n` covering the bytes between `F0` and `F7`. Return
+non-zero and it is consumed; return zero and it goes to the updater exactly as it did before, so a firmware
+update still works while the app is listening. Frames longer than `sx_frame` (4160 bytes) are dropped, and
+only one frame is held at a time: a second arriving before the main loop takes the first is lost.
 
 ## Settings
 
@@ -180,10 +190,13 @@ drops out. `fmlab.c` saves 2 s after the last change, once all voices are silent
 
 The build prints what you use and fails above the limits.
 
-Flash (1 MiB) as FM Lab uses it: the app, the update staging area (0xE0000, the platform's) and the settings
-sector (0xFC000). The other firmwares of the family keep their data in 0x97000..0xFBFFF; a new firmware simply
-finds its own magic missing and starts fresh. To store more (samples, patterns), widen `FL_RANGE_OK` in
-platform.c to the range you pick: it is the guard that keeps a bug from erasing anything else.
+Flash (1 MiB) as FM Lab uses it: the app, the update staging area (0xE0000, the platform's), the settings
+sector (0xFC000) and the voice bank (0xFD000 and 0xFE000, via `bank_read`/`bank_write` — 4096 packed bytes
+with a length-and-CRC header, too big for one sector). The other firmwares of the family keep their data in
+0x97000..0xFBFFF, which FM Lab deliberately leaves alone, so the stock firmware put back over it still finds
+its samples. A new firmware simply finds its own magic missing and starts fresh. To store more, widen
+`FL_RANGE_OK` in platform.c to the range you pick: it is the guard that keeps a bug from erasing anything
+else.
 
 ## Build options
 

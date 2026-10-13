@@ -38,12 +38,16 @@ are busy the oldest released note goes first, then the oldest held one.
 sounds like, how an algorithm with four carriers differs from one with one. None of them are Yamaha's or
 M-VAVE's; they are written out in `tools/gen_voices.py`, which is the readable source for all of them.
 
+**32 user slots** after them, in flash, for your own sounds and for other people's — a DX7 bank is 32 voices,
+so a bank fills them exactly.
+
 ## Playing it
 
 | | |
 | --- | --- |
 | **The keys** | 27 of them, F3 to G5. **OCT-** / **OCT+** move it two octaves either way. A key stops the note it started, so changing octave mid-chord does the right thing. |
-| **PRESETS** | The voice. It changes under anything still sounding, so you can hold a chord and walk through the bank. |
+| **PRESETS** | The voice. It changes under anything still sounding, so you can hold a chord and walk through the bank. 20 factory voices, then your 32, numbered `U01` to `U32`. |
+| **SAVE** | Keep the sound you are on. Press, turn **PRESETS** to pick the slot, press again. Any other button backs out. |
 | **HOME** | The algorithm drawn out, the voice name, the meter. |
 | **A / B** | The voice line starts with the side you are listening to. **PLAY** flips it, **REC** copies this side onto the other. |
 
@@ -114,14 +118,59 @@ are the real times and the heights are the real levels — in dB, which is how t
 the pair that means something. The segment you are on is picked out in colour, and the white dot is where the
 envelope of the selected operator has actually got to in the note you are holding.
 
-**SAVE** puts the voice back the way the factory wrote it. The voice name shows a `*` while you have changed
-anything.
+The voice name shows a `*` while you have changed anything. To throw an edit away, turn **PRESETS** off the
+voice and back onto it — it is reloaded from the bank.
 
 **FX** clears the `PK` reading on the meter.
 
 Nothing retriggers. Every edit is handed to the audio ISR, which recomputes the operators and leaves every
 phase and envelope exactly where it stood — so a note you are holding bends into its new shape rather than
 starting again.
+
+## Keeping a sound
+
+**SAVE** writes the voice you are on into one of the 32 user slots. Press it, and the top line turns into
+`SAVE TO U05 TEST 05` — the slot and *what is already in it*, so you can turn **PRESETS** along and see what
+you are about to overwrite before you overwrite it. Press **SAVE** again to write; press anything else to
+back out.
+
+<p align="center"><img src="docs/save.png" width="240" alt="FM Lab asking SAVE TO U05 TEST 05, with the algorithm still drawn below it"></p>
+
+The screen says `SAVED`, and the write costs about a tenth of a second of silence, because
+programming flash on this chip means stopping the audio.
+
+The bank lives in the last two 4 KiB sectors of the globals area, `0xFD000` and `0xFE000` — not in the main
+store where the stock firmware keeps its samples, so putting the original firmware back finds everything
+where it left it. A slot you have never written holds a DX7 INIT VOICE: a single sine on operator 1,
+algorithm 1, which is the right place to start a sound from scratch.
+
+## Sending it patches
+
+The user slots take DX7 SysEx, which is the real reason for them: thirty years of DX7 patches are a download
+away, and the fastest way to learn what these 155 numbers do is to open somebody else's and read it.
+
+```
+python tools/syx.py list   rhodes.syx     # what the file holds, without sending it
+python tools/syx.py send   rhodes.syx     # file -> FM-1
+python tools/syx.py get bank  mine.syx    # the 32 user slots -> file
+python tools/syx.py get voice one.syx     # the voice on screen -> file
+```
+
+A **bulk dump** (32 voices, 4104 bytes) replaces all 32 slots at once and the screen says `BANK RECEIVED`. A
+**single voice dump** lands in the editor with a `*`, unsaved, exactly as it would on a real DX7 — play it,
+and press **SAVE** if you want to keep it. A dump with a bad checksum is refused outright and nothing in
+flash is touched. The FM-1 also answers the two standard dump requests, so any librarian that can talk to a
+DX7 can read its bank back.
+
+One limitation worth knowing: the FM-1 holds **one** SysEx message at a time, so a file written as 32
+back-to-back single-voice dumps — which many bank files found online are — will mostly be dropped. `syx.py`
+paces them and tells you what the file is; a real bulk dump is the thing to send.
+
+If you write your own librarian, note that RtMidi on Windows gives WinMM only 4 × 1024 bytes of SysEx input
+buffer and drops a longer message *with no error at all* — the FM-1 says `BANK SENT` and nothing arrives.
+`syx.py` talks to WinMM directly on Windows to get a buffer big enough for the 4104-byte bank.
+
+No patches are shipped with FM Lab. The test bank in `tests/mksyx.py` is generated, not borrowed.
 
 ## The meter
 
@@ -170,18 +219,23 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 ## Trying a change without the hardware
 
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
-buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. The script built into
-`tests/host.c` holds a chord and edits it, which is the thing most worth listening to. Two more scripts go
-with it:
+buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
+the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
+which is the thing most worth listening to. Three more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
 tests/run_host.sh tests/operators.txt     # the operator switches and the A/B compare, sound checked
+tests/run_host.sh tests/bank.txt          # saving, and .syx in and out, data and sound checked
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
 carrier, switching that carrier off or soloing any of the modulators has to produce *exact* silence, and an
 A/B flip has to come back to a sample-identical sound.
+
+`tests/syxcheck.py` does the same for the bank: a voice sent in has to be the bytes that land in flash, a
+dump sent back has to be the bytes in flash, a bad checksum has to change nothing, and a voice saved and
+reloaded has to be a sample-identical sound. `tests/mksyx.py` generates the patches it uses.
 
 ## Where to go next
 

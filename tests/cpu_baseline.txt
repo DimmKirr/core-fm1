@@ -72,6 +72,36 @@ operator still runs -- its envelope floors at 16<<16 and it multiplies through a
 nothing. Not free in principle, but free in the meter, and keeping it running is
 what lets it come back mid-note without a click.
 
+Saving, and .syx in and out (step 6)
+------------------------------------
+2026-10-11, same hardware, voice 6 BRASS, 8 notes held: CPU 26 PK 33. Unchanged.
+A bank sent in and dumped back out while the chord sounded did not move either
+number. The bank costs nothing per block -- it is 4 KiB of RAM the ISR never
+reads, and load_voice touches the voice once, the same as turning PRESETS always
+did.
+
+Two things here are not free, and both are deliberate:
+
+  - bank_store writes flash: two fl_erase4k calls at roughly 50 ms each with
+    interrupts off, so about 100 ms of silence on a save. Nothing can be done
+    about that -- the chip cannot fetch instructions from flash while it is being
+    programmed -- so it is made visible instead: it happens only on a SAVE you
+    pressed twice, and the screen says SAVED.
+  - a bulk dump arriving is 4102 bytes assembled in the USB ISR a few at a time,
+    then unpacked in the main loop. The main loop has no deadline, and the per-
+    byte work in the ISR is a bounds check and a store. PK did not move.
+
+A note for anyone writing their own librarian: sending a 4104-byte dump back is
+fine on the device -- ota_wire_send queues 3 bytes per USB-MIDI packet and the
+2 kHz TIMER5 ISR drains 16 packets a go, so the whole bank clears in well under
+100 ms -- but RtMidi on Windows gives WinMM only 4 x 1024 bytes of SysEx input
+buffer and drops a longer message with no error at all. The device says BANK SENT
+and nothing arrives. tools/syx.py talks to WinMM directly for that reason.
+
+RAM went from 17064 to 24712 bytes of 98304: sx_frame grew 640 -> 4160 to hold a
+bulk dump, and bankmsg is 4104. Image 103112 -> 105484 of 581564. Both still
+comfortable.
+
 What it means
 -------------
 NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better

@@ -66,9 +66,16 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 #define FELUCCA_UART 0
 #include "usb.c"
 
-/* ---- flash: read anywhere; erase / program only the update's staging area and the settings sector */
+/* ---- flash: read anywhere; erase / program only the update's staging area, the settings sector and
+ * the voice bank. Felucca's globals area is three 4 KiB sectors; the settings take the first and the
+ * bank takes the other two (a 32-voice bank is 4096 B packed, which does not fit in one with a
+ * header in front of it). Felucca's main store at 0x97000 is left alone, so a stock firmware put
+ * back over this one still finds its samples where it left them. */
 #define SETTINGS_AT 0x000FC000u                 /* one 4 KiB sector of Felucca's globals area */
-#define FL_RANGE_OK(off, n) (FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_IN(off, n, SETTINGS_AT, SETTINGS_AT + 0x1000u))
+#define BANK_AT     0x000FD000u                 /* the voice bank: the other two */
+#define BANK_SECTORS 2u
+#define FL_RANGE_OK(off, n) (FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_IN(off, n, SETTINGS_AT, SETTINGS_AT + 0x1000u) || \
+                             FL_IN(off, n, BANK_AT, BANK_AT + BANK_SECTORS * 0x1000u))
 #include "fm1_flash.h"
 static uint8_t flash_ok;
 static int st_read(uint32_t off, void *dst, uint32_t n)
@@ -170,6 +177,38 @@ static int settings_save(const void *p, uint32_t n)   /* p in RAM, n <= 256 */
     return fl_write(SETTINGS_AT, (const uint8_t *)h, sizeof h);   /* the header last: a cut save stays invalid */
 }
 
+/* ---- the voice bank: the same header, in its own two sectors. The payload is whatever the app
+ * hands over (fmlab.c: 32 packed DX7 voices, 4096 B). Two erases, so about 100 ms without sound:
+ * write it when nothing is playing. A cut write leaves no valid header and the bank reads as empty,
+ * which is the right way round -- a half-written bank must never look like a good one. */
+#define BANK_MAGIC 0x424C4D46u                  /* "FMLB" */
+static int bank_read(void *p, uint32_t n)       /* 0: read and checked; else p holds nothing worth having */
+{
+    uint32_t h[3];
+    if (!flash_ok || n > BANK_SECTORS * 0x1000u - 16u || st_read(BANK_AT, h, sizeof h) ||
+        h[0] != BANK_MAGIC || h[1] != n)
+        return -1;
+    if (st_read(BANK_AT + 16u, p, n))
+        return -1;
+    if (crc32(p, n) != h[2])
+        return -1;
+    return 0;
+}
+static int bank_write(const void *p, uint32_t n)
+{
+    uint32_t h[3] = {BANK_MAGIC, n, 0}, took, s;
+    int rc;
+    if (!flash_ok || n > BANK_SECTORS * 0x1000u - 16u)
+        return -1;
+    h[2] = crc32(p, n);
+    for (s = 0; s < BANK_SECTORS; s++)
+        if ((rc = fl_erase4k(BANK_AT + s * 0x1000u, &took)) != 0)
+            return rc;
+    if ((rc = fl_write(BANK_AT + 16u, p, n)) != 0)
+        return rc;
+    return fl_write(BANK_AT, (const uint8_t *)h, sizeof h);
+}
+
 /* ---- MIDI over USB: 4-byte USB-MIDI packets, cable 0 */
 static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)   /* 1: a message (status, data 1, data 2) */
 {
@@ -251,6 +290,22 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
 }
 extern void isr_alnk0(void);
 
+/* ---- SysEx that is not the updater's. ota_service() takes whatever frame is pending and releases
+ * it whether or not it was an M-UPGRADE one, so without this the app would never see a .syx at all.
+ * The app gets first refusal; anything it does not claim goes on to the updater exactly as before. */
+static int app_sysex(const uint8_t *p, uint32_t n);   /* fmlab.c: 1 = it was ours */
+static void sysex_service(void)
+{
+    const uint8_t *p;
+    uint32_t n;
+    if (ota_frame_get(&p, &n) && app_sysex(p, n)) {
+        ota_frame_done();
+        return;
+    }
+    ota_service();
+}
+static int sysex_send(const uint8_t *p, uint32_t n) { return ota_wire_send(p, n); }   /* one whole F0..F7 */
+
 /* ---- the main loop's duties: watchdog, USB, the installer's update request, the MASTER knob */
 static void platform_poll(void)
 {
@@ -258,7 +313,7 @@ static void platform_poll(void)
     int32_t a;
     fm1_wdt_feed();
     usb_retry(fm1_ms);
-    ota_service();
+    sysex_service();
     if (usb.ota_req) {
         usb.ota_req = 0;
         if (flash_ok)

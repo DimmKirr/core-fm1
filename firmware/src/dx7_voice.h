@@ -99,3 +99,40 @@ static void dx_sanitize(uint8_t *u)
         if (u[126 + i] > DX_GMAX[i])
             u[126 + i] = DX_GMAX[i];
 }
+
+/* ---- the rest of this file is FM Lab's, not sloopDX's ----
+ *
+ * INIT VOICE: what a DX7 gives you when you press the two buttons that clear the edit buffer. A
+ * single operator at full level on algorithm 1, every envelope instant, nothing else doing
+ * anything -- so it is a plain sine wave, and every sound you build from it is something you added.
+ * It is also what an unwritten slot of the bank holds, which saves the bank needing to say which of
+ * its slots are empty: they are all a voice, and that voice happens to be a sine. */
+static void dx_init_voice(uint8_t *u)
+{
+    uint32_t op, i;
+    static const uint8_t G[30] = {99, 99, 99, 99, 50, 50, 50, 50,   /* pitch EG: rates, then levels */
+                                  0,                                 /* algorithm 1 */
+                                  0, 1,                              /* feedback, oscillator key sync */
+                                  35, 0, 0, 0, 1, 0, 3,              /* LFO: speed delay PMD AMD sync wave PMS */
+                                  24,                                /* transpose: middle C */
+                                  'I', 'N', 'I', 'T', ' ', 'V', 'O', 'I', 'C', 'E', 0};
+    for (op = 0; op < 6u; op++) {
+        uint8_t *o = u + op * 21u;
+        for (i = 0; i < 4u; i++) { o[i] = 99; o[4 + i] = i < 3u ? 99u : 0u; }
+        o[8] = 39;                              /* break point C3, with no scaling either side of it */
+        for (i = 9; i < 16u; i++) o[i] = 0;     /* no keyboard scaling, no rate scaling, no sensitivity */
+        o[16] = op == 5u ? 99u : 0u;            /* block 5 is OP1: on algorithm 1 the only one heard */
+        o[17] = 0; o[18] = 1; o[19] = 0; o[20] = 7;   /* ratio x1, no detune */
+    }
+    for (i = 0; i < 30u; i++)
+        u[126 + i] = G[i];
+}
+
+/* the checksum a .syx carries after its data: the low 7 bits of the negated sum */
+static uint8_t dx_syx_sum(const uint8_t *p, uint32_t n)
+{
+    uint32_t s = 0;
+    while (n--)
+        s += *p++;
+    return (uint8_t)((~s + 1u) & 0x7Fu);
+}

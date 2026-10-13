@@ -5,6 +5,7 @@
 #   tests/run_host.sh                       the built-in script
 #   tests/run_host.sh tests/algorithms.txt  all 32 algorithms, drawn, as build/host/algorithms-*.png
 #   tests/run_host.sh tests/operators.txt   the operator switches and the A/B compare
+#   tests/run_host.sh tests/bank.txt        the bank, saving, and .syx in and out
 #
 # A script's output is named after it, so the runs do not overwrite each other.
 set -e
@@ -17,7 +18,10 @@ if [ -n "$script" ]; then
     out=build/host/${name%.*}
 fi
 cc -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER="\"${APP_VER:-dev}\"" -Ifirmware/src -Ifirmware/gen -o build/host/fmlab firmware/src/fmlab.c
-rm -f "$out"-*.ppm "$out"-*.png
+rm -f "$out"-*.ppm "$out"-*.png "$out"-bank.bin "$out"-out.syx   # the bank outlives a run, as flash does
+case "$script" in
+*/bank.txt) python3 tests/mksyx.py build/host ;;            # the .syx files it sends itself
+esac
 build/host/fmlab "$out" $script
 OUT="$out" python3 - <<'PY'
 import os
@@ -30,4 +34,5 @@ for p in sorted(Path("build/host").glob(Path(os.environ["OUT"]).name + "-*.ppm")
 PY
 case "$script" in
 */operators.txt) python3 tests/wavcheck.py "$out".wav ;;    # the switches have to agree with the sound
+*/bank.txt) python3 tests/syxcheck.py "$out" ;;             # and what was stored with what was sent
 esac
