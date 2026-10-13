@@ -410,13 +410,13 @@ with [charlesvestal](https://github.com/charlesvestal)'s register reads, found t
 multiplier in PLL2_CON1 (0x119AC): the SPL's 268 means 24 MHz / 12 x 270 = 540 MHz, and
 CLK_CON2 selects 2/3, so SYS 360 / HSB 180 / LSB 60 / SFC 90 MHz.
 
-1.3.0 to 1.4.0-rc.2 offered a boot-time retune to 320 MHz (OVERCLOCK; the default in
+1.3.0 to 1.3.3 and 1.4.0-rc.1/2 offered a boot-time retune to 320 MHz (OVERCLOCK; the default in
 1.3.0 and 1.3.1). On some FM-1s, the ones whose CPU1 also misbehaves, the retune failed
 before the LCD and USB came up: the watchdog reset, the next start retuned and failed
 again, and the boot guard entered UBOOT behind a black screen (a retained-RAM capture of
 a bricked 1.3.0 unit showed every start stopping between the clock code and the
-splash). 1.3.2 and 1.3.3 made 360 MHz the default and guarded the option; 1.4 removes
-it. Its setting bits in `favorites.factory[15][30]` (2..4) are left as saved and never
+splash). 1.3.2 and 1.3.3 made 360 MHz the default and guarded the option; 1.3.4 and 1.4
+remove it. Its setting bits in `favorites.factory[15][30]` (2..4) are left as saved and never
 read. A soft reset keeps the PLL, so after an update from a session at 320 MHz the
 FM-1 runs at 320 until its next power-off; `main.c` `clock_boot` reads the multiplier
 for the voice budget.

@@ -14,7 +14,7 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.3** ([what's new](#whats-new-in-133)).
+**Melodee 1.3.4** ([what's new](#whats-new-in-134)).
 
 Release candidate: **[Melodee 1.4.0-rc.2](https://github.com/keremimo/melodee/releases/tag/v1.4.0-rc.2)**
 ([release notes](docs/RELEASE_1.4.0-rc.2.md)); choose **RC** in the web installer.
@@ -30,6 +30,15 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.3.4
+
+- **No clock changes at all:** the OVERCLOCK menu and its 320 MHz option are gone. Melodee
+  runs at the 360 MHz the FM-1's boot loader sets and never touches the clock: on some
+  FM-1s, the ones that also had trouble with the second core, the clock change was the
+  step that left the device in UBOOT behind a black screen. A 320 MHz chosen in 1.3.x is
+  ignored; an FM-1 updated from a session at 320 MHz runs at 320 until it is switched off,
+  then at 360 from the next power-on.
 
 ## What's new in 1.3.3
 

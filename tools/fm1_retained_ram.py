@@ -62,7 +62,7 @@ def decode(b):
         bar = words(b, 0x98, ('magic', 'barred'))
         out.append('core1 bar  ' + ('barred %(barred)d' % bar if bar['magic'] == MAGIC['bar'] else 'not set since power-on'))
     if oc_at is None:
-        out.append('oc_guard   none (%s layout: 1.4 and later, or before 1.3.0)' % ('dual-core' if dual else 'single-core'))
+        out.append('oc_guard   none (%s layout: 1.3.4 / 1.4 and later, or before 1.3.0)' % ('dual-core' if dual else 'single-core'))
     else:
         out.append('oc_guard   live %d (%s layout, 1.3.x)' % (words(b, oc_at, ('magic', 'live'))['live'],
                                                             'dual-core' if dual else 'single-core'))
