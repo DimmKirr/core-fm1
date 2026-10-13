@@ -1320,52 +1320,82 @@ static int test_display_preferences(void)
     return bad;
 }
 
-/* MENU > OVERCLOCK (overclock.c): 320 MHz by default, KNOB 1 to 360 and back; closing with another clock asks to
- * restart; kept in favorites.factory[15][30] bits 2..3 beside KNOB ACCEL (an unreleased 396 reads as 320); a failed
- * session or a lost CPU1 above 320 sets 320 again */
+/* MENU > OVERCLOCK (overclock.c): 360 MHz by default (the SPL's clock, no retune), KNOB 1 to 320 and back; closing
+ * with another clock asks to restart; kept in favorites.factory[15][30] bits 2..3 beside KNOB ACCEL, where only 3 is
+ * 320 (1.3.0 / 1.3.1 stored 0 for their 320 default, 2 for an unreleased 396: both read as 360); a failed session or
+ * a lost CPU1 at 320 sets 360 again */
 static int test_overclock(void)
 {
     int bad = 0;
     ui_power_on();
     PREF_BITS = PREF_ACCEL_OFF;                         /* (KNOB ACCEL OFF: the neighbour bits stay) */
-    oc_boot_mode = OC_OFF; oc_restart = oc_reverted = 0;
-    bad += check("OVERCLOCK defaults to 320 MHz", oc_get() == OC_OFF && !strcmp(OC_NAME[oc_get()], "320 MHz"));
-    hold(B_HOME); ui.menu_sel = MI_CLOCK; turn(EN_K1, 1);
-    bad += check("OVERCLOCK: KNOB 1 to 360 MHz at once, the menu open, KNOB ACCEL untouched",
-                 oc_get() == OC_MEDIUM && !ui.confirm && ui.menu == 1 && (PREF_BITS & PREF_ACCEL_OFF) &&
-                 !strcmp(OC_NAME[oc_get()], "360 MHz"));
-    turn(EN_K1, 1);
-    bad += check("OVERCLOCK: 360 MHz is the top", oc_get() == OC_MEDIUM && !ui.confirm);
+    oc_boot_mode = OC_360; oc_restart = oc_reverted = 0;
+    bad += check("OVERCLOCK defaults to 360 MHz", oc_get() == OC_360 && !strcmp(OC_NAME[oc_get()], "360 MHz"));
+    hold(B_HOME); ui.menu_sel = MI_CLOCK; turn(EN_K1, -1);
+    bad += check("OVERCLOCK: KNOB 1 to 320 MHz at once, the menu open, KNOB ACCEL untouched",
+                 oc_get() == OC_320 && !ui.confirm && ui.menu == 1 && (PREF_BITS & PREF_ACCEL_OFF) &&
+                 !strcmp(OC_NAME[oc_get()], "320 MHz"));
+    turn(EN_K1, -1);
+    bad += check("OVERCLOCK: 320 MHz is the bottom", oc_get() == OC_320 && !ui.confirm);
     {
         persist_t p = {0};
         p.magic = PERSIST_MAGIC; p.panel = panel;
         settings_export(&p); PREF_BITS = 0;
         bad += check("OVERCLOCK is saved with the settings (bits 2..3 of the KNOB ACCEL byte)",
-                     settings_import(&p, sizeof p) && oc_get() == OC_MEDIUM && (PREF_BITS & PREF_ACCEL_OFF));
+                     settings_import(&p, sizeof p) && oc_get() == OC_320 && (PREF_BITS & PREF_ACCEL_OFF));
     }
     press(B_OCTDN);
     bad += check("OVERCLOCK: closing the menu with a new clock asks to restart", !ui.menu && ui.confirm == CF_RESTART);
     press(B_OCTDN);
-    bad += check("OVERCLOCK: No keeps 360 for the next start and does not restart", !ui.confirm && !oc_restart &&
-                 oc_get() == OC_MEDIUM);
+    bad += check("OVERCLOCK: No keeps 320 for the next start and does not restart", !ui.confirm && !oc_restart &&
+                 oc_get() == OC_320);
     hold(B_HOME); press(B_OCTDN); press(B_OCTUP);
     bad += check("OVERCLOCK: Yes asks main.c to restart", !ui.confirm && oc_restart == 1);
     oc_restart = 0;
-    oc_boot_mode = OC_MEDIUM; hold(B_HOME); press(B_OCTDN);
+    oc_boot_mode = OC_320; hold(B_HOME); press(B_OCTDN);
     bad += check("OVERCLOCK: closing at the clock it booted with asks nothing", !ui.confirm);
-    PREF_BITS = (uint8_t)(2u << PREF_OC_SHIFT);
-    bad += check("OVERCLOCK: a stored 396 MHz (unreleased) reads as 320", oc_get() == OC_OFF);
-    oc_put(OC_MEDIUM);
-    bad += check("OVERCLOCK: a session above 320 that failed boots at 320, to be saved",
-                 oc_boot_choose(1) == OC_OFF && oc_get() == OC_OFF && oc_boot_mode == OC_OFF && oc_reverted == 1);
-    oc_reverted = 0; oc_put(OC_MEDIUM);
+    for (uint32_t v = 0; v < 3u; v++) {
+        PREF_BITS = (uint8_t)(v << PREF_OC_SHIFT);
+        bad += check("OVERCLOCK: 1.3.0's 320 default, its 360 and an unreleased 396 all read as 360", oc_get() == OC_360);
+    }
+    oc_put(OC_360);
+    bad += check("OVERCLOCK: 360 is stored as 1.3.0 / 1.3.1's 360 (no retune after a downgrade)",
+                 (PREF_BITS & PREF_OC_MASK) >> PREF_OC_SHIFT == 1u);
+    oc_put(OC_320);
+    bad += check("OVERCLOCK: a session at 320 that failed boots at 360, to be saved",
+                 oc_boot_choose(1, 0) == OC_360 && oc_get() == OC_360 && oc_boot_mode == OC_360 &&
+                 oc_reverted == OC_CPU_FAULT && !oc_lost());
+    oc_reverted = 0;
+    bad += check("OVERCLOCK: a failed session at 360 (a retune back) stays at 360, nothing to say",
+                 oc_boot_choose(1, 0) == OC_360 && oc_get() == OC_360 && !oc_reverted);
+    oc_put(OC_320);
     bad += check("OVERCLOCK: a session that ended on purpose keeps its clock",
-                 oc_boot_choose(0) == OC_MEDIUM && oc_get() == OC_MEDIUM && !oc_reverted);
+                 oc_boot_choose(0, 0) == OC_320 && oc_get() == OC_320 && !oc_reverted);
     oc_core1_lost();
-    bad += check("OVERCLOCK: CPU1 retired above 320 sets 320 for the next start", oc_get() == OC_OFF && oc_reverted == 1);
-    oc_reverted = 0; oc_boot_mode = OC_OFF; oc_put(OC_OFF); oc_core1_lost();
-    bad += check("OVERCLOCK: at 320 a lost CPU1 changes nothing", oc_get() == OC_OFF && !oc_reverted);
-    PREF_BITS = 0; ui.confirm = 0;
+    bad += check("OVERCLOCK: CPU1 retired at 320 sets 360 for the next start", oc_get() == OC_360 &&
+                 oc_reverted == OC_CPU_FAULT);
+    oc_reverted = 0; oc_boot_mode = OC_360; oc_put(OC_360); oc_core1_lost();
+    bad += check("OVERCLOCK: at 360 a lost CPU1 changes nothing", oc_get() == OC_360 && !oc_reverted);
+    oc_put(OC_320);
+    bad += check("OVERCLOCK: a session that died within 30 s of its retune marks the unit, 360 for good",
+                 oc_boot_choose(1, 1) == OC_360 && oc_lost() && oc_get() == OC_360 && oc_boot_mode == OC_360 &&
+                 oc_reverted == OC_PLL_FAULT);
+    oc_reverted = 0;
+    bad += check("OVERCLOCK: a marked unit stays at 360 on later starts, nothing more to say",
+                 oc_boot_choose(0, 0) == OC_360 && !oc_reverted && oc_lost());
+    hold(B_HOME); ui.menu_sel = MI_CLOCK; turn(EN_K1, -1); press(B_OCTUP);
+    bad += check("OVERCLOCK: a marked unit's KNOB 1 and OCT+ keep 360 ONLY", oc_get() == OC_360 && ui.menu == 1);
+    press(B_OCTDN); ui.confirm = 0;
+    {
+        persist_t p = {0};
+        p.magic = PERSIST_MAGIC; p.panel = panel;
+        settings_export(&p); PREF_BITS = 0;
+        bad += check("OVERCLOCK: the mark is saved with the settings", settings_import(&p, sizeof p) && oc_lost());
+    }
+    PREF_BITS = 0; oc_reverted = 0; oc_put(OC_320); oc_retune_failed();
+    bad += check("OVERCLOCK: a rolled-back retune marks the unit at once", oc_lost() && oc_get() == OC_360 &&
+                 oc_reverted == OC_PLL_FAULT);
+    PREF_BITS = 0; oc_reverted = 0; ui.confirm = 0;
     return bad;
 }
 

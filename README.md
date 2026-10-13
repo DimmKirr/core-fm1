@@ -65,8 +65,9 @@ available in the installer and release downloads.
   effects. Hold HOME and choose USB INPUT > 4 TRACKS for isolated mono stems.
 - **Optional autosave:** hold HOME and set AUTOSAVE to OFF to keep project saves manual.
   It defaults ON, remembers the choice across power-offs, and leaves manual SAVE working.
-- **Clock choice:** the HOME menu's OVERCLOCK chooses 320 MHz (default) or 360 MHz for
-  the next start. A CPU fault at 360 MHz returns the device to 320 MHz.
+- **Clock choice:** the HOME menu's OVERCLOCK chooses 360 MHz (default, the boot loader's clock)
+  or 320 MHz for the next start. A fault at 320 MHz returns the device to 360 MHz; an FM-1 whose
+  clock retune fails is marked **360 ONLY**.
 - **Installer options:** stable, next nightly and the separate synth-only firmware
   remain selectable, with Standard and Single core variants for each.
 - **Compatibility:** earlier Melodee project and template layouts load with their
@@ -355,11 +356,13 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   Computer playback and the monitor click stay out of recordings. Both support 16/24-bit audio at 44.1 kHz;
   each device can be disabled with **USB AUDIO**. Changing USB options reconnects automatically; reselect the
   input in your DAW if needed. No driver needed
-- **Overclock:** the HOME-held menu's OVERCLOCK sets the clock the FM-1 starts at: **320 MHz** (the default, JieLi's
-  own clock table) or **360 MHz** (M-VAVE's clock, what Melodee ran at before). 360 MHz gives more voices with the
-  second core (18 budget units instead of 16). A new clock needs a restart: closing the menu offers one (unsaved song
-  changes are lost), or it applies at the next power-on. If a 360 MHz session crashes, hangs or loses its second
-  core, the FM-1 goes back to 320 MHz and says **CPU FAULT: 320 MHZ**
+- **Overclock:** the HOME-held menu's OVERCLOCK sets the clock the FM-1 starts at: **360 MHz** (the default,
+  M-VAVE's clock, set by the boot loader and left alone) or **320 MHz** (JieLi's own clock table, retuned at every
+  start). 360 MHz gives more voices with the second core (18 budget units instead of 16). A new clock needs a
+  restart: closing the menu offers one (unsaved song changes are lost), or it applies at the next power-on. If a
+  320 MHz session crashes, hangs or loses its second core, the FM-1 goes back to 360 MHz and says **CPU FAULT: 360
+  MHZ**. On some FM-1s the retune itself fails (1.3.0 and 1.3.1 then entered UBOOT after an update): such a unit
+  says **PLL FAULT: 360 MHZ** once, and OVERCLOCK reads **360 ONLY** from then on
 - **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4, channel 10 the first DRUM track (GLO >
   SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
