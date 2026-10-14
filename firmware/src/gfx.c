@@ -27,7 +27,7 @@ typedef struct {
     uint8_t px;                         /* a pixel face: its multiple (1-bit glyphs, adv in 1/16 font px; cv_pix); 0 = AA */
     uint16_t ks;                        /* km's scale to this size, Q8 (one kerning table for every face) */
 } aafont_t;
-typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4]; } ui_pal_t;
+typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4], knob[4][4]; } ui_pal_t;
 typedef struct { const char *label; } kc_t;
 #include "ui_fonts.h"                   /* the large type's AF_LB 16, AF_TX 20, AF_VL 28, AF_HR 48 px (Rubik 500) and
                                          * Melodee Pixel's AP_* (tools/gen_aa_font.py) */
@@ -136,6 +136,9 @@ static struct {
 #define UI_PAL_ENTRIES UI_NPALETTES
 #endif
 #define T_TRK(k) UI_PALETTES[ux.pal].trk[(k) & 3u]   /* track k's colour (the mixer, lanes, track chips) */
+/* knob k's colour on the selected track's pages (its label, its curve segment, a row, a lane, a slot): a shade of the
+ * track's colour (tools/gen_ui_palettes.py SHADES; knob 1 the track's own), so a page keeps its track's family */
+#define T_KNOB(k) UI_PALETTES[ux.pal].knob[ux.trk & 3u][(k) & 3u]
 
 static inline uint16_t ux_gray(uint32_t x5) { return (uint16_t)((x5 << 11) | (x5 << 6) | x5); }
 /* a + (b - a) * pct / 100 per channel, rounded; MONO on the red channel, so it stays gray */

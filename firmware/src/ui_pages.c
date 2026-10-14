@@ -84,41 +84,42 @@ static void pv_mod_rows(void)
     for (k = 0; k < NMSLOT; k++) {
         const int16_t *p = &TSEL->p[P_M1SRC + 3u * k];
         int sel = k == mod_ui_slot, on = p[0] && p[1] && p[2];
-        uint16_t bg = sel ? ux_mix(T_BG, T_THEME, 18) : T_BG, wc = on ? (sel ? T_TEXT : T_SEC) : T_DIM;
+        uint16_t kc = T_KNOB(k), bg = sel ? ux_mix(T_BG, kc, 18) : T_BG, wc = on ? (sel ? T_TEXT : T_SEC) : T_DIM;   /* (each
+                                                                                                         * slot a colour) */
         int32_t a = clamp(p[2], TP[P_M1AMT].min, TP[P_M1AMT].max), m = 120, x, room;
         char src[16], dst[16], b[16];
         const char *unit;
         const aafont_t *f = TY_TX;
         cv_begin(240, PV_MOD_H, T_BG);
         if (sel) {                                      /* (the route picked: outlined, tinted) */
-            cv_rrect(BOX_X, 1, BOX_W, PV_MOD_H - 4, 8, T_THEME, T_BG);
-            cv_rrect(BOX_X + 2, 3, BOX_W - 4, PV_MOD_H - 8, 6, bg, T_THEME);
+            cv_rrect(BOX_X, 1, BOX_W, PV_MOD_H - 4, 8, kc, T_BG);
+            cv_rrect(BOX_X + 2, 3, BOX_W - 4, PV_MOD_H - 8, 6, bg, kc);
         }
         b[0] = (char)('1' + k);
         b[1] = 0;
-        cv_text_on(10, ty_y(17, TY_TX), TY_TX, b, sel ? T_THEME : T_MID, bg);
+        cv_text_on(10, ty_y(17, TY_TX), TY_TX, b, on || sel ? kc : T_MID, bg);
         list_words(src, p[0] ? N_MSRC[clamp(p[0], 0, MS_N - 1)] : "--", sizeof src);
         list_words(dst, p[1] ? mod_dst_name(TSEL, p[1]) : "--", sizeof dst);
         room = 228 - 30 - 22;                           /* (the words, the arrow between them) */
         if (text_w(f, src) + text_w(f, dst) > room)
             f = TY_LB;
-        x = cv_text_on(30, ty_y(17, f), f, src, sel && hot == 1u ? T_THEME : wc, bg);
+        x = cv_text_on(30, ty_y(17, f), f, src, sel && hot == 1u ? kc : wc, bg);
         cv_rect(x + 6, 17, 9, 2, on ? T_MID : T_DIM);   /* an arrow */
         cv_line(x + 12, 14, x + 15, 17, on ? T_MID : T_DIM);
         cv_line(x + 12, 20, x + 15, 17, on ? T_MID : T_DIM);
-        cv_free_text(x + 22, ty_y(17, f), f, dst, sel && hot == 3u ? T_THEME : wc, bg, 228 - x - 22);
+        cv_free_text(x + 22, ty_y(17, f), f, dst, sel && hot == 3u ? kc : wc, bg, 228 - x - 22);
         param_format(&TP[P_M1AMT], a, b, &unit);        /* "+62 %" */
         if (unit[0] && str_len(b) + str_len(unit) + 2u < sizeof b) {
             str_cpy(b + str_len(b), " ", 2);
             str_cpy(b + str_len(b), unit, 8);
         }
-        x = cv_text_r(228, ty_y(36, TY_LB), TY_LB, b, sel && hot == 4u ? T_THEME : on ? (sel ? T_TEXT : T_SEC) : T_DIM, bg);
+        x = cv_text_r(228, ty_y(36, TY_LB), TY_LB, b, sel && hot == 4u ? kc : on ? (sel ? T_TEXT : T_SEC) : T_DIM, bg);
         cv_rect(30, 35, x - 38, 3, T_LINE);             /* the amount, from the middle */
         m = 30 + (x - 38) / 2;
         {
             int32_t ax = 30 + (a - TP[P_M1AMT].min) * (x - 38) / (TP[P_M1AMT].max - TP[P_M1AMT].min);
             if (a)
-                cv_rect(ax < m ? ax : m, 35, ax < m ? m - ax : ax - m, 3, on ? (sel ? T_THEME : ux_mix(bg, T_THEME, 60)) : T_DIM);
+                cv_rect(ax < m ? ax : m, 35, ax < m ? m - ax : ax - m, 3, on ? (sel ? kc : ux_mix(bg, kc, 60)) : T_DIM);
         }
         cv_rect(m, 32, 1, 9, T_MID);
         cv_blit(0, (uint32_t)(PV_MOD_Y + (int32_t)k * PV_MOD_H));
@@ -232,7 +233,7 @@ static void pv_hero(int32_t x0, int32_t pw, int corner)
 {
     const aafont_t *lf = TY_LB, *vf = TY_HR, *uf = TY_VL;
     int32_t room = pw - 24, uw, vw, lw, bw, bh, x, y = 6;
-    uint16_t lc = hero_w.dim ? T_DIM : T_THEME, vc = hero_w.dim ? T_DIM : T_TEXT;
+    uint16_t lc = hero_w.dim ? T_DIM : T_KNOB(ui.hot_col), vc = hero_w.dim ? T_DIM : T_TEXT;   /* (its knob's colour) */
     if (!pv_hero_on() || hero_w.kc || !hero_w.val[0])
         return;
     uw = hero_w.unit[0] ? text_w(uf, hero_w.unit) + 4 : 0;
@@ -281,7 +282,8 @@ static void pv_env(int32_t h)
     int32_t top = 14, bot = h - 12, x0 = 12, x1 = x0 + 10 + va * 40 / 127, x2 = x1 + 16 + vd * 52 / 127;
     int32_t x4 = PV_PANEL_W - 14, x3 = x4 - 24 - vr * 48 / 127, sus = vs * 1000 / 127, hot = pv_hot(), x, py = 0;
     int32_t e = 32768, kd = 150733 / (x2 - x1), kr = 150733 / (x4 - x3);
-    uint16_t c = T_THEME, fill = ux_mix(T_PANEL, T_THEME, 14);
+    uint16_t sc[4], sf[4];                              /* each segment in its knob's colour (ATK DEC SUS REL) */
+    for (x = 0; x < 4; x++) sc[x] = T_KNOB(x), sf[x] = ux_mix(T_PANEL, sc[x], 14);
 #define PVY(l) (bot * 16 - (l) * (bot - top) * 16 / 1000)
     for (x = x0; x <= x4; x++) {                        /* the curve in 1/16 px */
         int32_t l, y, seg = x < x1 ? 0 : x < x2 ? 1 : x < x3 ? 2 : 3;
@@ -290,8 +292,8 @@ static void pv_env(int32_t h)
         else if (seg == 2) l = sus;
         else { e = x == x3 ? 32768 : (e * (32768 - kr)) >> 15; l = sus * e >> 15; }
         y = PVY(l);
-        cv_rect(x, y / 16 + 1, 1, bot - y / 16, fill);
-        cv_vspan_aa(x, x > x0 ? py : y, y, seg == hot ? T_TEXT : c);
+        cv_rect(x, y / 16 + 1, 1, bot - y / 16, sf[seg]);
+        cv_vspan_aa(x, x > x0 ? py : y, y, seg == hot ? T_TEXT : sc[seg]);
         py = y;
     }
     {   /* the handles: the attack's peak, the decay's end, the sustain's end, the release's end */
@@ -300,7 +302,7 @@ static void pv_env(int32_t h)
         for (i = 0; i < 4u; i++) {
             int32_t d = (int32_t)i == hot ? 11 : 9;
             cv_disc(hx[i], hy[i], d + 4, T_PANEL, 0);
-            cv_disc(hx[i], hy[i], d, (int32_t)i == hot ? T_TEXT : c, 0);
+            cv_disc(hx[i], hy[i], d, (int32_t)i == hot ? T_TEXT : sc[i], 0);
         }
     }
 #undef PVY
@@ -317,7 +319,7 @@ static void pv_lfo(int32_t h)
     uint32_t ph = (uint32_t)t->p[P_LPHASE] << 25, i;
     cv_rect(x0, cy, w, 1, T_LINE);
     {                                                   /* its reach, dashed: the fade in, then the depth */
-        uint16_t gc = hot == 3 ? T_TEXT : ux_mix(T_PANEL, T_THEME, 35);
+        uint16_t gc = hot == 3 ? T_TEXT : ux_mix(T_PANEL, T_KNOB(3), 45);   /* (FADE's colour) */
         for (x = 0; x < w; x += 5) {
             int32_t lv = x < fw ? x * amp / fw : amp;
             cv_rect(x0 + x, cy - lv, 2, 1, gc);
@@ -329,7 +331,7 @@ static void pv_lfo(int32_t h)
         if (t->p[P_LWAVE] == 4)
             wv = (int32_t)((x / 20 * 2654435761u) >> 16) - 32768;
         y = uni ? cy * 16 - (wv + 32768) * amp / 4096 * f / 1024 : cy * 16 - wv * amp / 2048 * f / 1024;
-        cv_vspan_aa(x0 + x, x ? py : y, y, T_THEME);
+        cv_vspan_aa(x0 + x, x ? py : y, y, T_KNOB(1));   /* (WAVE's colour) */
         py = y;
     }
     for (i = 0; i < 4u; i++) {                          /* where it goes: the strongest destination */
@@ -338,10 +340,10 @@ static void pv_lfo(int32_t h)
     }
     if (bi >= 0 && pv.slice0 == 0 && !pv_hero_on()) {   /* (the hero over the panel: it says what turns) */
         int32_t cw = text_w(TY_LB, DST_NAME[bi]) + 30;
-        uint16_t cb = ux_mix(T_PANEL, T_THEME, 20);
+        uint16_t dc = T_KNOB(2), cb = ux_mix(T_PANEL, dc, 20);
         cv_rrect(8, 6, cw, 24, 6, cb, T_PANEL);
-        cv_icon_mid(12, 18, 12, ICON_X_RIGHT, T_THEME, cb);
-        cv_text_on(26, ty_y(18, TY_LB), TY_LB, DST_NAME[bi], T_THEME, cb);
+        cv_icon_mid(12, 18, 12, ICON_X_RIGHT, dc, cb);
+        cv_text_on(26, ty_y(18, TY_LB), TY_LB, DST_NAME[bi], dc, cb);
     }
 }
 /* FM6's EG RATE / EG LVL (operator fm6_opsel), PITCH EG / LV (mock/r6_pages OP3 EG): the DX7 envelope from L4 by R1..R3
@@ -379,12 +381,12 @@ static void pv_dxeg(int32_t h)
             cv_rect(x, DXY(50), 4, 1, T_LINE);
     for (i = 0; i < 5; i++) {                           /* the segments; R1..R3 the first three, R4 the last */
         int seg = i < 3 ? i : i == 4 ? 3 : -1;
-        cv_line_t(px[i], py[i], px[i + 1], py[i + 1], !lv && seg >= 0 && seg == hot ? T_TEXT : T_THEME,
+        cv_line_t(px[i], py[i], px[i + 1], py[i + 1], !lv && seg >= 0 && seg == hot ? T_TEXT : T_KNOB(seg < 0 ? 2 : seg),
                   !lv && seg >= 0 && seg == hot ? 3 : 2);
     }
     for (i = 1; i < 5; i++) {                           /* the points: L1 L2 L3, the hold's end (the turning one's: text) */
         int on = hot >= 0 && (lv ? i == hot + 1 || (hot == 2 && i == 4) : hot < 3 && i == hot + 1);
-        cv_disc(px[i], py[i], on ? 9 : 7, on ? T_TEXT : T_THEME, 0);
+        cv_disc(px[i], py[i], on ? 9 : 7, on ? T_TEXT : T_KNOB(i < 4 ? i - 1 : 2), 0);
     }
 #undef DXY
 }
@@ -425,7 +427,7 @@ static void pv_grid(int32_t h)
         uint16_t row = sel ? T_LIFT : T_PANEL;
         if (sel)
             cv_rrect(2, y, PV_PANEL_W - 4, 17, 4, T_LIFT, T_PANEL);
-        cv_text_on(6, ty_y(y + 8, TY_LB), TY_LB, drum_lane_abbr(t, l), sel ? T_THEME : T_MID, row);
+        cv_text_on(6, ty_y(y + 8, TY_LB), TY_LB, drum_lane_abbr(t, l), sel ? T_KNOB(l) : ux_mix(T_PANEL, T_KNOB(l), 70), row);
         for (i = 0; i < 16u && base + i < len; i++) {
             const step_t *st = &seq_steps(t)[base + i];
             uint32_t b = 1u << l;
@@ -435,7 +437,7 @@ static void pv_grid(int32_t h)
                 cv_rrect(x - 1, y + 1, 11, 15, 3, row, T_SEC);
             }
             if (step_lanes(st) & b)
-                cv_rrect(x, y + 2, 9, 13, 3, (step_accents(st) & b) ? T_TEXT : T_THEME, row);
+                cv_rrect(x, y + 2, 9, 13, 3, (step_accents(st) & b) ? T_TEXT : T_KNOB(l), row);   /* (each lane a colour) */
             else
                 cv_disc(x + 4, y + 8, i % 4u == 0u || sel ? 4 : 3, i % 4u == 0u || sel ? T_MID : T_DIM, 0);
         }
@@ -514,7 +516,8 @@ static void pv_arp(int32_t h)
     w = n ? 208 / (int32_t)n : 208;
     for (i = 0; i < n; i++) {                           /* (under the notes' line: rows 34 .. h - 12) */
         int32_t y = h - 19 - (hi > lo ? (seq[i] - lo) * (h - 53) / (hi - lo) : (h - 53) / 2);
-        cv_rrect(16 + (int32_t)i * w, y, w - 4 < 18 ? w - 4 : 18, 7, 2, mode ? T_THEME : T_DIM, T_PANEL);
+        cv_rrect(16 + (int32_t)i * w, y, w - 4 < 18 ? w - 4 : 18, 7, 2, mode ? T_KNOB((uint32_t)(seq[i] - lo) / 12u) : T_DIM,
+                 T_PANEL);                              /* (each octave a colour) */
     }
     b[0] = 0;
     for (i = 0; i < nb && i < 4u; i++) {
@@ -537,7 +540,7 @@ static void pv_steps(int32_t h)
     for (s = 0; s < NSTEP; s++) {
         int32_t x = PV_STEP_X(s), y = 16 + (int32_t)(s / 16u) * (h - 40) / 3;
         uint16_t c = s == ph ? T_TEXT : s >= len ? ux_mix(T_PANEL, T_LINE, 50) :
-                     step_on(&seq_steps(t)[s]) ? T_THEME : T_LINE;
+                     step_on(&seq_steps(t)[s]) ? T_KNOB(s % 16u / 4u) : T_LINE;   /* (each beat a colour) */
         cv_disc(x, y, s == ph || (s < len && step_on(&seq_steps(t)[s])) ? 7 : 5, c, 0);
     }
     cv_rrect(16, h - 12, 208, 4, 2, T_LINE, T_PANEL);

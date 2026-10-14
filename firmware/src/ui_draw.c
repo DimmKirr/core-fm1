@@ -414,7 +414,7 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
     char key[48], label[12], val[16], unit[8];
     int hot = c == ui.hot_col && (ui.hot_t || pv_hero_on()), named = fmt_named, strip, snap;
     uint8_t sig;
-    uint16_t lc = vc == T_DIM ? T_DIM : card_tc[c & 3u] ? card_tc[c & 3u] : T_THEME, cbg = T_BG;
+    uint16_t lc = vc == T_DIM ? T_DIM : card_tc[c & 3u] ? card_tc[c & 3u] : T_KNOB(c), cbg = T_BG;   /* (knob c's colour) */
     int32_t x, uw, room = COL_W;                        /* (the 3 px between cells keep values apart) */
     const aafont_t *vf = TY_TX, *lf = TY_LB;
     uint32_t n, kn;

@@ -1858,12 +1858,15 @@ static void library_note_sweep(const char *out)
         if(p==0u)write_ppm(out,"NIGHT",names[scene]);
     }
 }
+#ifndef UI_RENDER_SHOW
+#define UI_RENDER_SHOW 3u
+#endif
 int main(int argc, char **argv)
 {
     const char *out = argc > 1 ? argv[1] : "build/ui_new";
     char path[600];
     uint32_t p, s;
-    static const char *const SHOW[] = {"NIGHT", "DAY", "CONTRAST", "GRAY"};
+    static const char *const SHOW[] = {"NIGHT", "DAY", "CONTRAST", "SUNSET", "OCEAN", "NEON", "CANDY", "LO-FI", "GRAY"};
     snprintf(path, sizeof path, "%s/report.txt", out);
     rep = fopen(path, "w");
     if (!rep) { fprintf(stderr, "cannot write %s\n", path); return 1; }
@@ -1903,7 +1906,7 @@ int main(int argc, char **argv)
             draw((int)s);
             lint();
             if (p == UI_GRAY_INDEX) { audit_scene(S_NAME[s]); aud = 0; mono_check(); }
-            for (k = 0; k < 3u; k++)
+            for (k = 0; k < UI_RENDER_SHOW; k++)    /* (the suite: NIGHT DAY CONTRAST; -DUI_RENDER_SHOW=8 all) */
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
     render_pixel = 1;                               /* every screen again in Melodee Pixel (NIGHT) */

@@ -1651,8 +1651,12 @@ static int test_display_preferences(void)
                  settings.palette == 1 && T_BG == UI_PALETTES[1].bg && ux.light && ui.menu == 1 && !song.octave &&
                  memcmp(before, host_screen, sizeof before) && !memcmp(sounds, trk, sizeof sounds));
     turn(EN_K1, 1);
-    bad += check("COLOR KNOB 1 steps on to CONTRAST, then wraps to NIGHT",
-                 settings.palette == 2 && (turn(EN_K1, 1), settings.palette == UI_DEFAULT_INDEX));
+    {
+        int steps_ok = settings.palette == 2;
+        for (uint32_t k = 3; k < NPALETTES; k++) { turn(EN_K1, 1); steps_ok &= settings.palette == k; }
+        bad += check("COLOR KNOB 1 steps on through SUNSET .. LO-FI, then wraps to NIGHT",
+                     steps_ok && (turn(EN_K1, 1), settings.palette == UI_DEFAULT_INDEX));
+    }
     press(B_OCTDN);
     bad += check("OCT- leaves display preferences without changing musical state",
                  !ui.menu && settings.palette == UI_DEFAULT_INDEX && !memcmp(sounds, trk, sizeof sounds));
