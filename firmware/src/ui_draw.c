@@ -1127,13 +1127,8 @@ static void draw_toast(void)
     const char *m = head_msg();
     uint32_t n, i;
     int32_t h;
-    if (!(ui.msg_t || ui.layer) || !head_toast(BPM_X + BPM_W + 6)) {
-        if (toast_shown) {
-            toast_shown = 0;
-            ui.force = 1;
-        }
+    if (!(ui.msg_t || ui.layer) || !head_toast(BPM_X + BPM_W + 6))
         return;
-    }
     n = text_lines(m, l, 3u, BOX_W - 20, TY_TX);
     h = 10 + (int32_t)n * 24;
     cv_begin(BOX_W, (uint32_t)h, T_BG);
@@ -1166,6 +1161,13 @@ static void ui_draw_frame(void)
     if(seq_counting()) { char text[24]="COUNT IN ";fmt_int(text+9,(int32_t)cin_left);
         ui_message(text); }
     else if(!memcmp(ui.msg,"COUNT IN ",9))ui.msg_t=0;
+
+    /* Restore a departing toast before drawing the page beneath it. A force
+     * requested by draw_toast after the page was drawn is cleared this frame. */
+    if (toast_shown && !head_toast(BPM_X + BPM_W + 6)) {
+        toast_shown = 0;
+        ui.force = 1;
+    }
 
     if (ui.uboot) {
         draw_uboot();

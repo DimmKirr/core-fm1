@@ -509,6 +509,35 @@ static int test_rec(void)
     return bad;
 }
 
+/* A toast must return the pixels it covered, even when the page's values have
+ * not changed. Compare the normal frame with a complete redraw of that state. */
+static int test_recording_toast(void)
+{
+    int bad = 0;
+    uint16_t covered[240 * 70];
+    for (uint32_t page = 0; page < 2u; page++) for (uint32_t expire = 0; expire < 2u; expire++) {
+        ui_power_on();
+        if (page) open_family(FAM_SEQ);
+        seq_start(); seq_advance(0); seq_advance(1);
+        rec_tap(); frame();
+        bad += check("queued recording draws the waiting toast", song.rec_wait == 1u && toast_shown);
+        if (expire) {
+            while (ui.msg_t) frame();
+            frame();
+        } else {
+            seq_advance(recording_loop(TSEL, seq_div_samples(TSEL->p[P_SDIV])) - 1u);
+            frame();
+            bad += check("loop zero replaces waiting with recording", rec_on(TSEL) && msg_is("RECORDING"));
+        }
+        memcpy(covered, host_screen + H_HEAD * 240, sizeof covered);
+        ui.force = 1; ui_draw();
+        bad += check(expire ? "expired waiting toast restores the unchanged page" :
+                     "recording start restores the page under the waiting toast",
+                     !toast_shown && !memcmp(covered, host_screen + H_HEAD * 240, sizeof covered));
+    }
+    return bad;
+}
+
 static uint32_t gated_notes(const track_t *t)
 {
     uint32_t i, n = 0;
@@ -4939,6 +4968,7 @@ int main(void)
     bad += test_sound_loads();
     bad += test_no_phrases();
     bad += test_rec();
+    bad += test_recording_toast();
     bad += test_midi();
     bad += test_save();
     bad += test_actions();
