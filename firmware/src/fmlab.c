@@ -157,6 +157,65 @@ static void voice_name(uint32_t vi, char *out)
     out[n] = 0;
 }
 
+/* ---- naming a sound
+ *
+ * A sound you saved under someone else's name is a sound you will not find again, so SAVE asks for
+ * a name as well as a slot. The two happen at once rather than one after the other: PRESETS picks
+ * the slot, SELECT picks the letter you are on, ALGORITHM picks what that letter is, and SAVE
+ * writes. Nothing is a new page and nothing is an extra press.
+ *
+ * The DX7 allows any printable character in a name; this knob offers a smaller alphabet, because
+ * forty-one detents end to end is a name you can type and ninety-five is not. Space comes first,
+ * so one detent back from A is a blank -- which is how a name shorter than ten gets its tail.
+ *
+ * The name being typed lives here and not in `edit`, because any button other than SAVE backs out
+ * of the save, and backing out must leave the voice as it was. It is copied into the patch at the
+ * moment the slot is written, so the voice line then agrees with the slot. */
+static const char NAME_CH[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.#+";
+#define NAME_NCH (sizeof NAME_CH - 1u)
+
+static char save_name[11];
+static uint8_t save_cur;
+
+static uint32_t name_ix(char c)                 /* where a character sits on the knob; else a space */
+{
+    uint32_t i;
+    for (i = 0; i < NAME_NCH; i++)
+        if (NAME_CH[i] == c)
+            return i;
+    return 0;
+}
+
+static void name_begin(void)                    /* the name to edit is the one the patch already has */
+{
+    uint32_t i;
+    for (i = 0; i < 10u; i++) {
+        uint8_t c = edit[145 + i];
+        save_name[i] = NAME_CH[name_ix(c >= 32u && c < 127u ? (char)c : ' ')];
+    }
+    save_name[10] = 0;
+    save_cur = 0;
+}
+
+static int slot_free(uint32_t slot)             /* nothing of yours in it yet: still the INIT VOICE */
+{
+    static const char INIT[10] = {'I', 'N', 'I', 'T', ' ', 'V', 'O', 'I', 'C', 'E'};
+    const uint8_t *b = bankv + slot * 128u + 118u;
+    uint32_t i;
+    for (i = 0; i < 10u; i++)
+        if (b[i] != (uint8_t)INIT[i])
+            return 0;
+    return 1;
+}
+
+static uint32_t name_sum(void)                  /* enough of the name to notice a letter changing */
+{
+    uint32_t i, s = 0;
+    for (i = 0; i < 10u; i++)
+        s += (uint32_t)save_name[i] * (i + 1u);
+    return s & 127u;
+}
+
 /* ---- main loop -> audio ISR: a single-producer ring of note events */
 enum { EV_ON = 1, EV_OFF, EV_PATCH, EV_MONO, EV_PANIC };
 typedef struct { uint8_t kind, note, vel; } ev_t;
@@ -584,14 +643,33 @@ static void draw_voice(uint32_t vi, uint32_t y)
         draw_text_box(0, y, 240, &FONT_S, flash_msg, C_ACC, 1);
         return;
     }
-    if (saving) {                               /* picking the slot to write to */
-        i = put(s, i, "SAVE TO U");
-        i = putn(s, i, save_slot + 1u, 1);
+    if (saving) {                               /* the slot to write to, and the name to write */
+        int32_t x, cw;
+        uint32_t k;
+        i = put(s, i, "SAVE U");
+        s[i++] = (char)('0' + (save_slot + 1u) / 10u);   /* zero-padded: the line must not shift
+                                                          * sideways as the slot crosses ten */
+        s[i++] = (char)('0' + (save_slot + 1u) % 10u);
         s[i++] = ' ';
-        voice_name(DX_NVOICES + save_slot, nm);
-        i = put(s, i, nm);
         s[i] = 0;
-        draw_text_box(0, y, 240, &FONT_S, s, C_ACC, 1);
+        cw = FONT_S.adv[glyph(&FONT_S, ' ')];   /* the font is fixed width: one cell per character */
+        cv_begin(240, FONT_S.h, C_BLACK);
+        x = ((int32_t)240 - (text_w(&FONT_S, s) + 10 * cw)) / 2;
+        /* the slot number is accented when that slot already holds a sound of yours, so the one
+         * thing you cannot undo -- writing over something -- is visible without costing a word */
+        x = cv_text(x, 0, &FONT_S, s, slot_free(save_slot) ? C_LBL : C_ACC);
+        for (k = 0; k < 10u; k++) {
+            char c1[2];
+            c1[0] = save_name[k]; c1[1] = 0;
+            if (k == save_cur) {                /* the letter the knob is on: accented, and ruled
+                                                 * underneath so that it shows on a blank too */
+                cv_rect(x, (int32_t)FONT_S.h - 2, cw, 2, C_ACC);
+                cv_text(x, 0, &FONT_S, c1, C_ACC);
+            } else
+                cv_text(x, 0, &FONT_S, c1, C_WHITE);
+            x += cw;
+        }
+        cv_blit(0, y);
         return;
     }
     s[i++] = (char)('A' + ab);                  /* which side of the compare you are listening to */
@@ -1264,8 +1342,10 @@ static void app_main(void)
             if (!saving) {
                 saving = 1;
                 save_slot = set.slot;
+                name_begin();
             } else {
                 saving = 0;
+                memcpy(edit + 145, save_name, 10);     /* the name goes in with the sound */
                 if (bank_store(save_slot, edit) == 0) {
                     set.voice = (uint8_t)(DX_NVOICES + save_slot);
                     set.slot = save_slot;
@@ -1301,15 +1381,27 @@ static void app_main(void)
             }
         }
         if ((enc = fm1_enc_take(ENC_SELECT)) != 0) {       /* which operator the OP / ENV pages show */
-            int32_t o = (int32_t)opsel - enc;              /* clockwise counts OP1 -> OP6 */
-            while (o < 0) o += 6;
-            opsel = (uint8_t)(o % 6);
+            if (saving) {                                  /* or, while saving, which letter */
+                int32_t c2 = (int32_t)save_cur + enc;
+                while (c2 < 0) c2 += 10;
+                save_cur = (uint8_t)(c2 % 10);
+            } else {
+                int32_t o = (int32_t)opsel - enc;          /* clockwise counts OP1 -> OP6 */
+                while (o < 0) o += 6;
+                opsel = (uint8_t)(o % 6);
+            }
         }
         if ((enc = fm1_enc_take(ENC_ALGORITHM)) != 0) {    /* its own knob, on any page */
-            int32_t a = (int32_t)edit[134] + enc;
-            edit[134] = (uint8_t)(a < 0 ? 0 : a > 31 ? 31 : a);
-            modified = 1;
-            patch_publish();
+            if (saving) {                                  /* or, while saving, what that letter is */
+                int32_t c2 = (int32_t)name_ix(save_name[save_cur]) + enc;
+                while (c2 < 0) c2 += (int32_t)NAME_NCH;
+                save_name[save_cur] = NAME_CH[c2 % (int32_t)NAME_NCH];
+            } else {
+                int32_t a = (int32_t)edit[134] + enc;
+                edit[134] = (uint8_t)(a < 0 ? 0 : a > 31 ? 31 : a);
+                modified = 1;
+                patch_publish();
+            }
         }
         for (e = 0; e < PAGE_ROWS; e++) {                  /* KNOB1..n: the parameters on screen */
             uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
@@ -1395,7 +1487,8 @@ static void app_main(void)
         {                                       /* the voice line: the name, or what it is asking / saying */
             uint32_t vkey = (uint32_t)set.voice | (uint32_t)modified << 8 | (uint32_t)ab << 9 |
                             (uint32_t)saving << 10 | (uint32_t)save_slot << 11 |
-                            (flash_msg ? 1u << 17 : 0u) | (msg_gen & 7u) << 18;
+                            (flash_msg ? 1u << 17 : 0u) | (msg_gen & 7u) << 18 |
+                            (uint32_t)save_cur << 21 | (uint32_t)name_sum() << 25;
             if (vkey != vkey_drawn || repaint) {
                 vkey_drawn = vkey;
                 draw_voice(set.voice, page == PAGE_HOME ? 44u : 188u);

@@ -40,6 +40,17 @@ check('slot 5 is byte-for-byte what was sent', bank[4 * 128:5 * 128] == mksyx.pa
 check('slot 32 survived the damaged bank', name_of(bank[31 * 128:32 * 128]) == 'TEST 32',
       name_of(bank[31 * 128:32 * 128]))
 
+# ---- naming. TEST 01 was saved to slot 20 after two letters of it were turned into BEST 02, and
+# then to slot 21 after a name was typed and the save backed out of, which must leave no trace.
+check('slot 20 took the name that was typed', name_of(bank[19 * 128:20 * 128]) == 'BEST 02',
+      name_of(bank[19 * 128:20 * 128]))
+check('the sound itself is still TEST 01',
+      bank[19 * 128:20 * 128 - 10] == mksyx.pack(mksyx.test_bank()[0])[:118])
+check('backing out of a save forgets the letters', name_of(bank[20 * 128:21 * 128]) == 'BEST 02',
+      name_of(bank[20 * 128:21 * 128]))
+check('so the two slots are the same voice', bank[19 * 128:20 * 128] == bank[20 * 128:21 * 128])
+
+
 # ---- what the FM-1 sent back when asked
 raw = open(prefix + '-out.syx', 'rb').read()
 frames, i = [], 0
@@ -58,7 +69,9 @@ if len(frames) == 2:
     check('it is the bank in flash', blk[5:4101] == bank)
     check('the voice dump is a one-voice dump', len(voc) == 161 and voc[:5] == b'\x43\x00\x00\x01\x1b')
     check('its checksum is right', len(voc) == 161 and mksyx.checksum(voc[5:160]) == voc[160])
-    check('it is the voice on screen, TEST 01', bytes(voc[5:160]) == bytes(mksyx.test_bank()[0]))
+    want = bytearray(mksyx.test_bank()[0])      # TEST 01, as renamed by the naming steps above
+    want[145:155] = b'BEST 02   '
+    check('it is the voice on screen, renamed', bytes(voc[5:160]) == bytes(want))
 
 # ---- the sound
 data = open(prefix + '.wav', 'rb').read()

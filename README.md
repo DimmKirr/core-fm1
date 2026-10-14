@@ -47,7 +47,7 @@ so a bank fills them exactly.
 | --- | --- |
 | **The keys** | 27 of them, F3 to G5. **OCT-** / **OCT+** move it two octaves either way; the button lights for a shift that way and pulses once you are at the end of the travel. A key stops the note it started, so changing octave mid-chord does the right thing. |
 | **PRESETS** | The voice. It changes under anything still sounding, so you can hold a chord and walk through the bank. 20 factory voices, then your 32, numbered `U01` to `U32`. |
-| **SAVE** | Keep the sound you are on. Press, turn **PRESETS** to pick the slot, press again. Any other button backs out. |
+| **SAVE** | Keep the sound you are on, under a name of your own. Press, name it and pick the slot, press again. Any other button backs out. |
 | **HOME** | The algorithm drawn out, the voice name, the meter. |
 | **MONO / POLY** | The top two black keys, on the OPERATOR page. Mono is one voice, last note wins. |
 | **A / B** | The voice line starts with the side you are listening to. **PLAY** flips it, **REC** copies this side onto the other. |
@@ -158,12 +158,22 @@ starting again.
 
 ## Keeping a sound
 
-**SAVE** writes the voice you are on into one of the 32 user slots. Press it, and the top line turns into
-`SAVE TO U05 TEST 05` — the slot and *what is already in it*, so you can turn **PRESETS** along and see what
-you are about to overwrite before you overwrite it. Press **SAVE** again to write; press anything else to
-back out.
+**SAVE** writes the voice you are on into one of the 32 user slots, under a name of your own. Press it and
+the top line turns into `SAVE U01 BRASS`: the slot on the left, the ten characters of the name on the right,
+one of them ruled underneath. Three knobs are live at once, so picking the slot and writing the name are the
+same moment rather than two steps — **PRESETS** moves the slot, **SELECT** moves along the name, and
+**ALGORITHM** sets the character you are on. Press **SAVE** again to write; press anything else to back out,
+and the name you were typing goes with it.
 
-<p align="center"><img src="docs/save.png" width="240" alt="FM Lab asking SAVE TO U05 TEST 05, with the algorithm still drawn below it"></p>
+<p align="center"><img src="docs/save.png" width="240" alt="FM Lab asking SAVE U01 BRASS, one letter ruled underneath, with the algorithm still drawn below it"></p>
+
+The slot number is grey while the slot is still empty and accented once it holds something of yours, so the
+one thing you cannot undo is visible without spending a word on it.
+
+The name starts as the one the sound already has, which is the point of the whole thing: a patch you built
+out of BRASS 1 and saved under the name BRASS 1 is a patch you will never find again. The character knob
+offers a space, A to Z, 0 to 9 and `- . # +` — forty-one steps is a name you can type, ninety-five is not.
+Space comes first, one detent back from A, which is how you clear the tail of a name shorter than ten.
 
 The screen says `SAVED`, and the write costs about a tenth of a second of silence, because
 programming flash on this chip means stopping the audio.
@@ -265,7 +275,9 @@ A/B flip has to come back to a sample-identical sound.
 
 `tests/syxcheck.py` does the same for the bank: a voice sent in has to be the bytes that land in flash, a
 dump sent back has to be the bytes in flash, a bad checksum has to change nothing, and a voice saved and
-reloaded has to be a sample-identical sound. `tests/mksyx.py` generates the patches it uses.
+reloaded has to be a sample-identical sound. It also checks the naming: a name typed at the save prompt has
+to reach flash with the sound and nothing else about the sound may change, and a save backed out of halfway
+has to leave no trace of the letters that were typed. `tests/mksyx.py` generates the patches it uses.
 
 `tests/panelcheck.py` checks the panel without looking at it. A black key that picks an operator has to send
 *nothing* — the run's own MIDI log is the evidence — while a key that is still a key has to send a note on
