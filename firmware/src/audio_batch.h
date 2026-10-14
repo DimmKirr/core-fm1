@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 #pragma once
 #ifndef MELODEE_BATCH_AUDIO
 #define MELODEE_BATCH_AUDIO 1

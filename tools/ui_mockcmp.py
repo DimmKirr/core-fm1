@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Mockup parity: each device screen (tests/ui_render.c's ref_* scenes, rendered by tests/ui_render.py) beside the
 redesign's reference screen (docs/design/ref, tools/mock_refs.py), scored.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Combine completed final runs into a reproducible matrix/report (no device IO)."""
 import argparse,csv,json,itertools,hashlib
 from pathlib import Path

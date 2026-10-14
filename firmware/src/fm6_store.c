@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* FM6 patches outside the engine (eng_fm6.c): DX7 SysEx from USB-MIDI and back (fm6_service: main loop), and the
  * actions of the STORE page, which saves a native FM6 user preset.
  *

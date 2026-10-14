@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* CZ-1 is a separate engine: native Casio tone data, never PHASE knob conversion.
  * Envelope state and note reset utilities are shared with the phase family. */
 #include "cz_native.c"

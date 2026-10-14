@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of Felucca 1.2's LFO / matrix and SPREAD sound items (Discussions #132, #148), adapted from Felucca 1.4's
  * sound14_test; same sources as the firmware (hostsim.c):   build/host/mod_spread_test   (run_tests.sh)
  * 1. the matrix (mod.c): the lists only grew (every stored SRC / DST keeps its name), S&H holds one value a cycle of the

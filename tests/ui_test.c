@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the UI (firmware/src/ui*.c with the sound sources of hostsim.c;
  * the display and the HAL are stubs, the buttons and knobs are driven through them):
  *   SOUNDS     a sound load (PRESETS knob / page, Init sound, user preset) changes the sound only: the
@@ -12,7 +13,7 @@
  *   REC        a tap on every screen arms/disarms the selected track; PLAY starts recording, without navigation.
  *              Long REC never clears. On STEP, armed and playing: keys do not write the
  *              cursor step. With the ARP on, the arp's notes are recorded, not the keys.
- *   MIDI IN    GLO > SYSTEM ROUT: CH1-4 / SEL, note-offs follow their note-ons.
+ *   MIDI IN    GLO > SYSTEM ROUT: four-channel ranges / SEL, note-offs follow their note-ons.
  *   SAVE       refused while playing ("STOP TO SAVE"); a used slot asks OVERWRITE? (OCT+ / OCT-).
  *   ACTIONS    OCT- / OCT+ Esc / Enter off Stage, on release, never both together; the sheets (USER, PROJECT:
  *              a slot's; the pattern's: Clear pattern, TOOLS gone); the OCT LEDs (OCT- lit, OCT+ blinks).
@@ -508,6 +509,35 @@ static int test_rec(void)
     return bad;
 }
 
+/* A toast must return the pixels it covered, even when the page's values have
+ * not changed. Compare the normal frame with a complete redraw of that state. */
+static int test_recording_toast(void)
+{
+    int bad = 0;
+    uint16_t covered[240 * 70];
+    for (uint32_t page = 0; page < 2u; page++) for (uint32_t expire = 0; expire < 2u; expire++) {
+        ui_power_on();
+        if (page) open_family(FAM_SEQ);
+        seq_start(); seq_advance(0); seq_advance(1);
+        rec_tap(); frame();
+        bad += check("queued recording draws the waiting toast", song.rec_wait == 1u && toast_shown);
+        if (expire) {
+            while (ui.msg_t) frame();
+            frame();
+        } else {
+            seq_advance(recording_loop(TSEL, seq_div_samples(TSEL->p[P_SDIV])) - 1u);
+            frame();
+            bad += check("loop zero replaces waiting with recording", rec_on(TSEL) && msg_is("RECORDING"));
+        }
+        memcpy(covered, host_screen + H_HEAD * 240, sizeof covered);
+        ui.force = 1; ui_draw();
+        bad += check(expire ? "expired waiting toast restores the unchanged page" :
+                     "recording start restores the page under the waiting toast",
+                     !toast_shown && !memcmp(covered, host_screen + H_HEAD * 240, sizeof covered));
+    }
+    return bad;
+}
+
 static uint32_t gated_notes(const track_t *t)
 {
     uint32_t i, n = 0;
@@ -523,8 +553,8 @@ static int test_midi(void)
     song.sel = 2;
     midi_hint = 0;
     midi_event(0x90, 0, 60, 100); midi_event(0x90, 10, 61, 100);
-    bad += check("ROUT CH1-4 (default): channel 1 -> part 1, channel 11 -> selected, channel 10 -> the DRUM track 4",
-                 song.g[G_ROUTE] == 0 && mn_get(0, 60) == 1u && mn_get(10, 61) == 3u && midi_track(9) == &trk[3]);
+    bad += check("ROUT CH1-4 (default): channel 1 -> part 1, channels 11 and 10 ignored",
+                 song.g[G_ROUTE] == 0 && mn_get(0, 60) == 1u && !mn_get(10, 61) && !midi_track(9));
     bad += check("a note into another track tells the UI", midi_hint == 1u);
     frame(); bad += check("MIDI IN -> T1 shown", msg_is("MIDI IN -> T1"));
     song.g[G_ROUTE] = 1;
@@ -592,6 +622,8 @@ static int test_midi(void)
         const char *u;
         param_format(d, 1, v, &u);
         bad += check("GLO > SYSTEM K3: ROUT CH1-4 / SEL", str_eq(pg->title, "SYSTEM") && vp == &song.g[G_ROUTE] && str_eq(v, "SEL"));
+        param_format(d, 4, v, &u);
+        bad += check("GLO > SYSTEM K3: all four ranges exposed", d->max == 4 && str_eq(v, "13-16"));
         pg=&PAGES[page_first(FAM_GLO)];d=page_desc(pg,1,&vp);
         bad+=check("GLO > GLOBAL K2: device shared BUDGET",d && str_eq(d->label,"BUDGET") && vp==&settings_budget && pg->id[1]==G_BUDGET);
     }
@@ -866,7 +898,7 @@ static int test_track_count(void)
     trk[2].engine = trk[2].eng_req;
     trk_note_on(&trk[2], 60, 100);
     bad += check("  a track not in use plays nothing", trk_quiet(&trk[2]));
-    bad += check("  MIDI channel 2 (ROUT CH1-4): the selected track, as channels past the tracks", midi_track(1) == TSEL &&
+    bad += check("  MIDI channel 2 (ROUT CH1-4): ignored when track 2 is not in use", !midi_track(1) &&
                  midi_track(0) == &trk[0]);
     hold(B_OCTUP);
     bad += check("Stage: OCT+ held: its sheet, Add track (T2) and Remove track (-) at its foot", pop.on == POP_SHEET &&
@@ -1002,13 +1034,71 @@ static int test_home_view(void)
                  of[45] == 0u && ((on[1] >> (60 - 32)) & 1u) && of[60] == 1u && of[69] == 1u);
     frame(); frame();
     bad += check("  drawn (a frame each way)", view.wheel && view.keys);
-    for (k = 0; k < NTRK; k++) for (uint32_t i = 0; i < NVOICE; i++) trk[k].v[i].gate = 0;
+    input_off(&trk[0], 45);
+    input_off(TSEL, 60); input_off(TSEL, 64); input_off(TSEL, 69);
     view_notes(on, of, &faded);
     bad += check("  let go: the last ones, faded", faded && ((on[1] >> (60 - 32)) & 1u));
     before = TSEL->p[ENGINES[TSEL->eng_req]->knob[0]];
     turn(EN_K1, 3);
     bad += check("  KNOB 1: the sound's, as on Stage", ui.home_pg == 1u &&
                  (TSEL->eng_req == ENGI_PROPHET || TSEL->eng_req == ENGI_CZ || TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != before));
+    ui_power_on();
+    return bad;
+}
+
+/* Releasing a chord one note per display frame must retain the complete voicing after the last release. New
+ * notes replace it, including a smaller voicing made only of pitches from the previous chord. */
+static int test_home_view_release(void)
+{
+    static const uint8_t ORDER[6][3] = {{60, 64, 67}, {60, 67, 64}, {64, 60, 67},
+                                        {64, 67, 60}, {67, 60, 64}, {67, 64, 60}};
+    uint32_t on[4], k, i;
+    uint8_t of[128];
+    int bad = 0, faded;
+    for (k = 0; k < 6u; k++) {
+        ui_power_on(); song.ntrk = 1; song.sel = 0;
+        memset(&view, 0, sizeof view);
+        TSEL->p[P_VOICE] = V_POLY;
+        input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); input_on(TSEL, 67, 100);
+        view_notes(on, of, &faded);
+        for (i = 0; i < 3u; i++) {
+            input_off(TSEL, ORDER[k][i]);
+            view_notes(on, of, &faded);
+            if (i < 2u)
+                bad += check("wheel still follows sounding notes during release", !faded &&
+                             !(on[ORDER[k][i] >> 5] & (1u << (ORDER[k][i] & 31u))));
+        }
+        bad += check("wheel retains full C major after staggered release (every order)", faded &&
+                     on[0] == 0 && on[1] == (1u << 28) && on[2] == 9u && on[3] == 0 &&
+                     of[60] == 0 && of[64] == 0 && of[67] == 0);
+        input_on(TSEL, 60, 100); input_on(TSEL, 67, 100);
+        view_notes(on, of, &faded);
+        input_off(TSEL, 60); view_notes(on, of, &faded);
+        input_off(TSEL, 67); view_notes(on, of, &faded);
+        bad += check("  a new smaller voicing replaces the retained chord", faded && on[1] == (1u << 28) && on[2] == 8u);
+        input_on(TSEL, 60, 100); view_notes(on, of, &faded);
+        input_off(TSEL, 60); view_notes(on, of, &faded);
+        bad += check("  a new single note replaces the retained voicing", faded && on[1] == (1u << 28) && on[2] == 0);
+    }
+    ui_power_on(); song.ntrk = 1; song.sel = 0;
+    memset(&view, 0, sizeof view);
+    input_on(TSEL, 60, 100); view_notes(on, of, &faded);
+    input_on(TSEL, 64, 100); view_notes(on, of, &faded);
+    input_on(TSEL, 67, 100); view_notes(on, of, &faded);
+    input_off(TSEL, 64); view_notes(on, of, &faded);
+    input_on(TSEL, 65, 100); view_notes(on, of, &faded);
+    input_off(TSEL, 65); view_notes(on, of, &faded);
+    input_off(TSEL, 67); view_notes(on, of, &faded);
+    input_off(TSEL, 60); view_notes(on, of, &faded);
+    bad += check("wheel retains the new voicing when a chord changes with notes still held", faded &&
+                 on[1] == (1u << 28) && on[2] == 10u);
+    ui_power_on(); song.ntrk = 2; song.sel = 1;
+    memset(&view, 0, sizeof view);
+    input_on(&trk[0], 60, 100); input_on(TSEL, 60, 100);
+    view_notes(on, of, &faded);
+    input_off(TSEL, 60); view_notes(on, of, &faded);
+    input_off(&trk[0], 60); view_notes(on, of, &faded);
+    bad += check("wheel retains the latest track colour when the pitch stays the same", faded && of[60] == 0);
     ui_power_on();
     return bad;
 }
@@ -1563,8 +1653,12 @@ static int test_display_preferences(void)
                  settings.palette == 1 && T_BG == UI_PALETTES[1].bg && ux.light && ui.menu == 1 && !song.octave &&
                  memcmp(before, host_screen, sizeof before) && !memcmp(sounds, trk, sizeof sounds));
     turn(EN_K1, 1);
-    bad += check("COLOR KNOB 1 steps on to CONTRAST, then wraps to NIGHT",
-                 settings.palette == 2 && (turn(EN_K1, 1), settings.palette == UI_DEFAULT_INDEX));
+    {
+        int steps_ok = settings.palette == 2;
+        for (uint32_t k = 3; k < NPALETTES; k++) { turn(EN_K1, 1); steps_ok &= settings.palette == k; }
+        bad += check("COLOR KNOB 1 steps on through SUNSET .. LO-FI, then wraps to NIGHT",
+                     steps_ok && (turn(EN_K1, 1), settings.palette == UI_DEFAULT_INDEX));
+    }
     press(B_OCTDN);
     bad += check("OCT- leaves display preferences without changing musical state",
                  !ui.menu && settings.palette == UI_DEFAULT_INDEX && !memcmp(sounds, trk, sizeof sounds));
@@ -1584,9 +1678,9 @@ static int test_information(void)
     press(B_OCTUP);
     ui_draw();
     bad += check("ABOUT opens one document with scrollable license text and credits", ui.menu == 2 && !ui.menu_scroll && menu_scroll_max() > MENU_DOC_H);
-    for (y = 28; y < 102; y++)                          /* (the QR at the top right, by the name) */
+    for (y = MENU_HEAD + 66; y < MENU_HEAD + 140; y++)  /* (the QR at the right, by the version) */
         for (x = 158; x < 232; x++)
-            if (x < 166 || x >= 224 || y < 36 || y >= 94)
+            if (x < 166 || x >= 224 || y < MENU_HEAD + 74 || y >= MENU_HEAD + 132)
                 quiet &= host_screen[y * 240 + x] == swap16(UI_QR_LIGHT);
     bad += check("ABOUT QR keeps its complete white quiet zone", quiet);
     memcpy(header, host_screen, sizeof header);
@@ -1607,6 +1701,7 @@ static int test_information(void)
     ui_draw();
     bad += check("the continuous document stops at its final credit",
                  ui.menu == 2 && ui.menu_scroll == menu_scroll_max());
+    turn(EN_PRESET, -10000);
     turn(EN_PRESET, -10000);
     bad += check("scrolling back through CREDITS returns to ABOUT's top", ui.menu == 2 && !ui.menu_scroll);
     press(B_OCTDN);
@@ -1729,8 +1824,8 @@ static int roll_static_now(void)                  /* the screen is the static re
     return roll_diff(0, 0, 0, 0, 0) == 0;
 }
 /* the pages' knobs are rings (ui_pages.c): column c's cell, its value's row, where its value starts (centred) */
-#define RX(c) (1 + 60 * (int32_t)(c))
-#define VY (PV_RING_Y + 55)
+#define RX(c) CARD_X(c)
+#define VY (Y_LABEL + ROLL_Y)
 #define STRIP(c) RX(c), VY, RX(c) + 58, VY + ROLL_H
 static int32_t ring_vx(uint32_t c)
 {
@@ -1738,11 +1833,13 @@ static int32_t ring_vx(uint32_t c)
     char v[16];
     const char *u;
     const param_desc_t *d = page_desc(cur_page(), c, &vp);
+    char lb[12], w[16], uu[8];
     int32_t uw;
     param_format(d, *vp, v, &u);
-    if (str_eq(u, d->label)) u = "";
-    uw = u[0] ? text_w(&AF_X, u) + 2 : 0;
-    return RX(c) + 29 - (text_w(&AF_M, v) + uw) / 2;
+    pv_words(d->label, v, u, lb, w, uu);
+    if (str_eq(u, d->label)) uu[0] = 0;
+    uw = uu[0] ? text_w(TY_LB, uu) + 2 : 0;
+    return RX(c) + COL_W / 2 - (text_w(TY_TX, w) + uw) / 2;
 }
 static int test_roll(void)
 {
@@ -1818,15 +1915,15 @@ static int test_roll(void)
     ui.force = 1; ui_draw();
     n = roll_diff(BPM_X, 0, BPM_X + BPM_W, H_HEAD, 1);
     ok &= n > 20u && roll_diff(BPM_X, 0, BPM_X + BPM_W, H_HEAD, 0) == roll_diff(STRIP(0), 1);   /* (+ the card's strip) */
-    ok &= roll_diff(BPM_X, 0, BPM_X + text_w(&AF_S, "12"), H_HEAD, 1) == 0;
-    ok &= roll_diff(ring_vx(0), VY, ring_vx(0) + text_w(&AF_M, "12"), VY + ROLL_H, 1) == 0;
+    ok &= roll_diff(BPM_X, 0, BPM_X + text_w(TY_TX, "12"), H_HEAD, 1) == 0;
+    ok &= roll_diff(ring_vx(0), VY, ring_vx(0) + text_w(TY_TX, "12"), VY + ROLL_H, 1) == 0;
     /* TUNE 10 -> 11 on a card: the 1 stays */
     ui_power_on(); song.g[G_TUNE] = 10; roll_settle();
     turn(EN_K4, 1); frame(); frame();
     memcpy(roll_shot, host_screen, sizeof roll_shot);
     ui.force = 1; ui_draw();
     ok &= song.g[G_TUNE] == 11 && roll_diff(STRIP(3), 1) > 20u && roll_diff(STRIP(3), 0) == 0;
-    ok &= roll_diff(ring_vx(3), VY, ring_vx(3) + text_w(&AF_M, "1"), VY + ROLL_H, 1) == 0;
+    ok &= roll_diff(ring_vx(3), VY, ring_vx(3) + text_w(TY_TX, "1"), VY + ROLL_H, 1) == 0;
     bad += check("roll: header BPM 120 -> 121 and a card 10 -> 11: only the strip changes, unchanged digits stay put", ok);
 
     /* the direction: 5 -> 6 and -5 -> -6 at frame 4: the new digit comes from below (up) / above (down) */
@@ -2229,10 +2326,13 @@ static int test_popups(void)
         ch = settings_drumch;
         turn(EN_K2, 1);
         ok = !pop.on && settings_drumch == ch + 1;
-        turn(EN_K1, 1); turn(EN_K3, 1);
+        turn(EN_K1, 1);
         ok &= !pop.on;
+        turn(EN_K3, 1);
+        ok &= pop.on == POP_PICK;
+        pop_close();
         set_engine_of(TSEL, ENGI_FM6); go_title("ALGO"); frame(); turn(EN_K1, 1);
-        bad += check("POPUPS: number lists (DRUM channel, FM6 ALG) step inline like MIDI and ROUT: no picker", ok && !pop.on);
+        bad += check("POPUPS: DRUM, MIDI and FM6 ALG step inline; five ROUT choices use a picker", ok && !pop.on);
     }
     {   /* list pages (ui_list.c): KNOB 2 the row, KNOB 1 its value, OCT+ its list (SCL's Scale: SCALES), OCT- Stage */
         ui_power_on(); go_title("VOICE"); frame();
@@ -2560,16 +2660,16 @@ static int test_product_ux(void)
     led_pos_init();
     ok = 1;
     for (p = 0; p < NPALETTES; p++) for (b = 0; b < 1u; b++) {   /* (ENV: its knobs the strip under the curve) */
-        uint16_t sound[240 * (240 - PV_SOUND_Y)], columns[240 * PV_STRIP_H];
+        uint16_t sound[240 * (240 - PV_SOUND_Y)], columns[240 * CARD_H];
         ui_power_on(); set_engine_of(TSEL, 3); palette_set(p); settings.zoom = 1;   /* (the generic ENV) */
         open_family(FAM_ENV); frame();
         memcpy(sound, host_screen + PV_SOUND_Y * 240, sizeof sound);
-        memcpy(columns, host_screen + PV_STRIP_Y * 240, sizeof columns);
+        memcpy(columns, host_screen + Y_LABEL * 240, sizeof columns);
         ui.hot_col = 1; ui.hot_t = 40; ui.force = 1; ui_draw();
         ok &= !memcmp(sound, host_screen + PV_SOUND_Y * 240, sizeof sound);
         int changed = 0;
-        for (uint32_t y = 0; y < PV_STRIP_H; y++) for (uint32_t x = 0; x < 240; x++) {
-            uint16_t old = columns[y * 240 + x], now = host_screen[(PV_STRIP_Y + y) * 240 + x];
+        for (uint32_t y = 0; y < CARD_H; y++) for (uint32_t x = 0; x < 240; x++) {
+            uint16_t old = columns[y * 240 + x], now = host_screen[(Y_LABEL + y) * 240 + x];
             if (x >= (uint32_t)CARD_X(1) && x < (uint32_t)(CARD_X(1) + CARD_W)) changed |= old != now;   /* (outlined) */
             else ok &= old == now;
         }
@@ -3201,16 +3301,16 @@ static int test_boot_template(void)
     {   /* the settings keep BOOT and the kept GLO values; the template follows them in the record */
         persist_t p = {0};
         p.magic = PERSIST_MAGIC; p.panel = panel;
-        song.g[G_TUNE] = 7; song.g[G_ROUTE] = 1;
+        song.g[G_TUNE] = 7; song.g[G_ROUTE] = 4;
         song.playing = 0;
         glo_poll();
-        ok = settings_glo[1] == 7 && settings_glo[3] == 1;
+        ok = settings_glo[1] == 7 && settings_glo[3] == 4;
         settings_export(&p);
         settings_boot = 0; memset(settings_glo, 0, sizeof settings_glo); song.g[G_TUNE] = 0; song.g[G_ROUTE] = 0;
         ok &= settings_import(&p, sizeof p) == 1 && settings_boot == 2u && settings_glo[1] == 7;
         glo_restore();
         bad += check("BOOT and CLK TUNE MIDI ROUT kept with the settings, restored at power-on", ok &&
-                     song.g[G_TUNE] == 7 && song.g[G_ROUTE] == 1);
+                     song.g[G_TUNE] == 7 && song.g[G_ROUTE] == 4);
     }
     settings_boot = 0;
     memset(&tmpl, 0, sizeof tmpl);
@@ -3987,7 +4087,7 @@ static int test_bughunt_ui(void)
     pattern_init();                      /* no song rows */
     go_title("SONG"); frame();
     hold(B_OCTUP); sheet_do("Delete section");
-    ok = !ui.confirm && msg_is("NOTHING TO DELETE") && text_w(&AF_S, ui.msg) <= 236 - 106;   /* (fits the header) */
+    ok = !ui.confirm && msg_is("NOTHING TO DELETE");   /* (the header, or wrapped on the toast: never cut) */
     hold(B_OCTUP); sheet_do("Clear song");
     ok &= !ui.confirm && msg_is("NOTHING TO CLEAR");
     track_defaults_steps(TSEL);
@@ -4156,7 +4256,7 @@ static int test_piano_roll(void)
     screen_clear(); ui.force = 1; ui_draw();
     ok = pr_columns_match(t, &nb);
     bad += check("piano roll: ACID's bars drawn at their notes' rows, ties carried, rests empty", ok && nb >= 10u);
-    bad += check("  the view holds the page's notes (A2..A3 in 14 rows), MONO gray", proll.lo <= 45 && proll.lo + PR_ROWS - 1 >= 57 &&
+    bad += check("  the view holds the page's notes (A2..A3 in 13 rows), MONO gray", proll.lo <= 45 && proll.lo + PR_ROWS - 1 >= 57 &&
                  screen_gray());
     t->p[P_VOICE] = V_POLY;                                           /* chords: up to 4 bars in a column */
     for (i = 0; i < 16u; i += 4u) {
@@ -4187,13 +4287,13 @@ static int test_piano_roll(void)
     }
     nb = 0;
     bad += check("  after the follow the bars match again", pr_columns_match(t, &nb));
-    key_down(7); frames(200);                                         /* a key held: its row lit on the strip */
+    key_down(8); frames(200);                                         /* a key held (C#: no C label over it): its row lit */
     {
-        int32_t r = (int32_t)proll.lo + PR_ROWS - 1 - (int32_t)kb_chord[7][0];
+        int32_t r = (int32_t)proll.lo + PR_ROWS - 1 - (int32_t)kb_chord[8][0];
         uint16_t c = r >= 0 && r < PR_ROWS ? swap16(host_screen[(PR_TOP + PR_Y0 + (uint32_t)r * PR_RH + 1u) * 240u + PR_KX + 7]) : 0;
-        bad += check("  a key held: its row on the keyboard strip is the accent", kb_chn[7] && c == T_ACCENT);
+        bad += check("  a key held: its row on the keyboard strip is the accent", kb_chn[8] && c == T_ACCENT);
     }
-    key_up(7); frames(100);
+    key_up(8); frames(100);
     return bad;
 }
 
@@ -4264,28 +4364,23 @@ static int test_bughunt_ui2(void)
             }
         bad += check("STEP entry with CHRD: POLY the chord, MONO its root, as live recording writes", ok);
     }
-    {   /* 3. MIXER: the knob just turned is the control drawn in text (K1 the LEVEL ring, K2 PAN's value, K3 REV's,
-         * K4 the MUTE chip) in the selected track's strip (ui_pages.c pv_strip) */
-        uint32_t k, a[4][4], ok = 1;
+    {   /* 3. MIXER: the knob just turned is the control drawn in text (K1 the level's bar, K2 the pan, K3 nothing, K4
+         * "Mute") in the selected track's row (ui_pages.c pv_strip) */
+        uint32_t k, a[4][2], ok = 1;
         for (k = 0; k < 4u; k++) {
-            int32_t X = CARD_X(song.sel), Y = PV_STRIP_TOP;
+            int32_t Y, ly;
             ui_power_on();
             settings.palette = 1; palette_set(1);
             go_page(GR_TRK); frame(); frame();
-            X = CARD_X(song.sel);
+            Y = st_row_y(song.sel);
+            ly = pv_mix_y(st_row_h()) + TY_TX->cap + 8;
             turn(EN_K1 + k, 1);                                       /* (K4 right: MUTE on) */
             ui.force = 1; frame();
-            a[k][0] = text_in(X + 7, Y + 50, X + 15, Y + 90);         /* the LEVEL ring's left (its arc) */
-            a[k][1] = text_in(X + 5, Y + 145, X + 26, Y + 157);       /* PAN's value */
-            a[k][2] = text_in(X + 29, Y + 145, X + 50, Y + 157);      /* REV's */
-            a[k][3] = text_in(X + 6, Y + 168, X + 48, Y + 184);       /* the MUTE chip */
+            a[k][0] = text_in(BOX_X + PV_MIX_BAR_X, Y + ly, BOX_X + PV_MIX_BAR_X + PV_MIX_BAR_W, Y + ly + 5);   /* the bar */
+            a[k][1] = text_in(BOX_X + 180, Y + ly - 8, BOX_X + 230, Y + ly + 16);   /* the pan, or Mute */
         }
-        for (k = 0; k < 4u; k++) {
-            uint32_t j;
-            for (j = 0; j < 4u; j++)
-                ok &= j == k && k!=2 ? a[k][j] > 0u : a[k][j] == 0u;
-        }
-        bad += check("MIXER: K1..K4 light the LEVEL ring / PAN / the MUTE chip, nothing else", ok);
+        ok = a[0][0] && !a[0][1] && !a[1][0] && a[1][1] && !a[2][0] && !a[2][1] && !a[3][0] && a[3][1];
+        bad += check("MIXER: K1 lights the level's bar, K2 the pan, K4 Mute, K3 nothing", ok);
     }
     {   /* 4. renaming the slot the music came from renames the music: the next SAVE prefills the new name */
         char pn[16];
@@ -4331,7 +4426,7 @@ static int test_bughunt_ui2(void)
         ok &= !name_on() && up_used(3);
         bad += check("NAME: PLAY stops a running transport (never starts), REC ignored, then OCT+ saves", ok);
     }
-    {   /* 6. the piano roll's lowest C name ("C-1") stays inside the panel: nothing drawn left of x 3 */
+    {   /* 6. the piano roll's lowest C name ("C-1") stays inside the panel: nothing drawn left of it (x 2) */
         uint32_t p, x, y, out = 0;
         uint16_t bg;
         for (p = 0; p < NPALETTES; p++) {
@@ -4344,7 +4439,7 @@ static int test_bughunt_ui2(void)
             go_page(GR_ROLL); cursor_set(0); ui.force = 1; frame(); frame();
             bg = (uint16_t)((T_BG >> 8) | (T_BG << 8));
             for (y = PR_TOP; y < PR_TOP + PR_H; y++)
-                for (x = 0; x < 3u; x++)
+                for (x = 0; x < BOX_X; x++)
                     out += host_screen[y * 240u + x] != bg;
         }
         bad += check("piano roll: the C-1 label stays inside the panel (every palette)", !out);
@@ -4364,16 +4459,18 @@ static int test_bughunt_ui2(void)
 }
 
 #ifndef UI_TEST_NO_MAIN
-/* L is a sparse face (tools/gen_aa_font.py L_CHARS): every string drawn in it has all its glyphs */
+/* HR is a sparse face (tools/gen_aa_font.py HR_CHARS): every string drawn in it has all its glyphs (what may lack one
+ * asks gfx.c text_has first and falls back to VL) */
 static int test_large_face(void)
 {
-    static const char *const FIXED[] = {"MELODEE", "0123456789", "C#4 / .."};   /* main.c, ui_menu.c; ui_draw.c draw_uboot */
+    static const char *const FIXED[] = {"MELODEE", "Melodee", "0123456789", "C#4 / .."};   /* main.c, ui_menu.c About;
+                                                                                         * ui_draw.c draw_uboot */
     uint32_t i, missing = 0;
     const char *s;
     for (i = 0; i < NB + NE + sizeof FIXED / sizeof FIXED[0]; i++)                              /* ui_input.c setup_show: the control names */
         for (s = i < NB ? B_NAME[i] : i < NB + NE ? E_NAME[i - NB] : FIXED[i - NB - NE]; *s; s++)
-            missing += glyph_at(&AF_L, (uint8_t)*s) < 0;
-    return check("the L face holds every glyph of the strings drawn in it", !missing);
+            missing += glyph_at(&AF_HR, (uint8_t)*s) < 0;
+    return check("the HR face holds every glyph of the strings drawn in it", !missing);
 }
 
 
@@ -4465,7 +4562,7 @@ static int test_home_notes(void)
     midi_event(0x90, 1, 64, 100); midi_event(0x80, 1, 64, 0);
     bad += check("each track keeps its own last notes (Stage shows the selected one's)",
                  live_last[0][1] == (1u << 28) && live_last[1][2] == (1u << 0) && !live_last[1][1]);
-    ui_power_on();
+    ui_power_on(); song.g[G_ROUTE] = 1;   /* Multiple channels share the selected track in SEL. */
     midi_event(0x90, 0, 60, 100);
     midi_event(0x90, 10, 60, 100);
     midi_event(0x80, 0, 60, 0);
@@ -4866,6 +4963,46 @@ static int test_boot_maintenance(void)
     bad+=check("update cleanup errors do not offer a preset wipe",boot_work.state==2u && !boot_work.presets);
     press(B_OCTUP);ui_power_on();return bad;
 }
+/* HOME's light (ui_glow.c): a note lights the screen's edges (the margins, the floor, the top behind the header), gone
+ * once it fades; Settings > STAGE EFFECTS OFF (HOME held) keeps them dark; the setting survives export and restore */
+static int edges_lit(void)
+{
+    uint32_t i, n = 0;
+    uint16_t bg = swap16(T_BG);
+    for (i = 0; i < 240u; i++)
+        n += host_screen[i * 240u] != bg || host_screen[i * 240u + 239u] != bg || host_screen[239u * 240u + i] != bg ||
+             host_screen[i] != bg;
+    return n != 0u;
+}
+static int test_stage_light(void)
+{
+    int bad = 0;
+    persist_t stored = {0};
+    ui_power_on();
+    stop_transport();
+    PREF_BITS &= (uint8_t)~PREF_GLOW_OFF;
+    go_home(); ui.force = 1; frame(); frame();
+    bad += check("STAGE LIGHT: nothing played, the edges dark", !edges_lit());
+    input_on(TSEL, 60, 120); frame(); frame(); frame();
+    bad += check("  a note: the edges lit", edges_lit());
+    input_off(TSEL, 60); frames(3000);
+    bad += check("  let go, three seconds on: dark again", !edges_lit());
+    hold(B_HOME); ui.menu_sel = MI_GLOW; press(B_OCTUP);
+    bad += check("  HOME held, STAGE EFFECTS, OCT+: OFF", (PREF_BITS & PREF_GLOW_OFF) != 0u);
+    hold(B_HOME);
+    go_home(); ui.force = 1; frame(); frame();
+    input_on(TSEL, 60, 120); frame(); frame(); frame();
+    bad += check("  OFF: a note lights nothing", ui.home && !edges_lit());
+    input_off(TSEL, 60); frames(500);
+    settings_export(&stored);
+    PREF_BITS &= (uint8_t)~PREF_GLOW_OFF;
+    settings_import(&stored, sizeof stored);
+    bad += check("  OFF survives settings export and restore", (PREF_BITS & PREF_GLOW_OFF) != 0u);
+    PREF_BITS &= (uint8_t)~PREF_GLOW_OFF;
+    ui_power_on();
+    return bad;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -4874,18 +5011,21 @@ int main(void)
     bad += test_large_face();
     bad += test_home_notes();
     bad += test_stage();
+    bad += test_stage_light();
     bad += test_capture();
     bad += test_undo_levels();
     bad += test_new_song();
     bad += test_sound_loads();
     bad += test_no_phrases();
     bad += test_rec();
+    bad += test_recording_toast();
     bad += test_midi();
     bad += test_save();
     bad += test_actions();
     bad += test_tracks();
     bad += test_track_count();
     bad += test_home_view();
+    bad += test_home_view_release();
     bad += test_home_select();
     bad += test_grid();
     bad += test_screen();

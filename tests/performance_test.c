@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Optimized mixer transitions: capture off/on, live parameter changes and
  * silent clocks. Audio equivalence is separately enforced by golden renders. */
 #define MELODEE_USB_AUDIO 1

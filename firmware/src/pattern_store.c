@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* FBKG: a FUN13 sound/current-pattern record plus seven other banks per track,
  * all bank timings, arrangement assignments and bounded motion bank tags.
  * Five base sectors plus two extension sectors per A/B copy; the 27,200-byte record is validated in main-loop

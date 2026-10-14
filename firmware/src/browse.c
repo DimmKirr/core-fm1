@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The sound browser (the PRESETS knob, SAVE > PRESETS): one list of every sound, in ENGINE_ORDER each engine's factory
  * presets and then its native user slots, then the general user presets. LIST (KNOB 4 of PRESETS) shows all of it, the
  * favourites (FAV, favorites.filter as before), the sounds loaded lately (RECENT, kept in RAM) or one category.

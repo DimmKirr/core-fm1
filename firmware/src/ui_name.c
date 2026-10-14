@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee UI: NAME, naming a user preset or a project on the device (included by ui_input.c).
  *
  * Where: SAVE > USER, SAVE (KNOB 4, OCT+) and SAVE > PROJECT, SAVE: after the OVERWRITE? dialog when the slot is
@@ -330,11 +331,11 @@ static void nm_title(char *b)
  * back, OCT+ Save (or Rename; dim while it cannot write) */
 static void nm_draw_name(void)
 {
-    char b[24], c[2] = {0, 0};
+    char b[40], c[2] = {0, 0};
     uint32_t i, empty = nm.len == 0u, first = 0, n = empty ? str_len(nm.ph) : nm.len;
-    const aafont_t *f = name_limit() <= NM_LEN ? &AF_L : &AF_M;
-    int32_t x, w = 0;
-    cv_begin(240, 18, T_BG);                            /* "Save U07", "7 / 12" */
+    const aafont_t *f = name_limit() <= NM_LEN ? TY_VL : TY_TX, *lf = TY_LB;
+    int32_t x, w = 0, cy = 28, bt = cy - f->cap / 2 - 6, bh = f->cap + 12;
+    cv_begin(240, 22, T_BG);                            /* "Save U07", "7 / 12" (the label face) */
     nm_title(b);
     for (i = 1, x = 0; b[i]; i++) {                     /* "SAVE PROJECT C" -> "Save project C"; U07, CZ kept */
         uint32_t e = i, alpha = 1;
@@ -346,73 +347,85 @@ static void nm_draw_name(void)
     }
     for (i = 1; b[i] && b[i] != ' '; i++)
         if (b[i] >= 'A' && b[i] <= 'Z') b[i] = (char)(b[i] + 32);
-    cv_text_on(10, 3, &AF_X, b, T_MID, T_BG);
+    cv_text_on(12, ty_y(11, lf), lf, b, T_MID, T_BG);
     fmt_int(b, nm.len);
     str_cpy(b + str_len(b), " / ", 4);
     fmt_int(b + str_len(b), (int32_t)name_limit());
-    cv_text_r(230, 3, &AF_X, b, nm.len >= name_limit() ? T_THEME : T_MID, T_BG);
-    cv_blit(0, 26);
-    for (i = nm.cur; i > 0u; i--) {                     /* (the window: the cursor's letter in the 210 px) */
-        c[0] = i - 1u < n ? (empty ? nm.ph[i - 1u] : nm.s[i - 1u]) : ' ';
-        w += text_w(f, c) + 2;
-        if (w > 204) { first = i; break; }
-    }
-    cv_begin(240, 52, T_BG);
-    for (i = first, x = 12; i <= n && i <= nm.cur + 12u && x < 228; i++) {
-        int on = !empty && i == nm.cur && i < n;
-        c[0] = i < n ? (empty ? nm.ph[i] : nm.s[i]) : 0;
-        if (!c[0]) {                                    /* at the end: where the next one goes */
-            if (i == nm.cur)
-                cv_rrect(x + 1, f == &AF_L ? 8 : 18, 3, f == &AF_L ? 32 : 18, 1, T_THEME, T_BG);
-            break;
+    cv_text_r(228, ty_y(11, lf), lf, b, nm.len >= name_limit() ? T_THEME : T_MID, T_BG);
+    cv_blit(0, H_HEAD);
+    {   /* the name in one kerned string from the first letter that keeps the cursor's in 200 px; the cursor's letter
+         * on the track's colour over it, at the end a bar */
+        const char *src = empty ? nm.ph : nm.s;
+        char v[40], ch[2] = {0, 0};
+        uint32_t m;
+        for (first = 0; first < nm.cur; first++) {
+            m = (nm.cur < n ? nm.cur + 1u : n) - first;
+            str_cpy(v, src + first, m + 1u < sizeof v ? m + 1u : sizeof v);
+            if (text_w(f, v) <= 200)
+                break;
         }
-        w = text_w(f, c);
-        if (on)
-            cv_rrect(x - 1, f == &AF_L ? 6 : 16, w + 2, f == &AF_L ? 36 : 20, 4, T_THEME, T_BG);
-        cv_text_on(x, f == &AF_L ? 6 : 17, f, c, on ? T_INK : empty ? T_DIM : T_TEXT, on ? T_THEME : T_BG);
-        x += w + 2;
+        str_cpy(v, src + first, n - first + 1u < sizeof v ? n - first + 1u : sizeof v);
+        while (v[0] && text_w(f, v) > 214)
+            v[str_len(v) - 1u] = 0;
+        cv_begin(240, 60, T_BG);
+        m = nm.cur - first;                             /* (the cursor's place in v) */
+        if (empty || m >= str_len(v)) {                 /* (at the end: the name, then a bar where the next goes) */
+            x = cv_text_on(12, ty_y(cy, f), f, v, empty ? T_DIM : T_TEXT, T_BG);
+            if (!empty)
+                cv_rrect(x + 1, bt + 2, 3, bh - 4, 1, T_THEME, T_BG);
+        } else {                                        /* (before it, the cursor's letter on the track's colour, after) */
+            str_cpy(b, v, m + 1u);
+            ch[0] = v[m];
+            w = text_w(f, ch);
+            x = cv_text_on(12, ty_y(cy, f), f, b, T_TEXT, T_BG) + 4;   /* (the box 2 px clear of its neighbours) */
+            cv_rrect(x - 2, bt, w + 4, bh, 5, T_THEME, T_BG);
+            cv_text_on(x, ty_y(cy, f), f, ch, T_INK, T_THEME);
+            cv_text_on(x + w + 4, ty_y(cy, f), f, v + m + 1, T_TEXT, T_BG);
+        }
     }
-    cv_rect(10, 48, 220, 1, T_LINE);
-    cv_blit(0, 46);
-    {                                                   /* the characters around the cursor's */
+    cv_rect(10, 56, 220, 1, T_LINE);
+    cv_blit(0, H_HEAD + 22);
+    {                                                   /* the characters around the cursor's (the cursor's large, in
+                                                         * a ring) */
         uint32_t at = 0, len = sizeof NM_SET - 1u;
         int32_t d;
         char ch = !empty && nm.cur < nm.len ? nm.s[nm.cur] : ' ';
         while (at < len && NM_SET[at] != ch) at++;
         if (at >= len) at = 0;
-        cv_begin(240, 30, T_BG);
-        for (d = -4; d <= 4; d++) {
+        cv_begin(240, 46, T_BG);
+        for (d = -3; d <= 3; d++) {
             uint32_t j = (uint32_t)(((int32_t)at + d + (int32_t)len) % (int32_t)len);
-            int32_t cx = 120 + d * 24;
+            int32_t cx = 120 + d * 32;
             c[0] = NM_SET[j];
             if (!d) {
-                cv_rrect(cx - 13, 1, 26, 28, 6, T_THEME, T_BG);
-                cv_rrect(cx - 11, 3, 22, 24, 5, T_LIFT, T_THEME);
+                cv_rrect(cx - 19, 2, 38, 42, 8, T_THEME, T_BG);
+                cv_rrect(cx - 17, 4, 34, 38, 7, T_LIFT, T_THEME);
             }
             if (c[0] == ' ')
-                cv_disc(cx, 15, 3, d ? T_DIM : T_TEXT, 0);
+                cv_disc(cx, 23, 5, d ? T_DIM : T_TEXT, 0);
             else if (!d)
-                cv_text_c(cx, 6, &AF_M, c, T_TEXT, T_LIFT);
+                cv_text_c(cx, ty_y(23, TY_VL), TY_VL, c, T_TEXT, T_LIFT);
             else
-                cv_text_c(cx, 9, &AF_S, c, d == 1 || d == -1 ? T_SEC : d == 2 || d == -2 ? T_MID : T_DIM, T_BG);
+                cv_text_c(cx, ty_y(23, TY_TX), TY_TX, c, d == 1 || d == -1 ? T_SEC : d == 2 || d == -2 ? T_MID : T_DIM,
+                          T_BG);
         }
-        cv_blit(0, 114);
+        cv_blit(0, H_HEAD + 86);
     }
-    cv_begin(240, 18, T_BG);                            /* ABC / 123 */
-    cv_text_c(104, 3, &AF_X, "ABC", nm.num ? T_MID : T_THEME, T_BG);
-    cv_text_c(136, 3, &AF_X, "123", nm.num ? T_THEME : T_MID, T_BG);
-    cv_blit(0, 156);
-    {                                                   /* the keys */
+    cv_begin(240, 30, T_BG);                            /* ABC / 123: what the white keys type */
+    cv_text_c(94, ty_y(15, TY_TX), TY_TX, "ABC", nm.num ? T_MID : T_THEME, T_BG);
+    cv_text_c(146, ty_y(15, TY_TX), TY_TX, "123", nm.num ? T_THEME : T_MID, T_BG);
+    cv_blit(0, H_HEAD + 138);
+    {                                                   /* the keys: OCT- back, OCT+ Save */
         int ok = !transport_busy();
         const char *go = nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE ? "Save" : "Rename";
-        int32_t gw = text_w(&AF_S, go) + 30;
-        cv_begin(240, 24, T_BG);
-        cv_rrect(6, 2, 40, 20, 5, T_SURF, T_BG);
-        cv_icon_mid(20, 12, 12, ICON_X_UNDO, T_MID, T_SURF);
-        cv_rrect(234 - gw, 2, gw, 20, 5, ok ? T_THEME : T_SURF, T_BG);
-        cv_icon_mid(234 - gw + 8, 12, 12, ICON_X_CHECK, ok ? T_INK : T_DIM, ok ? T_THEME : T_SURF);
-        cv_text_on(234 - gw + 22, 4, &AF_S, go, ok ? T_INK : T_DIM, ok ? T_THEME : T_SURF);
-        cv_blit(0, 212);
+        int32_t gw = text_w(TY_TX, go) + 42;
+        cv_begin(240, H_FOOT, T_BG);
+        cv_rrect(4, 2, 48, 24, 6, T_SURF, T_BG);
+        cv_icon_mid(20, 14, 16, ICON_X_UNDO, T_MID, T_SURF);
+        cv_rrect(236 - gw, 2, gw, 24, 6, ok ? T_THEME : T_SURF, T_BG);
+        cv_icon_mid(236 - gw + 10, 14, 16, ICON_X_CHECK, ok ? T_INK : T_DIM, ok ? T_THEME : T_SURF);
+        cv_text_on(236 - gw + 32, ty_y(14, TY_TX), TY_TX, go, ok ? T_INK : T_DIM, ok ? T_THEME : T_SURF);
+        cv_blit(0, Y_FOOT);
     }
 }
 static void name_draw(void)

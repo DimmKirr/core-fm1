@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Update an existing Pages checkout with next nightlies; preserve its release, editor, and manual."""
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+"""Update an existing Pages checkout with next nightlies; preserve its release editor, and manual."""
 import argparse
 from make_site import main, release_packages
 

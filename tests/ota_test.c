@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of firmware/src/ota.c: a fake M-UPGRADE serves a real .fwsc over
  * the SysEx protocol (pack7, cmd 0x30 reads, 0xE0000000 -> "success") and a
  * simulated NOR plays the flash.
@@ -134,6 +135,7 @@ static void ota_show(uint32_t step, int32_t code) { if (step == 9) last_code = c
 static void ota_commit(const uint8_t *parm) { committed = 1; memcpy(committed_parm, parm, 112); }
 
 #include "../firmware/src/ota.c"
+#include "../firmware/stub/stub_core.h"
 
 static uint32_t ota_body_off(void)                  /* ota.bin data + 0x20 in the logical image */
 {
@@ -224,6 +226,30 @@ int main(int argc, char **argv)
                      (p[6] | p[7] << 8) == 0x5441 && ota_rd32(p + 72) == 0xE0000);
         bad += check("nothing written outside 0xE0000..0xE4FFF", bad_erase == 0);
     }
+    /* The streaming app check and the stub's XIP check must agree. Include
+     * damage to headers, block metadata, payloads and the unused tail. */
+    {
+        int mismatch=0;
+        bad += check("app and stub accept the actual staged loader",ota_staged() && stub_loader_check(nor+OTA_AREA)==STUB_LD_OK);
+        for (uint32_t off=0;off<OTA_AREA_LEN;off++) {
+            uint8_t bit=(uint8_t)(1u<<(off&7u));
+            nor[OTA_AREA+off]^=bit;
+            mismatch |= (ota_staged()!=0)!=(stub_loader_check(nor+OTA_AREA)==STUB_LD_OK);
+            nor[OTA_AREA+off]^=bit;
+        }
+        bad += check("app/stub loader checks agree on 20,480 damaged copies",!mismatch);
+    }
+    /* A successful install retains its loader for the boot stub. */
+    testing_cleanup=1;
+    bad += check("boot retains loader, erases only record", ota_boot_cleanup()==2 && ota_staged() && nor[OTA_RES]==0xFFu);
+    bad += check("record cleanup reports one completed sector",maintenance_begins==1u && maintenance_done==1u && !maintenance_failed && !maintenance_bad);
+    bad += check("next boot keeps loader without erasing",ota_boot_cleanup()==0 && maintenance_begins==1u);
+    nor[OTA_RES]=0;cleanup_fail_after=0;
+    bad += check("record erase failure keeps loader for retry",ota_boot_cleanup()<0 && ota_staged() && maintenance_failed);
+    cleanup_fail_after=-1;
+    bad += check("record erase retry keeps loader",ota_boot_cleanup()==2 && ota_staged());
+    /* Damaged staging is erased, with existing progress and retry behavior. */
+    nor[OTA_AREA]^=1u;maintenance_begins=0;
     /* boot cleanup erases it, visibly, and detects incomplete erases on retry. */
     testing_cleanup=1;
     bad += check("boot cleanup erases the area", ota_boot_cleanup() == 1 && area_erased());

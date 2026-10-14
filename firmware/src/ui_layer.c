@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee quick layers: while a page button is held, the keys and KNOB 1..4
  * are its shortcuts and its map shows over the page. One table (LAYERS) drives the gesture, the keys, the knobs,
  * the LEDs and the overlay:
@@ -389,7 +390,6 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
     return oct & ~mine;
 }
 
-static const char W_NOTE[16];
 /* --------------------------------------------------------- the LEDs --- */
 /* lit = in effect now (held, the value, a track sounding), slow blink = can be pressed, dark = nothing there */
 static int glo_sounding(uint32_t t) { return !trk[t].p[P_MUTE] && (!track_solo || ((track_solo >> t) & 1u)); }
@@ -421,13 +421,7 @@ static uint32_t layer_leds(void)
  * map of the keys as cells (the key's note name, an icon, a name); the footer the keycaps. A cell: RAISE
  * (can be pressed), the selection's fill (the value now, SET), the accent (held, HOLD), DIM (cannot now: pressing
  * it says why), KEY (a muted track, as the MUTE badge); HOLD cells in a SET layer: a corner triangle */
-static const char W_NOTE[16] = {'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G'};
-static const char B_NOTE[NTRK] = {'F', 'G', 'A', 'C'};  /* black keys 1..4: F# G# A# C# */
-#define LC_X(c) (6 + 58 * (int32_t)(c))                 /* cell column c: 54 px wide, 4 px apart */
-#define LC_W 54
-#define LC_H 42                                          /* the big cells: rows at y 4 and 50 */
-#define LM_Y 96                                          /* the black keys' row (22 px) */
-#define LM_H 22
+#define LY_ROW 24                                        /* (large type) the EDIT and SCL cells: 22 px, 24 apart */
 enum { LS_OFF, LS_SEL, LS_HELD, LS_WAIT, LS_DIM, LS_MUTE };
 
 static uint16_t lc_fill(uint32_t st, uint16_t *ink)
@@ -447,66 +441,21 @@ static uint16_t lc_fill(uint32_t st, uint16_t *ink)
     }
     return T_RAISE;
 }
-/* a cell at x, y, h px high: big (h > 30) the icon over the name; a name: compact, the icon at the right (none: no
- * icon); else a black key's: two icons at the right. tri: a HOLD cell in a SET layer */
-static void lcell(int32_t x, int32_t y, int32_t h, const char *note, uint32_t icon, uint32_t icon2, const char *name,
-                  uint32_t st, int tri)
+static void layer_scl(void)                             /* KNOB 2's scales as a list (their names in full), four
+                                                         * around the one now selected (filled) */
 {
-    uint16_t ink, fill = lc_fill(st, &ink);
-    cv_rrect(x, y, LC_W, h, 4, fill, T_SURF);
-    if (note)
-        cv_text_on(x + 5, y + 3, &AF_S, note, fill == T_RAISE ? T_MID : ink, fill);
-    if (h > 30) {
-        cv_icon_on(x + (LC_W - 16) / 2, y + 4, 16, icon, ink, fill);
-        cv_text_c(x + LC_W / 2, y + 23, &AF_S, name, ink, fill);
-    } else if (name && h > 24) {
-        cv_icon_on(note ? x + LC_W - 17 : x + 5, y + 4, 12, icon, ink, fill);
-        cv_text_c(x + LC_W / 2, y + 15, &AF_S, name, ink, fill);
-    } else if (name) {
-        if (!note && icon < ICON_COUNT) {                  /* (the EDIT layer: the engine's icon instead of the key) */
-            cv_icon_on(x + 3, y + (h - 12) / 2, 12, icon, ink, fill);
-            cv_text_r(x + LC_W - 3, y + 5, &AF_S, name, ink, fill);
-        } else {
-            cv_text_r(x + LC_W - 5, y + 5, &AF_S, name, ink, fill);
-        }
-    } else {
-        cv_icon_on(x + LC_W - 31, y + 5, 12, icon, ink, fill);
-        cv_icon_on(x + LC_W - 17, y + 5, 12, icon2, ink, fill);
-    }
-    if (tri) {
-        int32_t j;
-        for (j = 0; j < 4; j++)
-            cv_rect(x + LC_W - 7 + j, y + 2 + j, 4 - j, 1, ink);
-    }
-}
-static void bnote(char *n, uint32_t t) { n[0] = B_NOTE[t]; n[1] = '#'; n[2] = 0; }
-
-
-static void layer_glo(void)
-{
-    uint32_t e;
-    char n[3] = {0, 0, 0};
-    for (e = 0; e < NTRK; e++) {                        /* F3 .. B3: SOLO while held */
-        n[0] = W_NOTE[e];
-        lcell(LC_X(e), 4, LC_H, n, trk_icon(e, 0), 0, "SOLO", (track_solo >> e) & 1u ? LS_HELD : LS_OFF, 1);
-    }
-    n[0] = 'C';
-    lcell(LC_X(0), 50, LC_H, n, ICON_MUTE, 0, "ALL", LS_OFF, 0);   /* (unmute all) */
-    n[0] = 'F';
-    lcell(LC_X(3), 50, LC_H, n, ICON_TEMPO, 0, "TAP", song.g[G_CLOCK] ? LS_DIM : LS_OFF, 0);
-    for (e = 0; e < NTRK; e++) {                        /* the black keys 1..4: MUTE, latched */
-        bnote(n, e);
-        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0, trk[e].p[P_MUTE] ? LS_MUTE : LS_OFF, 0);
-    }
-}
-static void layer_scl(void)                             /* KNOB 2's scales, 4 x 4, the one now selected */
-{
-    uint32_t i, sc = (uint32_t)TSEL->p[P_SCALE], base = sc / 16u * 16u;
-    for (i = 0; i < 16u && base + i <= (uint32_t)TP[P_SCALE].max; i++) {
-        int32_t x = LC_X(i % 4u), y = 4 + 29 * (int32_t)(i / 4u);
-        uint16_t ink, fill = lc_fill(base + i == sc ? LS_SEL : LS_OFF, &ink);
-        cv_rrect(x, y, LC_W, 25, 4, fill, T_SURF);
-        cv_text_c(x + LC_W / 2, y + 7, &AF_S, TP[P_SCALE].names[base + i], ink, fill);
+    uint32_t i, sc = (uint32_t)TSEL->p[P_SCALE], max = (uint32_t)TP[P_SCALE].max, first;
+    first = sc > 1u ? sc - 1u : 0u;
+    if (max >= 3u && first > max - 3u)
+        first = max - 3u;
+    for (i = first; i < first + 4u && i <= max; i++) {
+        int32_t y = 3 + 30 * (int32_t)(i - first);
+        uint16_t ink, fill = lc_fill(i == sc ? LS_SEL : LS_OFF, &ink);
+        const char *t = SCALE_TITLE[i];
+        const aafont_t *f = ty_fit(TY_TX, t, 200);
+        if (i == sc)
+            cv_rrect(8, y, 224, 28, 8, fill, T_SURF);
+        cv_free_text(18, ty_y(y + 14, f), f, t, i == sc ? ink : T_SEC, i == sc ? fill : T_SURF, 200);
     }
 }
 /* the white keys' sections (an operator's: on the black keys), and the black keys' operators */
@@ -527,26 +476,35 @@ static uint32_t ly_op_sec(uint32_t p)
         ;
     return p < 6u && k < sec.n ? k : SEC_MAX;
 }
-/* the sections on the white keys (4 a row), the black keys' operators and actions (5 a row), the sound under them */
+/* the sections on the white keys (4 a row), the black keys' operators (6 a row) and actions (4 a row), the sound
+ * under them */
 static void layer_edit(void)
 {
     uint32_t i, n = 0, cur = sec_on() ? sec_of(ui.page) : SEC_MAX, nb;
-    int32_t y = 4;
-    for (i = 0; i < SEC_MAX && ly_white_sec(i) < sec.n; i++, n++) {
+    int32_t y = 2;
+    for (i = 0; i < SEC_MAX && ly_white_sec(i) < sec.n; i++, n++) {   /* (the white keys: 4 a row) */
         uint32_t sk = ly_white_sec(i);
-        lcell(LC_X(i % 4u), y + 24 * (int32_t)(i / 4u), 20, 0, ICON_NONE, 0, sec.name[sk], sk == cur ? LS_SEL : LS_OFF, 0);
+        uint16_t ink, fill = lc_fill(sk == cur ? LS_SEL : LS_OFF, &ink);
+        int32_t x = 3 + 59 * (int32_t)(i % 4u), yy = y + LY_ROW * (int32_t)(i / 4u);
+        cv_rrect(x, yy, 57, LY_ROW - 2, 6, fill, T_SURF);
+        cv_text_fit(x + 28 - (text_w(TY_LB, sec.name[sk]) < 53 ? text_w(TY_LB, sec.name[sk]) : 53) / 2,
+                    ty_y(yy + 11, TY_LB), TY_LB, sec.name[sk], ink, fill, 53);
     }
-    y += 24 * (int32_t)((n + 3u) / 4u);
-    nb = ly_op_sec(0) < sec.n ? 6u : 0u;                /* (FM6: its operators first) */
+    y += LY_ROW * (int32_t)((n + 3u) / 4u);
+    nb = ly_op_sec(0) < sec.n ? 6u : 0u;                /* (the black keys; FM6: its operators first, a row of six) */
     for (i = 0; i < nb + 4u; i++) {
-        int32_t x = 6 + 46 * (int32_t)(i % 5u), yy = y + 24 * (int32_t)(i / 5u);
-        uint32_t sk = i < nb ? ly_op_sec(i) : SEC_MAX, a = i - nb;
-        int st = i < nb ? (sk == cur ? LS_SEL : LS_OFF) : a == 0u && chain_busy() ? LS_DIM : LS_OFF;
+        int op = i < nb, cw = op ? 37 : 57;
+        int32_t x = 3 + (op ? 39 * (int32_t)i : 59 * (int32_t)(i - nb)), yy = y + (op || !nb ? 0 : LY_ROW);
+        uint32_t sk = op ? ly_op_sec(i) : SEC_MAX, a = i - nb;
+        int st = op ? (sk == cur ? LS_SEL : LS_OFF) : a == 0u && chain_busy() ? LS_DIM : LS_OFF;
         uint16_t ink, fill = lc_fill((uint32_t)st, &ink);
-        cv_rrect(x, yy, 42, 20, 4, fill, T_SURF);
-        cv_text_c(x + 21, yy + 4, &AF_X, i < nb ? sec.name[sk] : LY_ACT_NAME[a], ink, fill);
+        char w[12];
+        menu_words(w, op ? sec.name[sk] : LY_ACT_NAME[a], sizeof w);   /* ("STORE" -> "Store") */
+        cv_rrect(x, yy, cw, LY_ROW - 2, 6, fill, T_SURF);
+        cv_text_fit(x + cw / 2 - (text_w(TY_LB, w) < cw - 4 ? text_w(TY_LB, w) : cw - 4) / 2, ty_y(yy + 11, TY_LB), TY_LB, w,
+                    ink, fill, cw - 4);
     }
-    engine_sound_row(104);
+    engine_sound_row(H_GRAPH - 30);
 }
 
 /* GLO held (docs/design: mock/r6_pages GLO): the keys as a keyboard: the black keys MUTE 1..4 (muted: red), the white
@@ -556,21 +514,20 @@ static void layer_glo_keys(int32_t h)
     static const char *const WL[8][2] = {{"Solo", "1"}, {"Solo", "2"}, {"Solo", "3"}, {"Solo", "4"}, {"Mute", "all"},
                                          {"", ""}, {"", ""}, {"Tap", "bpm"}};
     static const uint8_t BX[NTRK] = {0, 1, 2, 4};       /* black key t: between white BX and BX + 1 (F# G# A# C#) */
-    const int32_t kw = 28, x0 = 1, wy = 68, by = 24, bh = 38;
+    const int32_t kw = 28, x0 = 1, wy = 50, by = 6, bh = 40;
     uint32_t i;
-    cv_text_on(8, 6, &AF_X, "Keys", T_MID, T_PANEL);
-    for (i = 0; i < 8u; i++) {
+    for (i = 0; i < 8u; i++) {                          /* the white keys: the solos' numerals, All (unmute), Tap */
         int32_t x = x0 + (int32_t)i * (kw + 1);
         int on = i < NTRK && ((track_solo >> i) & 1u), none = !WL[i][0][0] || (i < NTRK && i >= trk_n()),
             dim = i == 7u && song.g[G_CLOCK];
-        uint16_t f = on ? T_TRK(i) : none ? ux_mix(T_PANEL, T_SURF, 50) : T_SURF, ink = on ? T_INK : dim ? T_DIM : T_TEXT;
+        uint16_t f = on ? T_TRK(i) : none ? ux_mix(T_PANEL, T_SURF, 50) : T_SURF, ink = on ? T_INK : dim ? T_DIM :
+                     i < NTRK ? T_TRK(i) : T_TEXT;
         cv_rrect(x, wy, kw, h - wy - 6, 4, f, T_PANEL);
-        if (!none) {
-            cv_text_c(x + kw / 2, h - 36, &AF_X, WL[i][0], ink, f);
-            cv_text_c(x + kw / 2, h - 23, &AF_X, WL[i][1], ink, f);
-        }
+        if (!none)
+            cv_text_c(x + kw / 2, ty_y(h - 26, i < NTRK ? TY_TX : TY_LB), i < NTRK ? TY_TX : TY_LB,
+                      i < NTRK ? WL[i][1] : i == 4u ? "All" : "Tap", ink, f);
     }
-    for (i = 0; i < NTRK; i++) {
+    for (i = 0; i < NTRK; i++) {                        /* the black keys: the mutes (muted: red) */
         int32_t x = x0 + (int32_t)(BX[i] + 1u) * (kw + 1) - 14;
         int m = trk[i].p[P_MUTE] != 0;
         uint16_t f = m ? T_REC : T_LIFT;
@@ -580,8 +537,8 @@ static void layer_glo_keys(int32_t h)
             continue;
         }
         cv_rrect(x, by, 26, bh, 4, f, T_PANEL);
-        cv_text_c(x + 13, by + bh - 28, &AF_X, "Mute", m ? T_TEXT : T_SEC, f);
-        cv_text_c(x + 13, by + bh - 15, &AF_X, n, m ? T_TEXT : T_SEC, f);
+        cv_icon_mid(x + 5, by + 12, 16, ICON_MUTE, m ? T_TEXT : T_SEC, f);
+        cv_text_c(x + 13, ty_y(by + bh - 10, TY_LB), TY_LB, n, m ? T_TEXT : T_SEC, f);
     }
 }
 
@@ -621,13 +578,11 @@ static void draw_layer(void)
         uint8_t cs = col_style;
         if (ui.force)
             lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
-        col_style = CS_STRIP;
-        pv_strip_y = 24;
+        col_style = CS_CARD;
         for (c = 0; c < NTRK; c++)
-            pv_strip_tc[c] = T_TRK(c);
+            card_tc[c] = T_TRK(c);
         layer_cards(l);
-        memset(pv_strip_tc, 0, sizeof pv_strip_tc);
-        pv_strip_y = PV_STRIP_Y;
+        memset(card_tc, 0, sizeof card_tc);
         col_style = cs;
     } else {
         layer_cards(l);
@@ -643,18 +598,16 @@ static void draw_layer(void)
     if (l == LAYER_GLO) {                               /* (R6: levels at the top, the keys as a keyboard under them) */
         if (ui.force || sig != ui.layer_sig) {
             ui.layer_sig = sig;
-            pv_panel(62, 174, layer_glo_keys);
+            pv_panel(Y_GRAPH, 240 - Y_GRAPH - 2, layer_glo_keys);
         }
         return;
     }
     if (ui.force || sig != ui.layer_sig) {
         ui.layer_sig = sig;
         cv_begin(240, H_GRAPH, T_BG);
-        cv_rrect(3, 0, 234, H_GRAPH, 5, T_SURF, T_BG);
+        cv_rrect(BOX_X, 0, BOX_W, H_GRAPH, 6, T_SURF, T_BG);
         cv_bg = T_SURF;
-        if (l == LAYER_GLO)
-            layer_glo();
-        else if (l == LAYER_SCL)
+        if (l == LAYER_SCL)
             layer_scl();
         else
             layer_edit();
@@ -662,7 +615,7 @@ static void draw_layer(void)
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
         cv_begin(240, H_FOOT, T_BG);
-        cv_key_row(8, 232, 9, LAYERS[l].foot, LAYERS[l].foot[2].act ? 3u : 2u, 7u, T_BG);
+        cv_key_row(4, 236, (H_FOOT - KC_PH) / 2, LAYERS[l].foot, LAYERS[l].foot[2].act ? 3u : 2u, 7u, T_BG);
         cv_blit(0, Y_FOOT);
         ui.foot_sig = 0;
     }

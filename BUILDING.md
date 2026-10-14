@@ -85,7 +85,7 @@ Build options (environment; most use `0` or `1`; defaults in `firmware/src/build
 | --- | --- | --- |
 | `MELODEE_FLASH` | 1 | settings, presets and projects in flash |
 | `MELODEE_OTA` | 1 | update entry (needs `MELODEE_FLASH`) |
-| `MELODEE_USB_AUDIO` | 1 | USB audio: "Melodee Out" plays the computer through the FM-1, "Melodee In" records the four tracks (16 / 24 bit, 44.1 kHz) |
+| `MELODEE_USB_AUDIO` | 1 | One duplex "Melodee" device: stereo playback and stereo master recording or optional four-track mono recording (16 / 24 bit, 44.1 kHz) |
 | `MELODEE_CDC` | 0 (1 without USB audio) | USB serial console; it shares EP2 / EP3 with USB audio, so `MELODEE_USB_AUDIO=0` |
 | `MELODEE_UART` | 1 | TRS MIDI IN |
 | `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; `0` builds serial-only firmware |
@@ -219,6 +219,16 @@ Installing firmware is at your own risk. If an install fails and the FM-1 no lon
 starts, identify its recovery mode using the steps below.
 
 ### Recover a black-screen FM-1
+
+Builds with the boot stub can recover an interrupted application write after power loss.
+Switch on again, or hold **OCT− alone** while switching on: three short key-light flashes
+mean the USB MIDI update loader is starting. Reconnect USB and install the same package
+again; already verified sectors are skipped. Both octave buttons at power-on still enter
+calibration. One long flash means ROM UBOOT; use the recovery steps below.
+
+The first install of the stub, an intentional stub change, and installing firmware without
+the stub still have an unprotected window. Keep the FM-1 charged and the computer awake.
+See [boot protection design and validation](docs/BOOT-SAFETY.md).
 
 If the device appears as **Melodee Update**, it is in the MIDI update loader:
 `python3 tools/fm1_install.py /path/to/working-firmware.fwsc --yes` resumes installation.

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Shared, synchronous progress for boot maintenance. No timer IRQ, audio or
  * normal UI loop is needed: flush the warning before any flash write begins.
  * Errors remain on screen until acknowledged; callers retain their write guards. */
@@ -10,40 +10,55 @@ static struct {
     uint8_t presets;                           /* 0 other maintenance, 1 migration, 2 wiping */
 } boot_work;
 
+/* (large type) a text centred, wrapped onto the lines it needs (nothing cut); returns the y under it */
+static int32_t boot_lines(int32_t y, const aafont_t *f, const char *s, uint16_t c, int32_t step)
+{
+    char l[4][32];
+    uint32_t n = text_lines(s, l, 3u, 228, f), i;
+    for (i = 0; i < n; i++, y += step)
+        draw_text_box(6, (uint32_t)y, 228, f, l[i], c, 1);
+    return y;
+}
+static void boot_keys(const char *dn, const char *up)   /* OCT- / OCT+ and what they do, at the foot */
+{
+    khint_t kh[2] = {{KC_OCTDN, dn}, {KC_OCTUP, up}};
+    cv_begin(240, KC_PH + 4, T_BG);
+    cv_key_row(8, 232, 2, dn ? kh : kh + 1, dn ? 2u : 1u, 3u, T_BG);
+    cv_blit(0, 240 - KC_PH - 8);
+}
 static void boot_work_draw(void)
 {
     char count[24];
+    int32_t y;
     lcd_fill(0, 0, 240, 240, T_BG);
-    draw_text_box(12, 28, 216, &AF_S, "STARTUP MAINTENANCE", T_MID, 1);
-    draw_text_box(12, 60, 216, &AF_M, boot_work.title, T_TEXT, 1);
+    draw_text_box(12, 12, 216, TY_LB, "Startup maintenance", T_MID, 1);
+    y = boot_lines(40, TY_TX, boot_work.title, T_TEXT, 26);
     if (boot_work.state == 3u) {
-        draw_text_box(12, 98, 216, &AF_M, "WIPE ALL USER PRESETS?", T_THEME, 1);
-        draw_text_box(12, 130, 216, &AF_S, "All engines. Cannot be undone.", T_TEXT, 1);
-        draw_text_box(12, 154, 216, &AF_S, "Projects and settings are kept.", T_MID, 1);
-        draw_text_box(12, 190, 216, &AF_S, "OCT- to go back", T_MID, 1);
-        draw_text_box(12, 214, 216, &AF_S, "OCT+ to wipe and continue", T_THEME, 1);
+        y = boot_lines(y + 12, TY_TX, "Wipe all user presets?", T_THEME, 26);
+        y = boot_lines(y + 8, TY_LB, "Every engine's. No undo.", T_TEXT, 20);
+        boot_lines(y + 2, TY_LB, "Projects and settings stay.", T_MID, 20);
+        boot_keys("BACK", "WIPE");
     } else if (boot_work.state == 2u) {
-        draw_text_box(12, 98, 216, &AF_M, "COULD NOT FINISH", T_THEME, 1);
-        draw_text_box(12, 134, 216, &AF_S, "Restart to retry", T_TEXT, 1);
-        if (boot_work.presets)
-            draw_text_box(12, 178, 216, &AF_S, "OCT- to wipe presets", T_THEME, 1);
-        draw_text_box(12, 204, 216, &AF_S,
-                      boot_work.presets == 1u ? "OCT+ to keep and continue" : "OCT+ to continue", T_THEME, 1);
+        y = boot_lines(y + 12, TY_TX, "Could not finish", T_THEME, 26);
+        boot_lines(y + 8, TY_LB, "Restart to retry", T_TEXT, 20);
+        boot_keys(boot_work.presets ? "WIPE" : 0, boot_work.presets == 1u ? "KEEP" : "CONTINUE");
     } else {
         uint32_t width = boot_work.total ? 200u * boot_work.done / boot_work.total : 0u;
         fmt_int(count, boot_work.done);
         uint32_t n = str_len(count);
         str_cpy(count + n, " / ", sizeof count - n);
         fmt_int(count + str_len(count), boot_work.total);
-        draw_text_box(12, 98, 216, &AF_M, count, T_THEME, 1);
-        lcd_fill(20, 130, 200, 8, T_LINE);
-        if (width) lcd_fill(20, 130, width, 8, T_THEME);
-        draw_text_box(12, 163, 216, &AF_M,
-                      boot_work.state ? "KEEP POWER CONNECTED" : "COMPLETE", T_TEXT, 1);
-        draw_text_box(12, 190, 216, &AF_S,
-                      boot_work.state ? "Please wait. Do not switch off." : "Starting up...", T_MID, 1);
+        draw_text_box(12, (uint32_t)y + 10, 216, TY_VL, count, T_THEME, 1);
+        y += 10 + TY_VL->h + 8;
+        lcd_fill(20, y, 200, 8, T_LINE);
+        if (width) lcd_fill(20, y, width, 8, T_THEME);
+        y = boot_lines(y + 22, TY_TX, boot_work.state ? "Keep power connected" : "Complete", T_TEXT, 26);
+        boot_lines(y + 4, TY_LB, boot_work.state ? "Do not switch off." : "Starting up...", T_MID, 20);
     }
     lcd_sync();                                 /* physically visible before erases/programs */
+#ifdef FM1_IRQ_TARGET
+    fm1_wdt_feed();
+#endif
 }
 static void boot_work_begin(const char *title, uint32_t total, uint32_t presets)
 {

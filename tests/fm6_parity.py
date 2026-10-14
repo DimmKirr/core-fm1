@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """FM6 against Dexed, sample by sample (tests/fm6_parity.sh builds the two renderers).
 
 Scores (tests/fm6_score.h) of the factory voices and random DX7 voices, in the three engines,

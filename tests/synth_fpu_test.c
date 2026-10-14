@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Numerical contracts for native fp32 synthesis. Reference calculations use
  * host doubles/libm, independently of the target's tables and fast math. */
 #define main hostsim_main

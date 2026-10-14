@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* FM6's AMS share (eng_fm6.c fm6_ams_pt) against Dexed's double reference, within 4 ppm plus one output unit for every modulation:
  * pt = exp((float)sa / 262144 * 0.07 + 12.2), sa = 1 .. 2^24 (host libm, as Dexed runs). */
 #define main hostsim_main

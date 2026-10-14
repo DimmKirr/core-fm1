@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE user interface.
  * Flat: SURF cards and panels on the palette's background, no rules, one type family (Rubik, three sizes), tracks
  * named by circled numerals. Four columns <-> KNOB 1..4. Rendering is lazy:
@@ -75,10 +76,14 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "favorites.c"
 /* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..4 retired (OVERCLOCK until
- * 1.3.4 / 1.4: left as saved, never read). */
+ * 1.3.4 / 1.4: left as saved, never read), bit 5 PICKER OFF, bit 6 FONT PIXEL, bit 7 STAGE EFFECTS OFF. */
 #define PREF_BITS (favorites.factory[15][30])
 #define PREF_ACCEL_OFF 2u
 #define PREF_PICK_OFF 32u
+#define PREF_PIXEL 64u                         /* Settings > FONT: PIXEL (else RUBIK) */
+#define PREF_GLOW_OFF 128u                     /* Settings > STAGE EFFECTS: OFF (HOME's light, ui_glow.c) */
+#define TY_PIXEL ty_pixel()
+static uint32_t ty_pixel(void) { return (PREF_BITS & PREF_PIXEL) != 0u; }   /* (gfx.c TY_*: the type's roles) */
 /* HOME SELECT (the menu): what SELECT turns on HOME, kept in favorites.factory[15][25] (0, any other: BPM) */
 enum { HS_BPM, HS_MOD, HS_LEVEL, HS_SWING, HS_TRANS, HS_CHORD, HS_ARATE, HS_PATTERN, HS_OFF, HS_N };
 static const char *const HS_NAME[HS_N] = {"BPM", "MOD WHEEL", "LEVEL", "SWING", "TRANSPOSE", "CHORD", "ARP RATE", "PATTERN",
@@ -91,19 +96,22 @@ static uint8_t sync_reload;                  /* engine / preset / project / user
 #define ACC T_THEME                /* values, curves */
 #define VAL(c) ((void)(c), T_TEXT)   /* a value (the knob just turned: its card tinted and outlined, ui_draw.c) */
 #define RATIO(d, v) ((d)->max > (d)->min ? ((int32_t)(v) - (d)->min) * 1000 / ((d)->max - (d)->min) : -1)
-/* layout (docs/design): header 0..18, four cards 22..66 (54 px at x 4 + 58 c), the panel 70..194 (the graphs live
- * in it; Stage: its own panel and lanes, ui_stage.c), footer 198..240; BG between them */
+/* layout (docs/design/README.md "Large type"): the header 0..29; a page's four knobs as a strip of cells 32..79 (57 px
+ * at x 2 + 60 c: a knob's label over its value), the panel 84..207 (the page's picture, the graphs; the value turning
+ * as the hero over it), the sound bar 212..239; BG between them. Stage, lists, slots: full-width rows of their own */
 #define Y_HEAD 0
-#define H_HEAD 18
-#define Y_LABEL 22                    /* the cards */
-#define Y_SEP_END 66
-#define CARD_W 54
-#define CARD_H 44
-#define CARD_X(c) (4 + 58 * (int32_t)(c))
-#define Y_GRAPH 70                    /* the panel */
+#define H_HEAD 30
+#define Y_LABEL 32                    /* the strip (the knobs' cells) */
+#define Y_SEP_END 80
+#define CARD_W 57
+#define CARD_H 48
+#define CARD_X(c) (2 + 60 * (int32_t)(c))
+#define Y_GRAPH 84                    /* the panel */
 #define H_GRAPH 124
-#define Y_FOOT 198
-#define H_FOOT 42
+#define Y_FOOT 212                    /* the sound bar (pages of the old template: their one row) */
+#define H_FOOT 28
+#define BOX_X 2                       /* panels and rows: x 2 .. 237 */
+#define BOX_W 236
 
 static struct {
     uint8_t designer_mode;       /* the sound designer: START, the stages (ui_designer.c) */
@@ -162,8 +170,8 @@ static struct {
     uint8_t layer;               /* the layer whose map is shown (LAYER_*), 0 = none */
     uint16_t pg_down;            /* page buttons down (panel ids) that act when let go */
     uint32_t layer_sig;          /* drawn-state cache of the map */
-    char msg[24];
-    char msg2[24];               /* a second message, shown when the first is over */
+    char msg[32];                /* (a sound's name fits: the toast wraps it, ui_draw.c draw_toast) */
+    char msg2[32];               /* a second message, shown when the first is over */
     uint32_t enc_t[NE];
     /* drawn-state cache */
     char col[4][32];
@@ -601,6 +609,7 @@ static int seq_is_empty(const track_t *t)
  * so the undo goes back past the whole browse. Eight levels fit in ordinary SRAM,
  * leaving the data cache available for flash reads. Not snapshotted: power-on, projects (a project load drops them all) */
 enum { UNDO_SOUND = 1, UNDO_PAT = 2 };
+#include "step_snapshot.h"
 typedef struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (after): a next load keeps the copy */
@@ -612,7 +621,7 @@ typedef struct {
     p5_patch_t p5;
     drum_patch_t drum;
     int16_t p[P_COUNT];
-    step_t step[NSTEP];
+    step_snapshot_t step[NSTEP];
     motion_store_t motion_backup; /* one track only, swaps with the shared event pool on undo */
     uint32_t pattern_gen;
     uint32_t after;              /* track_sig right after the last load */
@@ -738,7 +747,7 @@ static void load_begin(track_t *t, uint32_t what)
     u->user = t->user;
     u->user_native=t->user_native;
     memcpy(u->p, t->p, sizeof u->p);
-    memcpy(u->step, t->step, sizeof u->step);
+    step_snapshot_save(u->step, t->step);
     memcpy(u->fm6, fm6_patch[i], FP_SIZE);
     u->cz = cz_patch[i];
     u->p5 = *p5_patch_of(&trk[i]);
@@ -771,12 +780,26 @@ static void load_extend(track_t *t)
 
 static int param_kept(uint32_t i);
 static int note_clear_history(int redo);
+static int recording_history(int redo)
+{
+    uint32_t f=motion_guard();
+    int result=recording_undo_apply(redo);
+    motion_unguard(f);
+    if(!result)return 0;
+    if(result==1){
+        ui.note_pick=0;ui.note_generation=recording_generation;
+        ui.hot_t=0;ui.force=1;
+        ui_message(redo?"REDO RECORDING":"UNDO RECORDING");
+    }else ui_message(result==2?"FINISH RECORDING":"UNDO MEMORY FULL");
+    return 1;
+}
 
 /* SAVE held (redo 0) / SAVE + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
  * redo is the same swap. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_step(int redo)
 {
+    if(recording_history(redo))return;
     if(note_clear_history(redo))return;
     track_t *t;
     undo_t *u;
@@ -831,8 +854,8 @@ static void undo_step(int redo)
         }
         for (i = 0; i < NSTEP; i++) {
             step_t s = t->step[i];
-            t->step[i] = u->step[i];
-            u->step[i] = s;
+            t->step[i] = step_snapshot_get(&u->step[i]);
+            step_snapshot_put(&u->step[i], &s);
         }
     }
     fm1_irq_on();
@@ -1190,4 +1213,33 @@ static void confirm_open(uint32_t kind, uint32_t trk)
 
 #include "note_tools.c"
 
+#define TL_MAX 4u
+/* s wrapped into at most m lines of w px in face f (at spaces; a word wider than the line: at the last character that
+ * fits), each line up to 31 characters; the number of lines */
+static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f)
+{
+    uint32_t k = 0;
+    while (*s && k < m) {
+        uint32_t i, cut = 0;
+        while (*s == ' ')
+            s++;
+        for (i = 1; s[i - 1] && i < 32u; i++) {
+            str_cpy(l[k], s, i + 1u);
+            if (text_w(f, l[k]) > w)
+                break;
+            if (!s[i] || s[i] == ' ')
+                cut = i;
+        }
+        if (!cut) {                                     /* (one long word: as much of it as fits) */
+            for (cut = 1; s[cut] && cut < 31u; cut++) {
+                str_cpy(l[k], s, cut + 2u);
+                if (text_w(f, l[k]) > w)
+                    break;
+            }
+        }
+        str_cpy(l[k++], s, cut + 1u);
+        s += cut;
+    }
+    return k;
+}
 #include "ui_boot.c"                            /* visible progress before boot flash maintenance */

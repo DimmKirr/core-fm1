@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Complete insert matrix; host instruction counts are not FM-1 CPU percentages. */
 #define main hostsim_main
 #include "hostsim.c"

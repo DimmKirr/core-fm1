@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Rebuild assets/cz1-factory/cz1-factory.syx: Casio's 64 CZ-1 preset tones as native CZ-1 tones.
 
   tools/make_cz1_factory.py CZ1ORG64_DIR VIRTUALCZ_CZ1_DIR [OUT.syx]

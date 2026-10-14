@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The SYS clock, read only (hal/fm1_clock.h): the multiplier the SPL or a kept retune left, never written. */
 #include <assert.h>
 #include <stdint.h>

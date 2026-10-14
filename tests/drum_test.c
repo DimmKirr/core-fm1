@@ -1,4 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Synthesized 808 engine behavior, shared voice budget and output bounds. */
 #define main hostsim_main
 #include "hostsim.c"

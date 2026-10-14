@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Complete musical archive: no raw addresses are accepted. Objects are staged
  * in main-loop RAM and fully validated before the existing A/B commit path writes.
  * Runtime and saved projects include all 32 pattern banks. Retired user sample
@@ -206,7 +207,7 @@ static uint32_t ed_bk_commit_inner(void)
         settings_old_accept();
         panel_init(); settings_init(); palette_set(settings.palette);
 #if MELODEE_FLASH
-        persist_saved = ed_bk_set.p; persist_pending = 0;
+        persist_saved = ed_bk_set.p; persist_pending = persist_repair = 0;
 #endif
     }
     sync_reload = 1; ui.force = 1;

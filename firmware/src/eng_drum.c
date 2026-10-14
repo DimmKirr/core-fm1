@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* DRUM: synthesized TR-808 circuits, eight mono lanes per part, with GM note mapping.
  * Retriggers reuse a lane's voice; closed hats choke open hats. Key release does not end a hit.
  * KIT retains stored value 4 for existing patches. All older custom kits now use the 808.

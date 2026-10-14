@@ -1,6 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 # Host tests of the Melodee sources (no hardware). Run from the repo root after ./build.sh:
 #   tests/run_tests.sh               everything
 #   SOUND=0 tests/run_tests.sh       everything but the sound tests
@@ -176,6 +177,12 @@ old_to_new() {                                    # a package of another app (th
         python3 tools/fm1pkg_make.py "$OUT/old_app.bin" build/loader/ota.bin "$OUT/old.fwsc" >/dev/null &&
         "$OUT/ldr_test" "$OUT/old.fwsc" build/melodee.fwsc
 }
+powercut_tests() {
+    python3 tests/boot_fixtures.py &&
+        "$OUT/loader_powercut_test" build/host/boot-fixtures/legacy.fwsc build/melodee.fwsc \
+        build/host/boot-fixtures/same-stub.fwsc build/host/boot-fixtures/other-legacy.fwsc \
+        build/host/boot-fixtures/old-stub.fwsc
+}
 ui_renders() {
     build ui_render ui_render -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_new/ppm build/ui_slot
@@ -265,10 +272,14 @@ if core; then
     t "resident audio: expanded voice budget and CPU1 fallback" ram_voice_budget_test -O2 $FW
     t "audio: calibrated reservations, release tails and overlapping hits" audio_admission_test -O2 $FW
     t "USB audio: four isolated track stems through the real mixer" usb_audio_tracks_test -O2 $FW
+    t "boot stub: CRCs, rescue keys, damaged staging and retry fallback" boot_stub_test -O2
+    run "boot packages: constant entry sector and valid directory CRCs" python3 tests/boot_stub_pkg_test.py
+    t "power cuts: every erase/page, resume and unchanged boot sector" loader_powercut_test -O2 -- powercut_tests
     t "M-UPGRADE entry (own loader)" ota_test -DOWN_PKG=1 -- "$OUT/ota_test" build/melodee.fwsc
     t "update loader: other app -> this build" ldr_test -- old_to_new
     run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/install_test.py
     run "ROM USB recovery: backup, protected regions, interrupted writes and transport failures" python3 tests/recovery_test.py
+    run "recovery diagnostics: legacy and boot-protected retained RAM" python3 tests/retained_ram_test.py
     run "release assets: firmware identity, application bytes, native provenance and ZIP integrity" python3 tests/release_assets_test.py
     run "recovery correction: preserve signed firmware and verify public replacement assets" python3 tests/recovery_correction_test.py
 fi
@@ -287,6 +298,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" midi_timing_test -O1 $FW
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
+    t "Recording undo: whole takes, motion, early stops, redo, isolation and memory" recording_undo_test -O1 $FW
     t "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" seq_notes_test \
         -O1 $FW
     t "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" midi_scale_test -O1 $FW
@@ -314,6 +326,8 @@ if core && [ $TABLES = 1 ]; then
         -DMELODEE_BENCH_SILENT=1 $FW
     t "384 shared presets: all-engine capacity, conversion, torn writes and high-slot identity" unified_presets_test $FW
     t "persistence: deferred settings, retry and failed-save rollback" persistence_test $FW
+    t "first boot: foreign settings, safe defaults, ownership and interrupted cleanup" settings_origin_test $FW
+    t "first boot: reset unsupported preset banks, preserve good entries and retry cuts" preset_boot_reset_test $FW
     t "storage safety: protect unreadable records until confirmed replacement" storage_safety_test $FW
     t "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" backup_test $FW
     t "editor: real C protocol, malformed transfers and queue recovery" editor_test $FW

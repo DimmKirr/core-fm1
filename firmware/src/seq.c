@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Keyboard, scale, arpeggiator, sequencer and transport.
  * Everything here runs in the audio ISR, once per CTL-sample block, and
  * ends in trk_note_on / trk_note_off: engines never see where a note came from.
  * Four tracks, one transport: every track's pattern loops on its own LEN / DIV /
  * SWING / GATE (polymeter). The keys play the selected track; MIDI IN by GLO > SYSTEM ROUT (G_ROUTE):
- * CH1-4 (0) channels 1..4 play parts 1..4, any other channel the selected track; SEL (1) every channel
- * the selected track. Their CC1 (mod wheel), CC11 (expression) and channel aftertouch go to the same
- * track's modulation matrix (mod.c; the selected track: the one selected then).
+ * CH1-4 (0), CH5-8 (2), CH9-12 (3), CH13-16 (4) map only their four channels to tracks 1..4;
+ * SEL (1) maps every channel to the selected track. Their CC1 (mod wheel), CC11 (expression) and
+ * channel aftertouch go to the same track's modulation matrix (mod.c; the selected track: the one selected then).
  * A note into an armed track (song.rec) while
  * the transport runs preserves its original onset and independent held length
  * (recording.c). The STEP overview uses nearby steps and ties; optional P_RECQ
@@ -222,6 +223,9 @@ static uint8_t seq_erase_seen[NTRK];
 static volatile uint16_t seq_erase_button;
 static int seq_erase_active(const track_t *t);
 static int rec_on(const track_t *t) { return (((song.rec & ~song.rec_wait) >> trk_index(t)) & 1u) && song.playing && !chain.running; }
+static void recording_undo_capture(track_t *t);
+static void recording_undo_clear(void);
+static void seq_release(track_t *t);
 
 #include "motion.c"
 
@@ -322,6 +326,7 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
 }
 
 #include "recording.c"
+#include "recording_undo.c"
 
 /* Capture: every note played (keys, MIDI, a chord's notes) while the transport runs and its track is not recording,
  * with its place: the steps the track has entered since PLAY (cap_step) and the 1/256 of the step, as recording.c
@@ -608,6 +613,7 @@ static void rec_set(track_t *t, uint32_t on)
         song.rec &= (uint8_t)~bit;
         song.rec_wait &= (uint8_t)~bit;
         song.rec_pass &= (uint8_t)~bit;
+        recording_undo_finish(t);
     }
 }
 
@@ -920,6 +926,7 @@ static void seq_stop(void)
         if (trk[i].rh_n)
             rec_finish(&trk[i]);
         if ((takes >> i) & 1u) recording_quantize(&trk[i]);
+        recording_undo_finish(&trk[i]);
         seq_release(&trk[i]);
         trk[i].rh_n = 0;                           /* a recorded note held over the stop: as far as it got */
     }
@@ -1084,19 +1091,22 @@ static void seq_tick(track_t *t, uint32_t n)
     }
 }
 
-/* MIDI in: the track a channel plays (0..15): G_ROUTE CH1-4 (0) channels 1..4 their parts, SEL (1) none */
-/* the track MIDI channel ch (0..15) plays: the DRUM channel the first DRUM track (none: the selected one), then ROUT
- * CH1-4 channels 1..4 tracks 1..4 (those in use), every other channel the selected track */
+/* A range is a strict input filter, including the DRUM override. SEL keeps its stored value 1.
+ * Return 0 for channels outside the range or tracks not in use; releases keep their original owner. */
 static track_t *midi_track(uint32_t ch)
 {
-    uint32_t k;
+    uint32_t k, route = (uint32_t)song.g[G_ROUTE];
+    uint32_t first = route > 1u ? (route - 1u) * 4u : 0u;
+    if (route != 1u && (ch < first || ch - first >= 4u))
+        return 0;
     if (settings_drumch && ch + 1u == settings_drumch) {
         for (k = 0; k < trk_n(); k++)
             if (drum_track(&trk[k]))
                 return &trk[k];
-        return TSEL;
     }
-    return ch < trk_n() && !song.g[G_ROUTE] ? &trk[ch] : TSEL;
+    if (route == 1u)
+        return TSEL;
+    return ch - first < trk_n() ? &trk[ch - first] : 0;
 }
 
 #include "midi_control.c"

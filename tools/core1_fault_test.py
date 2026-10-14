@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Inject CPU1 failures into a MELODEE_CORE1_TEST=1 build and check the FM-1 carries on with one core.
 
 Some FM-1 units' CPU1 misreads shared SRAM (keremimo/melodee#17); an idle unit then crashed.

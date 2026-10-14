@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Generate README SVGs from the real host UI renders, without mock screen art.
 
 Usage: python tools/gen_readme_media.py build/ui_new

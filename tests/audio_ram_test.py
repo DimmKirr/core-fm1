@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Verify closure, ABI and safe branches across XIP/SRAM for the IR pass."""
 import sys
 import unittest

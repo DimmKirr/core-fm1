@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* SID: the Commodore MOS 6581 / 8580, a whole chip per note.
  *
  * Each note plays its own SID, clocked as in a PAL C64 (985248 Hz) and modelled at the register level as reSID

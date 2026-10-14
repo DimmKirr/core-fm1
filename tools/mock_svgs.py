@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """The mockups' screens as reference SVGs: runs a mockup page (docs/design/mock/*.html, its script builds each screen's
 <svg>) in headless Chrome, takes the screens named on the command line and writes each as docs/design/ref/<name>.svg
 (240 x 240, the device's pixels); tools/mock_refs.py then renders them in the bundled Rubik.

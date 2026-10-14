@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Timestamped TRS/USB recording through the real queue/parser and sequencer.
  * Use the firmware's 24 MHz clock, including its natural uint32 wrap. */
 #include <stdint.h>

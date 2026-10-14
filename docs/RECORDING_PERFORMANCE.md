@@ -14,6 +14,18 @@ end while playback continues. Notes still held have their recorded lengths
 finished at that boundary; their live sound continues until release. Tap REC
 again for another pass, or tap it while waiting to cancel. Notes and knob motion
 share these boundaries, with either internal or external MIDI clock and any QNT.
+
+Hold SAVE to undo the latest recording take in the selected pattern. Hold SAVE
+and tap OCT+ to redo it (SAVE + OCT- also undoes). One slot preserves the whole
+pattern's notes and motion together, including overwritten events and exact
+note timing, velocity and duration. The next nonempty take replaces that slot;
+arming and cancelling without recording leaves it available. Finish or disarm
+the take before undoing; playback can continue. Other tracks and banks stay
+unchanged. Changing patterns or loading a project invalidates the slot. A
+subsequent edit must be undone first, or the take undo becomes unavailable.
+If working memory is exhausted, the device shows **NO RECORD UNDO MEMORY**;
+recording and audio take priority over keeping this snapshot.
+
 **SEQ > TEMPO > QNT** chooses an automatic quantization pass when recording
 finishes, including an early STOP or REC disarm. OFF keeps the captured timing;
 a division snaps only the new take's onsets to that swung grid. Independent

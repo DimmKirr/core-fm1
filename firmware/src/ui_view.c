@@ -1,33 +1,39 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* HOME's second page (HOME tapped on Stage; HOME there again: Stage): what plays as a picture, the chord in the middle. A wheel of the
  * twelve notes in fifths (C at the top), the song's key on it (its notes marked, its root larger): the notes sounding
  * on the tracks in use lit in their track's colour, joined into the chord's shape, the chord's root ringed; in the
- * wheel's middle the chord (its root 30 px, its quality 15 px) and its notes, one note alone large; let go, the last
- * ones stay, faded; nothing played yet: the key's name there. In the corners each track in use as a pulse
- * swelling with its level; under the wheel the output's waveform; at the foot four octaves of keys (C2 .. B5), those
- * sounding lit in their track's colour. A DRUM track's notes are hits, not pitches: it pulses only. The wheel and the
- * keys redraw when what they show changes, the pulses and the waveform as they move (every other frame, as Stage's
- * panel). Stage's knobs drop in over the top as on Stage (ui_stage.c stage_knobs). Included by ui_draw.c */
-#define VW_WHEEL_X 40                                   /* the wheel: a canvas of 160 x 158 at (40, 19) */
-#define VW_WHEEL_Y 19
+ * wheel's middle the chord (its root 48 px, its quality 28 px; too wide: 28 and 20) and its notes, one note alone large;
+ * let go, the last ones stay, faded; nothing played yet: the key's name there. In the corners each track in use as a
+ * pulse swelling with its level; at the foot four octaves of keys (C2 .. B5), those sounding lit in their track's
+ * colour. A DRUM track's notes are hits, not pitches: it pulses only. The wheel and the keys redraw when what they show
+ * changes, the pulses as they move (every other frame, as Stage's band). Stage's knobs drop in over the top as on Stage
+ * (ui_stage.c stage_knobs). Behind it all, what the tracks play lights the screen from its edges (ui_glow.c): seen in
+ * the 6 px beside the pulses and under the keys. Included by ui_draw.c */
+#define VW_WHEEL_X 40                                   /* the wheel: a canvas of 160 x 172 at (40, 32) */
+#define VW_WHEEL_Y 32
 #define VW_WHEEL_W 160
-#define VW_WHEEL_H 158
-#define VW_CX 80                                        /* .. its centre in it (the screen's 120, 98) */
-#define VW_CY 79
-#define VW_R 54                                         /* the notes' ring */
-#define VW_LR 72                                        /* their names */
-#define VW_WAVE_Y 179                                   /* the waveform: rows 179 .. 204 */
-#define VW_WAVE_H 26
+#define VW_WHEEL_H 172
+#define VW_CX 80                                        /* .. its centre in it (the screen's 120, 118) */
+#define VW_CY 86
+#define VW_R 50                                         /* the notes' ring */
+#define VW_LR 66                                        /* their names (the label face) */
 #define VW_KEYS_Y 208                                   /* the keys: rows 208 .. 237, C2 .. B5 */
 #define VW_KEYS_H 30
 #define VW_LO 36u
 #define VW_OCT 4u
 #define VW_PULSE 32                                     /* a pulse: 32 x 32 in a corner of the wheel's rows */
+#define VW_GLOW 6                                       /* the light: 6 px in from the sides (the pulses, the keys
+                                                         * beyond it) */
+#define VW_GLOW_F 12                                    /* .. 12 up from the floor (the keys' lower 10 rows) */
+#define VW_KEYS_X VW_GLOW                               /* the keys' canvas: x 6 .. 233 (the sides' light beside it) */
+#define VW_KEYS_W (240 - 2 * VW_GLOW)
 
 static struct {
     uint32_t wheel, keys, pulse[NTRK];                  /* what each part drew */
     uint8_t lvl[NTRK];                                  /* the pulses' levels (they fall ~2 dB a frame) */
-    uint32_t last[4];                                   /* the notes sounding last (let go: shown faded) */
+    uint32_t sounding[4];                               /* the previous snapshot (additions start a new voicing) */
+    uint32_t last[4];                                   /* the last voicing before releases (let go: shown faded) */
     uint8_t of[128];                                    /* .. each one's track */
 } view;
 
@@ -42,7 +48,7 @@ static int32_t vw_y(uint32_t k, int32_t r) { return VW_CY - r * VW_SIN[(k + 3u) 
  * selected one's first): 1 = some; none: the last ones (*faded 1) */
 static int view_notes(uint32_t *on, uint8_t *of, int *faded)
 {
-    uint32_t k, i, n = 0;
+    uint32_t k, i, n = 0, added = 0;
     memset(on, 0, 16);
     fm1_irq_off();                                      /* (one coherent ISR snapshot) */
     for (k = 0; k < trk_n(); k++) {                     /* (the selected one last: its colour wins) */
@@ -59,11 +65,15 @@ static int view_notes(uint32_t *on, uint8_t *of, int *faded)
         }
     }
     fm1_irq_on();
+    for (i = 0; i < 4u; i++)
+        added |= on[i] & ~view.sounding[i];
+    memcpy(view.sounding, on, sizeof view.sounding);
     *faded = !n;
-    if (n) {
+    /* Releases alone must not replace a chord with its last note. */
+    if (added || (n && !memcmp(on, view.last, sizeof view.last))) { /* same voicing: refresh its track colours too */
         memcpy(view.last, on, sizeof view.last);
         memcpy(view.of, of, sizeof view.of);
-    } else {
+    } else if (!n) {
         memcpy(on, view.last, sizeof view.last);
         memcpy(of, view.of, sizeof view.of);
     }
@@ -106,6 +116,7 @@ static void view_wheel(const uint32_t *on, const uint8_t *of, int faded)
         q = micro_active(TSEL) ? 0 : chord_of(pcs, bass, &root);
     }
     cv_begin(VW_WHEEL_W, VW_WHEEL_H, T_BG);
+    cv_scroll = stage.out;                              /* (the knobs over its top: its words there cut on purpose) */
     cv_ring(VW_CX, VW_CY, 2 * VW_R + 1, T_LINE);
     for (k = 0; k <= 12u && npc > 1u; k++) {              /* the chord's shape: its notes joined round the wheel */
         uint32_t pc = (k * 7u) % 12u;
@@ -134,30 +145,37 @@ static void view_wheel(const uint32_t *on, const uint8_t *of, int faded)
             cv_disc(x, y, pc == key ? 9 : in ? 7 : 4, in ? T_MID : T_LINE, 0);
         if (q && pc == root)
             cv_ring(x, y, 19, faded ? T_MID : T_TEXT);
-        cv_text_c(vw_x(k, VW_LR), vw_y(k, VW_LR) - 6, &AF_X, N_NOTE[pc], lit ? (faded ? T_MID : T_TEXT) : in ? T_MID : T_DIM,
-                  T_BG);
+        cv_text_c(vw_x(k, VW_LR), ty_y(vw_y(k, VW_LR), TY_LB), TY_LB, N_NOTE[pc],
+                  lit ? (faded ? T_MID : T_TEXT) : in ? T_MID : T_DIM, T_BG);
     }
     if (n) {                                            /* in the middle: the chord, its notes */
         uint16_t c = faded ? ux_mix(T_BG, T_TEXT, 45) : T_TEXT, cn = faded ? ux_mix(T_BG, T_THEME, 55) : T_THEME;
-        if (q) {
-            int32_t w = text_w(&AF_L, N_NOTE[root]) + 1 + text_w(&AF_M, q), x;
-            if (root != bass)
-                w += (q[0] ? 3 : 0) + text_w(&AF_L, "/") + text_w(&AF_L, N_NOTE[bass]);
-            x = VW_CX - w / 2;
-            x = cv_text_on(x, 44, &AF_L, N_NOTE[root], c, T_BG);
-            x = cv_text_on(x + (q[0] ? 1 : 0), 58, &AF_M, q, c, T_BG);
-            if (root != bass) {
-                x = cv_text_on(x + (q[0] ? 3 : 0), 44, &AF_L, "/", c, T_BG);
-                cv_text_on(x, 44, &AF_L, N_NOTE[bass], c, T_BG);
+        if (q) {                                        /* (the chord's line on row VW_CY + 4, the notes under it) */
+            const aafont_t *rf = TY_HR, *qf = TY_VL;
+            int32_t w, x, base = VW_CY + 4;
+            for (;;) {
+                w = text_w(rf, N_NOTE[root]) + 1 + text_w(qf, q);
+                if (root != bass)
+                    w += (q[0] ? 3 : 0) + text_w(rf, "/") + text_w(rf, N_NOTE[bass]);
+                if (w <= 2 * VW_R - 8 || rf != TY_HR)
+                    break;
+                rf = TY_VL, qf = TY_TX;                 /* (too wide for the ring: a size smaller) */
             }
-            notes_fit(b, note, n, &AF_S, 84);
-            cv_text_c(VW_CX, 88, &AF_S, b, cn, T_BG);
+            x = VW_CX - w / 2;
+            x = cv_text_on(x, base - rf->asc, rf, N_NOTE[root], c, T_BG);
+            x = cv_text_on(x + (q[0] ? 1 : 0), base - qf->asc, qf, q, c, T_BG);
+            if (root != bass) {
+                x = cv_text_on(x + (q[0] ? 3 : 0), base - rf->asc, rf, "/", c, T_BG);
+                cv_text_on(x, base - rf->asc, rf, N_NOTE[bass], c, T_BG);
+            }
+            notes_fit(b, note, n, TY_LB, 2 * VW_R - 4);
+            cv_text_c(VW_CX, base + 6, TY_LB, b, cn, T_BG);
         } else if (n == 1u) {                           /* one note: large */
             note_name(b, note[0]);
-            cv_text_c(VW_CX, 50, &AF_L, b, c, T_BG);
+            cv_text_c(VW_CX, ty_y(VW_CY, TY_HR), TY_HR, b, c, T_BG);
         } else {
-            notes_fit(b, note, n, &AF_M, 84);
-            cv_text_c(VW_CX, 62, &AF_M, b, cn, T_BG);
+            notes_fit(b, note, n, TY_TX, 2 * VW_R - 4);
+            cv_text_c(VW_CX, ty_y(VW_CY, TY_TX), TY_TX, b, cn, T_BG);
         }
     } else {                                            /* nothing played yet: the key ("A minor") */
         const char *t = SCALE_TITLE[clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u)];
@@ -168,8 +186,21 @@ static void view_wheel(const uint32_t *on, const uint8_t *of, int faded)
         str_cpy(b + str_len(b), t, sizeof b - str_len(b));
         if (b[str_len(N_NOTE[key]) + 1u] >= 'A' && b[str_len(N_NOTE[key]) + 1u] <= 'Z')
             b[str_len(N_NOTE[key]) + 1u] = (char)(b[str_len(N_NOTE[key]) + 1u] + 32);
-        cv_free_text(st_mid_x(VW_CX, &AF_M, b, 96), 70, &AF_M, b, T_MID, T_BG, 96);
+        {   /* (in the ring: the text face, the label face, then on two lines: nothing cut) */
+            const aafont_t *f = ty_fit(TY_TX, b, 2 * VW_R - 4);
+            if (text_w(f, b) <= 2 * VW_R - 4) {
+                cv_text_c(VW_CX, ty_y(VW_CY, f), f, b, T_MID, T_BG);
+            } else {
+                char l[TL_MAX][32];
+                uint32_t n = text_lines(b, l, 3u, 2 * VW_R - 4, TY_LB), i;
+                for (i = 0; i < n; i++)
+                    cv_free_text(st_mid_x(VW_CX, TY_LB, l[i], 2 * VW_R - 4),
+                                 ty_y(VW_CY - 9 * ((int32_t)n - 1) + 18 * (int32_t)i, TY_LB), TY_LB, l[i], T_MID, T_BG,
+                                 2 * VW_R - 4);
+            }
+        }
     }
+    cv_scroll = 0;
     if (stage.out)                                      /* (the knobs over its top: the rows under them only) */
         cv_blit_from(VW_WHEEL_X, VW_WHEEL_Y, (uint32_t)(Y_LABEL + CARD_H - VW_WHEEL_Y));
     else
@@ -181,12 +212,14 @@ static int vw_black(uint32_t n) { return (int)((0x54Au >> (n % 12u)) & 1u); }
 static void view_keys(const uint32_t *on, const uint8_t *of, int faded)
 {
     uint32_t n, w = 0;
-    cv_begin(240, VW_KEYS_H, T_BG);
+    int32_t x0 = 8 - VW_KEYS_X;                         /* (the first key's x on the canvas) */
+    cv_begin(VW_KEYS_W, VW_KEYS_H, T_BG);
+    glow_paint(VW_KEYS_X, VW_KEYS_Y);                   /* (the light from the floor, between them) */
     for (n = VW_LO; n < VW_LO + 12u * VW_OCT; n++) {    /* the white keys, then the black over them */
         uint32_t lit = (on[n >> 5] >> (n & 31u)) & 1u;
         if (vw_black(n))
             continue;
-        cv_rrect(8 + (int32_t)w * 8, 0, 7, VW_KEYS_H - 1, 2,
+        cv_rrect(x0 + (int32_t)w * 8, 0, 7, VW_KEYS_H - 1, 2,
                  lit ? (faded ? ux_mix(T_BG, T_TRK(of[n]), 45) : T_TRK(of[n])) : T_SURF, T_BG);
         w++;
     }
@@ -196,17 +229,18 @@ static void view_keys(const uint32_t *on, const uint8_t *of, int faded)
             w++;
             continue;
         }
-        cv_rect(8 + (int32_t)w * 8 - 4, 0, 7, 18, T_BG);
-        cv_rrect(8 + (int32_t)w * 8 - 3, 0, 5, 17, 2,
+        cv_rect(x0 + (int32_t)w * 8 - 4, 0, 7, 18, T_BG);
+        glow_paint_in(VW_KEYS_X, VW_KEYS_Y, x0 + (int32_t)w * 8 - 4, 0, 7, 18);
+        cv_rrect(x0 + (int32_t)w * 8 - 3, 0, 5, 17, 2,
                  lit ? (faded ? ux_mix(T_BG, T_TRK(of[n]), 45) : T_TRK(of[n])) : T_PANEL, T_BG);
     }
-    cv_blit(0, VW_KEYS_Y);
+    cv_blit(VW_KEYS_X, VW_KEYS_Y);
 }
 
 /* track k's pulse: a ring in its colour, a disc in it as large as its level now */
 static void view_pulse(uint32_t k)
 {
-    static const uint8_t PX[NTRK] = {6, 202, 6, 202}, PY[NTRK] = {24, 24, 140, 140};
+    static const uint8_t PX[NTRK] = {6, 202, 6, 202}, PY[NTRK] = {36, 36, 170, 170};
     track_t *t = &trk[k];
     int32_t m = t->p[P_MUTE] ? 0 : meter_px(t->peak);
     uint32_t sig;
@@ -228,11 +262,24 @@ static void view_pulse(uint32_t k)
 /* the BG around the parts (a full redraw: the canvases cover the rest) */
 static void view_frame(void)
 {
-    lcd_fill(0, VW_WHEEL_Y, 240, 240u - VW_WHEEL_Y, T_BG);
+    lcd_fill(0, H_HEAD, 240, 240u - H_HEAD, T_BG);
+    glow.drawn = 0;
 }
 
-/* every frame the knobs; every other frame (the scope's) the pulses and the waveform, the wheel and the keys when they
- * changed */
+/* the light (ui_glow.c) at the sides: the margins beside the header (it paints the top's), then VW_GLOW px beside the
+ * pulses and the keys; under the keys (they take theirs from the floor); the knobs out: below them only (the light
+ * dark then) */
+static void view_glow(void)
+{
+    int32_t y0 = stage.out ? Y_LABEL + CARD_H : H_HEAD;
+    glow_strip(0, 0, BOX_X, H_HEAD);
+    glow_strip(240 - BOX_X, 0, BOX_X, H_HEAD);
+    glow_strip(0, y0, VW_GLOW, VW_KEYS_Y + VW_KEYS_H - y0);
+    glow_strip(240 - VW_GLOW, y0, VW_GLOW, VW_KEYS_Y + VW_KEYS_H - y0);
+    glow_strip(0, VW_KEYS_Y + VW_KEYS_H, 240, 240 - VW_KEYS_Y - VW_KEYS_H);
+}
+
+/* every frame the knobs; every other frame (the scope's) the pulses, the wheel and the keys when they changed */
 static void view_draw(void)
 {
     uint32_t on[4], k, sig;
@@ -241,6 +288,10 @@ static void view_draw(void)
     stage_knobs();
     if (!ui.force && (ui.frame & 1u))
         return;
+    if (glow.sig != glow.drawn) {
+        view_glow();
+        glow.drawn = glow.sig;
+    }
     for (k = 0; k < trk_n(); k++)
         view_pulse(k);
     view_notes(on, of, &faded);
@@ -254,12 +305,31 @@ static void view_draw(void)
         view.wheel = sig;
         view_wheel(on, of, faded);
     }
-    sig += song.sel * 613u;
+    sig += song.sel * 613u + glow.sig * 3u;
     if (ui.force || sig != view.keys) {
         view.keys = sig;
         view_keys(on, of, faded);
     }
-    cv_begin(240, VW_WAVE_H, T_BG);                     /* the output's waveform, in the track's colour */
-    stage_wave(T_THEME, 2, VW_WAVE_H - 4);
-    cv_blit(0, VW_WAVE_Y);
+}
+
+/* HOME (both pages), every frame before anything is drawn: the hits polled (Stage's band takes a kit's lanes), the
+ * light worked out (ui_glow.c) for the header, the strips and the band to take their parts; dark while the knobs are
+ * out and with Settings > STAGE EFFECTS OFF. lt: GL_N colours on the caller's stack */
+static void home_light(uint16_t *lt)
+{
+    static const int16_t ORG[NTRK] = {239 - 36 - VW_PULSE / 2, 239 - 36 - VW_PULSE / 2, 239 - 170 - VW_PULSE / 2,
+                                      239 - 170 - VW_PULSE / 2};   /* (the pulses' middles on the light's path) */
+    uint8_t lanes[NTRK];
+    int16_t org[NTRK];
+    uint32_t k;
+    int dark = stage.out || stage_knobs_out() || (PREF_BITS & PREF_GLOW_OFF), upd = ui.force || !(ui.frame & 1u);
+    glow_poll(lanes);
+    stage_panel_hits(lanes);
+    if (ui.home_pg) {
+        glow_light(lt, ORG, dark, VW_GLOW, VW_GLOW_F, upd);
+        return;
+    }
+    for (k = 0; k < NTRK; k++)                          /* (each row's middle on the light's path) */
+        org[k] = (int16_t)(239 - st_row_y(k) - st_row_h() / 2);
+    glow_light(lt, org, dark, 80, 24, upd);
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """PPM -> PNG for the UI renders of tests/ui_render.c (Pillow). Under OUTDIR (default build/ui_new):
   (the STEP page's piano roll scenes, roll_* step chance drum: also in build/ui_roll/<PALETTE>_<screen>.png)
   <PALETTE>/<screen>.png   240 x 240, true size

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Validate a complete release's firmware and native recovery archives; write provenance/checksums."""
 import argparse
 from datetime import datetime, timezone

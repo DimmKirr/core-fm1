@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Drive every native tone knob through the real panel/UI path, then render
  * notes and releases. Each probe enables that control's required signal path.
  * Physical encoders, speakers and calibrated Prophet fidelity are separate. */

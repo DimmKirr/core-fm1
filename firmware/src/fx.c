@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Three stereo inserts per track, four sections per side per filter slot.
  * The EQ accelerator is time-shared, not claimed as 32 independent lanes.
  * OFF / MIX 0 leaves the existing dry mixer bit-identical and allocates nothing.

@@ -47,7 +47,8 @@ mod_end 7
 # Quarter-rate Tape now includes the fused wet interpolation/mix, replacing full-rate passes.
 # These are static compiled-loop sizes; device before/after proves the actual CPU reduction.
 fx_tape 259
-cz_native_render 529
+# Accepted recording-undo resource_get inline growth from 167e9f2; inner oscillator loop unchanged.
+cz_native_render 583
 cz_native_wave 0
 # Eight-control snapshot loop is now local and visible here; it replaces
 # drum808_values' full-track copy. The original PCM conversion loop remains.

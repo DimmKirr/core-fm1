@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The 9W9 TR-909 voices on the FM-1. A port of 9W9's er99_engine.c,
  * er99_circuit.h, er99_tom909.h and er99_perc909.h (GPL-3.0): the circuit models,
  * the fitted constants, the defaults and the per-trigger pinning are 9W9's, line
