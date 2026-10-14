@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* Real UI and NOR paths: musical data stays protected; foreign settings reset at boot. */
+/* Projects and live preset writes stay protected; boot resets unsupported preset data. */
 #define PERSISTENCE_TEST_NO_MAIN
 #include "persistence_test.c"
 
@@ -25,8 +25,8 @@ int main(void)
     project_load(0);
     bad += check("unreadable project load keeps its flash bytes", !strcmp(ui.msg, "OLD FORMAT") && same_object(OBJ_BANK0, old, sizeof old));
 
-    reset(); st_save(OBJ_UPRESET0, old, sizeof old); up_boot();
-    bad += check("boot preserves a wrong-shape preset bank", up_old(0) && up_old(15) && !up_used(0) && same_object(OBJ_UPRESET0, old, sizeof old));
+    reset(); st_save(OBJ_UPRESET0, old, sizeof old); up_cache_reset();
+    bad += check("live access protects a wrong-shape bank until boot", up_old(0) && up_old(15) && !up_used(0) && same_object(OBJ_UPRESET0, old, sizeof old));
     up_rec_t rec = {0}; rec.used = UP_USED; rec.ver = UP_VER; rec.engine = 9u; rec.np = P_COUNT; strcpy(rec.name, "NEW");
     for (uint32_t i = 0; i < P_COUNT; i++) rec.packed[i] = 64;
     uint32_t before = erases;
@@ -42,13 +42,13 @@ int main(void)
 
     reset(); up_bank_t bank = {0}; bank.magic = UP_BANK_MAGIC; bank.rsize = sizeof(up_rec_t); bank.nslot = UP_PER_BANK;
     bank.r[0] = rec; bank.r[0].ver = 1;
-    st_save(OBJ_UPRESET0, &bank, sizeof bank); up_boot();
+    st_save(OBJ_UPRESET0, &bank, sizeof bank); up_cache_reset();
     bad += check("unknown record inside current bank stays occupied", up_old(0) && !up_used(0) && !up_old(1));
     up_put(1, &rec); up_cache_reset();
     bad += check("saving another slot retains unknown record bytes", !memcmp(up_rec(0), &bank.r[0], sizeof(up_rec_t)) && up_old(0));
 
-    reset(); st_save(OBJ_NATIVEFM0, old, sizeof old); st_save(OBJ_CZBANK0, old, sizeof old); up_boot();
-    bad += check("boot never formats occupied old FM or CZ banks", native_old(ENGI_FM6, 0) && native_old(ENGI_CZ, 0) && same_object(OBJ_NATIVEFM0, old, sizeof old) && same_object(OBJ_CZBANK0, old, sizeof old));
+    reset(); st_save(OBJ_NATIVEFM0, old, sizeof old); st_save(OBJ_CZBANK0, old, sizeof old); native_cache_reset();
+    bad += check("live access protects unreadable FM or CZ banks", native_old(ENGI_FM6, 0) && native_old(ENGI_CZ, 0) && same_object(OBJ_NATIVEFM0, old, sizeof old) && same_object(OBJ_CZBANK0, old, sizeof old));
     before = erases;
     bad += check("native direct saves cannot erase old banks", native_put(ENGI_FM6, 0, FM6_INIT) == 2 && native_put(ENGI_CZ, 0, cz_patch[0].raw) == 2 && erases == before);
     sysex_stage(ENGI_FM6, FM6_INIT, 1, FM6_PACKED); sysex_choose();

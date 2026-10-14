@@ -167,10 +167,10 @@ Or, to install your own build from the web installer, make a local copy of the s
 
 ```
 # Build both variants from the same source; release outputs are kept separately.
-MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.5
-MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.5
-python3 web/make_site.py build/release-1.3.5/melodee-1.3.5.fwsc \
-  build/release-1.3.5-1core/melodee-1.3.5-1core.fwsc 1.3.5 /tmp/melodee-site
+MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.6
+MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.6
+python3 web/make_site.py build/release-1.3.6/melodee-1.3.6.fwsc \
+  build/release-1.3.6-1core/melodee-1.3.6-1core.fwsc 1.3.6 /tmp/melodee-site
 cd /tmp/melodee-site && python3 -m http.server 8000
 # open http://localhost:8000/webapp/installer/
 ```

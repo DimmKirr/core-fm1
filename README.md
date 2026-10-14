@@ -22,7 +22,7 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.5** ([what's new](#whats-new-in-135)).
+**Melodee 1.3.6** ([what's new](#whats-new-in-136)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -36,6 +36,16 @@ runs Felucca.
   into a computer; choose **Synth only** in the installer, edit it with its own
   [synth editor](https://keremimo.github.io/melodee/webapp/synth-editor/) ([BUILDING.md](BUILDING.md#synth-only-firmware))
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.3.6
+
+- **Reset incompatible preset banks:** startup replaces unsupported FM6, CZ and
+  general user-preset banks with empty defaults. In a readable general bank,
+  usable presets are kept and only unsupported entries are cleared. This erases
+  unreadable preset data; keep a backup if another firmware may need it.
+- **Visible and retryable resets:** progress appears before writes; interrupted
+  resets keep the previous committed copy and retry on restart. Projects retain
+  their OLD FORMAT protection.
 
 ## What's new in 1.3.5
 

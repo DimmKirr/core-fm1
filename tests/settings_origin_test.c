@@ -60,7 +60,7 @@ static int test_foreign(void)
     st_save(OBJ_SETTINGS, fork, sizeof fork);
     /* Even unreadable musical objects must survive settings cleanup. */
     uint8_t old[80]; memset(old, 0x5A, sizeof old);
-    st_save(OBJ_BANK0, old, sizeof old); st_save(OBJ_UPRESET0, old, sizeof old);
+    st_save(OBJ_BANK0, old, sizeof old);
     uint32_t crc = music_crc(), before = erases;
     stale_ram(); boot_trace = 1;
     persist_boot();

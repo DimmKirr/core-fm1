@@ -88,6 +88,26 @@ engine must not wrap into an existing engine. Rejected projects remain
 **OLD FORMAT**, occupied and excluded from automatic startup loading. Settings
 cleanup does not format these slots or any existing preset bank.
 
+## Preset reset policy from 1.3.6
+
+Startup treats unsupported preset formats as damaged data to reset. Invalid
+native FM6/CZ banks get the same empty defaults as missing banks. Unsupported
+general user-preset banks become empty, while readable banks keep compatible
+records and clear only unreadable entries. This deliberately discards unsupported
+preset contents; back up before updating if another firmware may need them.
+Projects and unsupported settings/template ownership retain their separate guards.
+
+Progress is flushed before each reset. A/B commits keep the prior copy until
+the default/repaired bank is fully written and verified. A failed write remains
+visible and prevents later preset initialization from hiding it; restarting retries
+the unfinished bank. A successfully reset bank is not rewritten on later boots.
+
+Validation: Standard and Single core 1.3.6 builds pass; both packages retain the
+boot sector of published 1.3.5. The full host suite passes. Simulated NOR tests
+check unsupported general/FM6/CZ banks, preservation of good entries and project
+bytes, visible writes, interruption before four different program calls, retry,
+and no repeated writes after success. Physical device validation remains pending.
+
 ## Limits and verification
 
 The first installation of the stub, a stub change, or a directory/SDK layout change

@@ -136,12 +136,12 @@ static void native_boot(void)
     if (boot_work.state == 2u) return;            /* retain an earlier settings-repair failure on screen */
     uint32_t pending = 0, total = 0, done = 0;
     for (uint32_t b = 0; b < 4u; b++) {
-        if (native_fm_valid(native_fm_bank(b)) || native_old(ENGI_FM6, b * 16u)) continue;
+        if (native_fm_valid(native_fm_bank(b))) continue;
         pending |= 1u << b;
         total++;
     }
     for (uint32_t b = 0; b < 8u; b++) {
-        if (cz_bank_valid(native_cz_bank(b)) || native_old(ENGI_CZ, b * 16u)) continue;
+        if (cz_bank_valid(native_cz_bank(b))) continue;
         pending |= 1u << (b + 4u);
         total++;
     }
