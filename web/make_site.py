@@ -12,7 +12,8 @@
   firmware/melodee-*-rc.*.fwsc      published release candidate (rc.json; publish_rc.py), kept as published
   webapp/installer/index.html       index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
   webapp/editor/index.html          editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
-  webapp/manual/                    web/manual/ (the current manual: HTML and screenshots)
+  webapp/manual/                    web/manual/ on a full publish (the stable manual: HTML and screenshots).
+                                    Nightly and release-candidate updates leave it in place.
   src/                              not touched
 
   web/make_site.py build/melodee-X.Y.fwsc build/melodee-X.Y-1core.fwsc X.Y OUT_DIR
@@ -21,9 +22,12 @@ The packages must be ones made by tools/fm1pkg_make.py (Melodee's own loader, no
 release: their identity (FM-1_9xx, FM-1_9xxx from 0.10, FM-1_9xxxx for X.Y.Z) is read from them and must be
 the same; the device must report it after the install.
 
-Manual screenshots are generated into web/manual/ and are not stored in git. Publish
-jobs and web/quick-host.sh run tools/manual_shots.py first — see BUILDING.md "Local site".
-The build checks every screenshot embedded in the manual before it writes the output site.
+Manual screenshots are generated into web/manual/ and are not stored in git. A full
+publish and web/quick-host.sh run tools/manual_shots.py first — see BUILDING.md "Local site".
+The figure names are the <img src> values in web/manual/index.html. A full publish checks
+every one of them before it writes the output site, then replaces webapp/manual/ with the
+manual page and those screenshots. Other PNGs and older version folders are removed. An
+installer-only update does not read or replace the published manual.
 """
 import json
 import re
@@ -142,13 +146,30 @@ def manual_figures(manual):
 
 
 def require_manual(manual):
-    """every embedded screenshot exists; called before the output site is written"""
+    """every embedded screenshot exists; called before a full publish writes the output site"""
     missing = [name for name in manual_figures(manual) if not (manual / name).is_file()]
     if missing:
         raise SystemExit(f"{manual}: {len(missing)} screenshot(s) missing: {', '.join(missing)}")
 
 
-def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None):
+def publish_manual(src, dest):
+    """Replace dest with the manual page and the screenshots it embeds."""
+    embedded = set(manual_figures(src))
+    keep = {p.name for p in src.iterdir()
+            if p.is_file() and (p.suffix.lower() != ".png" or p.name in embedded)}
+    dest.mkdir(parents=True, exist_ok=True)
+    for old in list(dest.iterdir()):
+        if old.name in keep:
+            continue
+        if old.is_dir():
+            shutil.rmtree(old)
+        else:
+            old.unlink()
+    for name in sorted(keep):
+        shutil.copy(src / name, dest / name)
+
+
+def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None, manual=None):
     pkg, single, out = Path(pkg), Path(single), Path(out)
     raw, product = check_package(pkg)
     raw1, product1 = check_package(single)
@@ -181,9 +202,10 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
     html = html.replace("/*LIB*/", lib).replace("/*META*/{}", meta)
     inst, ed, man, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "webapp" / "manual", out / "firmware"
-    man_src = HERE / "manual"
-    require_manual(man_src)                         # before any write: a missing figure must leave the site untouched
-    for d in (inst, ed, man, fw):
+    man_src = Path(manual) if manual is not None else HERE / "manual"
+    if not installer_only:
+        require_manual(man_src)                     # before any write: a missing figure must leave the site untouched
+    for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
     keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-1core.fwsc"}
     keep.update(file[3] for file in rc_files.values())
@@ -222,21 +244,11 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
     for doc in ("LICENSE", "LICENSING.md"):
         shutil.copy(HERE.parent / doc, fw / doc)
     if not installer_only:
+        publish_manual(man_src, man)
         shutil.copy(HERE / "editor.html", ed / "index.html")
-    retired = re.compile(r"^v\d+(?:\.\d+)*(?:-rc\.\d+)?$")
-    for old in list(man.iterdir()):              # drop versioned manuals left by an older publish
-        if old.name == "versions.json" or (old.is_dir() and retired.match(old.name)):
-            if old.is_dir():
-                shutil.rmtree(old)
-            else:
-                old.unlink()
-    for p in man_src.iterdir():
-        if p.is_file():
-            shutil.copy(p, man / p.name)
-    for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
-        if not installer_only and (HERE / f).exists():
-            shutil.copy(HERE / f, ed / f)
-    if not installer_only:
+        for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
+            if (HERE / f).exists():
+                shutil.copy(HERE / f, ed / f)
         (out / "index.html").write_text(
             '<!doctype html><meta charset="utf-8"><title>Melodee</title>'
             '<meta http-equiv="refresh" content="0; url=webapp/installer/">'

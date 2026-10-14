@@ -60,15 +60,19 @@ jobs:
           mkdir -p build/release-assets
           cp "build/release-$version/"*.fwsc "build/release-$version/"*-app.bin build/release-assets/
           cp "build/release-$version-1core/"*.fwsc "build/release-$version-1core/"*-app.bin build/release-assets/
-          python3 tools/manual_shots.py
-          python3 tools/manual_shots.py --require
-          tar -czf build/manual-screenshots.tar.gz -C web/manual \
-            $(find web/manual -name '*.png' | sed 's|^web/manual/||')
+          # The live manual is published only with a stable tag. Release candidates leave it alone.
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != *-* ]]; then
+            python3 tools/manual_shots.py
+            python3 tools/manual_shots.py --require
+            tar -czf build/manual-screenshots.tar.gz -C web/manual \
+              $(find web/manual -name '*.png' | sed 's|^web/manual/||')
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: release-firmware
           path: build/release-assets/*
       - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
         with:
           name: manual-screenshots
           path: build/manual-screenshots.tar.gz
@@ -132,10 +136,12 @@ jobs:
           path: build/release-assets
           merge-multiple: true
       - uses: actions/download-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
         with:
           name: manual-screenshots
           path: build/manual-screenshots-artifact
       - name: Unpack generated manual screenshots
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
         run: |
           archive=$(find build/manual-screenshots-artifact -name manual-screenshots.tar.gz -print -quit)
           test -n "$archive"
@@ -221,7 +227,6 @@ jobs:
       - name: Publish release candidate beside stable and nightly
         if: startsWith(github.ref, 'refs/tags/') && contains(github.ref_name, '-rc.')
         run: |
-          python3 tools/manual_shots.py --require
           python web/publish_rc.py .nightly-pages build/release-assets
           cd .nightly-pages
           git config user.name 'github-actions[bot]'

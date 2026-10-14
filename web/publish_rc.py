@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Publish a verified release candidate beside an existing site's stable and nightly builds."""
+"""Publish a verified release candidate beside an existing site's stable and nightly builds.
+
+Leaves the published manual and editor on the stable release.
+"""
 import argparse
 import hashlib
 import json

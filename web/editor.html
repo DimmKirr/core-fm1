@@ -2896,7 +2896,7 @@ const TEXT = {
     deviceRejected: "The device rejected that setting.",
     devicePending: "Applied. Settings will save when playback stops.",
 
-    connect: "Connect", disconnect: "Disconnect", mock: "Mock device (no hardware)",
+    other: "other", connect: "Connect", disconnect: "Disconnect", mock: "Mock device (no hardware)",
     sound: "Sound", engine: "Engine", presets: "Presets", initSound: "Init sound",
     track: "Track",
     saveFile: "Save to file", loadFile: "Load file", projects: "Projects",
@@ -2945,6 +2945,7 @@ const TEXT = {
     putDone: "Written to the device: slot ", storedSlot: "Stored on the device: slot ", erasedSlot: "Erased slot ",
     loadedUser: "Sound loaded (the sequence stays; its pattern is on the device under SEQ > PHRASES; hold SAVE to undo): ", reloaded: "The sound changed on the device: read again", readingBank: "Reading the slots",
     badEngine: "This firmware has no such engine: ", flashFail: "Write failed (rc {rc})",
+    installer: "Melodee installer",
     tabSeq: "Sequencer", tabTracks: "Tracks", tabSettings: "Settings",
     needDevice: "Connect the FM-1 to edit.", smpNone: "This firmware has no user sample slots.",
     bankConnect: "Connect the FM-1 to see its user presets too.", bankNone: "This firmware has no user presets.",
@@ -2954,23 +2955,11 @@ const TEXT = {
     slot: "Slot", songTitle: "Song", songHelp: "Arrange patterns from saved slots and choose their repeats. The current sounds stay. Save a project above to keep the chain. Rows change at the end of track 1; the song stops at the end.", songAdd: "Add row", songRemove: "Remove last row", songPlay: "Play from start", songStop: "Stop", songReps: "repeats", songEmpty: "Add a row first", songBusy: "Stop before editing", songInvalid: "Check slots and repeats", songPlaying: "Playing row", songSaved: "Chain changed. Save a project to keep it.",
     system: "System", firmware: "Firmware", sync: "Sync", tracksN: "Tracks", stepsN: "Steps", enginesL: "Engines",
     smpSlots: "Sample slots", userBank: "User presets", none: "none",
-  
 };
+
 const t = (k) => TEXT[k] ?? k;
-let lastKey = null, lastArg = "";
-function sayK(k, arg = "") { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; }
-function say(message) { lastKey = null; lastArg = ""; $("status").textContent = String(message); }
-function applyLang() {
-  document.querySelectorAll("[data-t]").forEach((e) => setLabel(e, t(e.dataset.t)));
-  setLabel($("connect"), t(dev ? "disconnect" : "connect"));
-  if (lastKey) $("status").textContent = t(lastKey) + lastArg;
-  $("libq").placeholder = t("libSearch");
-  renderLive();
-  renderLib();
-  renderBank();
-  renderPreferences(true);
-  renderPanels();
-}
+function sayK(k, arg = "") { $("status").textContent = t(k) + arg; }
+function say(message) { $("status").textContent = String(message); }
 
 /* ---------------------------------------------------------------- tabs --- */
 /* one panel at a time; the last one is remembered (localStorage) and in the URL hash (#sound ...) */
@@ -3319,8 +3308,7 @@ function buildUI() {
 function renderTrackbar() {
   const box = $("trackbtns");
   const ntrk = hasTracks() ? dev.info.ntrk : 0;
-  if (box.children.length !== ntrk || box.dataset.lang !== lang) {
-    box.dataset.lang = lang;
+  if (box.children.length !== ntrk) {
     box.replaceChildren(...Array.from({ length: ntrk }, (_, i) => el("button", { type: "button", "data-i": i,
       onclick: () => selectTrack(i) }, String(i + 1))));
   }
@@ -3996,8 +3984,7 @@ function renderMixer() {
   const box = $("mixer");
   if (!dev || !dev.mix) { box.replaceChildren(); mixCtl.length = 0; return; }
   const m = dev.mix;
-  if (mixCtl.length !== m.ntrk || box.dataset.lang !== lang) {
-    box.dataset.lang = lang;
+  if (mixCtl.length !== m.ntrk) {
     mixCtl.length = 0;
     box.replaceChildren(...m.tracks.map((_, i) => buildStrip(i)));
   }
@@ -4308,7 +4295,7 @@ function renderPreferences(force = false) {
   $("device-recording").hidden = !p || !(p.state.caps & 16);
   $("device-presets").hidden = !p || !(p.state.caps & 8);
   if (!p) { renderPreferences.sig = null; return; }
-  const sig = JSON.stringify([p.state, p.palettes, lang, d.dump && d.dump.engine]);
+  const sig = JSON.stringify([p.state, p.palettes, d.dump && d.dump.engine]);
   if (!force && sig === renderPreferences.sig) return;
   renderPreferences.sig = sig;
   const defs = [
@@ -4634,7 +4621,7 @@ function renderLib() {
         el("td", {}, p.pattern || p.grid ? icon("note_eight") : "", p.name),
         el("td", { text: p.engineName || String(p.engine) }),
         el("td", { text: p.tags.join(", ") }),
-        el("td", { text: new Date(p.modified).toLocaleDateString(lang) }));
+        el("td", { text: new Date(p.modified).toLocaleDateString("en") }));
       tr.addEventListener("click", () => { libSel = p.id; renderLib(); });
       tr.addEventListener("dblclick", () => libAudition(p.id));
       tr.addEventListener("dragstart", (e) => { libSel = p.id; e.dataTransfer.setData("text/x-melodee-lib", p.id); e.dataTransfer.effectAllowed = "copy"; });
@@ -5099,9 +5086,11 @@ $("fm6bankexp").addEventListener("click", () => op(async () => {
 $("connect").addEventListener("click", () => {
   if (dev) { wantConnected = false; disconnect(); } else connect();
 });
-applyLang();
+document.querySelectorAll("[data-t]").forEach((e) => setLabel(e, t(e.dataset.t)));
+$("libq").placeholder = t("libSearch");
 showTab(tab);
 libInit();
+renderBank();
 if (!MOCK && !navigator.requestMIDIAccess) sayK("nomidi");
 })();
 </script>

@@ -143,11 +143,10 @@
       <section id="install">
         <h2>Installing</h2>
         <p>Open the <a href="../installer/">web installer</a> in Chrome or Edge, connect the FM-1, and press Install. Leave the cable connected until writing finishes. When it succeeds, the FM-1 reports Melodee’s product identity (for example <code>FM-1_9xxxx</code>).</p>
-        <p>The installer lists published stable releases, the current release candidate, and the next nightly. <strong>Standard (dual core)</strong> is selected to start with. <strong>Single core</strong> is under <strong>Advanced / Hardware fallback</strong>.</p>
+        <p><strong>Standard (dual core)</strong> is selected to start with. <strong>Single core</strong> is under <strong>Advanced / Hardware fallback</strong>.</p>
         <ul>
           <li><strong>Standard (dual core)</strong> — uses both cores. Prophet can play up to eight voices per track.</li>
           <li><strong>Single core</strong> — choose this if Standard crashes, freezes, or restarts into update mode. The second core never starts; Prophet plays up to five voices, and heavy FM6 or Prophet sounds hit the CPU limit sooner. Features and project format are the same. Install Standard again to return to dual core.</li>
-          <li><strong>Release candidate</strong> — this manual is for <strong>1.4.0-rc.3</strong>. Choose <strong>RC</strong> in the installer, dual core or single core. The stable line stays on the latest numbered release.</li>
         </ul>
         <p>From a terminal you can also run <code>tools/fm1_install.py</code> (see the project README).</p>
       </section>
@@ -170,7 +169,7 @@
         <ul>
           <li>Hold <kbd>SAVE</kbd> to undo. On NOTES, that undoes the last step edit first; otherwise it undoes the last sound or pattern load (or Capture).</li>
           <li>While <kbd>SAVE</kbd> is held, <kbd>OCT−</kbd> undoes further and <kbd>OCT+</kbd> redoes.</li>
-          <li>Melodee supports up to eight levels of undo when the UI cache is available; otherwise one. A new edit clears redo. Recording, changing track or bank, or changing loop length starts a fresh step-edit history.</li>
+          <li>Melodee keeps eight levels of undo. A new edit clears redo. Recording, changing track or bank, or changing loop length starts a fresh step-edit history.</li>
           <li>If a song or chain is busy, the device may ask you to stop first (<strong>STOP TO UNDO</strong>).</li>
         </ul>
       </section>
@@ -280,7 +279,7 @@
               <tr><td>Black keys</td><td>Switch mode: ← , SPACE , → , DEL (and 123 for numbers).</td></tr>
               <tr><td><kbd>KNOB 1</kbd></td><td>Move the cursor.</td></tr>
               <tr><td><kbd>KNOB 2</kbd></td><td>Change the character under the cursor.</td></tr>
-              <tr><td><kbd>OCT+</kbd> / <kbd>OCT−</kbd></td><td>Save the name / cancel. A user slot takes up to 12 characters. A CZ-1 tone’s own name, on CZ TOOLS, can be 16.</td></tr>
+              <tr><td><kbd>OCT+</kbd> / <kbd>OCT−</kbd></td><td>Save the name / cancel. Name length depends on the engine: Prophet 20 characters, FM6 10, CZ-1 16, others 12.</td></tr>
             </tbody>
           </table>
         </section>
@@ -541,7 +540,7 @@
         <figure class="shot"><img src="designer_start.png" alt="Sound designer start screen" width="240" height="240"><figcaption>START: engine, starting point, and which pages.</figcaption></figure>
         <ol>
           <li><strong>START</strong> — engine; start from CURRENT, INIT, or INIT with a recipe (BASS, PAD, LEAD, KEYS, PLUCK, FX); MAIN pages only or ALL.</li>
-          <li>Stages: <strong>Features → Source → Tone → Env → Motion → Play → FX</strong>. Empty stages are skipped. Audition on the keys; hold <kbd>SAVE</kbd> to compare with the original.</li>
+          <li>Stages: <strong>Features → Source → Tone → Env → Motion → Play</strong>. Empty stages are skipped. Audition on the keys; hold <kbd>SAVE</kbd> to compare with the original.</li>
           <li>Finish: Keep the sound, Save as user…, or Discard (patterns and mix stay).</li>
         </ol>
         <p>Motion on the designed track is paused while you design so it cannot overwrite edits. Knob turns in the designer do not record motion.</p>
@@ -816,7 +815,7 @@
             <tr><td>LIGHTS</td><td>Idle indicator brightness, OFF (only pressed / engaged / selectable) through FULL.</td></tr>
             <tr><td>USB AUDIO</td><td>In+Out / In / Out / Off.</td></tr>
             <tr><td>USB INPUT</td><td><strong>STEREO</strong> (default) records the master, including track and shared effects. <strong>4 TRACKS</strong> records an isolated mono stem per track place, after that track’s effects and level and before the shared effects and the master. A track that is not in the song is silent on its stem.</td></tr>
-            <tr><td>AUDIO CLICK</td><td>Metronome on / off.</td></tr>
+            <tr><td>AUDIO CLICK</td><td><strong>OFF</strong> / <strong>REC</strong> (while recording) / <strong>ON</strong>.</td></tr>
             <tr><td>CLICK LEVEL</td><td>Metronome volume.</td></tr>
             <tr><td>COUNT-IN</td><td>Bars of count-in before an armed track records when you start with <kbd>PLAY</kbd> (internal clock only).</td></tr>
             <tr><td>NOTE PREVIEW</td><td>Hear notes as you edit steps.</td></tr>

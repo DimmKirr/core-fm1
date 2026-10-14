@@ -89,6 +89,9 @@ PARALLEL=${PARALLEL:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 case $SOUND in 0 | 1 | only) ;; *) echo "SOUND=0, 1 or only"; exit 2 ;; esac
 UI=${UI:-}
 case $UI in "" | renders) ;; *) echo "UI=renders or empty"; exit 2 ;; esac
+if [ "$UI" = renders ]; then
+    python3 -c "import PIL" 2>/dev/null || { echo "UI renders need Pillow (python3 -m pip install Pillow)" >&2; exit 1; }
+fi
 [ "$PARALLEL" -ge 1 ] 2>/dev/null || { echo "PARALLEL=n, n >= 1"; exit 2; }
 python3 tools/gen_scales.py --check || exit 1
 python3 tools/audio_contract.py --check || exit 1
@@ -188,10 +191,6 @@ if [ "$UI" = renders ]; then
     if [ -s "$LOG/$n.fail" ]; then
         echo "UI RENDERS FAILED"
         cat "$LOG/$n.fail"
-        exit 1
-    fi
-    if [ "$PIL" != 1 ]; then
-        echo "UI renders need Pillow (python3 -m pip install Pillow)" >&2
         exit 1
     fi
     if [ ! -f build/ui_new/NIGHT/home.png ]; then

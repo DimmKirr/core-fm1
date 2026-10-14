@@ -171,7 +171,7 @@ Or, to install your own build from the web installer, make a local copy of the s
 
 - `webapp/installer/` — self-contained installer
 - `webapp/editor/` — patch editor
-- `webapp/manual/` — the current manual from `web/manual/` (HTML and screenshots)
+- `webapp/manual/` — the stable manual from `web/manual/` (HTML and screenshots), published with a full release
 - `firmware/` — both `.fwsc` packages, LICENSE texts
 
 The manual’s screenshots are generated into `web/manual/` (NIGHT palette only) and
@@ -187,7 +187,7 @@ MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.3
 tests/run_tests.sh
 #    SOUND=0 tests/run_tests.sh   # skip the long sound tests if you only need UI/screenshots
 
-# 2) Copy the allowlisted NIGHT frames into the manual.
+# 2) Copy the NIGHT frames named in web/manual/index.html into the manual.
 python3 tools/manual_shots.py            # build/ui_new/NIGHT → web/manual/
 # python3 tools/manual_shots.py --require  # succeed when every figure is already present
 # python3 tools/manual_shots.py --sources  # succeed when every source render exists
@@ -203,12 +203,17 @@ cd /tmp/melodee-site && python3 -m http.server 8000
 #      http://localhost:8000/webapp/editor/
 ```
 
-`web/quick-host.sh` runs step 2 only when the manual is missing figures. If any allowlisted
-frame is missing from `build/ui_new/NIGHT/`, it renders those screens (`UI=renders tests/run_tests.sh`)
-and then copies them.
-Nightly and release workflows do the same after the host tests, before the site is published.
-`make_site.py` copies `web/manual/` (HTML, and PNGs when step 2 has been run) into `webapp/manual/`,
-and removes any older versioned manual folders left from a previous publish.
+`web/quick-host.sh` can be run from any directory. `VERSION` defaults to the firmware
+version in `tools/fm1_recover.py`. It runs step 2 only when the manual is missing figures.
+If any frame named in the manual is missing from `build/ui_new/NIGHT/`, it renders those
+screens (`UI=renders tests/run_tests.sh`) and then copies them. It replaces `SITE_DIR` only
+when that path is already a Melodee site (or does not exist yet).
+A stable release does the same after the host tests, before the site is published.
+Nightly and release-candidate publishes update the installer and their packages, and leave
+the live manual on the last stable release.
+`make_site.py` publishes the manual page and the screenshots it embeds on a full publish,
+and removes anything else already in `webapp/manual/` (old PNGs and version folders). An
+installer-only update does not need the screenshots.
 
 Installing firmware is at your own risk. If an install fails and the FM-1 no longer
 starts, identify its recovery mode using the steps below.
@@ -537,7 +542,8 @@ It checks out `next`, builds both variants, runs the host/web suite,
 and publishes only after successful checks. Packages, checksums and source
 metadata are available as an Actions artifact and in `gh-pages/firmware`.
 `web/publish_nightly.py` updates the existing Pages checkout while keeping its
-published release packages and editor.
+published release packages, editor, and manual. The manual goes out with a stable
+release, not with each push to `next`.
 
 ## EQ accelerator experiment
 
