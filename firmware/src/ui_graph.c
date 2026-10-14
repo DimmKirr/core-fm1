@@ -128,14 +128,15 @@ static void graph_steps(const track_t *t, uint16_t c)
  * a TEXT column frame; the playhead: a 1 px ACCENT line. The view (proll.lo, the bottom row) fits the notes of the
  * page, else centres on the cursor's note, and follows in steps (a third of the way per frame); graph_signature()
  * holds it, so a page that does not change is not drawn again. */
-#define PR_TOP 22                                   /* the panel's top on the screen (ui_pages.c: NOTES) */
-#define PR_H 174                                    /* .. its rows */
-#define PR_ROWS 14                                  /* semitones shown (1.17 octaves) */
+#define PR_TOP Y_GRAPH                              /* the panel's top on the screen (ui_pages.c: NOTES, under the strip) */
+#define PR_H 154                                    /* .. its rows (84 .. 237) */
+#define PR_ROWS 12                                  /* semitones shown (an octave) */
 #define PR_RH 12                                    /* px per row */
-#define PR_Y0 6                                     /* the top row (panel y) */
-#define PR_X0 22                                    /* the first step column */
-#define PR_CW 13                                    /* px per step */
-#define PR_KX 8                                     /* the keyboard strip, 12 px (black keys 7; a C key named on it) */
+#define PR_Y0 4                                     /* the top row (panel y) */
+#define PR_X0 32                                    /* the first step column */
+#define PR_CW 12                                    /* px per step */
+#define PR_KX 6                                     /* the keyboard strip, 22 px (black keys 13; a C key named on it, the
+                                                     * label face) */
 static struct {
     uint8_t lo, trk, init, moving;                    /* lo: the note of the bottom row; moving: on its way */
     uint32_t frame;
@@ -270,12 +271,17 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
     for (int32_t row = 0; row < PR_ROWS; row++) {
         int32_t note = (int32_t)proll.lo + PR_ROWS - 1 - row, y = PR_Y0 + row * PR_RH;
         if (!(micro_active(t) ? ((note - 60) & 1) == 0 : scale_mask(t) == 0xFFFu ? !KEY_BLACK[note % 12] : (scale_mask(t) >> ((note - t->p[P_ROOT] + 120) % 12)) & 1u)) cv_rect(PR_X0, y, 16 * PR_CW + 1, PR_RH, T_QUIET);   /* (out of the scale: darker) */
-        cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[note % 12] ? 7 : 12, PR_RH - 1, !micro_active(t) && KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
-        if ((held >> row) & 1u) cv_rect(PR_KX, y, 12, PR_RH - 1, T_ACCENT);
+        cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[note % 12] ? 13 : 22, PR_RH - 1, !micro_active(t) && KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
+        if ((held >> row) & 1u) cv_rect(PR_KX, y, 22, PR_RH - 1, T_ACCENT);
+    }
+    for (int32_t row = 0; row < PR_ROWS; row++) {      /* the C keys named (the label face, on their row's middle) */
+        int32_t note = (int32_t)proll.lo + PR_ROWS - 1 - row, y = PR_Y0 + row * PR_RH;
         if (micro_active(t) ? ((note - 60) % (int32_t)scale_note_period(t) == 0) : note % 12 == 0) {
             char name[8];
             if (micro_active(t)) str_cpy(name, "D1", sizeof name); else note_name(name, (uint32_t)note);
-            cv_text_on(PR_KX, y, &AF_X, name, T_MID, T_RAISE);
+            cv_rrect(0, ty_y(y + PR_RH / 2, TY_LB) + TY_LB->asc - TY_LB->cap - 3, text_w(TY_LB, name) + 8, TY_LB->cap + 6, 4,
+                     T_RAISE, T_PANEL);
+            cv_text_on(4, ty_y(y + PR_RH / 2, TY_LB), TY_LB, name, T_TEXT, T_RAISE);
         }
     }
     uint32_t base = notes_base(), end = base + notes_span();

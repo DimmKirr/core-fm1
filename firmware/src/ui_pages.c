@@ -18,8 +18,8 @@
  * Each part remembers what it drew. draw_column draws the knobs in the style col_style asks (pv_column). Included by
  * ui_draw.c */
 enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES, PV_MOD, PV_GRID };
-#define PV_GRID_Y 22                                    /* the drum grid: its panel, rows 22 .. 195 */
-#define PV_GRID_H 174
+#define PV_GRID_Y Y_GRAPH                               /* the drum grid: its panel, rows 84 .. 237 (under the strip) */
+#define PV_GRID_H 154
 static void list_words(char *d, const char *label, uint32_t n);   /* ui_list.c */
 static void menu_words(char *d, const char *s, uint32_t n);         /* ui_menu.c */
 #define PV_PANEL_X BOX_X                                /* a panel: x 2 .. 237 */
@@ -68,23 +68,17 @@ static uint32_t pv_kind(void)
     return PV_NONE;
 }
 
-/* MOD (docs/design: mock/r6_pages MOD): the matrix's four routes as rows, "1  LFO -> Cutoff  +62 %" over the amount's
- * bar (from the middle); the route KNOB 2 is on: a card in the track's colour; unused routes dim. The knobs' chips
- * under them (KNOB 1 its source, 2 the route, 3 its destination, 4 its amount, ui_draw.c) */
-#define PV_MOD_Y 22                                     /* the rows: 48 px each from y 22, the chips at 220 */
-#define PV_MOD_H 48
-static void pv_mod_pill(int32_t x, int32_t y, int32_t w, const char *s, int on, uint16_t bg)
-{
-    char b[16];
-    list_words(b, s, sizeof b);
-    cv_rrect(x, y, w, 18, 5, on ? ux_mix(bg, T_THEME, 30) : ux_mix(bg, T_LINE, 50), bg);
-    cv_free_text(x + 4 + (w - 8 - (text_w(&AF_X, b) < w - 8 ? text_w(&AF_X, b) : w - 8)) / 2, y + 4, &AF_X, b,
-                 on ? T_TEXT : T_DIM, on ? ux_mix(bg, T_THEME, 30) : ux_mix(bg, T_LINE, 50), w - 8);
-}
+/* MOD (docs/design: mock/r6_pages MOD; large type): the matrix's four routes as rows: its number, "LFO -> Cutoff" in
+ * words (the text face; the label face when they do not fit: never cut), under them the amount's bar (from the
+ * middle) and the amount ("+62 %") at the right; the route KNOB 2 is on outlined in the track's colour and tinted;
+ * unused routes dim. KNOB 1 its source, 3 its destination, 4 its amount: the word turning in the track's colour */
+#define PV_MOD_Y Y_LABEL                                /* the rows: 50 px each from y 32 */
+#define PV_MOD_H 50
 static void pv_mod_rows(void)
 {
     static uint32_t sig;
-    uint32_t k, sg = mod_ui_slot * 7u + ux.gen * 977u + ux.pal * 31u + song.sel * 13u + TSEL->eng_req * 613u;
+    uint32_t k, hot = ui.hot_t || pv_hero_on() ? ui.hot_col + 1u : 0u;
+    uint32_t sg = mod_ui_slot * 7u + ux.gen * 977u + ux.pal * 31u + song.sel * 13u + TSEL->eng_req * 613u + hot * 101u;
     for (k = 0; k < NMSLOT * 3u; k++)
         sg = (sg ^ (uint16_t)TSEL->p[P_M1SRC + k]) * 16777619u;
     if (!ui.force && sg == sig)
@@ -93,34 +87,43 @@ static void pv_mod_rows(void)
     for (k = 0; k < NMSLOT; k++) {
         const int16_t *p = &TSEL->p[P_M1SRC + 3u * k];
         int sel = k == mod_ui_slot, on = p[0] && p[1] && p[2];
-        uint16_t bg = sel ? T_LIFT : T_BG;
-        int32_t a = clamp(p[2], TP[P_M1AMT].min, TP[P_M1AMT].max), m = 128, x;
-        char b[16];
+        uint16_t bg = sel ? ux_mix(T_BG, T_THEME, 18) : T_BG, wc = on ? (sel ? T_TEXT : T_SEC) : T_DIM;
+        int32_t a = clamp(p[2], TP[P_M1AMT].min, TP[P_M1AMT].max), m = 120, x, room;
+        char src[16], dst[16], b[16];
         const char *unit;
+        const aafont_t *f = TY_TX;
         cv_begin(240, PV_MOD_H, T_BG);
-        if (sel) {                                      /* (the route picked: a card) */
-            cv_rrect(4, 1, 232, PV_MOD_H - 4, 7, T_THEME, T_BG);
-            cv_rrect(5, 2, 230, PV_MOD_H - 6, 6, bg, T_THEME);
+        if (sel) {                                      /* (the route picked: outlined, tinted) */
+            cv_rrect(BOX_X, 1, BOX_W, PV_MOD_H - 4, 8, T_THEME, T_BG);
+            cv_rrect(BOX_X + 2, 3, BOX_W - 4, PV_MOD_H - 8, 6, bg, T_THEME);
         }
         b[0] = (char)('1' + k);
         b[1] = 0;
-        cv_text_on(13, 7, &AF_S, b, sel ? T_THEME : T_MID, bg);
-        pv_mod_pill(28, 6, 70, p[0] ? N_MSRC[clamp(p[0], 0, MS_N - 1)] : "--", p[0] != 0, bg);
-        cv_rect(104, 14, 10, 2, on ? T_MID : T_DIM);    /* an arrow */
-        cv_line(110, 11, 113, 14, on ? T_MID : T_DIM);
-        cv_line(110, 17, 113, 14, on ? T_MID : T_DIM);
-        pv_mod_pill(120, 6, 70, p[1] ? mod_dst_name(TSEL, p[1]) : "--", p[1] != 0, bg);
+        cv_text_on(10, ty_y(17, TY_TX), TY_TX, b, sel ? T_THEME : T_MID, bg);
+        list_words(src, p[0] ? N_MSRC[clamp(p[0], 0, MS_N - 1)] : "--", sizeof src);
+        list_words(dst, p[1] ? mod_dst_name(TSEL, p[1]) : "--", sizeof dst);
+        room = 228 - 30 - 22;                           /* (the words, the arrow between them) */
+        if (text_w(f, src) + text_w(f, dst) > room)
+            f = TY_LB;
+        x = cv_text_on(30, ty_y(17, f), f, src, sel && hot == 1u ? T_THEME : wc, bg);
+        cv_rect(x + 6, 17, 9, 2, on ? T_MID : T_DIM);   /* an arrow */
+        cv_line(x + 12, 14, x + 15, 17, on ? T_MID : T_DIM);
+        cv_line(x + 12, 20, x + 15, 17, on ? T_MID : T_DIM);
+        cv_free_text(x + 22, ty_y(17, f), f, dst, sel && hot == 3u ? T_THEME : wc, bg, 228 - x - 22);
         param_format(&TP[P_M1AMT], a, b, &unit);        /* "+62 %" */
         if (unit[0] && str_len(b) + str_len(unit) + 2u < sizeof b) {
             str_cpy(b + str_len(b), " ", 2);
             str_cpy(b + str_len(b), unit, 8);
         }
-        cv_text_r(228, 9, &AF_X, b, on ? (sel ? T_THEME : T_SEC) : T_DIM, bg);
-        cv_rect(28, 30, 200, 3, T_LINE);                /* the amount, from the middle */
-        x = 28 + (a - TP[P_M1AMT].min) * 200 / (TP[P_M1AMT].max - TP[P_M1AMT].min);
-        if (a)
-            cv_rect(x < m ? x : m, 30, x < m ? m - x : x - m, 3, on ? (sel ? T_THEME : ux_mix(bg, T_THEME, 60)) : T_DIM);
-        cv_rect(m, 28, 1, 7, T_MID);
+        x = cv_text_r(228, ty_y(36, TY_LB), TY_LB, b, sel && hot == 4u ? T_THEME : on ? (sel ? T_TEXT : T_SEC) : T_DIM, bg);
+        cv_rect(30, 35, x - 38, 3, T_LINE);             /* the amount, from the middle */
+        m = 30 + (x - 38) / 2;
+        {
+            int32_t ax = 30 + (a - TP[P_M1AMT].min) * (x - 38) / (TP[P_M1AMT].max - TP[P_M1AMT].min);
+            if (a)
+                cv_rect(ax < m ? ax : m, 35, ax < m ? m - ax : ax - m, 3, on ? (sel ? T_THEME : ux_mix(bg, T_THEME, 60)) : T_DIM);
+        }
+        cv_rect(m, 32, 1, 9, T_MID);
         cv_blit(0, (uint32_t)(PV_MOD_Y + (int32_t)k * PV_MOD_H));
     }
 }
@@ -497,10 +500,11 @@ static int32_t pv_grid_play(void)                       /* the step playing on t
     uint32_t idx = TSEL->seq_idx;
     return song.playing && idx < (uint32_t)TSEL->p[P_SLEN] && idx / 16u == ui.bank ? (int32_t)(idx % 16u) : -1;
 }
-static void pv_grid_mark(void)                          /* (rows 3 .. 5, over the lanes) */
+#define PV_GX(i) (40 + (int32_t)(i) * 11 + (int32_t)(i) / 4 * 4)   /* step i's cell (9 px) */
+static void pv_grid_mark(void)                          /* (rows 1 .. 3, over the lanes) */
 {
     if (pv.gplay >= 0)
-        cv_rect(34 + pv.gplay * 12 + pv.gplay / 4 * 2, 3, 10, 3, T_TEXT);
+        cv_rect(PV_GX(pv.gplay), 1, 9, 3, T_TEXT);
 }
 static void pv_grid(int32_t h)
 {
@@ -508,25 +512,25 @@ static void pv_grid(int32_t h)
     uint32_t l, i, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u;
     (void)h;
     pv_grid_mark();
-    for (l = 0; l < NLANE; l++) {
-        int32_t y = 10 + (int32_t)l * 20;
+    for (l = 0; l < NLANE; l++) {                       /* (lanes 18 apart from row 6: the name in the label face) */
+        int32_t y = 6 + (int32_t)l * 18;
         int sel = l == ui.lane;
         uint16_t row = sel ? T_LIFT : T_PANEL;
         if (sel)
-            cv_rect(2, y, PV_PANEL_W - 4, 18, T_LIFT);
-        cv_text_on(8, y + 3, &AF_X, drum_lane_abbr(t, l), sel ? T_THEME : T_MID, row);
+            cv_rrect(2, y, PV_PANEL_W - 4, 17, 4, T_LIFT, T_PANEL);
+        cv_text_on(6, ty_y(y + 8, TY_LB), TY_LB, drum_lane_abbr(t, l), sel ? T_THEME : T_MID, row);
         for (i = 0; i < 16u && base + i < len; i++) {
             const step_t *st = &seq_steps(t)[base + i];
             uint32_t b = 1u << l;
-            int32_t x = 34 + (int32_t)i * 12 + (int32_t)(i / 4u) * 2;
+            int32_t x = PV_GX(i);
             if (sel && base + i == ui.cursor) {         /* the cursor: a rounded ring around the cell */
-                cv_rrect(x - 2, y, 14, 18, 5, T_SEC, row);
-                cv_rrect(x - 1, y + 1, 12, 16, 4, row, T_SEC);
+                cv_rrect(x - 2, y, 13, 17, 4, T_SEC, row);
+                cv_rrect(x - 1, y + 1, 11, 15, 3, row, T_SEC);
             }
             if (step_lanes(st) & b)
-                cv_rrect(x, y + 2, 10, 14, 3, (step_accents(st) & b) ? T_TEXT : T_THEME, row);
+                cv_rrect(x, y + 2, 9, 13, 3, (step_accents(st) & b) ? T_TEXT : T_THEME, row);
             else
-                cv_disc(x + 5, y + 9, i % 4u == 0u || sel ? 4 : 3, i % 4u == 0u || sel ? T_MID : T_DIM, 0);
+                cv_disc(x + 4, y + 8, i % 4u == 0u || sel ? 4 : 3, i % 4u == 0u || sel ? T_MID : T_DIM, 0);
         }
     }
 }
@@ -735,9 +739,12 @@ static void pv_picture(void)
 }
 
 /* ---------------------------------------------------------- MIXER --- */
-#define PV_STRIP_TOP 22                                 /* a strip: rows 22 .. 233 where Stage's column is (ui_stage.c
-                                                         * st_col_x: four 54 px, fewer wider, their parts centred) */
-#define PV_STRIP_ROWS 212
+/* MIXER (large type: C, rows as Stage's, ui_stage.c st_row_*): a track a row tinted in its colour (the selected one
+ * more, outlined): its numeral, its sound, its level in dB at the right; under them the level as a bar in the track's
+ * colour, the meter under it, its pan at the right ("L20", "C"); muted: dim, "Mute" in red; armed: a REC dot on the
+ * numeral. The knob turning (LEVEL, PAN, MUTE: the selected track's) in text */
+#define PV_MIX_BAR_X 46                                 /* the level's bar: x 46 .. 46 + PV_MIX_BAR_W, in the row */
+#define PV_MIX_BAR_W 120
 static struct { uint32_t strip[NTRK]; uint8_t meter[NTRK]; } pvm;
 /* knob_arc as knob() draws it (a bipolar value from 12 o'clock), on bg */
 static void pv_knob(int32_t x, int32_t y, int32_t r, const uint8_t *cov, const uint8_t *ang, int32_t v, int32_t lo,
@@ -754,35 +761,40 @@ static void pv_knob(int32_t x, int32_t y, int32_t r, const uint8_t *cov, const u
     }
     knob_arc(x, y, r, cov, ang, a0, a1, T_LINE, vc, bg);
 }
-static void pv_meter(uint32_t k, uint16_t c)           /* track k's meter: 3 x 44 beside its level */
+static int32_t pv_mix_y(int32_t h) { return (h - (TY_TX->cap + 8 + 10)) / 2; }   /* the row's block: its first capital */
+/* track k's meter: a 3 px bar under its level's, as long as the output now */
+static void pv_meter_draw(uint32_t k, int32_t x, int32_t y, uint16_t c, uint16_t bg)
 {
-    int32_t h = pvm.meter[k] * 44 / (TS_MH - 2);
-    cv_begin(3, 44, T_LINE);
-    cv_rect(0, 0, 3, 44, k == song.sel ? T_LIFT : T_PANEL);
-    cv_rrect(0, 0, 3, 44, 1, T_LINE, k == song.sel ? T_LIFT : T_PANEL);
-    if (h > 0)
-        cv_rrect(0, 44 - h, 3, h, 1, c, T_LINE);
-    cv_blit((uint32_t)(st_col_x(k) + (st_col_w() - CARD_W) / 2 + 48), PV_STRIP_TOP + 50);
+    int32_t w = pvm.meter[k] * PV_MIX_BAR_W / (TS_MH - 2);
+    cv_rrect(x, y, PV_MIX_BAR_W, 3, 1, ux_mix(bg, T_LINE, 60), bg);
+    if (w > 0)
+        cv_rrect(x, y, w, 3, 1, c, T_LINE);
+}
+static void pv_meter(uint32_t k, uint16_t c)
+{
+    int32_t h = st_row_h();
+    uint16_t bg = ux_mix(T_BG, c, k == song.sel ? 24 : 11);
+    cv_begin(PV_MIX_BAR_W, 3, bg);
+    pv_meter_draw(k, 0, 0, c, bg);
+    cv_blit((uint32_t)(BOX_X + PV_MIX_BAR_X), (uint32_t)(st_row_y(k) + pv_mix_y(h) + TY_TX->cap + 8 + 7));
 }
 static void pv_strip(uint32_t k)
 {
     track_t *t = &trk[k];
     uint32_t sel = k == song.sel, mute = t->p[P_MUTE] != 0, arm = (song.rec >> k) & 1u, lvl = trk_level(k), sig;
-    uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* 1 LEVEL, 2 PAN, 3 unused, 4 MUTE */
-    int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63);
-    uint16_t tc = mute ? T_DIM : T_TRK(k), bg = sel ? T_LIFT : T_PANEL;
-    int32_t w = st_col_w(), x = st_col_x(k), ox = (w - CARD_W) / 2, top, sh;   /* ox: the parts centred */
-    const aafont_t *nf = w >= 100 ? &AF_M : &AF_S;
-    char nm[16], l1[16], l2[16], b[8];
+    uint32_t hot = sel && (ui.hot_t || pv_hero_on()) ? ui.hot_col + 1u : 0u;   /* 1 LEVEL, 2 PAN, 3 unused, 4 MUTE */
+    int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), h = st_row_h(), y = st_row_y(k), top;
+    uint16_t tc = mute ? T_DIM : T_TRK(k), bg = ux_mix(T_BG, mute ? T_TRK(k) : tc, sel ? 24 : 11);
+    const aafont_t *tf = TY_TX, *lf = TY_LB;
+    int32_t T = pv_mix_y(h), ly = T + tf->cap + 8, cs = h >= 80 ? 34 : 26;
+    char nm[20], b[12], d[2] = {(char)('1' + k), 0};
     t->peak = 0;
     m = mute ? 0 : meter_px(pk);
     if (m < pvm.meter[k] - 1)
         m = pvm.meter[k] - 1;                           /* (falls ~2 dB a frame) */
-    trk_short_name(k, nm);
-    if (t->eng_req == ENGI_PROPHET)
-        p5_short_name(t, nm, sizeof nm);
+    sound_name(t, nm);
     sig = str_hash(1u + sel * 2u + mute * 4u + arm * 8u + hot * 16u, nm) + lvl * 7919u +
-          (uint32_t)(pan + 128) * 104729u + (uint32_t)w * 31u;
+          (uint32_t)(pan + 128) * 104729u + (uint32_t)h * 31u + ux.gen * 977u + ux.pal * 31u;
     if (!ui.force && sig == pvm.strip[k]) {
         if (m != pvm.meter[k]) {                        /* the meter alone */
             pvm.meter[k] = (uint8_t)(m < 0 ? 0 : m);
@@ -792,62 +804,52 @@ static void pv_strip(uint32_t k)
     }
     pvm.strip[k] = sig;
     pvm.meter[k] = (uint8_t)(m < 0 ? 0 : m);
-    for (top = 0; top < PV_STRIP_ROWS; top += sh) {    /* (one track: wider than a canvas holds: in slices) */
-        sh = PV_STRIP_ROWS - top < (int32_t)(CV_MAX / (uint32_t)w) ? PV_STRIP_ROWS - top : (int32_t)(CV_MAX / (uint32_t)w);
-        cv_begin((uint32_t)w, (uint32_t)sh, T_BG);
+    for (top = 0; top < h; top += (int32_t)(CV_MAX / BOX_W)) {   /* (a tall row: in slices) */
+        int32_t sh = h - top < (int32_t)(CV_MAX / BOX_W) ? h - top : (int32_t)(CV_MAX / BOX_W), x;
+        cv_begin(BOX_W, (uint32_t)sh, T_BG);
         cv_oy = -top;
         if (sel) {
-            cv_rrect(0, 0, w, PV_STRIP_ROWS, 6, T_TRK(k), T_BG);
-            cv_rrect(1, 1, w - 2, PV_STRIP_ROWS - 2, 5, bg, T_TRK(k));
+            cv_rrect(0, 0, BOX_W, h, 8, mute ? T_DIM : T_TRK(k), T_BG);
+            cv_rrect(2, 2, BOX_W - 4, h - 4, 6, bg, mute ? T_DIM : T_TRK(k));
         } else {
-            cv_rrect(0, 0, w, PV_STRIP_ROWS, 6, bg, T_BG);
+            cv_rrect(0, 0, BOX_W, h, 8, bg, T_BG);
         }
-        cv_rect(3, 0, w - 6, 3, tc);                    /* the bar */
-        stage_two_lines(nm, l1, l2, w - 10, nf);
-        cv_free_text(st_mid_x(w / 2, nf, l1, w - 8), 7, nf, l1, mute ? T_DIM : T_TEXT, bg, w - 8);
-        if (l2[0])
-            cv_free_text(st_mid_x(w / 2, nf, l2, w - 8), nf == &AF_M ? 23 : 20, nf, l2, mute ? T_DIM : T_TEXT, bg,
-                         w - 8);
-        pv_knob(ox + 27 - KNOB_LEVEL_R, 70 - KNOB_LEVEL_R, KNOB_LEVEL_R, KNOB_LEVEL_COV, KNOB_LEVEL_ANG, (int32_t)lvl, 0, 127,
-                hot == 1u ? T_TEXT : tc, bg);
+        cv_rrect(6, h / 2 - cs / 2, cs, cs, 7, tc, bg);  /* the numeral */
+        cv_text_c(6 + cs / 2, ty_y(h / 2, tf), tf, d, T_INK, tc);
+        if (arm)
+            cv_disc(6 + cs - 2, h / 2 - cs / 2 + 2, 9, T_REC, 0);
+        /* the level in dB at the right, the sound before it */
         if (lvl) {
-            int32_t d = LEVEL_DB_X10[lvl];
-            fmt_int(b, (d + (d < 0 ? -5 : 5)) / 10);
+            int32_t db = LEVEL_DB_X10[lvl];
+            fmt_int(b, (db + (db < 0 ? -5 : 5)) / 10);
         } else {
-            str_cpy(b, "OFF", sizeof b);
+            str_cpy(b, "Off", sizeof b);
         }
-        cv_text_c(ox + 27, 63, &AF_S, b, hot == 1u ? T_TEXT : mute ? T_DIM : T_TEXT, bg);
+        x = 228;
         if (lvl)
-            cv_text_c(ox + 27, 76, &AF_X, "dB", T_MID, bg);
-        cv_rrect(ox + 48, 50, 3, 44, 1, T_LINE, bg);    /* (the meter: pv_meter) */
-        cv_text_c(ox + 15, 104, &AF_X, "PAN", T_MID, bg);
-        pv_knob(ox + 15 - KNOB_SMALL_R, 130 - KNOB_SMALL_R, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, pan, -64, 63,
-                hot == 2u ? T_TEXT : tc, bg);
-        if (pan) {
-            b[0] = pan < 0 ? 'L' : 'R';
-            fmt_int(b + 1, pan < 0 ? -pan : pan);
+            x = cv_text_r(x, ty_y(T + tf->cap / 2, lf), lf, "dB", T_MID, bg) - 3;
+        x = cv_text_r(x, ty_y(T + tf->cap / 2, tf), tf, b, hot == 1u ? tc : mute ? T_DIM : T_TEXT, bg);
+        cv_free_text(PV_MIX_BAR_X, ty_y(T + tf->cap / 2, ty_fit(tf, nm, x - 8 - PV_MIX_BAR_X)), ty_fit(tf, nm, x - 8 - PV_MIX_BAR_X),
+                     nm, mute ? T_DIM : T_TEXT, bg, x - 8 - PV_MIX_BAR_X);
+        /* the level's bar, the meter under it; the pan (or Mute) at the right */
+        cv_rrect(PV_MIX_BAR_X, ly, PV_MIX_BAR_W, 5, 2, ux_mix(bg, T_LINE, 60), bg);
+        if (lvl)
+            cv_rrect(PV_MIX_BAR_X, ly, (int32_t)lvl * PV_MIX_BAR_W / 127 < 4 ? 4 : (int32_t)lvl * PV_MIX_BAR_W / 127, 5, 2,
+                     hot == 1u ? T_TEXT : tc, T_LINE);
+        pv_meter_draw(k, PV_MIX_BAR_X, ly + 7, tc, bg);
+        if (mute) {
+            cv_text_r(228, ty_y(ly + 5, lf), lf, "Mute", hot == 4u ? T_TEXT : T_REC, bg);
         } else {
-            str_cpy(b, "C", sizeof b);
-        }
-        cv_text_c(ox + 15, 145, &AF_X, b, hot == 2u ? T_TEXT : T_SEC, bg);
-        if (mute) {                                     /* MUTE: lit when muted */
-            cv_rrect(ox + 6, 168, 42, 16, 5, hot == 4u ? T_TEXT : ux_mix(T_SURF, T_MID, 50), bg);
-            cv_text_c(ox + 27, 170, &AF_X, "MUTE", T_BG, hot == 4u ? T_TEXT : ux_mix(T_SURF, T_MID, 50));
-        } else {
-            cv_rrect(ox + 6, 168, 42, 16, 5, hot == 4u ? T_TEXT : T_LINE, bg);
-            cv_rrect(ox + 7, 169, 40, 14, 4, T_SURF, hot == 4u ? T_TEXT : T_LINE);
-            cv_text_c(ox + 27, 170, &AF_X, "MUTE", T_DIM, T_SURF);
-        }
-        if (arm)                                        /* armed: a REC dot, else its ring */
-            cv_disc(ox + 27, 198, 9, T_REC, 0);
-        else
-            cv_disc(ox + 27, 198, 9, T_DIM, 1);
-        if (pvm.meter[k]) {
-            int32_t h = pvm.meter[k] * 44 / (TS_MH - 2);
-            cv_rrect(ox + 48, 94 - h, 3, h, 1, tc, T_LINE);
+            if (pan) {
+                b[0] = pan < 0 ? 'L' : 'R';
+                fmt_int(b + 1, pan < 0 ? -pan : pan);
+            } else {
+                str_cpy(b, "C", sizeof b);
+            }
+            cv_text_r(228, ty_y(ly + 5, lf), lf, b, hot == 2u ? T_TEXT : T_MID, bg);
         }
         cv_oy = 0;
-        cv_blit((uint32_t)x, (uint32_t)(PV_STRIP_TOP + top));
+        cv_blit(BOX_X, (uint32_t)(y + top));
     }
 }
 
@@ -862,10 +864,8 @@ static void pv_draw(void)
             ui.graph_sig = 0;
         }
         draw_head();
-        col_style = CS_CHIP;
+        col_style = CS_CARD;                            /* (the strip, as a page's) */
         draw_columns();
-        col_style = CS_CARD;
-        pv_sound();
         sig = graph_sig(0);
         px = notes_play_x(TSEL);
         if (ui.force || sig != ui.graph_sig || px != proll.play) {   /* the roll, in two slices (its labels may cross
@@ -895,10 +895,8 @@ static void pv_draw(void)
         if (ui.force)
             lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
         draw_head();
-        col_style = CS_CHIP;
+        col_style = CS_CARD;                            /* (the strip, as a page's) */
         draw_columns();
-        col_style = CS_CARD;
-        pv_sound();
         sig = graph_sig(0);
         px = pv_grid_play();
         if (ui.force || sig != ui.graph_sig || px != pv.gplay) {   /* (the step playing alone: cv_blit sends its mark) */
@@ -912,11 +910,9 @@ static void pv_draw(void)
         if (ui.force)
             lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
         draw_head();
-        pv_mod_rows();
-        col_style = CS_CHIP;
-        pv_chip_y = 220;
+        pv_mod_rows();                                  /* (the routes say what the knobs turn: no strip) */
+        col_style = CS_CAPTURE;                         /* (the hero's words: draw_column records them) */
         draw_columns();
-        pv_chip_y = PV_CHIP_Y;
         col_style = CS_CARD;
         return;
     }

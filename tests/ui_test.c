@@ -4271,7 +4271,7 @@ static int test_bughunt_ui2(void)
          * K4 the MUTE chip) in the selected track's strip (ui_pages.c pv_strip) */
         uint32_t k, a[4][4], ok = 1;
         for (k = 0; k < 4u; k++) {
-            int32_t X = CARD_X(song.sel), Y = PV_STRIP_TOP;
+            int32_t X = CARD_X(song.sel), Y = st_row_y(song.sel);
             ui_power_on();
             settings.palette = 1; palette_set(1);
             go_page(GR_TRK); frame(); frame();
