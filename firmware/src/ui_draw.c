@@ -71,6 +71,10 @@ static void draw_battery(int32_t bx)
 #define ROLL_H 24
 #define BPM_X 26
 #define BPM_W 42                                        /* the header's BPM strip: 42 columns, every row (the text face) */
+#define HEAD_X BOX_X                                    /* the header's canvas: x 2 .. 237 (the margins beside it: */
+#define HEAD_W BOX_W                                    /* HOME's light, ui_glow.c, else the background) */
+#define HEAD_R (236 - HEAD_X)                           /* .. its words end at x 236 on the screen */
+#include "ui_glow.c"                                    /* HOME's light: what plays lights the screen from its edges */
 static uint16_t roll_bg;                                /* what a card's value lies on (its fill: tinted while hot) */
 static const uint8_t ROLL_EASE[17] = {0, 45, 84, 118, 147, 172, 193, 210, 223, 234, 242, 247, 251, 253, 254, 255, 255};
 
@@ -242,7 +246,8 @@ static void draw_head(void)
     uint32_t sig, moved = 0;
     int16_t bpm = song.g[G_BPM];                        /* (read once: what is noted is what is drawn) */
     head_chip_text(chip);
-    sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(song.octave + 8) * 11u +
+    sig = (ui.home ? glow.top : 0u) +                   /* (HOME's light from the top, behind it) */
+          (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
           (ui.home ? ui.home_pg * 40503u : ui.page * 2654435761u) + page_sheet() * 524287u;
@@ -260,28 +265,36 @@ static void draw_head(void)
     if (!ui.force && sig == ui.head_sig) {
         if (ui.roll[ROLL_BPM].from[0] || moved) {       /* rolling, or snapped to the new value: the BPM's strip only */
             cv_begin(BPM_W, H_HEAD, T_BG);
+            if (ui.home)
+                glow_paint_ends(BPM_X, Y_HEAD);
             roll_text(ROLL_BPM, 0, ty_y(H_HEAD / 2, TY_TX), b, ui.bpm_t ? T_ACCENT : T_TEXT);
             cv_blit(BPM_X, Y_HEAD);
         }
         return;
     }
     ui.head_sig = sig;
-    cv_begin(240, H_HEAD, T_BG);
-    cv_icon_mid(5, H_HEAD / 2, 16, chain.running ? ICON_X_SONG : song.playing ? ICON_X_PLAY : ICON_X_STOP,
+    cv_begin(HEAD_W, H_HEAD, T_BG);                     /* (inside the margins: HOME's light runs up them) */
+    if (ui.home)
+        glow_paint_ends(HEAD_X, Y_HEAD);
+    else {
+        lcd_fill(0, Y_HEAD, HEAD_X, H_HEAD, T_BG);
+        lcd_fill(HEAD_X + HEAD_W, Y_HEAD, 240 - HEAD_X - HEAD_W, H_HEAD, T_BG);
+    }
+    cv_icon_mid(5 - HEAD_X, H_HEAD / 2, 16, chain.running ? ICON_X_SONG : song.playing ? ICON_X_PLAY : ICON_X_STOP,
                 song.playing ? T_TEXT : T_MID, T_BG);
-    roll_text(ROLL_BPM, BPM_X, ty_y(H_HEAD / 2, TY_TX), b, ui.bpm_t ? T_ACCENT : T_TEXT);
-    x = BPM_X + BPM_W;                                  /* (past the widest BPM) */
+    roll_text(ROLL_BPM, BPM_X - HEAD_X, ty_y(H_HEAD / 2, TY_TX), b, ui.bpm_t ? T_ACCENT : T_TEXT);
+    x = BPM_X + BPM_W - HEAD_X;                         /* (past the widest BPM; x: on the canvas) */
     if (song.rec) {                                     /* (16 px, as the transport) */
         cv_icon_mid(x, H_HEAD / 2, 16, ((song.rec & ~song.rec_wait) >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, T_BG);
         x += 18;
     }
-    if (msg && head_toast(x + 6))                       /* (too long for the header: a toast under it, draw_toast; the
+    if (msg && head_toast(x + HEAD_X + 6))                       /* (too long for the header: a toast under it, draw_toast; the
                                                          * header as it is) */
         msg = 0;
     if (seq_erase_active(TSEL)) {
-        cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX, "ERASING", T_REC, T_BG);
+        cv_text_r(HEAD_R, ty_y(H_HEAD / 2, TY_TX), TY_TX, "ERASING", T_REC, T_BG);
     } else if (msg) {                                   /* a message, or the layer's name (may hold a keycap) */
-        cv_free_hint(x + 6, ty_y(H_HEAD / 2, TY_TX), ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - x - 6);
+        cv_free_hint(x + 6, ty_y(H_HEAD / 2, TY_TX), ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, HEAD_R - x - 6);
     } else {
         int32_t cw = text_w(TY_TX, chip) + 4;           /* (where you are: plain words in the track's colour;
                                                          * PATTERNS plain, the grid is in colour) */
@@ -298,12 +311,12 @@ static void draw_head(void)
         if (chain.running) {                            /* the song's row (where there is room) */
             str_cpy(b, "ROW ", 8);
             fmt_int(b + 4, (int32_t)chain.row + 1);
-            if (x + 2 + text_w(TY_LB, b) + 6 <= 236 - cw - (low ? 22 : 0) - 6)
+            if (x + 2 + text_w(TY_LB, b) + 6 <= HEAD_R - cw - (low ? 22 : 0) - 6)
                 x = cv_text_on(x + 2, ty_y(H_HEAD / 2, TY_LB), TY_LB, b, T_MID, T_BG) + 6;
         }
         if (!ui.home) {                                 /* a page: where it is in its family */
-            head_pages(x + 6, 236 - cw - (low ? 22 : 0));
-        } else if (x + 6 + 28 <= 236 - cw - (low ? 22 : 0) - 6) {   /* HOME: its two pages (Stage, the chord view),
+            head_pages(x + 6, HEAD_R - cw - (low ? 22 : 0));
+        } else if (x + 6 + 28 <= HEAD_R - cw - (low ? 22 : 0) - 6) {   /* HOME: its two pages (Stage, the chord view),
                                                                    * where there is room */
             uint32_t i;
             for (i = 0, x += 6; i < 2u; i++) {
@@ -313,11 +326,11 @@ static void draw_head(void)
             }
         }
         if (low)                                        /* the battery, only when it runs low */
-            cv_icon_mid(236 - cw - 20, H_HEAD / 2, 16, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
-        cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX, chip,
+            cv_icon_mid(HEAD_R - cw - 20, H_HEAD / 2, 16, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
+        cv_text_r(HEAD_R, ty_y(H_HEAD / 2, TY_TX), TY_TX, chip,
                   !ui.home && cur_page()->graph == GR_PATGRID && !ptc_on() ? T_MID : T_THEME, T_BG);
     }
-    cv_blit(0, Y_HEAD);
+    cv_blit(HEAD_X, Y_HEAD);
 }
 /* full redraw: the strips (header, cards, panel, footer; Stage: its panel and lanes) cover the rest; only the BG
  * between them is filled */
@@ -1104,8 +1117,11 @@ static void draw_page(void)
             patterns_draw();
         }
     } else {
+        uint16_t lt[GL_N];                              /* (HOME's light this frame, ui_glow.c) */
         if (ui.force)
             draw_frame(ui.home);
+        if (ui.home)                                    /* (before the header: it takes the top's) */
+            home_light(lt);
         melodee_dbg.stage = 3;
         draw_head();
         melodee_dbg.stage = 4;
@@ -1117,6 +1133,7 @@ static void draw_page(void)
             stage_draw();
         else
             draw_graph();
+        glow_cur = 0;
     }
     melodee_dbg.stage = 6;
     if (!ui.home && !own_screen() && !pv_kind() && !list_on() && !slot_kind() && !motion_page())
