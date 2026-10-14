@@ -76,10 +76,13 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "favorites.c"
 /* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..4 retired (OVERCLOCK until
- * 1.3.4 / 1.4: left as saved, never read). */
+ * 1.3.4 / 1.4: left as saved, never read), bit 5 PICKER OFF, bit 6 FONT PIXEL. */
 #define PREF_BITS (favorites.factory[15][30])
 #define PREF_ACCEL_OFF 2u
 #define PREF_PICK_OFF 32u
+#define PREF_PIXEL 64u                         /* Settings > FONT: PIXEL (else RUBIK) */
+#define TY_PIXEL ty_pixel()
+static uint32_t ty_pixel(void) { return (PREF_BITS & PREF_PIXEL) != 0u; }   /* (gfx.c TY_*: the type's roles) */
 /* HOME SELECT (the menu): what SELECT turns on HOME, kept in favorites.factory[15][25] (0, any other: BPM) */
 enum { HS_BPM, HS_MOD, HS_LEVEL, HS_SWING, HS_TRANS, HS_CHORD, HS_ARATE, HS_PATTERN, HS_OFF, HS_N };
 static const char *const HS_NAME[HS_N] = {"BPM", "MOD WHEEL", "LEVEL", "SWING", "TRANSPOSE", "CHORD", "ARP RATE", "PATTERN",
@@ -92,19 +95,22 @@ static uint8_t sync_reload;                  /* engine / preset / project / user
 #define ACC T_THEME                /* values, curves */
 #define VAL(c) ((void)(c), T_TEXT)   /* a value (the knob just turned: its card tinted and outlined, ui_draw.c) */
 #define RATIO(d, v) ((d)->max > (d)->min ? ((int32_t)(v) - (d)->min) * 1000 / ((d)->max - (d)->min) : -1)
-/* layout (docs/design): header 0..18, four cards 22..66 (54 px at x 4 + 58 c), the panel 70..194 (the graphs live
- * in it; Stage: its own panel and lanes, ui_stage.c), footer 198..240; BG between them */
+/* layout (docs/design/README.md "Large type"): the header 0..29; a page's four knobs as a strip of cells 32..79 (57 px
+ * at x 2 + 60 c: a knob's label over its value), the panel 84..207 (the page's picture, the graphs; the value turning
+ * as the hero over it), the sound bar 212..239; BG between them. Stage, lists, slots: full-width rows of their own */
 #define Y_HEAD 0
-#define H_HEAD 18
-#define Y_LABEL 22                    /* the cards */
-#define Y_SEP_END 66
-#define CARD_W 54
-#define CARD_H 44
-#define CARD_X(c) (4 + 58 * (int32_t)(c))
-#define Y_GRAPH 70                    /* the panel */
+#define H_HEAD 30
+#define Y_LABEL 32                    /* the strip (the knobs' cells) */
+#define Y_SEP_END 80
+#define CARD_W 57
+#define CARD_H 48
+#define CARD_X(c) (2 + 60 * (int32_t)(c))
+#define Y_GRAPH 84                    /* the panel */
 #define H_GRAPH 124
-#define Y_FOOT 198
-#define H_FOOT 42
+#define Y_FOOT 212                    /* the sound bar (pages of the old template: their one row) */
+#define H_FOOT 28
+#define BOX_X 2                       /* panels and rows: x 2 .. 237 */
+#define BOX_W 236
 
 static struct {
     uint8_t designer_mode;       /* the sound designer: START, the stages (ui_designer.c) */

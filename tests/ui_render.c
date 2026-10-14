@@ -17,6 +17,7 @@
  * operator boxes overlapping or touching, no route, loop, bus or label inside a box or touching one it does not
  * connect, no two nets (one gap's routes that share an operator, the output, the loop, the label) sharing or
  * touching a pixel, everything inside the panel.
+ * Every screen and the page/value sweep again in Melodee Pixel (Settings > FONT PIXEL, NIGHT): PIXEL_<screen>.ppm.
  * Output: OUTDIR/ppm/<PALETTE>_<screen>.ppm for MONO GREEN PAPER, OUTDIR/report.txt (findings, ellipsised free
  * text, the draw cost), OUTDIR/text_audit.tsv (MONO, per screen: texts, icons and keycaps with their ink-box px, the
  * ellipsised ones, the texts closer than 2 px to their cell's edge, the words).
@@ -48,6 +49,13 @@ static void hk_text(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const char *
     strncpy(pend[npend].s, s, 27);
     npend++;
 }
+static void hk_scrim(int32_t x0, int32_t y0, int32_t x1, int32_t y1)   /* the hero's scrim: what is under it, covered */
+{
+    uint32_t i;
+    for (i = 0; i < npend; i++)
+        if (pend[i].x0 < x1 && x0 < pend[i].x1 && pend[i].y0 < y1 && y0 < pend[i].y1)
+            pend[i].flags |= 64u;
+}
 static void hk_cell(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
     if (ncells < 64u) {
@@ -66,6 +74,7 @@ static void hk_whole(uint32_t x, uint32_t y, uint32_t r0, uint32_t fill);
 #define GFX_HOOK_WHOLE(x, y, r0, fill) hk_whole(x, y, r0, fill)
 #define GFX_HOOK_BEGIN() (npend = ncells = 0)
 #define GFX_HOOK_CELL(x0, y0, x1, y1) hk_cell(x0, y0, x1, y1)
+#define GFX_HOOK_SCRIM(x0, y0, x1, y1) hk_scrim(x0, y0, x1, y1)
 #define GFX_HOOK_PIXELS(n) (px_visited += (n))
 #define UI_FILL_HOOK(x, y, w, h) hk_fill(x, y, w, h)
 static void fm6_hook(uint32_t kind, uint32_t a, uint32_t b);
@@ -241,6 +250,8 @@ static void contain(int32_t x, int32_t y)
     for (i = 0; i < npend; i++) {
         const rbox_t *b = &pend[i];
         int32_t best = 1 << 30, gap = 99;
+        if (b->flags & 64u)                     /* (over or under the hero's scrim: drawn over the picture on purpose) */
+            continue;
         for (c = 0; c < ncells && !(b->flags & 4u); c++) {   /* (texts only: an icon's box is its whole cell) */
             const int16_t *r = cells[c];
             int32_t a = (r[2] - r[0]) * (r[3] - r[1]), g;
@@ -324,7 +335,8 @@ static void lint(void)
         }
         for (j = i + 1u; j < nscr; j++) {
             const rbox_t *o = &scr[j];
-            if (b->x0 < o->x1 && o->x0 < b->x1 && b->y0 < o->y1 && o->y0 < b->y1) finding("overlaps", b, o);
+            if (b->x0 < o->x1 && o->x0 < b->x1 && b->y0 < o->y1 && o->y0 < b->y1 && !((b->flags | o->flags) & 64u))
+                finding("overlaps", b, o);
         }
     }
 }
@@ -379,7 +391,13 @@ static void write_ppm(const char *dir, const char *pal, const char *name)
 }
 
 /* ------------------------------------------------------------------ the screens --- */
-static void pal(uint32_t p) { settings.palette = p; palette_set(p); }
+static int render_pixel;                         /* Settings > FONT PIXEL for what pal() sets up next */
+static void pal(uint32_t p)
+{
+    settings.palette = p;
+    PREF_BITS = (uint8_t)(render_pixel ? PREF_BITS | PREF_PIXEL : PREF_BITS & ~PREF_PIXEL);
+    palette_set(p);
+}
 static void state(void)                          /* a playing song with steps on every track */
 {
     uint32_t i;
@@ -1384,6 +1402,8 @@ static void draw(int s)
         setup_show("TURN RIGHT", "ALGORITHM");
         return;
     }
+    if (ui.hot_t && !ui.home)                     /* a knob just turned on a page: the hero over its picture */
+        hero_touch();
     ui.force = 1;
     ui_draw();
 }
@@ -1403,7 +1423,7 @@ static void sweep_columns(void)
             eng(e);
             ui.home = 0; ui.page = (uint8_t)i; page_entered();
             if (!page_visible(i)) continue;
-            snprintf(name, sizeof name, "%s/%s", ENGINES[e]->name, PAGES[i].title);
+            snprintf(name, sizeof name, "%s%s/%s", render_pixel ? "PIXEL " : "", ENGINES[e]->name, PAGES[i].title);
             cur_name = name;
             for (c = 0; c < 4u; c++) {
                 int16_t *vp;
@@ -1855,6 +1875,21 @@ int main(int argc, char **argv)
             for (k = 0; k < 3u; k++)
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
+    render_pixel = 1;                               /* every screen again in Melodee Pixel (NIGHT) */
+    for (s = 0; s < S_COUNT; s++) {
+        char name[64];
+        if (s == S_OP_ENV || (s >= S_ALG1 && s <= S_OP_LEVEL))
+            continue;
+        snprintf(name, sizeof name, "PIXEL/%s", S_NAME[s]);
+        cur_name = name;
+        setup((int)s);
+        pal(0);
+        draw((int)s);
+        lint();
+        write_ppm(out, "PIXEL", S_NAME[s]);
+    }
+    sweep_columns();
+    render_pixel = 0;
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */

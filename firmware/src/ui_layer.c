@@ -622,13 +622,11 @@ static void draw_layer(void)
         uint8_t cs = col_style;
         if (ui.force)
             lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
-        col_style = CS_STRIP;
-        pv_strip_y = 24;
+        col_style = CS_CARD;
         for (c = 0; c < NTRK; c++)
-            pv_strip_tc[c] = T_TRK(c);
+            card_tc[c] = T_TRK(c);
         layer_cards(l);
-        memset(pv_strip_tc, 0, sizeof pv_strip_tc);
-        pv_strip_y = PV_STRIP_Y;
+        memset(card_tc, 0, sizeof card_tc);
         col_style = cs;
     } else {
         layer_cards(l);
@@ -644,7 +642,7 @@ static void draw_layer(void)
     if (l == LAYER_GLO) {                               /* (R6: levels at the top, the keys as a keyboard under them) */
         if (ui.force || sig != ui.layer_sig) {
             ui.layer_sig = sig;
-            pv_panel(62, 174, layer_glo_keys);
+            pv_panel(Y_GRAPH, 240 - Y_GRAPH - 2, layer_glo_keys);
         }
         return;
     }

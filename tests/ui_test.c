@@ -1730,8 +1730,8 @@ static int roll_static_now(void)                  /* the screen is the static re
     return roll_diff(0, 0, 0, 0, 0) == 0;
 }
 /* the pages' knobs are rings (ui_pages.c): column c's cell, its value's row, where its value starts (centred) */
-#define RX(c) (1 + 60 * (int32_t)(c))
-#define VY (PV_RING_Y + 55)
+#define RX(c) CARD_X(c)
+#define VY (Y_LABEL + ROLL_Y)
 #define STRIP(c) RX(c), VY, RX(c) + 58, VY + ROLL_H
 static int32_t ring_vx(uint32_t c)
 {
@@ -1739,11 +1739,13 @@ static int32_t ring_vx(uint32_t c)
     char v[16];
     const char *u;
     const param_desc_t *d = page_desc(cur_page(), c, &vp);
+    char lb[12], w[16], uu[8];
     int32_t uw;
     param_format(d, *vp, v, &u);
-    if (str_eq(u, d->label)) u = "";
-    uw = u[0] ? text_w(&AF_X, u) + 2 : 0;
-    return RX(c) + 29 - (text_w(&AF_M, v) + uw) / 2;
+    pv_words(d->label, v, u, lb, w, uu);
+    if (str_eq(u, d->label)) uu[0] = 0;
+    uw = uu[0] ? text_w(TY_LB, uu) + 2 : 0;
+    return RX(c) + COL_W / 2 - (text_w(TY_TX, w) + uw) / 2;
 }
 static int test_roll(void)
 {
@@ -1819,15 +1821,15 @@ static int test_roll(void)
     ui.force = 1; ui_draw();
     n = roll_diff(BPM_X, 0, BPM_X + BPM_W, H_HEAD, 1);
     ok &= n > 20u && roll_diff(BPM_X, 0, BPM_X + BPM_W, H_HEAD, 0) == roll_diff(STRIP(0), 1);   /* (+ the card's strip) */
-    ok &= roll_diff(BPM_X, 0, BPM_X + text_w(&AF_S, "12"), H_HEAD, 1) == 0;
-    ok &= roll_diff(ring_vx(0), VY, ring_vx(0) + text_w(&AF_M, "12"), VY + ROLL_H, 1) == 0;
+    ok &= roll_diff(BPM_X, 0, BPM_X + text_w(TY_TX, "12"), H_HEAD, 1) == 0;
+    ok &= roll_diff(ring_vx(0), VY, ring_vx(0) + text_w(TY_TX, "12"), VY + ROLL_H, 1) == 0;
     /* TUNE 10 -> 11 on a card: the 1 stays */
     ui_power_on(); song.g[G_TUNE] = 10; roll_settle();
     turn(EN_K4, 1); frame(); frame();
     memcpy(roll_shot, host_screen, sizeof roll_shot);
     ui.force = 1; ui_draw();
     ok &= song.g[G_TUNE] == 11 && roll_diff(STRIP(3), 1) > 20u && roll_diff(STRIP(3), 0) == 0;
-    ok &= roll_diff(ring_vx(3), VY, ring_vx(3) + text_w(&AF_M, "1"), VY + ROLL_H, 1) == 0;
+    ok &= roll_diff(ring_vx(3), VY, ring_vx(3) + text_w(TY_TX, "1"), VY + ROLL_H, 1) == 0;
     bad += check("roll: header BPM 120 -> 121 and a card 10 -> 11: only the strip changes, unchanged digits stay put", ok);
 
     /* the direction: 5 -> 6 and -5 -> -6 at frame 4: the new digit comes from below (up) / above (down) */
@@ -2561,16 +2563,16 @@ static int test_product_ux(void)
     led_pos_init();
     ok = 1;
     for (p = 0; p < NPALETTES; p++) for (b = 0; b < 1u; b++) {   /* (ENV: its knobs the strip under the curve) */
-        uint16_t sound[240 * (240 - PV_SOUND_Y)], columns[240 * PV_STRIP_H];
+        uint16_t sound[240 * (240 - PV_SOUND_Y)], columns[240 * CARD_H];
         ui_power_on(); set_engine_of(TSEL, 3); palette_set(p); settings.zoom = 1;   /* (the generic ENV) */
         open_family(FAM_ENV); frame();
         memcpy(sound, host_screen + PV_SOUND_Y * 240, sizeof sound);
-        memcpy(columns, host_screen + PV_STRIP_Y * 240, sizeof columns);
+        memcpy(columns, host_screen + Y_LABEL * 240, sizeof columns);
         ui.hot_col = 1; ui.hot_t = 40; ui.force = 1; ui_draw();
         ok &= !memcmp(sound, host_screen + PV_SOUND_Y * 240, sizeof sound);
         int changed = 0;
-        for (uint32_t y = 0; y < PV_STRIP_H; y++) for (uint32_t x = 0; x < 240; x++) {
-            uint16_t old = columns[y * 240 + x], now = host_screen[(PV_STRIP_Y + y) * 240 + x];
+        for (uint32_t y = 0; y < CARD_H; y++) for (uint32_t x = 0; x < 240; x++) {
+            uint16_t old = columns[y * 240 + x], now = host_screen[(Y_LABEL + y) * 240 + x];
             if (x >= (uint32_t)CARD_X(1) && x < (uint32_t)(CARD_X(1) + CARD_W)) changed |= old != now;   /* (outlined) */
             else ok &= old == now;
         }

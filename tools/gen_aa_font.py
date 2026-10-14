@@ -12,6 +12,10 @@ Faces of the presets (S labels, M values/headers, L big numerals / titles):
   rubik       assets/fonts/Rubik[wght].ttf (SIL OFL 1.1, Google Fonts): Melodee's face, at 10 / 12 / 15 / 30 px and weights
               400 / 500 / 600 (its tall x-height reads as Inter Tight's 12 / 15 / 28 at about the same width); X and S
               on the line metrics of 9 / 11 px (lifted a row).
+              The large type (docs/design/README.md "Large type"): the four roles, Rubik 500 at 16 / 20 / 28 / 48 px
+              (LB labels, TX text, VL values, HR the hero; VL and HR one phase, HR the characters a value or a name
+              needs), and the same roles in Melodee Pixel (assets/fonts/melodee_pixel.txt: a 5 x 7 1-bit face drawn at
+              2 / 2 / 3 / 5 times, AP_*), each on its Rubik role's line height and baseline so a layout holds in both.
   standin     an installed Inter (~/Library/Fonts/Inter.ttc, else Inter in fonts/ next to tools/) with
               -2.5 % tracking: a stand-in for Inter Tight, for previews only.
   inter-tight assets/fonts/InterTight[wght].ttf (SIL OFL 1.1, Google Fonts) at weights 400 / 500 / 600.
@@ -27,7 +31,8 @@ Output (a C header; the glyph / font types live in the renderer, firmware/src/gf
                 extras (Latin-1 by their code; the ellipsis U+2026 as code 0x85, as in Windows-1252)
   AF_<N>_KL / _KR / _KM  kerning (GPOS of the weight) as classes: each glyph's left and right class (0 = none),
                 the matrix of deltas in 1/16 px, [(left - 1) * right classes + right - 1]
-  AF_<N>        aafont_t (its last field: log2 of the phases)
+  AF_<N>        aafont_t (its last fields: log2 of the phases, the Huffman code, the capitals' height, 0 = not a pixel face)
+  AP_G, AP_DATA, AP_<role>  Melodee Pixel (preset rubik): one 1-bit table, a face per role (px: its multiple)
 Prints the byte cost of every face.
 """
 import argparse
@@ -46,12 +51,16 @@ CODE = {0x2026: 0x85}                  # characters outside Latin-1 -> their one
 PHASES, PHASES_L = 2, 2                # horizontal phases per glyph (aa_raster.raster_font): X S M, L
 # faces stored Huffman-coded (--huff): M and L. S, the most drawn and the least compressible (-15 %), stays
 # 2 px per byte, so the labels draw at full speed
-HUFF = [("M", "L")]
+HUFF = [("M", "L", "LB", "TX", "VL", "HR")]
 # L draws "Melodee", the UPDATE MODE countdown digit, the HOME notes / chord roots, the calibration's control names
 # (panel.c B_NAME / E_NAME), NAME's name and NEW SONG's key (R6): every letter, the digits and the name's signs, and
 # the one-track Stage's sound name (the factory names' ' ( ) too); the space as its range and the rest as extras
 # (ui_test.c checks that every L string is covered)
 L_CHARS = " #'()+./-_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+# HR (the hero, 48 px) draws a value or a name: L's characters and the signs values use; a string with another
+# character is drawn in VL (gfx.c text_has)
+HR_CHARS = L_CHARS + "%&*,:<>"
+PIXEL = Path(__file__).resolve().parents[1] / "assets" / "fonts" / "melodee_pixel.txt"
 
 
 def preset(name):
@@ -63,7 +72,12 @@ def preset(name):
         return [("X", v + "@490", 10, (32, 126), EXTRAS, 0.0, PHASES, 1),     # the redesign's labels (docs/design)
                 ("S", v + "@400", 12, (32, 126), EXTRAS, 0.0, PHASES, 1),
                 ("M", v + "@500", 15, (32, 126), EXTRAS, 0.0, PHASES),
-                ("L", v + "@500", 30, (32, 32), [ord(c) for c in L_CHARS[1:]], 0.0, PHASES_L)]
+                ("L", v + "@500", 30, (32, 32), [ord(c) for c in L_CHARS[1:]], 0.0, PHASES_L),
+                ("LB", v + "@500", 16, (32, 126), EXTRAS, 0.0, PHASES),             # the large type's roles
+                ("TX", v + "@500", 20, (32, 126), EXTRAS, 0.0, PHASES),
+                ("VL", v + "@500", 28, (32, 126), EXTRAS, 0.0, 1),
+                ("HR", v + "@500", 48, (32, 32), [ord(c) for c in HR_CHARS[1:]], 0.0, 1),
+                ("PIX", str(PIXEL), 0, (32, 126), EXTRAS, None, 1, [("LB", 2, 1), ("TX", 2, 0), ("VL", 3, 0), ("HR", 5, 0)])]
     if name == "inter-tight":
         v = str(FONTS.parent / "assets" / "fonts" / "InterTight[wght].ttf")   # SIL OFL 1.1, Google Fonts
         return [("S", v + "@400", 12, (32, 126), EXTRAS, 0.0, PHASES),
@@ -174,6 +188,13 @@ def huff_unpack(hc, data, n):
     return out
 
 
+def cap_px(font, px):
+    """the capitals' height in px (OS/2 sCapHeight): gfx.c centres a pill's or a row's capitals with it"""
+    from fontTools.ttLib import TTFont
+    f = TTFont(font.split("#")[0].split("@")[0])
+    return round(f["OS/2"].sCapHeight * px / f["head"].unitsPerEm)
+
+
 def emit(face, tracking, gamma, kern_min):
     name, font, px, (first, last), extras, ftrack, phases, *lift = face
     lift = lift[0] if lift else 0              # rows the glyphs move up in the line box (and off its baseline, height)
@@ -254,13 +275,86 @@ def emit(face, tracking, gamma, kern_min):
     kt = (f"AF_{name}_KL, AF_{name}_KR, AF_{name}_KM") if km else "0, 0, 0"
     lines.append(f"static const aafont_t AF_{name} = {{{r['h']}, {r['asc']}, {first}, {last}, {len(extras)}, "
                  f"{len(cols) if km else 0}, AF_{name}_G, AF_{name}_DATA, {kt}, AF_{name}_EX, {psh}, "
-                 f"{'AF_%s_HC' % name if hc else '0'}}};")
+                 f"{'AF_%s_HC' % name if hc else '0'}, {cap_px(font, px)}, 0}};")
     kbytes = 2 * len(chars) + len(km) if km else 0
     cost = {"data": len(data) + len(hc), "glyph_table": 8 * len(table), "kern": kbytes, "extras": len(extras),
             "glyphs": len(chars), "phases": phases, "pairs": len(pairs), "h": r["h"], "asc": r["asc"], "px": px,
             "font": os.path.basename(font.split("#")[0]), "adv_digit": r["glyphs"]["0"][0] / 16}
     cost["total"] = cost["data"] + cost["glyph_table"] + cost["kern"] + cost["extras"]
     return "\n".join(lines) + "\n", cost
+
+
+def pixel_glyphs(path, narrow=False):
+    """assets/fonts/melodee_pixel.txt -> {char: (top row, [rows])}: its glyphs, or (narrow) its condensed set"""
+    glyphs, cur = {}, None
+    for line in Path(path).read_text().splitlines():
+        if line.startswith("# ") or line == "#!":     # (a comment; a glyph's rows hold no space)
+            continue
+        if line.startswith("glyph U+"):
+            w = line.split()
+            top = int(w[w.index("top") + 1]) if "top" in w else 0
+            cur = glyphs.setdefault(chr(int(w[1][2:], 16)), (top, [])) if ("narrow" in w) == narrow else None
+        elif line.strip() and cur is not None:
+            assert set(line) <= {"#", "."}, line
+            cur[1].append(line.split()[0])
+        else:
+            cur = None
+    for ch, (top, rows) in glyphs.items():
+        assert rows and all(len(r) == len(rows[0]) for r in rows), f"pixel glyph {ch!r}: ragged rows"
+        assert top - 2 >= -4 and top + len(rows) <= 9, f"pixel glyph {ch!r} leaves the 11-row box"
+    return glyphs
+
+
+def emit_pixel(face, metrics):
+    """Melodee Pixel: 1-bit glyph tables (AP_G; AP_GN the condensed set's: its glyphs where it has them, else the
+    regular ones), their bitmaps (AP_DATA), and a face per role, drawn at a whole multiple (aafont_t px) on its Rubik
+    role's line height and baseline (roles: (role, multiple, condensed)). A glyph's box starts two font rows above the
+    capital's top (gfx.c cv_pix: row by of the box at y + asc - 9 px + by px); adv in 1/16 font px, times px drawn"""
+    name, font, _, (first, last), extras, _, _, roles = face
+    g, gn = pixel_glyphs(font), pixel_glyphs(font, True)
+    chars = [chr(c) for c in range(first, last + 1)] + [chr(c) for c in extras]
+    missing = [c for c in chars if c not in g]
+    assert not missing, f"melodee_pixel.txt lacks {missing}"
+    data, made = bytearray(), {}
+
+    def entry(top, rows):
+        key = (top, tuple(rows))
+        if key in made:
+            return made[key]
+        lit = [r for r, row in enumerate(rows) if "#" in row]
+        w = len(rows[0])
+        if not lit:
+            made[key] = (0, (w + 1) * 16, 0, 0, 0, 0)
+            return made[key]
+        r0, r1 = lit[0], lit[-1] + 1
+        cols = [c for c in range(w) if any(rows[r][c] == "#" for r in range(r0, r1))]
+        c0, c1 = cols[0], cols[-1] + 1
+        bits = [rows[r][c] == "#" for r in range(r0, r1) for c in range(c0, c1)]
+        off = len(data)
+        for i in range(0, len(bits), 8):
+            data.append(sum(1 << (7 - k) for k, b in enumerate(bits[i:i + 8]) if b))
+        made[key] = (off, (w + 1) * 16, c0, top + r0 + 2, c1 - c0, r1 - r0)
+        return made[key]
+
+    table = [entry(*g[ch]) for ch in chars]
+    ntable = [entry(*(gn.get(ch) or g[ch])) for ch in chars]
+    assert len(data) < 65536
+    lines = [f"/* Melodee Pixel ({os.path.basename(font)}): {len(chars)} glyphs (+ {len(gn)} condensed), 1 bit a pixel, "
+             f"{len(data)} B; drawn at a whole multiple per role */",
+             ar.c_array("AP_DATA", "uint8_t", list(data), 24, "0x{:02x}")]
+    for tname, t in (("AP_G", table), ("AP_GN", ntable)):
+        lines.append(f"static const aag_t {tname}[{len(t)}] = {{")
+        lines += [f"    {{{off}, {adv}, {bx}, {by}, {bw}, {bh}}}," for off, adv, bx, by, bw, bh in t]
+        lines.append("};")
+    ex = ", ".join(str(CODE.get(c, c)) for c in extras) or "0"
+    lines.append(f"static const uint8_t AP_EX[{max(1, len(extras))}] = {{{ex}}};")
+    for role, scale, narrow in roles:
+        h, asc = metrics[role]
+        assert asc >= 7 * scale and h >= asc + 2 * scale, f"pixel {role}: {scale}x does not fit {h}/{asc}"
+        lines.append(f"static const aafont_t AP_{role} = {{{h}, {asc}, {first}, {last}, {len(extras)}, 0, "
+                     f"{'AP_GN' if narrow else 'AP_G'}, AP_DATA, 0, 0, 0, AP_EX, 0, 0, {7 * scale}, {scale}}};")
+    cost = len(data) + 16 * len(table) + len(extras)
+    return "\n".join(lines) + "\n", cost, len(chars)
 
 
 def main():
@@ -280,9 +374,16 @@ def main():
     out = ["/* generated by tools/gen_aa_font.py: 4-bit alpha glyphs (Inter Tight, SIL OFL 1.1, "
            "Copyright 2022 The Inter Project Authors; see assets/fonts/OFL.txt) */",
            "#pragma once", "#include <stdint.h>", ""]
-    total = 0
+    total, metrics = 0, {}
     for f in faces:
+        if f[0] == "PIX":
+            text, cost, n = emit_pixel(f, metrics)
+            out.append(text)
+            total += cost
+            print(f"face PIX: {os.path.basename(f[1])} {n} glyphs, 1 bit, roles {[r[:2] for r in f[7]]} = {cost} B")
+            continue
         text, c = emit(f, a.tracking, a.gamma, a.kern_min)
+        metrics[f[0]] = (c["h"], c["asc"])
         out.append(text)
         total += c["total"]
         print(f"face {f[0]}: {c['font']} {c['px']}px h{c['h']} base{c['asc']}  {c['glyphs']} glyphs x {c['phases']}  "

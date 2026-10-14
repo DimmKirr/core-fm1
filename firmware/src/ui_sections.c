@@ -8,7 +8,7 @@
  * OCT+ opens, OCT- or EDIT closes). EDIT held: the sections on the white keys (ui_layer.c).
  * Included by ui_draw.c */
 #define SEC_MAX 16
-#define SEC_TAB_H 16                                    /* the tabs: rows 18 .. 33 */
+#define SEC_TAB_H 26                                    /* the tabs: rows 30 .. 55 (a pill 24 tall at 31) */
 static const struct { const char *prefix, *name; } SEC_RULE[] = {   /* a page's section by its title (first match) */
     {"P5 OSC", "Osc"}, {"P5 B WAVES", "Osc"}, {"P5 MIXER", "Mixer"}, {"P5 FILTER", "Filter"}, {"P5 FLT ENV", "Filter"},
     {"P5 AMP", "Amp"}, {"P5 ENV MOD", "Mod"}, {"P5 POLYMOD", "Mod"}, {"P5 MOD FLT", "Mod"}, {"P5 LFO", "LFO"},
@@ -168,21 +168,22 @@ static void tabs_draw(const char *const *name, uint32_t n, uint32_t cur, uint32_
         return;
     drawn = sig;
     for (first = cur; first > 0u; first--) {           /* from the furthest back that still lets cur fit */
-        for (x = 6, k = first - 1u; k <= cur; k++)
-            x += text_w(&AF_X, name[k]) + 15;
-        if (x > 236)
+        for (x = 2, k = first - 1u; k <= cur; k++)
+            x += text_w(TY_LB, name[k]) + 20;
+        if (x > 238)
             break;
     }
     cv_begin(240, SEC_TAB_H, T_BG);
-    for (x = 6, k = first; k < n; k++) {
+    for (x = 2, k = first; k < n; k++) {
         int on = k == cur, far = (k > cur ? k - cur : cur - k) > 2u;
-        w = text_w(&AF_X, name[k]) + 12;
-        if (x + w > 236)
+        w = text_w(TY_LB, name[k]) + 16;
+        if (x + w > 238)
             break;
         if (on)
-            cv_rrect(x, 0, w, 16, 5, T_THEME, T_BG), cv_rrect(x + 1, 1, w - 2, 14, 4, ux_mix(T_BG, T_THEME, 22), T_THEME);
-        cv_text_c(x + w / 2, 3, &AF_X, name[k], on ? T_THEME : far ? T_DIM : T_MID, on ? ux_mix(T_BG, T_THEME, 22) : T_BG);
-        x += w + 3;
+            cv_rrect(x, 1, w, 24, 6, T_THEME, T_BG), cv_rrect(x + 1, 2, w - 2, 22, 5, ux_mix(T_BG, T_THEME, 22), T_THEME);
+        cv_text_c(x + w / 2, ty_y(13, TY_LB), TY_LB, name[k], on ? T_THEME : far ? T_DIM : T_MID,
+                  on ? ux_mix(T_BG, T_THEME, 22) : T_BG);
+        x += w + 4;
     }
     cv_blit(0, H_HEAD);
 }

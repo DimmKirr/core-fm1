@@ -1,14 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* The pages the proposal did not draw, in the redesign's language (docs/design: mock/r5_pages, ref/env, lfo, ..):
- * no footer; the header names the page and shows where it is in its family (dots); the sound being edited at the
- * foot; the four knobs as the page needs them, the knob just turned lifted in the track's colour; each page's own
- * picture.
- * CURVE (ENV, LFO, LFO 2): the curve is the page (a panel of 160 rows, drawn in two slices: a canvas holds 124 x 240),
- * a value on each of its segments; the knobs as a slim strip under it.
- * RINGS (the pages of plain values: EDIT, the engines' own ..): a ring a knob (its value under it,
- * a dot at the arc's end) over what the page shapes: a filter's
+/* The pages the proposal did not draw, in the redesign's language (docs/design: mock/r5_pages, ref/env, lfo, ..), set in
+ * the large type (docs/design/README.md "Large type": B, focus): no footer; the header names the page and shows where
+ * it is in its family (dots); the four knobs as the strip under the header (a cell a knob: its label over its value,
+ * the knob just turned lifted in the track's colour); the page's own picture in the panel under them; the sound being
+ * edited at the foot. The knob turning is the hero: its label and its value 48 px over the picture (pv_hero), until
+ * PV_HERO_MS after the last turn.
+ * CURVE (ENV, LFO, LFO 2): the curve is the picture (the panel, 124 rows); the hero in its top right corner.
+ * RINGS (the pages of plain values: EDIT, the engines' own ..): what the page shapes: a filter's
  * response (a page with a cutoff), FM6's algorithm (its chart), else the sound itself (the scope, smooth, live).
  * NOTES (SEQ > STEP; a melodic track): the roll the whole height (PR_TOP, PR_H: ui_graph.c, in two slices),
  * the knobs as chips under it (the one turning filled).
@@ -22,31 +22,27 @@ enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES, PV_MOD, PV_GR
 #define PV_GRID_H 174
 static void list_words(char *d, const char *label, uint32_t n);   /* ui_list.c */
 static void menu_words(char *d, const char *s, uint32_t n);         /* ui_menu.c */
-#define PV_PANEL_X 4
-#define PV_PANEL_W 232
-#define PV_SLICE 128                                    /* rows of a panel slice (232 x 128 fits CV_MAX) */
-#define PV_CURVE_Y 22                                   /* CURVE: the panel, rows 22 .. 181 */
-#define PV_CURVE_H 160
-#define PV_STRIP_Y 188                                  /* .. the knobs, 54 x 30, rows 188 .. 217 */
-#define PV_STRIP_H 30
-#define PV_SOUND_Y 220                                  /* the sound: rows 220 .. 239 */
-#define PV_RING_Y 24                                    /* RINGS: a knob 58 x 80 at x 1 + 60 c, rows 24 .. 103 */
-#define PV_RING_H 80
-#define PV_PIC_Y 108                                    /* .. the picture: 240 x 112, rows 108 .. 219 */
-#define PV_PIC_H 112
-#define PV_FADER_Y 24                                   /* FADERS: a send 60 x 190 at x 60 c, rows 24 .. 213 */
-#define PV_FADER_H 190
+#define PV_PANEL_X BOX_X                                /* a panel: x 2 .. 237 */
+#define PV_PANEL_W BOX_W
+#define PV_SLICE 124                                    /* rows of a panel slice (236 x 124 fits CV_MAX) */
+#define PV_CURVE_Y Y_GRAPH                              /* CURVE: the panel, rows 84 .. 207 */
+#define PV_CURVE_H H_GRAPH
+#define PV_SOUND_Y Y_FOOT                               /* the sound: rows 212 .. 239 */
+#define PV_PIC_Y Y_GRAPH                                /* RINGS: the picture, rows 84 .. 207 */
+#define PV_PIC_H H_GRAPH
 #define PV_CHIP_Y 200                                   /* NOTES: a knob a chip, 54 x 18 at CARD_X(c) */
 #define PV_CHIP_H 18
+#define PV_HERO_MS 1500u                                /* the hero stays this long after the last turn */
 static int32_t pv_chip_y = PV_CHIP_Y;                   /* (MOD: its chips at the bottom, no sound line) */
-static int32_t pv_strip_y = PV_STRIP_Y;                 /* (the GLO layer: its levels at the top) */
-static uint16_t pv_strip_tc[4];                         /* a strip's label colour (0: the track's) */
 
-static struct { uint32_t panel, sound; int32_t slice0, gplay, pplay; } pv;   /* gplay, pplay: the step playing drawn
+static struct { uint32_t panel, sound, hero; int32_t slice0, gplay, pplay; } pv;   /* gplay, pplay: the step playing drawn
                                                                                * (drum grid, PATTERN; -1 none) */
-static int32_t pv_tab_h;                                /* an engine in sections: its tabs under the header (rows 18 ..
-                                                         * 33): the rings 10 rows lower and as much shorter */
-#define PV_TAB_RING 10
+static int32_t pv_tab_h;                                /* an engine in sections: its tabs under the header (rows 30 ..
+                                                         * 55): the strip and the panel that much lower, the panel
+                                                         * shorter */
+static uint32_t hero_ms;                                /* the last knob turn on a page (| 1), 0 none (pv_hero) */
+static void hero_touch(void) { hero_ms = fm1_ms | 1u; }   /* (ui_input.c page_knob) */
+static int pv_hero_on(void) { return hero_ms && fm1_ms - (hero_ms & ~1u) < PV_HERO_MS && ui.hot_col < 4u; }
 static struct { int16_t x0, y0, x1, y1; } pv_box[6];   /* the labels on a panel (pv_text) */
 static uint32_t pv_nbox;
 
@@ -130,40 +126,32 @@ static void pv_mod_rows(void)
 }
 
 /* ---------------------------------------------------------- knobs --- */
-/* the value and its unit centred on xc (M, rolling as column c's when it changes; S, X when it is wide; the unit 9 px,
- * mid) */
+/* the value and its unit centred on xc (the text face, rolling as column c's when it changes; the label face when it is
+ * wide; the unit in the label face, mid, on its baseline); y: the text face's line top */
 static void pv_value_c(uint32_t c, int32_t xc, int32_t y, const char *val, const char *unit, uint16_t vc, uint16_t bg,
                        int32_t room)
 {
     if (binary_value(val) >= 0) {
-        binary_badge(xc, y - 1, 18, val, bg);
+        binary_badge(xc, y + 1, 22, val, bg);
         return;
     }
-    const aafont_t *f = &AF_M;
-    int32_t uw = unit[0] ? text_w(&AF_X, unit) + 2 : 0, w, x;
-    if (text_w(f, val) + uw > room) f = &AF_S;
-    if (text_w(f, val) + uw > room) f = &AF_X;
+    const aafont_t *f = TY_TX, *lf = TY_LB;
+    int32_t uw = unit[0] ? text_w(lf, unit) + 2 : 0, w, x;
+    if (text_w(f, val) + uw > room) f = lf;
     if (text_w(f, val) + uw > room) uw = 0;
     w = text_w(f, val) + uw;
     x = xc - (w < room ? w : room) / 2;
-    if (f == &AF_M) {
+    if (f == TY_TX) {
         roll_bg = bg;
         x = roll_text(c, x, y, val, vc);
     } else {
-        x = cv_free_text(x, y + (f == &AF_S ? 4 : 6), f, val, vc, bg, room - uw);
+        x = cv_free_text(x, y + TY_TX->asc - f->asc, f, val, vc, bg, room - uw);
     }
     if (uw)
-        cv_text_on(x + 2, y + 6, &AF_X, unit, T_MID, bg);
+        cv_text_on(x + 2, y + TY_TX->asc - lf->asc, lf, unit, T_MID, bg);
 }
-/* a ring's pointer: the arc's end, 33 places from 7:30 to 4:30 (12.5 px from the centre) */
-static const int8_t PV_DOT[33][2] = {
-    {-9, 9}, {-10, 7}, {-11, 6}, {-12, 4}, {-12, 2}, {-12, 1}, {-12, -1}, {-12, -3}, {-12, -5}, {-11, -6}, {-10, -8},
-    {-8, -9}, {-7, -10}, {-5, -11}, {-4, -12}, {-2, -12}, {0, -12}, {2, -12}, {4, -12}, {5, -11}, {7, -10}, {8, -9},
-    {10, -8}, {11, -6}, {12, -5}, {12, -3}, {12, -1}, {12, 1}, {12, 2}, {12, 4}, {11, 6}, {10, 7}, {9, 9}};
-/* CS_RING: a 58 x 80 cell: the label (9 px, the track's colour), the ring (3 px, KNOB_RING) with a dot at its value,
- * the value under it; the knob just turned: lifted, outlined */
-/* a ring's words as the mockups write them: its label in full ("OCT" -> "OCTAVES", when it fits), a name value in
- * sentence case ("SAW" -> "Saw"; numbers and notes as they are), a unit in lower case ("STEP" -> "steps") */
+/* a knob's words as the mockups write them: a name value in sentence case ("SAW" -> "Saw"; numbers and notes as they
+ * are), a unit in lower case ("STEP" -> "steps"); its label as the page has it (the hero writes it in full: pv_long) */
 static const struct { const char *k, *w; } PV_LABEL[] = {
     {"OCT", "OCTAVES"}, {"LEN", "LENGTH"}, {"DIV", "DIVISION"}, {"SWG", "SWING"}, {"PAT", "PATTERN"},
     {"DTN", "DETUNE"}, {"NOIS", "NOISE"}, {"CUT", "CUTOFF"}, {"DRV", "DRIVE"}, {"ATK", "ATTACK"}, {"DEC", "DECAY"},
@@ -172,11 +160,6 @@ static void pv_words(const char *label, const char *val, const char *unit, char 
 {
     uint32_t i, word = val[0] >= 'A' && val[0] <= 'Z' && val[1];
     str_cpy(lb, label, 12);
-    for (i = 0; i < NELEM(PV_LABEL); i++)
-        if (str_eq(label, PV_LABEL[i].k) && text_w(&AF_X, PV_LABEL[i].w) <= 54) {
-            str_cpy(lb, PV_LABEL[i].w, 12);
-            break;
-        }
     for (i = 0; val[i] && word; i++)                    /* (a name: letters, spaces and signs only) */
         word = !(val[i] >= '0' && val[i] <= '9');
     if (word) menu_words(v, val, 16);
@@ -189,56 +172,13 @@ static void pv_words(const char *label, const char *val, const char *unit, char 
             if (u[i] >= 'A' && u[i] <= 'Z') u[i] = (char)(u[i] + 32);
     }
 }
-static void pv_ring(uint32_t c, const char *label0, const char *val0, const char *unit0, uint16_t vc, int32_t ratio,
-                    int hot)
+static const char *pv_long(const char *label)          /* a label in full ("ATK" -> "ATTACK") */
 {
-    char label[12], val[16], unit[8];
-    uint16_t bg = hot ? T_LIFT : T_BG, lc = vc == T_DIM ? T_DIM : T_THEME;
-    int32_t h = pv_tab_h ? PV_RING_H - PV_TAB_RING : PV_RING_H, cy = pv_tab_h ? 32 : 36, vy = pv_tab_h ? 50 : 55;
-    pv_words(label0, val0, unit0, label, val, unit);
-    cv_begin(58, (uint32_t)h, T_BG);                    /* (under tabs: the cell 10 rows shorter, the ring closer) */
-    if (hot) {
-        cv_rrect(0, 0, 58, h - 2, 8, T_THEME, T_BG);
-        cv_rrect(1, 1, 56, h - 4, 7, bg, T_THEME);
-    }
-    if (label[0] || val[0]) {
-        cv_text_c(29, 2, &AF_X, label, lc, bg);
-        if (ratio >= 0) {
-            int32_t r = ratio > 1000 ? 1000 : ratio, a1 = -KA_END + r * 2 * KA_END / 1000, k = (r * 32 + 500) / 1000;
-            knob_arc(29 - KNOB_RING_R, cy - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END, a1, T_LINE,
-                     lc, bg);
-            cv_disc(29 + PV_DOT[k][0], cy + PV_DOT[k][1], 8, bg, 0);
-            cv_disc(29 + PV_DOT[k][0], cy + PV_DOT[k][1], 6, T_TEXT, 0);
-        } else {                                        /* (a list of names: the ring alone) */
-            knob_arc(29 - KNOB_RING_R, cy - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END,
-                     -KA_END - 1, T_LINE, lc, bg);
-        }
-        pv_value_c(c, 29, vy, val, unit, vc, bg, 54);
-    }
-    cv_blit((uint32_t)(1 + 60 * (int32_t)c), (uint32_t)(PV_RING_Y + (pv_tab_h ? PV_TAB_RING : 0)));
-}
-/* CS_FADER: a send: its label, the fader (6 px, filled to its value in the track's colour, a cap), its value */
-static void pv_fader(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
-                     int hot)
-{
-    uint16_t lc = vc == T_DIM ? T_DIM : T_THEME, bg = hot ? T_LIFT : T_BG;
-    int32_t top = 22, bot = 162;
-    cv_begin(60, PV_FADER_H, T_BG);
-    if (hot) {
-        cv_rrect(1, 0, 58, PV_FADER_H, 8, T_THEME, T_BG);
-        cv_rrect(2, 1, 56, PV_FADER_H - 2, 7, bg, T_THEME);
-    }
-    if (label[0] || val[0]) {
-        cv_text_c(30, 3, &AF_X, label, lc, bg);
-        cv_rrect(27, top, 6, bot - top, 3, T_LINE, bg);
-        if (ratio >= 0) {
-            int32_t y = bot - (bot - top) * (ratio > 1000 ? 1000 : ratio) / 1000;
-            cv_rrect(27, y, 6, bot - y, 3, lc, T_LINE);
-            cv_rrect(18, y - 5, 24, 10, 4, T_TEXT, bg);
-        }
-        pv_value_c(c, 30, 169, val, unit, ratio > 0 ? vc : T_DIM, bg, 56);
-    }
-    cv_blit((uint32_t)(60 * (int32_t)c), PV_FADER_Y);
+    uint32_t i;
+    for (i = 0; i < NELEM(PV_LABEL); i++)
+        if (str_eq(label, PV_LABEL[i].k))
+            return PV_LABEL[i].w;
+    return label;
 }
 /* CS_CHIP: "Step 7/16" in a 54 x 18 chip (its label in words, the value and unit after it; too long: the value); the
  * knob just turned: filled in the track's colour */
@@ -270,69 +210,42 @@ static void pv_chip(uint32_t c, const char *label, const char *val, const char *
     }
     cv_blit((uint32_t)CARD_X(c), (uint32_t)pv_chip_y);
 }
-/* CS_STRIP: a 54 x 30 cell, its label (8 px, the track's colour) over its value (11 px) and unit; the knob just turned:
- * tinted, outlined */
 static void pv_column(uint32_t c, const char *label0, const char *val0, const char *unit0, uint16_t vc, int32_t ratio,
                       int hot)
 {
-    uint16_t bg = hot ? ux_mix(T_SURF, T_THEME, 22) : T_SURF, lc = vc == T_DIM ? T_DIM : pv_strip_tc[c & 3u] ? pv_strip_tc[c & 3u] : T_THEME;
-    int32_t x;
-    char label[12], val[16], unit[8];
-    const char *l0 = label0, *v0 = val0, *u0 = unit0;
-    if (col_style == CS_RING) {
-        pv_ring(c, l0, v0, u0, vc, ratio, hot);
-        return;
-    }
-    if (col_style == CS_FADER) {
-        pv_fader(c, l0, v0, u0, vc, ratio, hot);
-        return;
-    }
-    if (col_style == CS_CHIP) {
-        pv_chip(c, l0, v0, u0, vc, hot);
-        return;
-    }
-    pv_words(l0, v0, u0, label, val, unit);            /* (CS_STRIP: the words as the rings') */
-    cv_begin(CARD_W, PV_STRIP_H, T_BG);
-    if (hot) {
-        cv_rrect(0, 0, CARD_W, PV_STRIP_H, 6, T_THEME, T_BG);
-        cv_rrect(1, 1, CARD_W - 2, PV_STRIP_H - 2, 5, bg, T_THEME);
-    } else {
-        cv_rrect(0, 0, CARD_W, PV_STRIP_H, 6, bg, T_BG);
-    }
-    if (label[0])
-        cv_text_fit(6, 2, &AF_X, label, lc, bg, CARD_W - 8);
-    if (binary_value(val) >= 0) {
-        binary_badge(CARD_W / 2, 12, 16, val, bg);
-    } else if (val[0]) {
-        int32_t uw = unit[0] ? text_w(&AF_X, unit) + 2 : 0;
-        x = cv_free_text(6, 14, &AF_S, val, vc, bg, CARD_W - 8 - uw);
-        if (unit[0] && x + uw <= CARD_W - 2)
-            cv_text_on(x + 2, 15, &AF_X, unit, T_MID, bg);
-    }
-    cv_blit((uint32_t)CARD_X(c), (uint32_t)pv_strip_y);
+    (void)ratio;
+    pv_chip(c, label0, val0, unit0, vc, hot);
 }
 
 /* ---------------------------------------------------------- parts --- */
-/* the sound being edited: its track (the numeral, filled in the track's colour), its engine (the track's colour), its
- * name */
+/* the sound bar: the track's numeral (filled in its colour), its engine (the label face, the track's colour), the
+ * sound's name (the text face), capitals centred on the bar's middle row */
+static void pv_sound_bar(int32_t y, uint32_t k, const char *en, const char *nm, uint16_t tc, uint16_t bg)
+{
+    const aafont_t *lf = TY_LB, *tf = TY_TX;
+    char d[2] = {(char)('1' + k % NTRK), 0};
+    int32_t cy = y + H_FOOT / 2, x;
+    cv_rrect(4, cy - 11, 22, 22, 6, tc, bg);
+    cv_text_c(15, ty_y(cy, lf), lf, d, T_INK, tc);
+    x = en[0] ? cv_text_fit(34, ty_y(cy, lf), lf, en, tc, bg, 100) + 8 : 34;
+    cv_free_text(x, ty_y(cy, tf), tf, nm, T_TEXT, bg, 236 - x);
+}
+/* the sound being edited: its track, engine and name (pv_sound_bar) */
 static void pv_sound(void)
 {
     char nm[20];
     const char *en = ENGINES[eng_idx(TSEL->eng_req)]->name;
     uint32_t sig;
-    int32_t x;
     if (designer_on() && designer_foot())                /* the sound designer: its keys (ui_designer.c) */
         return;
-    if(cur_page()->fam==FAM_FX && cur_page()->scope==SC_GLOBAL && cur_page()->id[0]!=G_TRK_SEND){en="SEND / RETURN";memcpy(nm,"ALL TRACKS",11);}
+    if(cur_page()->fam==FAM_FX && cur_page()->scope==SC_GLOBAL && cur_page()->id[0]!=G_TRK_SEND){en="FX";memcpy(nm,"SEND / RETURN",14);}
     else sound_name(TSEL, nm);
     sig = str_hash(str_hash(song.sel * 7u + ux.gen * 977u + ux.pal * 31u, en), nm);
     if (!ui.force && sig == pv.sound)
         return;
     pv.sound = sig;
     cv_begin(240, 240 - PV_SOUND_Y, T_BG);
-    cv_icon_mid(6, 8, 16, trk_icon(song.sel, 1), T_THEME, T_BG);   /* (its ink at x 8, as the text was) */
-    x = cv_text_on(26, 3, &AF_X, en, T_THEME, T_BG);
-    cv_free_text(x + 6, 1, &AF_S, nm, T_SEC, T_BG, 232 - x - 6);
+    pv_sound_bar(0, song.sel, en, nm, T_THEME, T_BG);
     cv_blit(0, PV_SOUND_Y);
 }
 /* a panel h rows tall at y, drawn by fn in slices (fn draws in panel coordinates; pv.slice0: the slice's first row) */
@@ -393,21 +306,68 @@ static void pv_value(uint32_t c, char *val, const char **unit)
     if (d && vp)
         param_format(d, *vp, val, unit);
 }
-static int32_t pv_hot(void) { return ui.hot_t ? (int32_t)(ui.hot_col & 3u) : -1; }
+static int32_t pv_hot(void) { return ui.hot_t || pv_hero_on() ? (int32_t)(ui.hot_col & 3u) : -1; }
+
+/* the hero (large type, B: focus): the knob turning over the page's picture, its words as its cell shows them
+ * (ui_draw.c hero_w): the label (the label face, the track's colour), the value 48 px (the value face when the hero's
+ * face lacks a sign or the value is too wide, then the text face), its unit after it (the value face, mid), on a scrim
+ * over the panel's top; its ring (KNOB_LEVEL) at the right. corner: a curve's, its top right, no ring, the scrim the
+ * block's alone. x0: the panel's left on the canvas. Over the canvas as it is (cv_over) */
+static uint32_t pv_hero_sig(void)
+{
+    return pv_hero_on() ? str_hash(str_hash(str_hash(1u + ui.hot_col * 7u + hero_w.dim * 31u + (uint32_t)(hero_w.ratio + 1) * 131u,
+                                                     hero_w.label), hero_w.val), hero_w.unit) : 0u;
+}
+static void pv_hero(int32_t x0, int32_t pw, int corner)
+{
+    const aafont_t *lf = TY_LB, *vf = TY_HR, *uf = TY_VL;
+    int ring = !corner && hero_w.ratio >= 0;
+    int32_t room = pw - 24 - (ring ? 2 * KNOB_LEVEL_R + 14 : 0), uw, vw, lw, bw, bh, x, y = 6;
+    uint16_t lc = hero_w.dim ? T_DIM : T_THEME, vc = hero_w.dim ? T_DIM : T_TEXT;
+    if (!pv_hero_on() || hero_w.kc || !hero_w.val[0])
+        return;
+    uw = hero_w.unit[0] ? text_w(uf, hero_w.unit) + 4 : 0;
+    if (!text_has(vf, hero_w.val) || text_w(vf, hero_w.val) + uw > room)
+        vf = TY_VL;
+    if (text_w(vf, hero_w.val) + uw > room) {
+        vf = TY_TX;
+        uf = lf;
+        uw = hero_w.unit[0] ? text_w(uf, hero_w.unit) + 3 : 0;
+    }
+    vw = text_w(vf, hero_w.val);
+    if (vw > room - uw)
+        vw = room - uw;
+    lw = text_w(lf, pv_long(hero_w.label));
+    bw = (vw + uw > lw ? vw + uw : lw) + 24;
+    bh = y + lf->h + vf->h + 4;
+    x = corner ? x0 + pw - bw : x0;
+    cv_scrim(x, 0, corner ? bw : pw, bh, T_PANEL, 26, 8);
+    cv_over = cv_hero = 1;
+    cv_text_fit(x + 12, y, lf, pv_long(hero_w.label), lc, T_PANEL, bw - 16);
+    y += lf->h - 2;
+    x = cv_free_text(x + 12, y, vf, hero_w.val, vc, T_PANEL, vw);
+    if (uw)
+        cv_text_on(x + 4, y + vf->asc - uf->asc, uf, hero_w.unit, T_MID, T_PANEL);
+    cv_over = cv_hero = 0;
+    if (ring) {                                         /* its ring at the right, the value's middle */
+        int32_t r = hero_w.ratio > 1000 ? 1000 : hero_w.ratio, a1 = -KA_END + r * 2 * KA_END / 1000;
+        int32_t cx = x0 + pw - 12 - KNOB_LEVEL_R, cy = 6 + lf->h + vf->h / 2 - 4;
+        knob_arc(cx - KNOB_LEVEL_R, cy - KNOB_LEVEL_R, KNOB_LEVEL_R, KNOB_LEVEL_COV, KNOB_LEVEL_ANG, -KA_END, a1, T_LINE,
+                 lc, T_PANEL);
+    }
+}
 
 /* ---------------------------------------------------------- CURVE --- */
 /* ENV: attack (linear), decay (exponential to the sustain), the sustain held, the release (exponential); the area
- * under it tinted; a handle at each segment's end; each segment's value on it; the segment turning in text */
+ * under it tinted; a handle at each segment's end, the segment turning in text (its value: the strip, the hero) */
 static void pv_env(int32_t h)
 {
     const page_t *pg = cur_page();
     int32_t va = TSEL->p[pg->id[0]], vd = TSEL->p[pg->id[1]], vs = TSEL->p[pg->id[2]], vr = TSEL->p[pg->id[3]];
-    int32_t top = 18, bot = h - 22, x0 = 12, x1 = x0 + 10 + va * 40 / 127, x2 = x1 + 16 + vd * 52 / 127;
+    int32_t top = 14, bot = h - 12, x0 = 12, x1 = x0 + 10 + va * 40 / 127, x2 = x1 + 16 + vd * 52 / 127;
     int32_t x4 = PV_PANEL_W - 14, x3 = x4 - 24 - vr * 48 / 127, sus = vs * 1000 / 127, hot = pv_hot(), x, py = 0;
     int32_t e = 32768, kd = 150733 / (x2 - x1), kr = 150733 / (x4 - x3);
     uint16_t c = T_THEME, fill = ux_mix(T_PANEL, T_THEME, 14);
-    char v[12], b[20];
-    const char *unit;
 #define PVY(l) (bot * 16 - (l) * (bot - top) * 16 / 1000)
     for (x = x0; x <= x4; x++) {                        /* the curve in 1/16 px */
         int32_t l, y, seg = x < x1 ? 0 : x < x2 ? 1 : x < x3 ? 2 : 3;
@@ -428,35 +388,19 @@ static void pv_env(int32_t h)
             cv_disc(hx[i], hy[i], d + 4, T_PANEL, 0);
             cv_disc(hx[i], hy[i], d, (int32_t)i == hot ? T_TEXT : c, 0);
         }
-        /* each value on its segment: the attack's by the peak, the decay's on its slope, the sustain's over it, the
-         * release's under its end; the one turning larger, in text */
-        for (i = 0; i < 4u; i++) {
-            const aafont_t *f = (int32_t)i == hot ? &AF_M : &AF_X;
-            uint16_t tc = (int32_t)i == hot ? T_TEXT : T_MID;
-            int32_t ys = hy[2];
-            pv_value(i, v, &unit);
-            str_cpy(b, v, sizeof b);
-            if (unit[0]) { str_cpy(b + str_len(b), " ", 2); str_cpy(b + str_len(b), unit, 6); }
-            if (i == 0u) pv_text(x1 + 8, top - 13 < 2 ? 2 : top - 13, f, b, tc, 0);
-            else if (i == 1u) pv_text(x1 + (x2 - x1) / 2 + 8, top + (ys - top) / 2 - 6, f, b, tc, 0);
-            else if (i == 2u) pv_text((x2 + x3) / 2, ys - 6 - f->h, f, b, tc, 1);
-            else pv_text(x4 - 8, bot + 4 > h - f->h - 2 ? h - f->h - 2 : bot + 4, f, b, tc, 2);
-        }
     }
 #undef PVY
 }
-/* LFO: two cycles from its phase, its reach dashed (the fade in, then the depth), the zero line; the rate at the top,
- * where it goes (the strongest of LFO DEST's) beside it */
+/* LFO: two cycles from its phase, its reach dashed (the fade in, then the depth), the zero line; where it goes (the
+ * strongest of LFO DEST's) as a chip at the top left (its rate: the strip, the hero) */
 static void pv_lfo(int32_t h)
 {
     static const uint8_t DST[4] = {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP};
     static const char *const DST_NAME[4] = {"Pitch", "Filter", "Shape", "Level"};
     const track_t *t = TSEL;
-    int32_t uni = t->p[P_LPOL] != 0, cy = uni ? h - 26 : h / 2, amp = uni ? h - 66 : 48, x, py = 0;
+    int32_t uni = t->p[P_LPOL] != 0, cy = uni ? h - 14 : h / 2 + 8, amp = uni ? h - 50 : 40, x, py = 0;
     int32_t fw = t->p[P_LFADE] * 120 / 127, x0 = 10, w = PV_PANEL_W - 20, best = 0, bi = -1, hot = pv_hot();
     uint32_t ph = (uint32_t)t->p[P_LPHASE] << 25, i;
-    char v[12], b[20];
-    const char *unit;
     cv_rect(x0, cy, w, 1, T_LINE);
     {                                                   /* its reach, dashed: the fade in, then the depth */
         uint16_t gc = hot == 3 ? T_TEXT : ux_mix(T_PANEL, T_THEME, 35);
@@ -474,20 +418,16 @@ static void pv_lfo(int32_t h)
         cv_vspan_aa(x0 + x, x ? py : y, y, T_THEME);
         py = y;
     }
-    pv_value(0, v, &unit);                              /* the rate */
-    str_cpy(b, v, sizeof b);
-    if (unit[0]) { str_cpy(b + str_len(b), " ", 2); str_cpy(b + str_len(b), unit, 6); }
-    pv_text(10, 8, &AF_S, b, T_TEXT, 0);
     for (i = 0; i < 4u; i++) {                          /* where it goes: the strongest destination */
         int32_t a = t->p[DST[i]] < 0 ? -t->p[DST[i]] : t->p[DST[i]];
         if (a > best) best = a, bi = (int32_t)i;
     }
-    if (bi >= 0 && pv.slice0 == 0) {
-        int32_t cw = text_w(&AF_X, DST_NAME[bi]) + 26;
+    if (bi >= 0 && pv.slice0 == 0 && !pv_hero_on()) {   /* (the hero over the panel: it says what turns) */
+        int32_t cw = text_w(TY_LB, DST_NAME[bi]) + 30;
         uint16_t cb = ux_mix(T_PANEL, T_THEME, 20);
-        cv_rrect(PV_PANEL_W - 8 - cw, 8, cw, 16, 4, cb, T_PANEL);
-        cv_icon_mid(PV_PANEL_W - 8 - cw + 5, 16, 12, ICON_X_RIGHT, T_THEME, cb);
-        cv_text_on(PV_PANEL_W - 8 - cw + 19, 10, &AF_X, DST_NAME[bi], T_THEME, cb);
+        cv_rrect(8, 6, cw, 24, 6, cb, T_PANEL);
+        cv_icon_mid(12, 18, 12, ICON_X_RIGHT, T_THEME, cb);
+        cv_text_on(26, ty_y(18, TY_LB), TY_LB, DST_NAME[bi], T_THEME, cb);
     }
 }
 /* FM6's EG RATE / EG LVL (operator fm6_opsel), PITCH EG / LV (mock/r6_pages OP3 EG): the DX7 envelope from L4 by R1..R3
@@ -542,6 +482,8 @@ static void pv_curve(int32_t h)
         pv_env(h);
     else
         pv_lfo(h);
+    if (pv.slice0 == 0)                                 /* the knob turning: the hero in the top right */
+        pv_hero(0, PV_PANEL_W, 1);
 }
 /* the drum grid (mock/r6_pages STEP): the eight lanes down the panel, 16 steps of the page across; a hit a cell in the
  * track's colour (an accent in text), an empty step a dot (every fourth brighter); the lane picked a band, its name in
@@ -585,20 +527,20 @@ static void pv_grid(int32_t h)
     }
 }
 /* EG RATE / EG LVL: the operators as tabs over the panel, the one shown filled */
-#define PV_OPTAB_H 20
-static void pv_optabs(void)
+#define PV_OPTAB_H 24
+static void pv_optabs(int32_t y)
 {
     uint32_t i;
     char b[4] = {'O', 'P', '1', 0};
     cv_begin(240, PV_OPTAB_H + 2, T_BG);                /* (and the 2 rows down to the panel) */
     for (i = 0; i < 6u; i++) {
         int on = i == fm6_opsel % 6u;
-        int32_t x = 5 + (int32_t)i * 39;
+        int32_t x = 2 + (int32_t)i * 40;
         b[2] = (char)('1' + i);
-        cv_rrect(x, 1, 35, 16, 5, on ? T_THEME : T_SURF, T_BG);
-        cv_text_c(x + 17, 4, &AF_X, b, on ? T_INK : T_MID, on ? T_THEME : T_SURF);
+        cv_rrect(x, 0, 36, PV_OPTAB_H, 6, on ? T_THEME : T_SURF, T_BG);
+        cv_text_c(x + 18, ty_y(PV_OPTAB_H / 2, TY_LB), TY_LB, b, on ? T_INK : T_MID, on ? T_THEME : T_SURF);
     }
-    cv_blit(0, PV_CURVE_Y);
+    cv_blit(0, (uint32_t)y);
 }
 static uint32_t pv_curve_sig(void)
 {
@@ -609,20 +551,22 @@ static uint32_t pv_curve_sig(void)
     h = (h ^ (uint32_t)(TSEL->p[P_LD_PIT] + 131 * TSEL->p[P_LD_FLT] + 17161 * TSEL->p[P_LD_SHP])) * 16777619u;
     h = (h ^ (uint32_t)(TSEL->p[P_LD_AMP] + 256 * TSEL->p[P_LPOL] + 65536 * TSEL->p[P_LWAVE])) * 16777619u;
     h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_opsel * 131u;   /* (FM6's EG pages: its patch, the operator) */
-    return h ^ (uint32_t)(pv_hot() + 1) * 40503u ^ ux.gen * 977u ^ ux.pal * 31u ^ ui.page * 7919u ^ song.sel * 13u;
+    return h ^ (uint32_t)(pv_hot() + 1) * 40503u ^ ux.gen * 977u ^ ux.pal * 31u ^ ui.page * 7919u ^ song.sel * 13u ^
+           pv_hero_sig() * 2246822519u;
 }
 
 /* ---------------------------------------------------------- RINGS --- */
 
-/* a page with a cutoff: the filter's response (flat, the resonance's peak at the cutoff, then the slope) */
-static void pv_filter(int32_t cut, int32_t res)
+/* a page with a cutoff: the filter's response (flat, the resonance's peak at the cutoff, then the slope); h: the
+ * panel's rows */
+static void pv_filter(int32_t cut, int32_t res, int32_t h)
 {
-    int32_t x, fc = 16 + clamp(cut, 0, 127) * 196 / 127, peak = clamp(res, 0, 127) * 30 / 127, y0 = 44 * 16, py = 0;
-    for (x = 10; x < 102; x += 5)
+    int32_t x, fc = 16 + clamp(cut, 0, 127) * 196 / 127, peak = clamp(res, 0, 127) * 30 / 127, y0 = h * 2 / 5 * 16, py = 0;
+    for (x = 10; x < h - 10; x += 5)
         cv_rect(fc, x, 1, 2, ux_mix(T_PANEL, T_THEME, 60));
     for (x = 0; x < 216; x++) {
         int32_t d = 12 + x - fc, y = y0 - peak * 16 * 64 / (64 + d * d) + (d > 0 ? d * 14 : 0);
-        y = clamp(y, 8 * 16, 100 * 16);
+        y = clamp(y, 8 * 16, (h - 10) * 16);
         cv_vspan_aa(12 + x, x ? py : y, y, T_THEME);
         py = y;
     }
@@ -630,7 +574,7 @@ static void pv_filter(int32_t cut, int32_t res)
 /* which picture: 3 a filter (cut: its knob), 4 FM6's chart, 0 the scope */
 /* ARP (mock/r6_pages ARP): the notes it plays, a block a step (16 at most): the keys held (else C3 E3 G3) over OCT
  * octaves in MODE's order, low to high bottom to top; the notes and the octaves at the top. OFF: dim */
-static void pv_arp(void)
+static void pv_arp(int32_t h)
 {
     static const uint8_t DEF[3] = {48, 52, 55};
     const track_t *t = TSEL;
@@ -653,8 +597,8 @@ static void pv_arp(void)
         for (i = n; i > 1u; i--) { j = (i * 7u + 3u) % i; uint8_t x = seq[i - 1u]; seq[i - 1u] = seq[j]; seq[j] = x; }
     for (i = 0; i < n; i++) { lo = seq[i] < lo ? seq[i] : lo; hi = seq[i] > hi ? seq[i] : hi; }
     w = n ? 208 / (int32_t)n : 208;
-    for (i = 0; i < n; i++) {
-        int32_t y = 92 - (hi > lo ? (seq[i] - lo) * 64 / (hi - lo) : 32);
+    for (i = 0; i < n; i++) {                           /* (under the notes' line: rows 34 .. h - 12) */
+        int32_t y = h - 19 - (hi > lo ? (seq[i] - lo) * (h - 53) / (hi - lo) : (h - 53) / 2);
         cv_rrect(16 + (int32_t)i * w, y, w - 4 < 18 ? w - 4 : 18, 7, 2, mode ? T_THEME : T_DIM, T_PANEL);
     }
     b[0] = 0;
@@ -665,23 +609,23 @@ static void pv_arp(void)
     str_cpy(b + str_len(b), "\xB7 ", 4);
     fmt_int(b + str_len(b), (int32_t)oct);
     str_cpy(b + str_len(b), " oct", 5);
-    cv_text_on(12, 8, &AF_X, b, T_MID, T_PANEL);
+    cv_free_text(12, 6, TY_LB, b, T_MID, T_PANEL, PV_PANEL_W - 24);
 }
 /* PATTERN (mock/r6_pages PATTERN): the 64 steps as dots, four rows of 16: a note or a hit the track's colour, a rest
  * a line, past LEN dimmer still; the step playing white; LEN of 64 as the bar under them */
 #define PV_STEP_X(s) (22 + (int32_t)((s) % 16u) * 12 + (int32_t)((s) % 16u / 4u) * 4)   /* a step's dot (7 px) */
-static void pv_steps(void)
+static void pv_steps(int32_t h)
 {
     const track_t *t = TSEL;
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), s, ph = pv.pplay >= 0 ? (uint32_t)pv.pplay : 0xFFu;
     for (s = 0; s < NSTEP; s++) {
-        int32_t x = PV_STEP_X(s), y = 16 + (int32_t)(s / 16u) * 18;
+        int32_t x = PV_STEP_X(s), y = 16 + (int32_t)(s / 16u) * (h - 40) / 3;
         uint16_t c = s == ph ? T_TEXT : s >= len ? ux_mix(T_PANEL, T_LINE, 50) :
                      step_on(&seq_steps(t)[s]) ? T_THEME : T_LINE;
         cv_disc(x, y, s == ph || (s < len && step_on(&seq_steps(t)[s])) ? 7 : 5, c, 0);
     }
-    cv_rrect(16, 92, 208, 4, 2, T_LINE, T_PANEL);
-    cv_rrect(16, 92, (int32_t)len * 208 / NSTEP, 4, 2, T_THEME, T_LINE);
+    cv_rrect(16, h - 12, 208, 4, 2, T_LINE, T_PANEL);
+    cv_rrect(16, h - 12, (int32_t)len * 208 / NSTEP, 4, 2, T_THEME, T_LINE);
 }
 
 
@@ -712,35 +656,37 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
 }
 /* FX follows R5: four rings, a rounded track-colour picture, compact labels.
  * WIDTH explicitly names its two sides and the mono tradeoff. */
-static void pv_fx(void)
+static void pv_fx(int32_t h)
 {
+    const aafont_t *lf = TY_LB;
     if(cur_page()->id[0]==G_TRK_SEND || cur_page()->id[0]==P_FXSEND){
         uint32_t sends=cur_page()->id[0]==P_FXSEND;
-        cv_text_on(12,8,&AF_X,song.g[G_FXMODE]?"Independent FX sends":"Track to shared FX",T_MID,T_PANEL);
-        cv_text_on(12,45,&AF_X,sends?"One level per effect":song.g[G_FXMODE]?"SEND 1: this track":"SEND: this track",T_THEME,T_PANEL);
-        cv_text_on(12,65,&AF_X,sends?"Returns join the dry mix":"RETURN: all tracks",T_THEME,T_PANEL);return;
+        cv_free_text(12,6,lf,song.g[G_FXMODE]?"Independent FX sends":"Track to shared FX",T_MID,T_PANEL,PV_PANEL_W-24);
+        cv_free_text(12,h/2-lf->h,lf,sends?"One level per effect":song.g[G_FXMODE]?"SEND 1: this track":"SEND: this track",T_THEME,T_PANEL,PV_PANEL_W-24);
+        cv_free_text(12,h/2+4,lf,sends?"Returns join the dry mix":"RETURN: all tracks",T_THEME,T_PANEL,PV_PANEL_W-24);return;
     }
     uint32_t base=cur_page()->id[0],master=cur_page()->scope==SC_GLOBAL,slot=(base-(master?G_MFXTYPE:P_FXTYPE))/FX_PARAMS;
     const int16_t *values=master?song.g:TSEL->p;uint32_t type=(uint32_t)clamp(values[base],0,FX_COUNT-1);
     static const char *const hint[FX_COUNT]={"Dry signal","Moving notches","All-pass L / dry R","Random vowels","Phase / crossover jitter","Jumping resonance","Short lo-fi echoes","Small lo-fi space","Diffused stereo reverb","Stereo pitch shimmer"};
-    int32_t mix=values[base+1u],cha=values[base+3u],py=50*16;
-    cv_text_on(12,8,&AF_X,hint[type],T_MID,T_PANEL);
+    int32_t mix=values[base+1u],cha=values[base+3u],cy=h/2+2,py=cy*16;
+    cv_free_text(12,6,lf,hint[type],T_MID,T_PANEL,PV_PANEL_W-24);
     for(int32_t x=0;x<208;x++){
         int32_t ph=(int32_t)(sine_i((uint32_t)x*0x06000000u)>>10);
-        int32_t y=50*16;
+        int32_t y=cy*16;
         if(type==FX_PHASER || type==FX_WIDTH || type==FX_CHORUS)y+=ph*mix/9;
         else if(type==FX_FORMANT)y-=((ph+32)*mix)/15;
         else if(type==FX_TAPE || type==FX_SPIT)y+=(ph*((x*(cha+1)/32)%32))/4;
         else if(type>=FX_ECHO)y+=(ph*mix*(208-x))/1900;
-        y=clamp(y,27*16,76*16);cv_vspan_aa(16+x,py,y,type&&mix?T_THEME:T_DIM);py=y;
+        y=clamp(y,(lf->h+10)*16,(h-lf->h-10)*16);cv_vspan_aa(16+x,py,y,type&&mix?T_THEME:T_DIM);py=y;
     }
     const char *foot=fx_state[(master?NPART:song.sel%NPART)*FX_SLOTS+slot].failed?"MEMORY FULL":type==FX_WIDTH?"Mono changes the tone":type==FX_OFF || !mix?"Turn MIX to hear FX":master?"Shared by all tracks":"OCT+ sound actions";
-    cv_text_on(12,88,&AF_X,foot,T_DIM,T_PANEL);
+    cv_free_text(12,h-lf->h-6,lf,foot,T_DIM,T_PANEL,PV_PANEL_W-24);
 }
+static void pv_hero_graph(void) { pv_hero(3, 234, 0); }   /* (over draw_graph's panel: x 3, 234 wide) */
 static void pv_picture(void)
 {
-    int32_t cut, res;
-    uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u, i;
+    int32_t cut, res, y = PV_PIC_Y + pv_tab_h, h = PV_PIC_H - pv_tab_h;
+    uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u ^ (uint32_t)h * 613u, i;
     int32_t pp = pic == 6u && song.playing ? (int32_t)(TSEL->seq_idx % (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP)) : -1;
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
     if(pic==9u && cur_page()->id[0]!=G_TRK_SEND && cur_page()->id[0]!=P_FXSEND)sig^=(uint32_t)fx_state[(cur_page()->scope==SC_GLOBAL?NPART:song.sel%NPART)*FX_SLOTS+(cur_page()->id[0]-(cur_page()->scope==SC_GLOBAL?G_MFXTYPE:P_FXTYPE))/FX_PARAMS].failed*347u;
@@ -750,10 +696,17 @@ static void pv_picture(void)
             sig = (sig ^ TSEL->held[i]) * 16777619u;
         sig ^= TSEL->nheld * 131u;
     }
-    if (pic == 4u || pic == 8u) {                       /* FM6: its chart, CHORD: its chord, as the panel draws them */
-        graph_y = PV_PIC_Y;
-        graph_h = PV_PIC_H;
+    if (pic == 4u || pic == 8u) {                       /* FM6: its chart, CHORD: its chord, as the panel draws them; the
+                                                         * hero over them (draw_graph's graph_over) */
+        uint32_t hs = pv_hero_sig() ^ (uint32_t)h;
+        if (hs != pv.hero)
+            ui.graph_sig = 0;
+        pv.hero = hs;
+        graph_y = y;
+        graph_h = h;
+        graph_over = pv_hero_graph;
         draw_graph();
+        graph_over = 0;
         graph_y = Y_GRAPH;
         graph_h = H_GRAPH;
         return;
@@ -762,20 +715,16 @@ static void pv_picture(void)
         return;
     pv.panel = sig;                                     /* (PATTERN, the step playing alone moved: cv_blit sends its */
     pv.pplay = pp;                                      /*  two dots) */
-    {
-        int32_t dy = 0;                                 /* (the picture whole under tabs too: the rings shorter) */
-        cv_begin(240, (uint32_t)(PV_PIC_H - dy), T_BG);
-        cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, PV_PIC_H - dy, 6, T_PANEL, T_BG);
-        cv_bg = T_PANEL;
-        cv_oy = -dy / 2;                                /* (under the tabs: the picture's middle) */
-        if (pic == 5u) pv_arp();
-        else if (pic == 6u) pv_steps();
-        else if (pic == 3u) pv_filter(cut, res);
-        else if (pic == 9u) pv_fx();
-        else stage_wave(T_THEME, 8 + dy / 2, PV_PIC_H - 16 - dy);
-        cv_oy = 0;
-        cv_blit(0, (uint32_t)(PV_PIC_Y + dy));
-    }
+    cv_begin(240, (uint32_t)h, T_BG);
+    cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, h, 6, T_PANEL, T_BG);
+    cv_bg = T_PANEL;
+    if (pic == 5u) pv_arp(h);
+    else if (pic == 6u) pv_steps(h);
+    else if (pic == 3u) pv_filter(cut, res, h);
+    else if (pic == 9u) pv_fx(h);
+    else stage_wave(T_THEME, 8, h - 16);
+    pv_hero(PV_PANEL_X, PV_PANEL_W, 0);                 /* the knob turning over it */
+    cv_blit(0, (uint32_t)y);
 }
 
 /* ---------------------------------------------------------- MIXER --- */
@@ -973,52 +922,35 @@ static void pv_draw(void)
             pv_strip(k);
         return;
     }
-    pv_tab_h = kind == PV_RINGS && (sec_on() || (designer_on() && designer_tabs_on())) ? SEC_TAB_H : 0;
-    if (kind != PV_CURVE) {                             /* RINGS, FADERS */
-        if (ui.force) {                                 /* (the parts then cover what they draw) */
-            lcd_fill(0, H_HEAD, 240, PV_SOUND_Y - H_HEAD, T_BG);
-            ui.graph_sig = 0;
-        }
-        draw_head();
-        if (pv_tab_h && designer_on()) {                /* the sound designer: its stages */
-            designer_tabs();
-        } else if (pv_tab_h) {                          /* an engine in sections: its tabs, the page noted */
-            sec_note();
-            sec_tabs();
-        }
-        col_style = kind == PV_RINGS ? CS_RING : CS_FADER;
-        draw_columns();
-        col_style = CS_CARD;
-        pv_sound();
-        if (kind == PV_RINGS)
-            pv_picture();
-        return;
-    }
-    if (ui.force) {                                     /* the BG the parts do not cover */
-        uint32_t i;
-        lcd_fill(0, H_HEAD, 240, PV_CURVE_Y - H_HEAD, T_BG);
-        lcd_fill(0, PV_CURVE_Y, PV_PANEL_X, PV_CURVE_H, T_BG);
-        lcd_fill(PV_PANEL_X + PV_PANEL_W, PV_CURVE_Y, 240u - PV_PANEL_X - PV_PANEL_W, PV_CURVE_H, T_BG);
-        lcd_fill(0, PV_CURVE_Y + PV_CURVE_H, 240, PV_STRIP_Y - PV_CURVE_Y - PV_CURVE_H, T_BG);
-        lcd_fill(0, PV_STRIP_Y, (uint32_t)CARD_X(0), PV_STRIP_H, T_BG);
-        for (i = 0; i < 4u; i++)
-            lcd_fill((uint32_t)(CARD_X(i) + CARD_W), PV_STRIP_Y,
-                     i < 3u ? (uint32_t)(CARD_X(i + 1u) - CARD_X(i) - CARD_W) :
-                     240u - (uint32_t)(CARD_X(i) + CARD_W), PV_STRIP_H, T_BG);
-        lcd_fill(0, PV_STRIP_Y + PV_STRIP_H, 240, PV_SOUND_Y - PV_STRIP_Y - PV_STRIP_H, T_BG);
+    pv_tab_h = (kind == PV_RINGS || kind == PV_CURVE) && (sec_on() || (designer_on() && designer_tabs_on())) ? SEC_TAB_H : 0;
+    if (kind == PV_CURVE && cur_page()->graph == GR_FMEG)   /* (EG RATE / LVL: the operators' tabs in the sections' place) */
+        pv_tab_h = SEC_TAB_H;
+    /* RINGS, CURVE: the header, the sections' tabs, the strip, the sound, then the picture (the busiest last) */
+    if (ui.force) {                                     /* (the parts then cover what they draw) */
+        lcd_fill(0, H_HEAD, 240, PV_SOUND_Y - H_HEAD, T_BG);
+        ui.graph_sig = 0;
     }
     draw_head();
-    col_style = CS_STRIP;
-    draw_columns();
+    if (pv_tab_h && designer_on()) {                    /* the sound designer: its stages */
+        designer_tabs();
+    } else if (kind == PV_CURVE && cur_page()->graph == GR_FMEG) {
+        pv_optabs(H_HEAD + 1);                          /* EG RATE / LVL: the operators */
+    } else if (pv_tab_h) {                              /* an engine in sections: its tabs, the page noted */
+        sec_note();
+        sec_tabs();
+    }
+    card_y = Y_LABEL + pv_tab_h;
     col_style = CS_CARD;
+    draw_columns();
+    card_y = Y_LABEL;
     pv_sound();
-    (void)kind;
+    if (kind == PV_RINGS) {
+        pv_picture();
+        return;
+    }
     sig = pv_curve_sig();
-    if (ui.force || sig != pv.panel) {                  /* (the busiest last) */
-        int tabs = cur_page()->graph == GR_FMEG;        /* (EG RATE / LVL: the operators over the panel) */
+    if (ui.force || sig != pv.panel) {
         pv.panel = sig;
-        if (tabs)
-            pv_optabs();
-        pv_panel(PV_CURVE_Y + (tabs ? PV_OPTAB_H + 2 : 0), PV_CURVE_H - (tabs ? PV_OPTAB_H + 2 : 0), pv_curve);
+        pv_panel(PV_CURVE_Y + pv_tab_h, PV_CURVE_H - pv_tab_h, pv_curve);
     }
 }

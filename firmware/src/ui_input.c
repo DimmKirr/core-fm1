@@ -1506,6 +1506,7 @@ static void page_knob(uint32_t k, int32_t s)
         || (pg->graph == GR_SLICES && k < 2u)) {       /* (not an empty column) */
         ui.hot_col = (uint8_t)k;
         ui.hot_t = 40;
+        hero_touch();                                   /* (ui_pages.c: the hero over the page's picture) */
     }
     if (list_on()) {                                    /* a list page: KNOB 2 the row, KNOB 1 its value (ui_list.c) */
         list_knob(k, s);

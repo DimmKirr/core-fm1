@@ -8,7 +8,10 @@
  * tools/gen_icons.py: Melodee's own drawings). A glyph is trimmed to its ink box, advances are in 1/16 px, and
  * each glyph is rasterised at 1 << psh horizontal phases (2: drawn at a pen of +0, +1/2 px);
  * cv_text takes the phase that puts it within a phase step of its true place. Blending uses a 16-entry
- * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens. */
+ * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens.
+ * The large type (docs/design/README.md "Large type"): text is set in four roles, TY_LB labels, TY_TX text, TY_VL values,
+ * TY_HR the hero, each Rubik (16 / 20 / 28 / 48 px) or Melodee Pixel (a 5 x 7 1-bit face at 2 / 2 / 3 / 5 times: aafont_t
+ * px), as Settings > FONT says (ui.c TY_*); a role's two faces share its line height and baseline. */
 typedef struct { uint16_t off, adv; int8_t bx; uint8_t by, bw, bh; } aag_t;
 typedef struct {
     uint8_t h, asc, first, last, nex;   /* line height, baseline; ASCII range; extras */
@@ -20,18 +23,30 @@ typedef struct {
     const uint8_t *ex;                  /* codes of the extra glyphs */
     uint8_t psh;                        /* log2 of the phases per glyph: g[i << psh] .. g[(i << psh) + phases - 1] */
     const uint8_t *hc;                  /* data's Huffman code (cv_alpha_hc), 0 = 2 px per byte (cv_alpha) */
+    uint8_t cap;                        /* the capitals' height in px (ty_y: capitals centred on a row) */
+    uint8_t px;                         /* a pixel face: its multiple (1-bit glyphs, adv in 1/16 font px; cv_pix); 0 = AA */
 } aafont_t;
 typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4]; } ui_pal_t;
 typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
-#include "ui_fonts.h"                   /* AF_X 10 px / 500 (labels), AF_S 12 px / 400, AF_M 15 px / 500, AF_L 30 px / 500 */
+#include "ui_fonts.h"                   /* AF_X 10 px / 500 (labels), AF_S 12 px / 400, AF_M 15 px / 500, AF_L 30 px / 500;
+                                         * the large type's AF_LB 16, AF_TX 20, AF_VL 28, AF_HR 48 (Rubik 500) and AP_* */
 #include "ui_palettes.h"
 #include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
 #define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
+/* the type's roles (docs/design/README.md "Large type"): Rubik, or Melodee Pixel as Settings > FONT says (ui.c
+ * ty_pixel). A role's two faces share its line height and baseline, so a layout holds in both; widths differ (a
+ * layout fits the wider) */
+static uint32_t ty_pixel(void);
+#define TY_LB (ty_pixel() ? &AP_LB : &AF_LB)  /* labels, units, chips, tags: 16 px, pixel 2 x */
+#define TY_TX (ty_pixel() ? &AP_TX : &AF_TX)  /* names, rows, the header, text: 20 px, pixel 2 x */
+#define TY_VL (ty_pixel() ? &AP_VL : &AF_VL)  /* values: 28 px, pixel 3 x */
+#define TY_HR (ty_pixel() ? &AP_HR : &AF_HR)  /* the hero (the chord, the value turning): 48 px, pixel 5 x */
 
 /* host tests hook in here (layout lint, draw cost); nothing in the firmware */
 #ifndef GFX_HOOK_TEXT
 #define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) ((void)0)   /* an ink box; flags 1 ellipsised, 2 cut, 4 icon, 8 free text,
-                                                              * 16 under a question (cv_dim), 32 in a scrolled view */
+                                                              * 16 under a question (cv_dim), 32 in a scrolled view, 64 over
+                                                              * a scrim (the hero: what is under it covered on purpose) */
 #define GFX_HOOK_BLIT(x, y, r0) ((void)0)
 #define GFX_HOOK_BEGIN() ((void)0)
 #define GFX_HOOK_PIXELS(n) ((void)0)
@@ -39,6 +54,9 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #ifndef GFX_HOOK_WHOLE
 #define GFX_HOOK_WHOLE(x, y, r0, fill) ((void)0)   /* what the screen would hold sent whole: canvas rows r0.. at x, y (or a
                                                      * fill) (tests/ui_render.c: the diff checked against it) */
+#endif
+#ifndef GFX_HOOK_SCRIM
+#define GFX_HOOK_SCRIM(x0, y0, x1, y1) ((void)0)   /* a scrim (cv_scrim): the canvas's texts under it covered on purpose */
 #endif
 #ifndef GFX_HOOK_CELL
 #define GFX_HOOK_CELL(x0, y0, x1, y1) ((void)0)    /* a cell, card, row or button (cv_rrect): a box touching it lies inside it */
@@ -197,6 +215,7 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
 /* cv_dim: a canvas goes out darkened (72 % toward BG): the page under a question (ui_draw.c); cv_under: the page under
  * a popup, dimmed or not (a knob's picker: not), its texts covered on purpose (the lint's flag 16) */
 static uint8_t cv_dim, cv_under;
+static uint8_t cv_hero;                                 /* drawing over a scrim (ui_pages.c pv_hero): the texts' flag 64 */
 static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a);
 static void cv_dim_rows(uint32_t r0)
 {
@@ -792,8 +811,8 @@ static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t
  * its repeat count ((count - 1) << 4 | value: runs of zeros and 15s). Codes of up to 8 bits come from a
  * 256-entry table made once per font in RAM (symbol | length << 8; 0 = a longer code: bit by bit). The
  * stream is read in order, so rows outside the clip are decoded and dropped; a run spans rows */
-#define HC_FONTS 2                       /* the coded faces: M and L (gen_aa_font.py HUFF) */
-static struct { const uint8_t *hc; uint16_t lut[256]; } hc_tab[HC_FONTS];
+#define HC_FONTS 6                       /* the coded faces: M, L, LB, TX, VL, HR (gen_aa_font.py HUFF) */
+static struct { const uint8_t *hc; uint16_t lut[256]; } hc_tab[HC_FONTS] __attribute__((section(".pool")));   /* (zeroed) */
 static const uint16_t *hc_lut(const uint8_t *hc)
 {
     uint32_t k, len, code = 0, sym = 15, i;
@@ -866,6 +885,40 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
     GFX_HOOK_PIXELS(w * h);
 }
 
+/* a Melodee Pixel glyph: w x h font pixels, 1 bit each (MSB first, rows back to back), each s x s canvas pixels at
+ * (x, y); ink c (byte-swapped; cv_over: over the canvas) */
+static void cv_pix(int32_t x, int32_t y, uint32_t w, uint32_t h, uint32_t s, const uint8_t *d, uint16_t c)
+{
+    uint32_t k = 0, gx, gy, j;
+    y += cv_oy;
+    for (gy = 0; gy < h; gy++) {
+        for (gx = 0; gx < w; ) {
+            uint32_t n = 0;
+            while (gx + n < w && ((d[(k + n) >> 3] >> (7u - ((k + n) & 7u))) & 1u))
+                n++;
+            if (!n) {
+                gx++;
+                k++;
+                continue;
+            }
+            for (j = 0; j < s; j++) {                    /* the run, s rows of n * s pixels */
+                int32_t py = y + (int32_t)(gy * s + j), px = x + (int32_t)(gx * s), e = px + (int32_t)(n * s);
+                uint16_t *row;
+                if (py < cv_cy0 || py >= cv_cy1)
+                    continue;
+                row = cv_px + (uint32_t)py * cv_w;
+                if (px < 0) px = 0;
+                if (e > (int32_t)cv_w) e = (int32_t)cv_w;
+                for (; px < e; px++)
+                    row[px] = cv_over ? cv_over_px(row[px], 15u) : c;
+            }
+            gx += n;
+            k += n;
+        }
+    }
+    GFX_HOOK_PIXELS(w * h * s * s);
+}
+
 /* ------------------------------------------------------------- text --- */
 /* the glyph number of ch in f, -1 = not in the face */
 static int32_t glyph_at(const aafont_t *f, uint32_t ch)
@@ -901,6 +954,7 @@ static int32_t kern(const aafont_t *f, uint32_t a, uint32_t b)       /* 1/16 px 
     return f->km[(l - 1u) * f->nkr + r - 1u];
 }
 
+static int32_t gadv(const aafont_t *f, const aag_t *g) { return f->px ? g->adv * f->px : g->adv; }   /* 1/16 px */
 static uint32_t fold(const aafont_t *f, uint32_t c)
 {
     return c >= 'a' && c <= 'z' && f->last < 'a' && glyph_at(f, c) < 0 ? c - 32u : c;
@@ -914,10 +968,20 @@ static int32_t text_w(const aafont_t *f, const char *s)
         uint32_t c = fold(f, (uint8_t)*s);
         if (prev)
             pen += kern(f, prev, c);
-        pen += f->g[glyph(f, c)].adv;
+        pen += gadv(f, &f->g[glyph(f, c)]);
         prev = c;
     }
     return (pen + 8) >> 4;
+}
+/* the line top that centres f's capitals on row cy (a pill, a row, a chip: the same place in Rubik and pixel) */
+static int32_t ty_y(int32_t cy, const aafont_t *f) { return cy - f->asc + (f->cap + 1) / 2; }
+/* every character of s is in f (the hero's face holds only what values and names need: else the value's face) */
+static int text_has(const aafont_t *f, const char *s)
+{
+    for (; *s; s++)
+        if (glyph_at(f, fold(f, (uint8_t)*s)) < 0 && (uint8_t)*s != (uint8_t)ELLIPSIS)
+            return 0;
+    return 1;
 }
 
 /* y = top of the line box (the baseline is y + f->asc); returns the pen x at the end.
@@ -943,6 +1007,21 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
         if (prev)
             pen += kern(f, prev, c);
         g = &f->g[glyph(f, c)];
+        if (f->px) {                                 /* a pixel face: whole pixels, at the rounded pen */
+            pos = (pen + 8) & ~15;
+            if (g->bw) {
+                int32_t gx = x + (pos >> 4) + g->bx * f->px, gy = y + f->asc - 9 * f->px + g->by * f->px;
+                cv_pix(gx, gy, g->bw, g->bh, f->px, f->data + g->off, rv[15]);
+                if (gx < x0) x0 = gx;
+                if (gy < y0) y0 = gy;
+                if (gx + g->bw * f->px > x1) x1 = gx + g->bw * f->px;
+                if (gy + g->bh * f->px > y1) y1 = gy + g->bh * f->px;
+            }
+            err = 0;
+            pen += gadv(f, g);
+            prev = c;
+            continue;
+        }
         if (f->psh && g[1].off != g->off) {
             pos = pen - (pen & (step - 1));          /* the phase position at or left of the pen */
             d0 = pos - pen - err;                    /* .. and the one right of it: which keeps the gap truer */
@@ -978,6 +1057,8 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
         }
         if (cv_dim || cv_under)                      /* (the page under a question: covered on purpose) */
             flags |= 16u;
+        if (cv_hero)
+            flags |= 64u;
         GFX_HOOK_TEXT(x0, y0 + cv_oy, x1, y1 + cv_oy, s0, flags);
     }
     (void)s0;
@@ -997,6 +1078,7 @@ static int32_t cv_text(int32_t x, int32_t y, const aafont_t *f, const char *s, u
  * alpha (mix565), nothing else */
 static void cv_scrim(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c, uint32_t a, int32_t f)
 {
+    GFX_HOOK_SCRIM(x, y + cv_oy, x + w, y + h + cv_oy);
     int32_t i, j, x0 = x < 0 ? 0 : x, x1 = x + w < (int32_t)cv_w ? x + w : (int32_t)cv_w;
     y += cv_oy;
     for (j = y < 0 ? 0 : y; j < y + h && j < (int32_t)cv_h; j++) {
@@ -1097,30 +1179,29 @@ static const uint16_t *kc_ramp(uint16_t under, uint16_t fill, uint16_t ink)
         v[a] = swap16(ux_mix(fill, ink, (int32_t)(a - 5u) * 10));
     return v;
 }
-static int32_t kc_w(uint32_t id) { return id < KC_COUNT ? KC[id].w : 0; }
-/* keycap / badge `id` with its top-left at (x, y), KC_H tall: fill and label tinted with tokens, `under` what lies
+/* a keycap (the large type): a pill KC_PH tall, its label (KC[id].label) in the label face, 4 px each side */
+#define KC_PH 22
+static int32_t kc_w(uint32_t id) { return id < KC_COUNT ? text_w(TY_LB, KC[id].label) + 8 : 0; }
+/* keycap / badge `id` with its top-left at (x, y), KC_PH tall: fill and label tinted with tokens, `under` what lies
  * behind its corners; returns its right edge */
 static int32_t cv_keycap(int32_t x, int32_t y, uint32_t id, uint16_t fill, uint16_t ink, uint16_t under)
 {
-    const kc_t *k = &KC[id < KC_COUNT ? id : 0u];
-    const uint16_t *rv = kc_ramp(under, fill, ink);
-    cv_alpha(x, y, k->w, KC_H, KC_DATA + k->off, rv);
-    if (x < 0 || x + k->w > (int32_t)cv_w || y + cv_oy < 0 || y + KC_H + cv_oy > (int32_t)cv_h)
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 6u | (cv_dim || cv_under ? 16u : 0u));   /* cut */
-    else
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 4u | (cv_dim || cv_under ? 16u : 0u));
-    return x + k->w;
+    const char *l = KC[id < KC_COUNT ? id : 0u].label;
+    int32_t w = kc_w(id < KC_COUNT ? id : 0u);
+    cv_rrect(x, y, w, KC_PH, 6, fill, under);
+    cv_text_on(x + 4, ty_y(y + KC_PH / 2, TY_LB), TY_LB, l, ink, fill);
+    return x + w;
 }
 
-/* a key hint: the keycap, then what it does (S, TEXT); unavailable: a DIM keycap and a DIM word. The word sits on
- * the keycap's centre line (S caps 9 rows, the keycap's 7). act may be 0 (the keycap alone); returns the end x */
-#define KH_GAP 4                                  /* keycap -> its word */
-static int32_t kh_w(uint32_t id, const char *act) { return kc_w(id) + (act && act[0] ? KH_GAP + text_w(&AF_S, act) : 0); }
+/* a key hint: the keycap, then what it does (the label face, TEXT); unavailable: a DIM keycap and a DIM word, the
+ * word's capitals on the keycap's centre line. act may be 0 (the keycap alone); returns the end x */
+#define KH_GAP 5                                  /* keycap -> its word */
+static int32_t kh_w(uint32_t id, const char *act) { return kc_w(id) + (act && act[0] ? KH_GAP + text_w(TY_LB, act) : 0); }
 static int32_t cv_key_hint(int32_t x, int32_t y, uint32_t id, const char *act, int on, uint16_t under)
 {
     x = cv_keycap(x, y, id, on ? T_KEY : T_DIM, T_INK, under);
     if (act && act[0])
-        x = cv_text_on(x + KH_GAP, y - 1, &AF_S, act, on ? T_TEXT : T_DIM, under);
+        x = cv_text_on(x + KH_GAP, ty_y(y + KC_PH / 2, TY_LB), TY_LB, act, on ? T_TEXT : T_DIM, under);
     return x;
 }
 /* a row of key hints from x0 to x1: the first at x0, the last ending at x1, the space shared between them. When
@@ -1170,8 +1251,8 @@ static int32_t kc_tag(const char *s, uint32_t *len)
     }
     return -1;
 }
-/* free text (S) that may start with a keycap, "[SAVE] HOLD TO UNDO", or have one after its first word,
- * "HOLD [GLO] QUICK": the word, the keycap, then the rest, cut to maxw */
+/* free text (the text face; y: its line top) that may start with a keycap, "[SAVE] HOLD TO UNDO", or have one after its
+ * first word, "HOLD [GLO] QUICK": the word, the keycap, then the rest, cut to maxw */
 static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, uint16_t bg, int32_t maxw)
 {
     uint32_t n, i;
@@ -1183,18 +1264,18 @@ static int32_t cv_free_hint(int32_t x, int32_t y, const char *s, uint16_t fg, ui
         uint32_t j;
         for (j = 0; j < i; j++)
             w[j] = s[j];
-        x = cv_text_on(x, y, &AF_S, w, fg, bg) + KH_GAP;
+        x = cv_text_on(x, y, TY_TX, w, fg, bg) + KH_GAP;
         s += i + 1u;
     }
     if (id >= 0 && kc_w((uint32_t)id) + KH_GAP < maxw - (x - x0)) {
-        x = cv_keycap(x, y + 1, (uint32_t)id, T_KEY, T_INK, bg) + KH_GAP;
+        x = cv_keycap(x, y + TY_TX->asc - (TY_TX->cap + 1) / 2 - KC_PH / 2, (uint32_t)id, T_KEY, T_INK, bg) + KH_GAP;
         s += n;
         while (*s == ' ')
             s++;
         if (!*s)
             return x - KH_GAP;
     }
-    return cv_free_text(x, y, &AF_S, s, fg, bg, maxw - (x - x0));
+    return cv_free_text(x, y, TY_TX, s, fg, bg, maxw - (x - x0));
 }
 
 /* one-shot: a line of text in a box of colour bg, blitted (align: 0 left, 1 centre, 2 right) */
