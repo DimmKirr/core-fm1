@@ -655,8 +655,6 @@ static void engine_columns(void)                        /* EDIT held: KNOB 1 the
     draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
 }
-#define TL_MAX 4u
-static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f);
 #include "ui_stage.c"                                   /* Stage (HOME) */
 #include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
@@ -1007,34 +1005,6 @@ static void confirm_words(char *s)                      /* "OVERWRITE PROJECT A?
         if (s[i] >= 'A' && s[i] <= 'Z' && !single)
             s[i] = (char)(s[i] + 32);
     }
-}
-/* s wrapped into at most m lines of w px in face f (at spaces; a word wider than the line: at the last character that
- * fits), each line up to 31 characters; the number of lines */
-static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f)
-{
-    uint32_t k = 0;
-    while (*s && k < m) {
-        uint32_t i, cut = 0;
-        while (*s == ' ')
-            s++;
-        for (i = 1; s[i - 1] && i < 32u; i++) {
-            str_cpy(l[k], s, i + 1u);
-            if (text_w(f, l[k]) > w)
-                break;
-            if (!s[i] || s[i] == ' ')
-                cut = i;
-        }
-        if (!cut) {                                     /* (one long word: as much of it as fits) */
-            for (cut = 1; s[cut] && cut < 31u; cut++) {
-                str_cpy(l[k], s, cut + 2u);
-                if (text_w(f, l[k]) > w)
-                    break;
-            }
-        }
-        str_cpy(l[k++], s, cut + 1u);
-        s += cut;
-    }
-    return k;
 }
 /* the question card: the warning, the question (the text face) and its detail (the label face), each wrapped onto as
  * many lines as it needs (nothing is ever cut), OCT- "No" and OCT+ "Yes" (the track's colour); the card as tall as

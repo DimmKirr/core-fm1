@@ -44,16 +44,16 @@ def parse(path):
     faces = {}
     for m in re.finditer(r"static const aafont_t AF_(\w+) = \{([^}]*)\};", t):
         name, f = m.group(1), [x.strip() for x in m.group(2).split(",")]
-        arr = lambda n: [int(v, 0) for v in re.search(r"AF_%s_%s\[\d+\] = \{([^}]*)\}" % (name, n), t)
-                         .group(1).replace("\n", " ").split(",") if v.strip()]
+        arr = lambda n: [int(v, 0) for v in re.search(r"%s\[\d+\] = \{([^}]*)\}" % (n if n.startswith("AF_") else
+                         "AF_%s_%s" % (name, n)), t).group(1).replace("\n", " ").split(",") if v.strip()]
         g = [tuple(int(v) for v in e.split(",")) for e in
              re.findall(r"\{(-?\d+, -?\d+, -?\d+, -?\d+, -?\d+, -?\d+)\}",
                         re.search(r"AF_%s_G\[\d+\] = \{(.*?)\n\};" % name, t, re.S).group(1))]
         kern = {}
         codes = list(range(int(f[2]), int(f[3]) + 1)) + arr("EX")[:int(f[4])]
-        if f[8] != "0":                      # the class tables, back to pairs keyed a << 8 | b
-            kl, kr, km, nkr = arr("KL"), arr("KR"), arr("KM"), int(f[5])
-            kern = {a << 8 | b: km[(kl[i] - 1) * nkr + kr[j] - 1] for i, a in enumerate(codes)
+        if f[8] != "0":                      # the (shared) class tables, scaled (ks, Q8), back to pairs keyed a << 8 | b
+            kl, kr, km, nkr, ks = arr(f[8]), arr(f[9]), arr(f[10]), int(f[5]), int(f[16])
+            kern = {a << 8 | b: (km[(kl[i] - 1) * nkr + kr[j] - 1] * ks + 128) >> 8 for i, a in enumerate(codes)
                     for j, b in enumerate(codes) if kl[i] and kr[j] and a < 256 and b < 256}
         faces[name] = {"h": int(f[0]), "asc": int(f[1]), "first": int(f[2]), "last": int(f[3]), "nex": int(f[4]),
                        "g": g, "data": bytes(arr("DATA")), "kern": kern, "ex": arr("EX")[:int(f[4])],

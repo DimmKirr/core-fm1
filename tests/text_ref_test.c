@@ -72,11 +72,11 @@ static uint32_t ref_gi(const aafont_t *f, uint32_t ch)      /* the glyph's numbe
     if (k < 0) k = ref_at(f, '?');
     return k < 0 ? 0u : (uint32_t)k;                        /* a sparse face (L) without '?': its first glyph */
 }
-static int32_t ref_kern(const aafont_t *f, uint32_t a, uint32_t b)   /* the class matrix, glyph by glyph */
+static int32_t ref_kern(const aafont_t *f, uint32_t a, uint32_t b)   /* the class matrix, glyph by glyph, scaled */
 {
     int32_t i = ref_at(f, a), j = ref_at(f, b);
     if (!f->nkr || i < 0 || j < 0 || !f->kl[i] || !f->kr[j]) return 0;
-    return f->km[(f->kl[i] - 1u) * f->nkr + f->kr[j] - 1u];
+    return (int32_t)floor((f->km[(f->kl[i] - 1u) * f->nkr + f->kr[j] - 1u] * (int32_t)f->ks + 128) / 256.0);   /* (Q8) */
 }
 /* a glyph's alpha values: 2 px per byte, or (f->hc) the Huffman bit stream of tools/gen_aa_font.py, decoded
  * here by matching each (length, code) against the canonical code table built from hc's length counts */

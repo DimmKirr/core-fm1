@@ -19,12 +19,13 @@ typedef struct {
     const aag_t *g;
     const uint8_t *data;
     const uint8_t *kl, *kr;             /* each glyph's left / right kerning class, 0 = no pair */
-    const int8_t *km;                   /* 1/16 px: [(left class - 1) * nkr + right class - 1] */
+    const int8_t *km;                   /* 1/16 px at the shared size: [(left class - 1) * nkr + right class - 1] */
     const uint8_t *ex;                  /* codes of the extra glyphs */
     uint8_t psh;                        /* log2 of the phases per glyph: g[i << psh] .. g[(i << psh) + phases - 1] */
     const uint8_t *hc;                  /* data's Huffman code (cv_alpha_hc), 0 = 2 px per byte (cv_alpha) */
     uint8_t cap;                        /* the capitals' height in px (ty_y: capitals centred on a row) */
     uint8_t px;                         /* a pixel face: its multiple (1-bit glyphs, adv in 1/16 font px; cv_pix); 0 = AA */
+    uint16_t ks;                        /* km's scale to this size, Q8 (one kerning table for every face) */
 } aafont_t;
 typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4]; } ui_pal_t;
 typedef struct { const char *label; } kc_t;
@@ -948,7 +949,7 @@ static int32_t kern(const aafont_t *f, uint32_t a, uint32_t b)       /* 1/16 px 
     uint32_t l, r;
     if (!f->nkr || (i = glyph_at(f, a)) < 0 || (j = glyph_at(f, b)) < 0 || !(l = f->kl[i]) || !(r = f->kr[j]))
         return 0;
-    return f->km[(l - 1u) * f->nkr + r - 1u];
+    return (f->km[(l - 1u) * f->nkr + r - 1u] * (int32_t)f->ks + 128) >> 8;   /* (rounded) */
 }
 
 static int32_t gadv(const aafont_t *f, const aag_t *g) { return f->px ? g->adv * f->px : g->adv; }   /* 1/16 px */

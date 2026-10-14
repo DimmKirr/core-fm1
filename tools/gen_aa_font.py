@@ -23,9 +23,13 @@ Output (a C header; the glyph / font types live in the renderer, firmware/src/gf
   AF_<N>_G      aag_t {off, adv (1/16 px), bx, by, bw, bh} per glyph and phase (PHASES of LB TX, one of VL HR:
                 the glyph drawn at a pen of +0, +1/phases .. px, next to each other), ASCII 32..126, then the
                 extras (Latin-1 by their code; the ellipsis U+2026 as code 0x85, as in Windows-1252)
-  AF_<N>_KL / _KR / _KM  kerning (GPOS of the weight) as classes: each glyph's left and right class (0 = none),
-                the matrix of deltas in 1/16 px, [(left - 1) * right classes + right - 1]
-  AF_<N>        aafont_t (its last fields: log2 of the phases, the Huffman code, the capitals' height, 0 = not a pixel face)
+  AF_KM, AF_KL / _KR  kerning (GPOS of the weight), one table for every face: the pairs at KERN_PX in 1/16 px as
+                classes (each glyph's left and right class, 0 = none; the matrix [(left - 1) * right classes +
+                right - 1]); a face scales them by its ks (Q8: px * 256 / KERN_PX). A face whose glyphs are in
+                another order has its own AF_<N>_KL / _KR
+  AF_<N>        aafont_t (its last fields: log2 of the phases, the Huffman code, the capitals' height, 0 = not a pixel face,
+                the kerning's scale)
+The alpha is stored in LEVELS steps (4 of the 16: 0, 5, 10, 15; a third less data than all 16).
   AP_G, AP_DATA, AP_<role>  Melodee Pixel (preset rubik): one 1-bit table, a face per role (px: its multiple)
 Prints the byte cost of every face.
 """
@@ -42,6 +46,8 @@ FONTS = Path(__file__).resolve().parents[1] / "fonts"
 EXTRAS = [0xA9, 0xB0, 0xB7, 0xC4, 0xD6, 0xDC, 0xE4, 0xF6, 0xFC, 0x2026]  # (c) deg . A: O: U: a: o: u: (Latin-1), ...
 CODE = {0x2026: 0x85}                  # characters outside Latin-1 -> their one-byte code in the firmware
 PHASES = 2                             # horizontal phases per glyph (aa_raster.raster_font): LB and TX
+LEVELS = [4]                           # alpha steps kept of the 16 (--levels)
+KERN_PX = 28                           # the shared kerning's size (VL's: exact there, within 1/16 px at 16 / 20 px)
 # faces stored Huffman-coded (--huff): all four (the pixel faces are 1 bit and need no code)
 HUFF = [("LB", "TX", "VL", "HR")]
 # HR (the hero, 48 px) draws a value or a name: every letter, the digits and the signs names and values use (the
@@ -163,11 +169,56 @@ def cap_px(font, px):
     return round(f["OS/2"].sCapHeight * px / f["head"].unitsPerEm)
 
 
-def emit(face, tracking, gamma, kern_min):
+def quantise(b, n):
+    """packed nibbles (2 px per byte) -> the same with each alpha rounded to LEVELS steps of 0..15"""
+    lv = LEVELS[0] - 1
+    q = [round(round(v * lv / 15) * 15 / lv) for byte in b for v in (byte >> 4, byte & 15)][:n]
+    return ar.pack(q)
+
+
+def shared_kern(faces, kern_min):
+    """the kerning of every face as one table (KERN_PX): (C text, {ch: left class}, {ch: right class}, right classes,
+    the order of AF_KL / AF_KR, bytes)"""
+    fonts = {f[1] for f in faces}
+    assert len(fonts) == 1, "one kerning table: every face of one font and weight"
+    order = []
+    for f in sorted(faces, key=lambda f: -(f[3][1] - f[3][0] + 1 + len(f[4]))):
+        for c in [chr(c) for c in range(f[3][0], f[3][1] + 1)] + [chr(c) for c in f[4]]:
+            if c not in order:
+                order.append(c)
+    pairs = {(a, b): d for (a, b), d in ar.kern_pairs(fonts.pop(), KERN_PX, order, True, kern_min).items()
+             if ord(a) < 256 and ord(b) < 256 and d}
+    lc, rc, rows, cols = {}, {}, {}, {}
+    for a in order:
+        row = tuple(pairs.get((a, b), 0) for b in order)
+        if any(row):
+            lc[a] = rows.setdefault(row, len(rows) + 1)
+    for b in order:
+        col = tuple(pairs.get((a, b), 0) for a in order)
+        if any(col):
+            rc[b] = cols.setdefault(col, len(cols) + 1)
+    km = [0] * (len(rows) * len(cols))
+    for (a, b), d in pairs.items():
+        km[(lc[a] - 1) * len(cols) + rc[b] - 1] = d
+    for a in order:
+        for b in order:
+            got = km[(lc[a] - 1) * len(cols) + rc[b] - 1] if a in lc and b in rc else 0
+            assert got == pairs.get((a, b), 0), f"kerning classes lose {a!r}{b!r}"
+    assert all(-128 <= d < 128 for d in km)
+    text = "\n".join([f"/* kerning: {len(pairs)} pairs at {KERN_PX} px in 1/16 px, {len(rows)} x {len(cols)} classes */",
+                      ar.c_array("AF_KM", "int8_t", km, 24),
+                      ar.c_array("AF_KL", "uint8_t", [lc.get(c, 0) for c in order], 24),
+                      ar.c_array("AF_KR", "uint8_t", [rc.get(c, 0) for c in order], 24)]) + "\n"
+    return text, lc, rc, len(cols), order, len(km) + 2 * len(order), len(pairs)
+
+
+def emit(face, tracking, gamma, kern):
     name, font, px, (first, last), extras, ftrack, phases, *lift = face
     lift = lift[0] if lift else 0              # rows the glyphs move up in the line box (and off its baseline, height)
     chars = [chr(c) for c in range(first, last + 1)] + [chr(c) for c in extras]
-    r = ar.raster_font(font, px, chars, tracking if ftrack is None else ftrack, gamma, True, kern_min, phases)
+    r = ar.raster_font(font, px, chars, tracking if ftrack is None else ftrack, gamma, True, 0, phases)
+    for ch, (adv16, ph) in r["glyphs"].items():   # (the alpha in LEVELS steps)
+        r["glyphs"][ch] = (adv16, [(bx, by, bw, bh, quantise(b, bw * bh) if bh else b) for bx, by, bw, bh, b in ph])
     if lift:
         for ch, (adv16, ph) in r["glyphs"].items():
             assert all(by >= lift for bx, by, bw, bh, b in ph if bh), f"{name} {ch!r}: no room above to lift it"
@@ -202,27 +253,10 @@ def emit(face, tracking, gamma, kern_min):
         table = [(newoff.get(off, 0),) + t[1:] for t in table for off in (t[0],)]
         data += bytes(2)                               # gfx.c cv_alpha_hc reads up to 2 bytes ahead
     assert len(data) < 65536, "glyph data over 64 KiB: split the face"
-    # kerning as classes: glyphs whose rows (as the left glyph) are equal share a left class, likewise columns;
-    # class 0 = no pair. gfx.c kern: km[(kl[a] - 1) * nkr + kr[b] - 1]. Pairs of a sign above Latin-1 (the
-    # ellipsis) are left out, as before
-    pairs = {(a, b): d for (a, b), d in r["kern"].items() if ord(a) < 256 and ord(b) < 256 and d}
-    kl, kr, rows, cols = [0] * len(chars), [0] * len(chars), {}, {}
-    for i, a in enumerate(chars):
-        row = tuple(pairs.get((a, b), 0) for b in chars)
-        if any(row):
-            kl[i] = rows.setdefault(row, len(rows) + 1)
-    for j, b in enumerate(chars):
-        col = tuple(pairs.get((a, b), 0) for a in chars)
-        if any(col):
-            kr[j] = cols.setdefault(col, len(cols) + 1)
-    km = [0] * (len(rows) * len(cols))
-    for (a, b), d in pairs.items():
-        km[(kl[chars.index(a)] - 1) * len(cols) + kr[chars.index(b)] - 1] = d
-    for i, a in enumerate(chars):
-        for j, b in enumerate(chars):
-            got = km[(kl[i] - 1) * len(cols) + kr[j] - 1] if kl[i] and kr[j] else 0
-            assert got == pairs.get((a, b), 0), f"{name}: kerning classes lose {a!r}{b!r}"
-    assert all(-128 <= d < 128 for d in km)
+    # kerning: the shared table's classes (shared_kern), this face's order of them
+    kl = [kern[0].get(c, 0) for c in chars] if kern else []
+    kr = [kern[1].get(c, 0) for c in chars] if kern else []
+    own = kern and chars != kern[3][:len(chars)]       # (in another order than AF_KL / AF_KR: its own)
     psh = phases.bit_length() - 1
     lines.append(f"/* {name}: {os.path.basename(font.split('#')[0])} {px}px, h {r['h']}, baseline {r['asc']}, "
                  f"{len(chars)} glyphs x {phases} phases, {len(data)} B data"
@@ -234,17 +268,17 @@ def emit(face, tracking, gamma, kern_min):
     for off, adv, bx, by, bw, bh in table:
         lines.append(f"    {{{off}, {adv}, {bx}, {by}, {bw}, {bh}}},")
     lines.append("};")
-    if km:
+    if own:
         lines.append(ar.c_array(f"AF_{name}_KL", "uint8_t", kl, 24))
         lines.append(ar.c_array(f"AF_{name}_KR", "uint8_t", kr, 24))
-        lines.append(ar.c_array(f"AF_{name}_KM", "int8_t", km, 24))
     ex = ", ".join(str(CODE.get(c, c)) for c in extras) or "0"
     lines.append(f"static const uint8_t AF_{name}_EX[{max(1, len(extras))}] = {{{ex}}};")
-    kt = (f"AF_{name}_KL, AF_{name}_KR, AF_{name}_KM") if km else "0, 0, 0"
+    kt = (f"AF_{name}_KL, AF_{name}_KR, AF_KM" if own else "AF_KL, AF_KR, AF_KM") if kern else "0, 0, 0"
     lines.append(f"static const aafont_t AF_{name} = {{{r['h']}, {r['asc']}, {first}, {last}, {len(extras)}, "
-                 f"{len(cols) if km else 0}, AF_{name}_G, AF_{name}_DATA, {kt}, AF_{name}_EX, {psh}, "
-                 f"{'AF_%s_HC' % name if hc else '0'}, {cap_px(font, px)}, 0}};")
-    kbytes = 2 * len(chars) + len(km) if km else 0
+                 f"{kern[2] if kern else 0}, AF_{name}_G, AF_{name}_DATA, {kt}, AF_{name}_EX, {psh}, "
+                 f"{'AF_%s_HC' % name if hc else '0'}, {cap_px(font, px)}, 0, {round(px * 256 / KERN_PX)}}};")
+    kbytes = 2 * len(chars) if own else 0
+    pairs = [(a, b) for a in chars for b in chars if kern and a in kern[0] and b in kern[1]]
     cost = {"data": len(data) + len(hc), "glyph_table": 8 * len(table), "kern": kbytes, "extras": len(extras),
             "glyphs": len(chars), "phases": phases, "pairs": len(pairs), "h": r["h"], "asc": r["asc"], "px": px,
             "font": os.path.basename(font.split("#")[0]), "adv_digit": r["glyphs"]["0"][0] / 16}
@@ -334,15 +368,23 @@ def main():
     ap.add_argument("--gamma", type=float, default=1.0, help="coverage curve; <1 thickens light-on-dark text")
     ap.add_argument("--kern-min", type=int, default=1, help="smallest kerning pair kept, in 1/16 px (0 pairs = no kerning)")
     ap.add_argument("--huff", default=",".join(HUFF[0]), help="faces stored Huffman-coded (comma list, '' = none)")
+    ap.add_argument("--levels", type=int, default=LEVELS[0], help="alpha steps kept (2..16)")
     a = ap.parse_args()
     HUFF[0] = tuple(x for x in a.huff.split(",") if x)
+    LEVELS[0] = max(2, min(16, a.levels))
     faces = ([parse_face(s) for s in a.face] if a.face else []) or (preset(a.preset) if a.preset else None)
     if not faces:
         ap.error("--preset or --face is required")
-    out = ["/* generated by tools/gen_aa_font.py: 4-bit alpha glyphs (Inter Tight, SIL OFL 1.1, "
-           "Copyright 2022 The Inter Project Authors; see assets/fonts/OFL.txt) */",
+    out = ["/* generated by tools/gen_aa_font.py: 4-bit alpha glyphs (Rubik, SIL OFL 1.1; Melodee Pixel; see "
+           "assets/fonts) */",
            "#pragma once", "#include <stdint.h>", ""]
-    total, metrics = 0, {}
+    total, metrics, kern = 0, {}, None
+    aa = [f for f in faces if f[0] != "PIX"]
+    if aa and a.kern_min:
+        text, *kern = shared_kern(aa, a.kern_min)
+        out.append(text)
+        total += kern[4]
+        print(f"kerning: {kern[5]} pairs at {KERN_PX} px, shared = {kern[4]} B")
     for f in faces:
         if f[0] == "PIX":
             text, cost, n = emit_pixel(f, metrics)
@@ -350,12 +392,12 @@ def main():
             total += cost
             print(f"face PIX: {os.path.basename(f[1])} {n} glyphs, 1 bit, roles {[r[:2] for r in f[7]]} = {cost} B")
             continue
-        text, c = emit(f, a.tracking, a.gamma, a.kern_min)
+        text, c = emit(f, a.tracking, a.gamma, kern)
         metrics[f[0]] = (c["h"], c["asc"])
         out.append(text)
         total += c["total"]
         print(f"face {f[0]}: {c['font']} {c['px']}px h{c['h']} base{c['asc']}  {c['glyphs']} glyphs x {c['phases']}  "
-              f"data {c['data']} B + table {c['glyph_table']} B + kern {c['kern']} B ({c['pairs']} pairs) "
+              f"data {c['data']} B + table {c['glyph_table']} B + kern classes {c['kern']} B "
               f"= {c['total']} B   digit adv {c['adv_digit']:.2f}px")
     Path(a.out).write_text("\n".join(out))
     print(f"fonts total {total} B  -> {a.out}")

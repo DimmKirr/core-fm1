@@ -11,7 +11,6 @@ static struct {
 } boot_work;
 
 /* (large type) a text centred, wrapped onto the lines it needs (nothing cut); returns the y under it */
-static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f);   /* ui_draw.c */
 static int32_t boot_lines(int32_t y, const aafont_t *f, const char *s, uint16_t c, int32_t step)
 {
     char l[4][32];

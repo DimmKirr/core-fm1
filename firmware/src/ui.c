@@ -1197,4 +1197,33 @@ static void confirm_open(uint32_t kind, uint32_t trk)
 
 #include "note_tools.c"
 
+#define TL_MAX 4u
+/* s wrapped into at most m lines of w px in face f (at spaces; a word wider than the line: at the last character that
+ * fits), each line up to 31 characters; the number of lines */
+static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f)
+{
+    uint32_t k = 0;
+    while (*s && k < m) {
+        uint32_t i, cut = 0;
+        while (*s == ' ')
+            s++;
+        for (i = 1; s[i - 1] && i < 32u; i++) {
+            str_cpy(l[k], s, i + 1u);
+            if (text_w(f, l[k]) > w)
+                break;
+            if (!s[i] || s[i] == ' ')
+                cut = i;
+        }
+        if (!cut) {                                     /* (one long word: as much of it as fits) */
+            for (cut = 1; s[cut] && cut < 31u; cut++) {
+                str_cpy(l[k], s, cut + 2u);
+                if (text_w(f, l[k]) > w)
+                    break;
+            }
+        }
+        str_cpy(l[k++], s, cut + 1u);
+        s += cut;
+    }
+    return k;
+}
 #include "ui_boot.c"                            /* visible progress before boot flash maintenance */
