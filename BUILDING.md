@@ -180,6 +180,16 @@ starts, identify its recovery mode using the steps below.
 
 ### Recover a black-screen FM-1
 
+Builds with the boot stub can recover an interrupted application write after power loss.
+Switch on again, or hold **OCT− alone** while switching on: three short key-light flashes
+mean the USB MIDI update loader is starting. Reconnect USB and install the same package
+again; already verified sectors are skipped. Both octave buttons at power-on still enter
+calibration. One long flash means ROM UBOOT; use the recovery steps below.
+
+The first install of the stub, an intentional stub change, and installing firmware without
+the stub still have an unprotected window. Keep the FM-1 charged and the computer awake.
+See [boot protection design and validation](docs/BOOT-SAFETY.md).
+
 If the device appears as **Melodee Update**, it is in the MIDI update loader:
 `python3 tools/fm1_install.py /path/to/working-firmware.fwsc --yes` resumes installation.
 

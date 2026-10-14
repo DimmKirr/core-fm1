@@ -338,7 +338,8 @@ class Updater:
         if not finished:
             raise InstallError("lost" if lost else "stopped",
                                f"the loader {'was disconnected' if lost else 'stopped answering'} after "
-                               f"{served} requests. Replug the USB cable and run the install again to finish")
+                               f"{served} requests. Reconnect and run the install again. On firmware with boot protection, "
+                               "power on holding OCT- alone if update mode does not appear; three short key-light flashes mean update mode")
         step("write", 100)
 
     def verify(self, product, step):

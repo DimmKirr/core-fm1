@@ -6,6 +6,14 @@
 
 **TL;DR:** connect your FM-1 to a computer by USB, open the
 [web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
+
+Development builds with boot protection return to USB update mode after an interrupted
+firmware write, including power loss. Switch on again, or hold **OCT− alone** while
+switching on; three short key-light flashes mean you can reconnect USB and press Install
+again. The first installation of this protection still needs uninterrupted power while
+its boot sector is written. Older releases do not have it. See
+[boot protection and validation limits](docs/BOOT-SAFETY.md).
+
 No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the installer's
 **Return to official V15** takes you back to the official firmware.
 It saves a complete backup first. If your firmware cannot export one, you can select
