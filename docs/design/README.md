@@ -40,7 +40,8 @@ Colours: background `#17141F`, panel `#1D1926`, surface `#221E2C`, raised `#2620
 `#1A1722`, line `#2E2939`, text `#F3EEF8`, mid `#9A93A8`, dim `#5A5468`, secondary names `#C9C2D6`. Tracks: coral
 `#FF7A5C`, amber `#FFC145`, mint `#46D9B0`, lilac `#9D8CFF`. On a filled track colour: background-coloured text.
 
-Type (Rubik): labels 8.5-9 px / 500, capitals, in the track's colour; names 10 px (selected: 500); header 11 px / 500;
+Type (the mockups'; on the device since 2026-10-14 the large type below sets every size and position): Rubik labels
+8.5-9 px / 500, capitals, in the track's colour; names 10 px (selected: 500); header 11 px / 500;
 values 15 px / 500 with 9 px units in mid; the chord root 30 px / 500, its quality 17 px / 500, the notes 11 px / 500.
 On the device the small faces are a pixel larger for legibility: X 10 px (the 9 px labels, units, chips) and S 12 px
 (the 11 px names, values, rows), each set on the smaller size's baseline and line height (tools/gen_aa_font.py lifts
@@ -209,3 +210,37 @@ only to effects, with no change to synth rendering. Screens for every effect
 and this state are rendered and linted in every palette by `tests/ui_render.c`.
 
 FX SEND uses the same four-ring page with SEND for the selected track and RETURN for the shared bus. SEND FX 1–3 keep the insert page layout, show TYPE / MIX / RATE or SIZE / CHAR or DEPTH, and identify SEND / RETURN and ALL TRACKS in the footer. These controls belong to the project and track, never the instrument preset. Shared MIX defaults fully wet.
+
+## Large type (2026-10-14)
+
+The 1.54" panel (27.7 mm across) needs larger text: every screen is set in four type roles, and Settings > FONT picks
+the face. Rubik 500 or Melodee Pixel (`assets/fonts/melodee_pixel.txt`, a 5 x 7 1-bit face drawn at whole multiples);
+a role has the same line height and baseline in both, so a layout holds in either (`gfx.c` `TY_*`, `ui.c` PREF_PIXEL).
+
+| Role | Use | Rubik | Pixel |
+|---|---|---|---|
+| `TY_LB` | labels, units, tags, chips, keycaps | 16 px | 2 x (letters and figures 4 wide) |
+| `TY_TX` | names, rows, the header, text | 20 px | 2 x |
+| `TY_VL` | values | 28 px | 3 x |
+| `TY_HR` | the hero: the knob turning, the chord, big names | 48 px | 5 x |
+
+`ty_y(cy, f)` centres a face's capitals on a row; `ty_fit(f, s, w)` drops to the label face before anything is cut.
+
+The grid: header rows 0 .. 29; the knob strip at y 32, four cells 57 x 48 at x 2 + 60 c (label, value; the knob
+turning: its value in the track's colour and a bar); the picture at y 84, 124 tall; the sound bar or the keys at y 212,
+28 tall. Two layouts (Kerem: "your mix"):
+
+- Knob and curve pages: the strip on top, the picture under it, and while a knob turns (1.5 s) its value in the hero
+  face over the picture (a scrim calms the picture; a curve gets a halo instead).
+- Stage, lists, Settings, the browser, sheets: rows across the screen, 32 px tall and 34 apart, the picked row tinted
+  in the track's colour. Stage's rows are the tracks, each in its colour.
+
+Rules, from the reviews: screens stay calm (no boxes or rings around cells, no tabs, no hint rows); nothing is ever
+cut or ellipsised (labels have short forms, `ui_draw.c` CELL_SHORT, the hero says the word in full; dialogs and toasts
+wrap); Stage is multicolour. `tests/ui_render.c` lints every screen in both faces: overlaps, texts past their canvas
+or cell, ellipsised labels; it must report none.
+
+Storage: the four Rubik faces are 4-bit alpha kept in four steps (0, 5, 10, 15) and Huffman-coded, with one kerning
+table for all of them (at 28 px, scaled per face); with the pixel face 31.4 KB in all. Glyphs stay in flash: no
+decode table lives in RAM (`gfx.c` builds a 64-entry one on the stack per string).
+
