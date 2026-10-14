@@ -662,7 +662,7 @@ static void engine_columns(void)                        /* EDIT held: KNOB 1 the
 static int own_screen(void);
 static void draw_columns(void)
 {
-    if (own_screen())                                   /* (the browser, PATTERNS, SONG, SCALES: no cards) */
+    if (own_screen() && col_style != CS_CAPTURE)         /* own screens have no cards; lists still need their values */
         return;
     if(cur_page()->scope==SC_DRUM){
         char v[12];uint32_t sound=ui.drum_sound%drum_sound_count(TSEL);const int8_t *c=drum_patch[song.sel].c[sound];
@@ -849,7 +849,10 @@ static void draw_columns(void)
             unit = "%";
         } else {
             param_format(d, *vp, val, &unit);
-            if(d->names==N_FX && (*vp==FX_REVERB || *vp==FX_CHORUS))str_cpy(val,N_FX[*vp],sizeof val);
+            /* Rows have room for enum names that the compact parameter formatter abbreviates. */
+            if (d->fmt == F_ENUM && (col_style == CS_CAPTURE ||
+                (d->names == N_FX && (*vp == FX_REVERB || *vp == FX_CHORUS))))
+                str_cpy(val, d->names[clamp(*vp, d->min, d->max)], sizeof val);
         }
         draw_column(c, d->label, val, unit, (cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
                     !cz_ed_active(cz_patch[song.sel % NTRK].raw, cur_page()->id[c])) ||

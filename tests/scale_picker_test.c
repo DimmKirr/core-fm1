@@ -57,6 +57,18 @@ int main(void)
     edit_param(3, 1);
     for (uint32_t k = 0; k < NPART; k++) assert(trk[k].p[P_QUANT] == TSEL->p[P_QUANT]);
     press(B_SCL); frames(400); assert(!strcmp(cur_page()->title, "SCL"));
+    {
+        char label[16], value[16], expected[16];
+        uint16_t color;
+        const list_t *list = list_on();
+        assert(list);
+        for (uint32_t scale = 0; scale < SCALE_TOTAL; scale++) {
+            TSEL->p[P_SCALE] = (int16_t)scale;
+            list_cap(list_at(list, 1), label, value, &color);
+            menu_words(expected, N_SCALE[scale], sizeof expected);
+            assert(!strcmp(label, "Scale") && !strcmp(value, expected));
+        }
+    }
     press(B_SCL); frames(400); assert(!strcmp(cur_page()->title, "CHORD"));
     puts("scale picker: every family, bounds, shared scale/MPC/QNT, track ROOT, favorites on the next page, empty list and navigation passed");
     return 0;

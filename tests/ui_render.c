@@ -1439,6 +1439,94 @@ static void draw(int s)
     ui_draw();
 }
 
+/* Screens with their own header must still show a short status and restore the screen when it expires. */
+static void sweep_screen_messages(void)
+{
+    static const int scenes[] = {S_PRESETS, S_SONG, S_PATGRID, S_SCALE_PICKER_EDO};
+    static uint16_t expired[240 * 240];
+    uint32_t s;
+    for (s = 0; s < NELEM(scenes); s++) {
+        uint32_t i, seen = 0;
+        char name[64];
+        setup(scenes[s]); pal(UI_GRAY_INDEX);
+        snprintf(name, sizeof name, "%s%s/status", render_pixel ? "PIXEL " : "", S_NAME[scenes[s]]);
+        cur_name = name;
+        ui_message("READY");
+        draw(-1);
+        lint();
+        for (i = 0; i < nscr; i++) seen |= !strcmp(scr[i].s, "READY");
+        if (!seen) { fprintf(rep, "MISSING %s: short status\n", name); nfind++; }
+        ui.msg_t = 0;
+        nscr = npend = 0;
+        ui_draw();
+        memcpy(expired, host_screen, sizeof expired);
+        ui.force = 1;
+        ui_draw();
+        if (memcmp(expired, host_screen, sizeof expired)) {
+            fprintf(rep, "STALE %s: expired status differs from a full redraw\n", name);
+            nfind++;
+        }
+    }
+}
+
+/* Lists must show their labels and complete enum values, including rows scrolled off the initial screen. */
+static void sweep_list_rows(void)
+{
+    uint32_t e, l, q, r, count = 0;
+    char name[80];
+    for (e = 0; e < NENGINES; e++) {
+        if (!eng_ok(e)) continue;
+        for (l = 0; l < NELEM(LISTS); l++) {
+            uint32_t page = page_titled(LISTS[l].title);
+            state(); pal(UI_GRAY_INDEX); eng(e);
+            if (page >= NPAGES || !page_visible(page)) continue;
+            go_title(LISTS[l].title);
+            draw(-1);
+            for (q = Q_OFF; q <= Q_MPC; q++) {
+                TSEL->p[P_QUANT] = (int16_t)q;
+                for (r = 0; r < list_n(&LISTS[l]); r++) {
+                    char label[16], value[16], expected[16];
+                    uint16_t color;
+                    int16_t *vp;
+                    const lrow_t *rw = list_at(&LISTS[l], r);
+                    const page_t *source = &PAGES[page_titled(rw->page)];
+                    const param_desc_t *d = page_desc(source, rw->slot, &vp);
+                    int fm6 = source->scope == SC_FM6 || source->scope == SC_FMOP;
+                    int32_t old = vp ? *vp : 0, v, lo = old, hi = old;
+                    if (d && d->fmt == F_ENUM) { lo = d->min; hi = d->max; }
+                    for (v = lo; v <= hi; v++) {
+                        uint32_t i, label_seen = 0, value_seen = 0;
+                        if (fm6) fm6_page_put(source, rw->slot, v);
+                        else if (vp) *vp = (int16_t)v;
+                        snprintf(name, sizeof name, "%s%s/%s row %u value %d", render_pixel ? "PIXEL " : "",
+                                 ENGINES[e]->name, LISTS[l].title, r, v);
+                        cur_name = name;
+                        lst.row = (uint8_t)r;
+                        draw(-1);
+                        lint();
+                        list_cap(rw, label, value, &color);
+                        for (i = 0; i < nscr; i++) {
+                            label_seen |= label[0] && !strcmp(scr[i].s, label);
+                            const char *shown = binary_value(value) < 0 ? value : binary_value(value) ? "ON" : "OFF";
+                            value_seen |= value[0] && !strcmp(scr[i].s, shown);
+                        }
+                        if (d && d->fmt == F_ENUM) menu_words(expected, d->names[v], sizeof expected);
+                        else strcpy(expected, value);
+                        if (!label_seen || !value_seen || strcmp(value, expected)) {
+                            fprintf(rep, "MISSING %s: '%s' = '%s' (expected '%s')\n", name, label, value, expected);
+                            nfind++;
+                        }
+                        count++;
+                    }
+                    if (fm6) fm6_page_put(source, rw->slot, old);
+                    else if (vp) *vp = (int16_t)old;
+                }
+            }
+        }
+    }
+    fprintf(rep, "  %slist content: %u rows/values checked\n", render_pixel ? "PIXEL " : "", count);
+}
+
 /* every value of every column on every page of every engine: labels and values fit their column */
 static uint32_t nsweep;
 static void sweep_columns(void)
@@ -1919,6 +2007,8 @@ int main(int argc, char **argv)
         lint();
         write_ppm(out, "PIXEL", S_NAME[s]);
     }
+    sweep_screen_messages();
+    sweep_list_rows();
     sweep_columns();
     render_pixel = 0;
     library_note_sweep(out);
@@ -1943,6 +2033,8 @@ int main(int argc, char **argv)
         }
         if (fmp_charts - c0 != 96u) { fprintf(stderr, "ui_render: %u FM6 charts drawn of 96\n", fmp_charts - c0); return 1; }
     }
+    sweep_screen_messages();
+    sweep_list_rows();
     sweep_columns();
     roll_frames(argc > 2 ? argv[2] : 0);
     /* draw cost: a full redraw of a screen (all strips), and HOME frame by frame (the scope, every other frame) */

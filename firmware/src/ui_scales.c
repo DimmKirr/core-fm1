@@ -35,6 +35,7 @@ static void scales_draw(void)
 {
     uint32_t scale = (uint32_t)clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u), total = scale_picker_count();
     uint32_t rank = scale_picker_rank(), r, sig, fav = 0;
+    int message = ui.msg_t && !head_toast(BPM_X + BPM_W + 6);   /* longer statuses use draw_toast */
     const aafont_t *tf = TY_TX, *lf = TY_LB;
     char b[32];
     for (r = 0; r < SCALE_TOTAL; r++)
@@ -43,7 +44,8 @@ static void scales_draw(void)
         lcd_fill(0, 0, 240, 240, T_BG);
         scv.top = scv.list = 0;
     }
-    sig = total * 7u + rank * 3001u + ui.scale_family * 13u + song.sel * 131u + ux.gen * 977u + ux.pal * 31u + 1u;
+    sig = total * 7u + rank * 3001u + ui.scale_family * 13u + song.sel * 131u + ux.gen * 977u + ux.pal * 31u + 1u +
+          (message ? str_hash(3u, ui.msg) : 0u);
     if (sig != scv.top) {                               /* the numeral, the family, the place */
         char d[2] = {(char)('1' + song.sel % NTRK), 0};
         int32_t cy = H_HEAD / 2;
@@ -51,8 +53,9 @@ static void scales_draw(void)
         cv_begin(240, H_HEAD, T_BG);
         cv_rrect(4, cy - 11, 22, 22, 6, T_THEME, T_BG);
         cv_text_c(15, ty_y(cy, lf), lf, d, T_INK, T_THEME);
-        cv_text_on(34, ty_y(cy, tf), tf, SC_FAMILY_WORD[ui.scale_family % (SCALE_FAMILIES + 2u)], T_THEME, T_BG);
-        if (total && rank < total) {
+        cv_text_on(34, ty_y(cy, tf), tf, message ? ui.msg : SC_FAMILY_WORD[ui.scale_family % (SCALE_FAMILIES + 2u)],
+                   message ? T_ACCENT : T_THEME, T_BG);
+        if (!message && total && rank < total) {
             fmt_int(b, (int32_t)rank + 1);
             str_cpy(b + str_len(b), "/", 2);
             fmt_int(b + str_len(b), (int32_t)total);
