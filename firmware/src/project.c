@@ -48,6 +48,7 @@ typedef struct {
     recorded_note_t recording[RECORD_MAX];
     uint8_t pattern[NTRK];                     /* FUN13's active-bank ids (also in the full container) */
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
+    uint16_t user[NTRK];                    /* shared slot + 1; sound remains embedded independently */
     uint32_t sum;
 } project_t;
 /* The four formerly reserved runtime bytes keep Prophet user-slot origins.
@@ -247,8 +248,8 @@ static int proj_pack(project_store_t *out, const project_t *q)
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
     memcpy(b + pos, &q->motion, sizeof q->motion);
     pos += sizeof q->motion;
-    b[pos++] = PROJ_P5_ORIGIN_TAG0; b[pos++] = PROJ_P5_ORIGIN_TAG1;
-    for (t = 0; t < NTRK; t++) b[pos++] = proj_p5_origin_value(q,t);
+    b[pos++]='U';b[pos++]=3u;
+    for(t=0;t<NTRK;t++){b[pos++]=(uint8_t)q->user[t];b[pos++]=(uint8_t)(q->user[t]>>8);}
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
     for (t = 0; t < NTRK; t++) {
         if (!cz_patch_valid(q->cz[t].raw)) return 0;
@@ -334,8 +335,11 @@ static int proj_unpack(project_t *q, const uint8_t *b)
     memcpy(&q->chain, b + pos, sizeof q->chain); pos += sizeof q->chain;
     memcpy(&q->motion, b + pos, sizeof q->motion);
     pos += sizeof q->motion;
-    if (pos + 2u + NTRK <= PROJ_FM6_OFF && b[pos] == PROJ_P5_ORIGIN_TAG0 && b[pos+1u] == PROJ_P5_ORIGIN_TAG1)
-        for (t = 0; t < NTRK; t++) *proj_p5_origin(q,t) = b[pos+2u+t] <= PROJ_P5_ORIGIN_MAX ? b[pos+2u+t] : 0u;
+    if(pos+2u+2u*NTRK<=PROJ_FM6_OFF && b[pos]=='U' && b[pos+1u]==3u){
+        for(t=0;t<NTRK;t++){uint32_t user=b[pos+2u+2u*t]|(uint32_t)b[pos+3u+2u*t]<<8;q->user[t]=(uint16_t)(user<=384u?user:0);}
+    }else if(pos+2u+NTRK<=PROJ_FM6_OFF && b[pos]==PROJ_P5_ORIGIN_TAG0 && b[pos+1u]==PROJ_P5_ORIGIN_TAG1){
+        for(t=0;t<NTRK;t++){uint32_t origin=b[pos+2u+t];if(origin && origin<=128u){uint32_t slot=origin-1u,bank=slot/26u,k=slot%26u,spill=bank*8u+k-18u;q->user[t]=(uint16_t)(1u+(k<18u?(16u+bank)*18u+k:spill<32u?spill/2u*18u+16u+spill%2u:378u+spill-32u));}}
+    }
     proj_motion_ids(&q->motion, np);
     if (!chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
     for (t = 0; t < NTRK; t++)
@@ -500,8 +504,7 @@ static void project_capture(project_t *p)
         for (uint32_t j = 0; j < P_COUNT; j++) p->t[i].p[j] = motion_base_value(&trk[i], j);
         p->t[i].engine = trk[i].eng_req;
         p->t[i].preset = trk[i].preset;
-        if (trk[i].eng_req == ENGI_PROPHET && trk[i].user_native && user_of(&trk[i]) < P5_USER_SLOTS)
-            *proj_p5_origin(p,i) = (uint8_t)(user_of(&trk[i])+1u);
+        if(user_of(&trk[i])<UP_SLOTS)p->user[i]=(uint16_t)(user_of(&trk[i])+1u);
         p->pattern[i] = trk[i].pattern;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
         p->cz[i] = cz_patch[i];
@@ -701,29 +704,19 @@ static int project_restore_runtime(const project_t *input)
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);
             p5_patch[k]=p->p5[k];p5_ready[k]=1;
-            if(e==ENGI_PROPHET){
-                uint32_t origin=*proj_p5_origin(p,k),slot;
-                if(origin && native_used(e,origin-1u)){
-                    t->user=(uint8_t)origin;t->user_native=1;
-                }else if(!t->preset){
-                    /* Older projects have no origin. Locate an unchanged
-                     * factory or saved user sound by its complete patch. */
-                    for(slot=0;slot<P5_FACTORY_N;slot++){
-                        p5_patch_t f;p5_factory(slot,&f);
-                        if(!memcmp(&p->p5[k],&f,sizeof f)){t->preset=(uint8_t)(slot+1u);break;}
-                    }
-                    if(slot==P5_FACTORY_N)for(slot=0;slot<P5_USER_SLOTS;slot++){
-                        p5_patch_t saved;
-                        if(!p5_user_get(slot,&saved) && !memcmp(&p->p5[k],&saved,sizeof saved)){
-                            t->user=(uint8_t)(slot+1u);t->user_native=1;break;
-                        }
-                    }
-                }
+            uint32_t origin=p->user[k];
+            if(origin && up_used(origin-1u) && up_engine(origin-1u)==e)t->user=(uint16_t)origin;
+            if(e==ENGI_PROPHET && !t->preset && !t->user){
+                for(uint32_t slot=0;slot<P5_FACTORY_N;slot++){p5_patch_t f;p5_factory(slot,&f);if(!memcmp(&p->p5[k],&f,sizeof f)){t->preset=(uint8_t)(slot+1u);break;}}
             }
             cz_patch[k] = p->cz[k];
             cz_track_accept(t);
             fm6_set_patch(k, v);
             memcpy(fm6_fn[k], p->fm6_fn_ok && fm6_fn_ok(p->fm6_fn[k]) ? p->fm6_fn[k] : FM6_FNDEF, FM6_NFN);
+            if(!t->preset && !t->user && native_limit(e))for(uint32_t slot=0;slot<UP_SLOTS;slot++)if(native_used(e,slot)){
+                const uint8_t *raw=native_raw(e,slot),*saved=e==ENGI_PROPHET?(const uint8_t *)&p->p5[k]:e==ENGI_CZ?p->cz[k].raw:p->fm6[k];
+                if(!memcmp(raw,saved,native_size(e))){t->user=(uint16_t)(slot+1u);t->user_native=0;break;}
+            }
         }
     }
     song.ntrk = (uint8_t)(p->parts - 1u < NTRK ? p->parts : NTRK);
@@ -1122,6 +1115,7 @@ static void persist_boot(void)                    /* before settings_init / pane
             if (!project_used(i))
                 proj_fetch(i);
     }
+    settings_init();                               /* maintenance uses the saved palette */
     up_boot();                                     /* user presets */
 #endif
 }
@@ -1162,6 +1156,7 @@ static void settings_poll(void)
 #if MELODEE_SLICE
     slc_store_poll();                              /* SLICE's slices edited on the SLICES page */
 #endif
+    up_favorite_poll();
     if (!persist_pending || !flash_ok || transport_busy() ||
         (persist_pending == 2u && (uint32_t)(fm1_ms - persist_retry_ms) < 1000u))
         return;
@@ -1204,6 +1199,16 @@ static void settings_save(void)
 #endif
     settings_poll();
 }
+static int shared_preferences_save(void)
+{
+    settings_save();
+#if MELODEE_FLASH
+    return persist_pending || persist_old || tmpl_old;
+#else
+    return 0;
+#endif
+}
+
 
 #if MELODEE_FLASH
 _Static_assert(sizeof(persist_t) <= ST_PAYLOAD_MAX, "settings do not fit one flash sector");

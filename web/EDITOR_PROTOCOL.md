@@ -789,7 +789,94 @@ cannot be captured. CC91 and CC93 have no effect. No FX pages, hold layer, key
 assignment or latch setting remain; UI preference 9 reports 127 (unsupported)
 and UI_SET for id 9 returns rc 2. The physical FX button has no action.
 
-## Expanded user storage
+## Shared user library (command 80)
+
+INFO appends `55 01 00 03`: shared-library tag U, version 1, capacity **384** as an unsigned
+low-first 7-bit pair. Modern clients use command **80** for every engine and every user slot.
+All indices below are absolute zero-based shared slots; they are not positions in an engine pool.
+
+Request header: `operation slotLo slotHi`. Every reply begins
+`operation slotLo slotHi rc` (0 success, 1 invalid/empty, 2 refused or save error).
+
+| Operation | Request arguments after the header | Successful reply after `rc` |
+|---|---|---|
+| 0 List | count (1–16) | actualCount totalLo totalHi, then used engine oldFormat name-Z per slot |
+| 1 Get | none | used engine name-Z, P_COUNT signed-v14 values, 32 empty legacy phrase bytes, nativeKind [sizeLo sizeHi pack7(raw)] |
+| 2 Put | engine name-Z, P_COUNT signed-v14 values, 32 legacy phrase bytes, nativeKind [sizeLo sizeHi pack7(raw)] | none |
+| 3 Store track | track, optional printable name bytes without a terminator | none |
+| 4 Load track | track | none |
+| 5 Erase | none | none |
+| 6 Rename | printable name bytes without a terminator | none |
+
+Native kinds: 0 parameters only, 1 DX7 VMEM (128 bytes), 2 CZ-1 (144 bytes), 3 Prophet
+(138 bytes, including model/size/command/address metadata), 4 drum sound offsets (54 bytes).
+PUT kind bit 5 preserves native name bytes while assigning the short browser name.
+PUT kind bit 6 requests default Felucca controls for an imported native synth voice; otherwise
+its common sound controls come from the supplied parameters. Names accept up to 20 bytes for
+native voices (the browser's short label remains 12); ordinary sound names accept 12.
+Phrase bytes remain present for framing compatibility and are not loaded or stored on flash.
+GET preserves the complete drum patch, including offsets for all sixteen sounds.
+
+All save paths share the same occupancy and overwrite rules. Device SysEx imports ask before
+replacing any occupied slot, regardless of its engine. Native bank imports validate the full
+transfer before writing and commit once per affected storage object. On failure, only the
+unsaved suffix remains staged. Audio and receive callbacks never access the library cache.
+Loading restores the sound and preserves track mix, effects, scale, ARP, and sequence data.
+Favorites share each preset's atomic commit; changes made while playing are queued until STOP.
+DUMP and native status replies continue to encode the loaded slot plus one with two 7-bit bytes.
+Projects use an optional `U,3` origin trailer with four little-endian 16-bit shared references;
+embedded sound bytes remain authoritative even when an origin slot is erased.
+
+Flash format UPB2 (`0x32425055`): 8-byte header (record size 206, 18 records), followed by
+18 records, total **3716 bytes**. The storage commit header uses reserved word 0 tag
+`0x32504D43` (CMP2) to put the payload at byte 32 in every reused pair. Old copies retain
+their original offset during conversion; the last 256 bytes of each new copy remain erased
+for the stock loader's update-record scan. A compact record contains the first 160 bytes and final 46 bytes
+of the existing 238-byte sound record; the unused 32 phrase bytes are omitted. Native versions
+11 (FM6), 12 (Prophet), and 13 (CZ) put their voice in the 144-byte payload and 45 named sound
+controls in the tail. Used-byte bit 1 is the persistent favorite flag. General parameters and
+drum patches retain their existing versions. Unknown records stay inert and protected.
+
+BACKUP_LIST contains **29 objects, IDs 0–28**. Existing object IDs and physical A/B pairs remain:
+
+| Shared bank (18 slots per bank) | Backup IDs | Previous owner |
+|---|---|---|
+| 0–3 | 6, 7, 17, 18 | General presets |
+| 4–7 | 21, 22, 19, 20 | FM6 voices |
+| 8–15 | 9–16 | CZ-1 tones |
+| 16–20 | 23–27 | Current Prophet programs |
+| 21 (six visible slots) | 28 | Previously free 0x9D000/0x9E000 pair |
+
+ID 8 remains empty and refuses payloads. First boot converts current preceding formats in place
+using A/B commits. General FM6 sidecars are embedded before their source banks are converted.
+The eight excess programs in each old 26-program Prophet bank move to the two spare records
+in each preceding 16-record bank; the last six use bank 21. Destinations are deterministic, so
+an interrupted conversion retries identical writes. Foreign occupied spill destinations and
+unsupported bank shapes are preserved; an incomplete conversion blocks subsequent preset writes.
+Boot maintenance initializes the display before any conversion writes and shows
+`MIGRATING PRESETS`, completed-bank progress, and `KEEP POWER CONNECTED`.
+Update staging cleanup uses the same screen (`FINISHING UPDATE`) with sector progress.
+Failures remain visible with restart-to-retry guidance. On preset conversion errors, OCT+
+keeps presets and continues with preset writes protected; OCT- opens a destructive wipe
+confirmation (OCT- back, OCT+ wipe). Update cleanup errors never offer preset wiping.
+Confirmed wiping clears both A/B copies of every shared/preceding preset object, retaining
+projects and settings. Bank 21's final unused record (index 17, outside the 384 visible slots)
+reserves the 12-byte name `WIPE-PENDING` in an otherwise empty record as durable reset intent.
+This is committed before source banks are cleared and removed only after every preceding
+copy is empty; interrupted resets resume wiping before attempting any conversion. Successful
+reset unlocks preset writes, invalidates loaded slot references and stops future migration
+retries. Wipe errors remain visible with writes protected. Clean boots skip maintenance.
+The retired Prophet format is never migrated. Unknown committed bytes remain in full backups.
+A complete preceding 28-object restore clears the derived extension before conversion; runtime
+music restores last, after all source banks are present.
+
+Legacy commands 16–21 address the first 128 shared positions. Command 78 retains the older
+64-FM6/128-CZ/128-Prophet addressable prefixes and manufacturer wire framing; it refuses to
+replace or erase a slot belonging to another engine. Its INFO capabilities remain compatible.
+Clients that need the full bank or mixed-engine writes must use command 80. The historical
+storage descriptions below apply to backups from older firmware.
+
+## Previous user storage
 
 UP_LIST reports 64 shared user slots, U01..U64. All slot indices remain 7-bit.
 BACKUP_LIST lists ids 0..27. Id 8 is always empty (the retired FM6 bank) and refuses a payload.
@@ -804,7 +891,7 @@ start payloads at byte 32 and leave bytes 3840..4095 erased for OTA record scann
 Existing user record banks and storage object numbers remain in place.
 
 
-## Native FM6 and CZ-1 user presets (command 78)
+## Previous native FM6 and CZ-1 pools (command 78)
 
 INFO appends `4E 01 40 00 00 01`: tag N, version 1, FM6 capacity u14 = 64, CZ capacity u14 = 128.
 These are unsigned low-first 7-bit pairs (unlike signed v14). Native slots appear after each engine's

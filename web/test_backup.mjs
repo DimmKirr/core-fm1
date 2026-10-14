@@ -153,5 +153,11 @@ ok(await athrows(()=>restoreBackup(nativeProtected.request,badNative)) && !nativ
 const oldOwnedTarget=device([],{ids:nativeIds,refuse:(id,size)=>id>=19&&id<=22&&size!==2060?1:0});
 ok(await athrows(()=>restoreBackup(oldOwnedTarget.request,ownedFile)) && !oldOwnedTarget.log.length,"backup: an archive the firmware refuses (old owned voices) writes nothing");
 
+const sharedIds=Array.from({length:29},(_,i)=>i),sharedData=new Uint8Array(3716),sharedView=new DataView(sharedData.buffer);
+sharedView.setUint32(0,0x32425055,true);sharedView.setUint16(4,206,true);sharedView.setUint16(6,18,true);
+const sharedFile=await captureBackup(device([...bankObjects,[28,sharedData]],{ids:sharedIds}).request,"SHARED BANK");
+ok(sharedFile.objects.length===29&&sharedFile.objects[28].size===3716,"backup: 29-object archive includes the final shared slots");
+const sharedTarget=device([],{ids:sharedIds});await restoreBackup(sharedTarget.request,sharedFile);
+ok(sharedTarget.objs.get(28).every((v,i)=>v===sharedData[i]),"backup: final compact shared bank restores byte for byte");
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);

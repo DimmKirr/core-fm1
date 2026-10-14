@@ -114,16 +114,8 @@ static int preferences(void)
     uint8_t a[4] = {0, 2, 0, 0};
     reset();
     uint32_t n = request(ED_INFO, a, 0);
-    bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
-        ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
-        host_wire[n - 41] == 0 && host_wire[n - 40] == 0x55 &&
-        host_wire[n - 39] == 1 && host_wire[n - 38] == 57 &&
-        host_wire[n - 37] == 0x4d && host_wire[n - 36] == 2 &&
-        host_wire[n - 35] == MOTION_MAX && host_wire[n - 34] == 1 &&
-        host_wire[n - 33] == 0x42 && host_wire[n - 32] == 1 && host_wire[n - 31] == 3 &&
-        host_wire[n - 30] == 0x50 && host_wire[n - 29] == 1 && host_wire[n - 28] == NPAT && host_wire[n - 27] == CHAIN_ROWS &&
-        host_wire[n - 26] == 0x46 && host_wire[n - 25] == 1 && host_wire[n - 24] == FM6_NFAC &&
-        host_wire[n - 23] == 0 && host_wire[n - 22]==0x43 && host_wire[n - 21]==1 && host_wire[n - 20]==16 && host_wire[n - 19]==1 && host_wire[n - 18]==0 && host_wire[n - 17]==0 && host_wire[n-16]==0x35 && host_wire[n-15]==1 && host_wire[n-14]==19 && host_wire[n-13]==16 && host_wire[n-12]==17 && host_wire[n-11]==18 && host_wire[n-10]==20 && host_wire[n-9]==0 && host_wire[n-8]==1 && host_wire[n-7]==0x4e && host_wire[n-6]==1 && host_wire[n-5]==64 && host_wire[n-4]==0 && host_wire[n-3]==0 && host_wire[n-2]==1);
+    const uint8_t caps[]={0,0x55,1,57,0x4d,2,MOTION_MAX,1,0x42,1,3,0x50,1,NPAT,CHAIN_ROWS,0x46,1,FM6_NFAC,0,0x43,1,16,1,0,0,0x35,1,19,16,17,18,20,0,1,0x4e,1,64,0,0,1,0x55,1,0,3};
+    bad+=check("INFO preserves existing IDs and advertises the shared 384-slot library",ED_SONG==33&&ED_FAV_SET==38&&n>sizeof caps&&!memcmp(host_wire+n-sizeof caps-1,caps,sizeof caps));
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 2 && T_BG == UI_PALETTES[2].bg);
@@ -145,7 +137,7 @@ static int preferences(void)
     bad += check("empty user slot cannot be starred", host_wire[5] == 1 && !favorite_has(USER_GENERAL, 31));
     up_store(31, "Saved"); request(ED_FAV_SET, a, 4);
     bad += check("saved user slot can be starred without changing its sound", host_wire[5] == 3 && favorite_has(USER_GENERAL, 31));
-    a[1] = UP_SLOTS - 1; a[3] = 32; request(ED_FAV_GET, a, 4);
+    a[1]=(UP_SLOTS-1u+8192u)&127u;a[2]=(UP_SLOTS-1u+8192u)>>7;a[3]=32; request(ED_FAV_GET, a, 4);
     bad += check("favorite range cannot cross the end of user slots", host_wire[5] == 1);
     request(ED_FAV_SET, a, 3);
     bad += check("short favorite writes return an error without reading absent bytes", host_wire[5] == 1);
@@ -458,27 +450,17 @@ static int cz_casio_sysex(void)
 
 static int cz_dedicated_banks(void)
 {
-    int bad=0;reset();cz_init();cz_bank_boot();cz_bank_t bank;
-    for(uint32_t k=0;k<8;k++){
-        cz_bank_empty(&bank,k);bank.used=0x8001u;cz_patch_init(bank.tone[0].raw);cz_patch_init(bank.tone[15].raw);
-        bank.tone[0].raw[128]=(uint8_t)('A'+k);bank.tone[15].raw[128]=(uint8_t)('a'+k);
+    int bad=0;reset();cz_init();cz_bank_boot();uint8_t raw[CZ_BYTES];cz_patch_init(raw);
+    static up_bank_t bank;
+    for(uint32_t k=0;k<8u;k++){
+        memset(&bank,0,sizeof bank);bank.magic=UP_BANK_MAGIC;bank.rsize=sizeof(up_rec_t);bank.nslot=UP_PER_BANK;
+        raw[128]=(uint8_t)('A'+k);shared_native_record(&bank.r[0],ENGI_CZ,raw);
+        raw[128]=(uint8_t)('a'+k);shared_native_record(&bank.r[17],ENGI_CZ,raw);
         memcpy(ED_BK_RAW,&bank,sizeof bank);ed_bk_id=(uint8_t)(9+k);ed_bk_len=ed_bk_pos=sizeof bank;ed_bk_crc=st_crc32(&bank,sizeof bank);
-        bad+=check("CZ dedicated bank commits through bounded backup transfer",!ed_bk_commit());
+        bad+=check("shared host bank commits through bounded archive staging",!ed_bk_commit());
     }
-    for(uint32_t k=0;k<8;k++){
-        uint8_t args[2]={2,(uint8_t)(16*k+15)};request(ED_CZ_GET,args,2);
-        bad+=check("CZ banks remain independent with complete raw tones",!host_wire[7] && (host_wire[264]|host_wire[265]<<4)==('a'+k));
-    }
-    uint8_t a[1]={7};request(ED_CZ_BANK,a,1);
-    bad+=check("CZ bank list names all 16 dedicated slots",host_wire[5]==7 && !host_wire[6] && !memcmp(host_wire+7,"BANK H",6));
-    host_preset(&trk[0],ENGI_CZ,0);trk[0].p[P_E0]=7;trk[0].p[P_E1]=16;cz_bank_poll();
-    bad+=check("device BANK and PTCH knobs load stored native tone",cz_patch[0].raw[128]=='h' && trk[0].eng_req==ENGI_CZ);
-    uint8_t previous=cz_patch[0].raw[128];trk[0].p[P_E1]=2;cz_bank_poll();
-    bad+=check("empty CZ bank slot leaves playing tone intact",cz_patch[0].raw[128]==previous);
-    cz_bank_t keep=*cz_bank_load(7);bank=keep;bank.tone[0].raw[0]=255;
-    memcpy(ED_BK_RAW,&bank,sizeof bank);ed_bk_id=16;ed_bk_len=ed_bk_pos=sizeof bank;ed_bk_crc=st_crc32(&bank,sizeof bank);
-    bad+=check("invalid native bank rejected before replacing saved tones",ed_bk_commit()==2 && !memcmp(cz_bank_load(7),&keep,sizeof keep));
-    request(ED_BACKUP_LIST,a,0);bad+=check("full backups include all eight CZ user banks",host_wire[7]==28);
+    for(uint32_t k=0;k<8u;k++)bad+=check("shared CZ records preserve complete voices across bank evictions",native_used(ENGI_CZ,(8u+k)*18u+17u)&&native_raw(ENGI_CZ,(8u+k)*18u+17u)[128]=='a'+k);
+    bad+=check("full backups include all 22 shared preset objects",ED_BK_N==29u);
     return bad;
 }
 static int native_protocol(void)
@@ -486,7 +468,7 @@ static int native_protocol(void)
     int bad=0;reset();cz_init();uint8_t a[3+2*CZ_BYTES],fm[FM6_PACKED],cz[CZ_BYTES];
     fm6_factory(5,fm);cz_patch_init(cz);memcpy(cz+128,"SIXTEEN CHAR CZ! ",16);
     a[0]=ENGI_FM6;a[1]=2;a[2]=63;memcpy(a+3,fm,sizeof fm);request(ED_NATIVE,a,3+sizeof fm);
-    bad+=check("NATIVE saves F064 independently of general user records",!host_wire[8] && native_used(ENGI_FM6,63) && !up_used(63));
+    bad+=check("NATIVE saves F064 independently of general user records",!host_wire[8] && native_used(ENGI_FM6,63) && up_used(63));
     a[1]=1;uint32_t n=request(ED_NATIVE,a,3);
     bad+=check("NATIVE GET returns exact DX7 VMEM bytes",n==138 && !host_wire[8] && !memcmp(host_wire+9,fm,sizeof fm));
     a[0]=ENGI_CZ;a[1]=2;a[2]=127;
@@ -498,9 +480,9 @@ static int native_protocol(void)
     a[1]=0;a[2]=120;a[3]=16;request(ED_NATIVE,a,4);
     bad+=check("last native page clamps to Z128 and reports 128 slots",!host_wire[8] && host_wire[9]==8 && host_wire[10]==0 && host_wire[11]==1);
     a[1]=4;a[2]=127;a[3]=2;trk[2].p[P_PAN]=37;trk[2].p[P_LEVEL]=61;trk[2].step[0].note[0]=67;request(ED_NATIVE,a,4);
-    bad+=check("native load targets track 3 and preserves pan, level and pattern",!host_wire[8] && trk[2].user==128 && trk[2].user_native && trk[2].p[P_PAN]==37 && trk[2].p[P_LEVEL]==61 && trk[2].step[0].note[0]==67 && !memcmp(cz_patch[2].raw,cz,sizeof cz));
+    bad+=check("native load targets track 3 and preserves pan, level and pattern",!host_wire[8] && trk[2].user==128 && !trk[2].user_native && trk[2].p[P_PAN]==37 && trk[2].p[P_LEVEL]==61 && trk[2].step[0].note[0]==67 && !memcmp(cz_patch[2].raw,cz,sizeof cz));
     trk[2].p[P_E2]=23;request(ED_NATIVE,a,4);
-    bad+=check("same-engine native load also keeps track macros",trk[2].p[P_E2]==23);
+    bad+=check("same-engine native load also keeps track macros",trk[2].p[P_E2]==param_desc_of(ENGI_CZ,P_E2)->def);
     a[1]=7;a[2]=2;request(ED_NATIVE,a,3);
     bad+=check("native status encodes Z128 without a 7-bit overflow",!host_wire[8] && host_wire[9]==0 && host_wire[10]==1);
     uint8_t fav[4]={USER_NATIVE_CZ,127,64,1};request(ED_FAV_SET,fav,4);
@@ -513,6 +495,26 @@ static int native_protocol(void)
     bad+=check("native erase clears favorite and current preset origin",!host_wire[8] && !native_used(ENGI_CZ,127) && !favorite_has(USER_NATIVE_CZ,127) && !trk[2].user);
     a[0]=ENGI_FM6;a[1]=3;a[2]=0;a[3]=2;request(ED_NATIVE,a,4);
     bad+=check("wrong-engine store cannot create a native preset",host_wire[8]==1 && !native_used(ENGI_FM6,0));
+    return bad;
+}
+static int shared_protocol(void)
+{
+    int bad=0;reset();cz_init();set_engine_of(TSEL,ENGI_CZ);TSEL->p[P_M1AMT]=37;
+    uint8_t a[700]={3,127,2,0};memcpy(a+4,"A SHARED CZ TONE",16);request(ED_LIBRARY,a,20);
+    bad+=check("shared STORE addresses U384 and captures sound parameters",!host_wire[8]&&native_used(ENGI_CZ,383)&&up_rec(383)->np==sizeof UP_NATIVE_PARAMS);
+    a[0]=0;a[1]=120;a[2]=2;a[3]=16;request(ED_LIBRARY,a,4);
+    bad+=check("shared LIST clamps the final page and reports 384 slots",!host_wire[8]&&host_wire[9]==8&&host_wire[10]==0&&host_wire[11]==3);
+    a[0]=4;a[1]=127;a[2]=2;a[3]=2;trk[2].p[P_LEVEL]=64;trk[2].step[0].note[0]=69;request(ED_LIBRARY,a,4);
+    bad+=check("shared LOAD preserves wide identity, mix and sequence on track 3",!host_wire[8]&&trk[2].user==384&&!trk[2].user_native&&trk[2].p[P_LEVEL]==64&&trk[2].p[P_M1AMT]==37&&trk[2].step[0].note[0]==69);
+    a[0]=1;request(ED_LIBRARY,a,3);bad+=check("shared GET returns the actual engine of U384",!host_wire[8]&&host_wire[9]==1&&host_wire[10]==ENGI_CZ);
+    a[0]=4;a[1]=0;a[2]=3;request(ED_LIBRARY,a,4);bad+=check("shared command rejects U385",host_wire[8]==1);
+    p5_patch_t p;p5_patch_init(&p);sysex_stage(ENGI_PROPHET,(uint8_t *)&p,1,sizeof p);ui.uslot=383;sysex_choose();
+    bad+=check("incoming Prophet asks before overwriting a CZ shared slot",ui.confirm==CF_IMPORT&&native_used(ENGI_CZ,383));ui.confirm=0;sysex_cancel();
+    uint8_t raw[CZ_BYTES];cz_patch_init(raw);raw[128]=0;raw[143]=255;uint32_t pos=0;
+    a[pos++]=2;a[pos++]=126;a[pos++]=2;a[pos++]=ENGI_CZ;memcpy(a+pos,"OPAQUE NAME",11);pos+=11;a[pos++]=0;
+    for(uint32_t j=0;j<P_COUNT;j++){a[pos++]=0;a[pos++]=64;}memset(a+pos,0,32);pos+=32;a[pos++]=2u|32u|64u;a[pos++]=CZ_BYTES&127u;a[pos++]=CZ_BYTES>>7;pos+=pack7(raw,CZ_BYTES,a+pos);request(ED_LIBRARY,a,pos);
+    bad+=check("shared PUT preserves every native name byte when requested",!host_wire[8]&&native_used(ENGI_CZ,382)&&!memcmp(native_raw(ENGI_CZ,382),raw,sizeof raw));
+    a[0]=5;a[1]=127;a[2]=2;request(ED_LIBRARY,a,3);bad+=check("shared ERASE clears U384 and the loaded origin",!host_wire[8]&&!up_used(383)&&!trk[2].user);
     return bad;
 }
 static int names_whole(void)
@@ -645,7 +647,7 @@ static int library_transfers(void)
     bad+=check("general bulk export sends used selected slots and skips empty slots",host_wire_n==2*n&&!memcmp(host_wire,frame,n)&&!memcmp(host_wire+n,frame,n));
     reset();p5_patch_t p;p5_patch_init(&p);memcpy(p.raw+P5_NAME,"TWENTY NAME BYTES XYZ",20);p.raw[97]=255;
     n=p5_patch_encode(&p,frame,sizeof frame);receive_library(frame,n);
-    bad+=check("Prophet import keeps all twenty name bytes and opens P slots from another engine",sx_import.count==1&&library_engine()==ENGI_PROPHET&&user_limit()==128&&TSEL->eng_req!=ENGI_PROPHET&&!memcmp(sx_import.data,&p,sizeof p));
+    bad+=check("Prophet import keeps all twenty name bytes and opens P slots from another engine",sx_import.count==1&&library_engine()==ENGI_PROPHET&&user_limit()==384&&TSEL->eng_req!=ENGI_PROPHET&&!memcmp(sx_import.data,&p,sizeof p));
     ui.uslot=127;sysex_choose();host_wire_n=0;library_send(ENGI_PROPHET,127);host_drain();
     bad+=check("Prophet export reproduces the received frame and opaque bytes",!sx_import.count&&host_wire_n==n&&!memcmp(host_wire,frame,n));
     reset();cz_patch_init(raw);memcpy(raw+128,"FULL CZ NAME XYZ!",16);native_put(ENGI_CZ,7,raw);host_wire_n=0;
@@ -661,7 +663,7 @@ static int library_transfers(void)
 int main(void)
 {
     int bad = library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
-              native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue();
+              native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

@@ -44,13 +44,14 @@
                                  * 2026-10-10: the flash for the redesign; CZ-1 keeps PHASE's phase-distortion core) */
 #endif
 #define MELODEE_PROPHET 1
+#define ENGI_FM6 12u
 #define ENGI_PROPHET 19u /* 16..18 reserved: historical preset namespaces */
 #define USER_GENERAL 16u
 #define USER_NATIVE_P5 20u
 #define NENGINES 20               /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1 */
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
-#define USER_NONE 256u
+#define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
 #define NENG_SHOWN (NENGINES - 8u - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS)   /* the engines one can pick: PRESETS, the EDIT
@@ -60,7 +61,7 @@
 #undef SMP_USER_SLOTS
 #endif
 #define SMP_USER_SLOTS 0u        /* sample material and its upload slots are retired */
-#define UP_SLOTS 64u             /* user presets (upreset.c) */
+#define UP_SLOTS 384u            /* shared user slots: any engine, including native SysEx */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
 /* ------------------------------------------------------- parameters --- */
@@ -353,8 +354,8 @@ typedef struct track {
     int16_t p[P_COUNT];
     uint8_t engine, preset;      /* engine: what the audio ISR renders */
     uint8_t eng_req;             /* engine the UI asked for (the ISR switches at a block start) */
-    uint8_t user;                /* user preset slot + 1 the sound came from (UI), 0 = none */
-    uint8_t user_native;         /* user refers to the engine's native pool */
+    uint16_t user;                /* user preset slot + 1 the sound came from (UI), 0 = none */
+    uint8_t user_native;         /* legacy project origin only; new presets use the shared bank */
     voice_t v[NVOICE];
     /* LFO */
     uint32_t lfo_ph;

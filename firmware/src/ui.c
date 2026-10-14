@@ -21,6 +21,11 @@ static void template_load(void);
 static uint32_t chain_prepare(void);
 static int up_used(uint32_t k);              /* user presets: upreset.c */
 static int up_load(uint32_t k);
+static int up_favorite(uint32_t k);
+static int up_favorite_set(uint32_t k,int on);
+static void up_favorite_poll(void);
+static int shared_preferences_save(void);
+static int shared_wipe(void);                     /* confirmed recovery from preset migration failure */
 static uint32_t up_count(void);
 static uint32_t up_nth(uint32_t n);
 static uint32_t up_rank(uint32_t slot);
@@ -35,9 +40,6 @@ static int native_used(uint32_t e, uint32_t k);
 static int native_old(uint32_t e, uint32_t k);
 static int up_old(uint32_t k);
 static int up_old_bank(uint32_t k);
-static uint32_t native_count(uint32_t e);
-static uint32_t native_nth(uint32_t e, uint32_t n);
-static uint32_t native_rank(uint32_t e, uint32_t k);
 static void native_name(uint32_t e, uint32_t k, char *out);
 static int native_load(uint32_t e, uint32_t k, uint32_t tr);
 static const uint8_t *native_raw(uint32_t e, uint32_t k);
@@ -45,6 +47,7 @@ static void p5_send(uint32_t tr);
 static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name);
 static int native_put(uint32_t e, uint32_t k, const uint8_t *raw);
 static uint32_t native_size(uint32_t e);
+static int shared_import(uint32_t e,uint32_t first,uint32_t count,const uint8_t *raw,uint32_t stride,uint32_t *saved);
 static int general_sysex_send(uint32_t k);
 static int general_sysex_save(uint32_t k,const uint8_t *raw);
 static uint32_t library_native(void);
@@ -66,7 +69,7 @@ static int project_erase(uint32_t slot);
 static void project_cur_name(char *b);
 static uint32_t user_of(const track_t *t)    /* user preset slot its sound came from, USER_NONE = none */
 {
-    return t->user && (t->user_native ? native_used(t->eng_req,t->user-1u) : up_used(t->user-1u)) ? t->user-1u : USER_NONE;
+    return t->user && !t->user_native && up_used(t->user-1u) && up_engine(t->user-1u)==t->eng_req ? t->user-1u : USER_NONE;
 }
 static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
@@ -148,8 +151,8 @@ static struct {
     uint32_t save_t0;            /* SAVE press time (btn_hold: held = UNDO) */
     uint32_t oct_t0;             /* OCT+ press time (btn_hold: held = the page's sheet, ui_popup.c) */
     uint8_t confirm;             /* the OCT- / OCT+ dialog: CF_*, 0 = none */
-    uint8_t confirm_trk;         /* the track it clears, the slot it overwrites */
-    uint8_t uslot;               /* SAVE > USER: the selected user preset slot */
+    uint16_t confirm_trk;         /* the track it clears, the slot it overwrites */
+    uint16_t uslot;               /* SAVE > USER: the selected user preset slot */
     uint8_t song_row;            /* SONG: row selected, count selects the next empty row */
     uint8_t uboot;               /* main.c: seconds left before UPDATE MODE (OCT- + OCT+ held), 0 = none */
     uint8_t proj_new;            /* SAVE > PROJECT: KNOB 1 past TMPL, NEW (a new song: ui_new.c); SLOT unchanged */
@@ -602,7 +605,8 @@ typedef struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (after): a next load keeps the copy */
     uint8_t what;                /* UNDO_SOUND | UNDO_PAT: what the loads since the copy changed (undo_step) */
-    uint8_t eng, preset, user, user_native, patn;
+    uint8_t eng, preset, user_native, patn;
+    uint16_t user;
     uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
     p5_patch_t p5;
@@ -648,7 +652,7 @@ static uint32_t fnv(uint32_t h, const void *p, uint32_t n)
 static uint32_t steps_sig(const track_t *t) { return fnv(2166136261u, t->step, sizeof t->step); }
 static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's patch too), the steps */
 {
-    uint8_t id[4] = {t->eng_req, t->preset, t->user, t->user_native};
+    uint8_t id[5] = {t->eng_req, t->preset, (uint8_t)t->user, (uint8_t)(t->user>>8), t->user_native};
     uint32_t h = fnv(fnv(steps_sig(t), t->p, sizeof t->p), id, 3), k = trk_index(t);
     h = fnv(h, fm6_patch[k], sizeof fm6_patch[k]); /* (a patch the editor sent between two loads) */
     h = fnv(h, cz_patch[k].raw, CZ_BYTES);
@@ -795,7 +799,8 @@ static void undo_step(int redo)
     u->motion_backup = current_motion;
     fm1_irq_off();                                /* the audio ISR must not see half a sound */
     if (u->what & UNDO_SOUND) {
-        uint8_t e = t->eng_req, pr = t->preset, us = t->user, un=t->user_native;
+        uint8_t e = t->eng_req, pr = t->preset, un=t->user_native;
+        uint16_t us = t->user;
         panic_req |= (uint8_t)(1u << trk_index(t));
         t->eng_req = u->eng;
         t->preset = u->preset;
@@ -1030,15 +1035,13 @@ static uint32_t eng_list_pos(uint32_t *total)
 {
     uint32_t e = TSEL->eng_req % NENGINES, np = ENGINES[e]->npresets, u = user_of(TSEL), k, n = 0;
     uint32_t cur = np ? TSEL->preset % np : 0u;
-    uint32_t nn=native_count(e);
-    if(TSEL->user_native && u<USER_NONE)cur=np+native_rank(e,u);
     for (k = 0; k < UP_SLOTS; k++)
         if (up_used(k) && up_engine(k) == e) {
             if (!TSEL->user_native && k == u)
-                cur = np + nn + n;
+                cur = np + n;
             n++;
         }
-    *total = np + nn + n;
+    *total = np + n;
     return cur;
 }
 
@@ -1052,8 +1055,6 @@ static void eng_list_step(int32_t direction)         /* the next / previous soun
         apply_preset(n);
     } else {
         n -= np;
-        if(n<native_count(e)){native_load(e,native_nth(e,n),song.sel);recent_loaded();preset_hinted();return;}
-        n-=native_count(e);
         for (k = 0; k < UP_SLOTS; k++)
             if (up_used(k) && up_engine(k) == e && !n--) {
                 up_load(k);
@@ -1179,7 +1180,7 @@ static int note_tools_history(int redo);
 static void confirm_open(uint32_t kind, uint32_t trk)
 {
     ui.confirm = (uint8_t)kind;
-    ui.confirm_trk = (uint8_t)trk;
+    ui.confirm_trk = (uint16_t)trk;
     ui.act = 0;
     ui.force = 1;
 }
@@ -1188,3 +1189,5 @@ static void confirm_open(uint32_t kind, uint32_t trk)
 #include "sysex_library.c"                       /* staged imports and USB library exports */
 
 #include "note_tools.c"
+
+#include "ui_boot.c"                            /* visible progress before boot flash maintenance */

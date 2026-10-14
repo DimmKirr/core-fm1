@@ -35,6 +35,31 @@ const E = vm.runInNewContext(proto + `
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 {
+  const mock=E.makeMockDevice({shared:true}),input=[...mock.access.inputs.values()][0],output=[...mock.access.outputs.values()][0];
+  const link=new E.Link(d=>output.send(d),{timeout:500});input.onmidimessage=e=>link.receive(e.data);const rq=(r,o)=>link.request(r,o),info=E.parse[E.CMD.INFO](await rq(E.req.info()));
+  ok(info.shared?.total===384&&!info.native,"shared: one 384-slot capability replaces the engine pools");
+  let all=await E.bank.list(rq,info);ok(all.total===384&&all.slots.at(-1).slot===383,"shared: pagination reaches slot U384 without wrapping");
+  const raw=E.P5.init();E.P5.setName(raw,"TWENTY CHAR PROGRAM");
+  await E.bank.put(rq,383,{engine:19,name:"TWENTY CHAR PROGRAM",p5:raw},info);
+  let got=await E.bank.get(rq,info,383);ok(got.used&&got.engine===19&&eq(got.p5,raw)&&got.name==="TWENTY CHAR PROGRAM","shared: highest slot preserves the complete Prophet voice and name");
+  const cz=E.CZ.init();E.CZ.setName(cz,"CZ IN SAME SLOT");await E.bank.put(rq,383,{engine:15,name:"CZ IN SAME SLOT",cz},info);
+  got=await E.bank.get(rq,info,383);ok(got.engine===15&&eq(got.cz,cz),"shared: CZ replaces Prophet at the same absolute slot");
+  all=await E.bank.list(rq,info);const targets=E.nativeImportTargets(all.slots,383,0);ok(targets.overwrite?.used>0&&targets.targets.length===383,"shared: imports check occupancy across every engine");
+  await E.bank.load(rq,383,info,2);const status=E.parse[E.CMD.TRACK](await rq(E.req.track()));ok(mock.state.tracks[2].user===384,"shared: load preserves the full slot identity on any track");
+  await E.bank.erase(rq,383,info);ok(!(await E.bank.get(rq,info,383)).used,"shared: erasing U384 clears the shared slot");
+  const opaque=E.CZ.init();opaque[128]=0;opaque[143]=255;const title=E.CZ.name(opaque);
+  await E.nativeBank.put(rq,15,381,{engine:15,name:title,cz:opaque});const exact=await E.bank.get(rq,info,381);
+  ok(eq(exact.cz,opaque),"shared: incoming native name/control bytes remain byte-exact");
+  const drum=Array(54).fill(0);await E.bank.put(rq,382,{engine:10,name:"DRUM PATCH",drum,p:Array(info.pcount).fill(0)},info);
+  const kit=await E.bank.get(rq,info,382);ok(eq(kit.drum,drum),"shared: drum patches survive bank export and import");
+  let writes=0;try{await E.bank.put(async()=>{writes++;},383,{engine:19,p5:[1,2]},info);}catch{}ok(!writes,"shared: malformed native voices fail before sending a write");
+  const named={state:{caps:8,filter:0},slots:await E.bank.list(rq,info),favorites:[]};const names=info.engines.map(()=>[]);names[15]=["CZ FACTORY"];
+  const grouped=E.devicePresetRows(info,names,named),factoryAt=grouped.findIndex(r=>!r.user&&r.engine===15),czAt=grouped.findIndex(r=>r.user&&r.actualEngine===15);
+  ok(factoryAt>=0&&czAt===factoryAt+1,"shared: tone picker groups user slots under their actual engine");
+  link.close();
+}
+
+{
   const d = {min: 0, max: E.SCALE_INFO.length - 1, names: E.SCALE_INFO.map(r => r.name)};
   ok(E.scaleRows(d).length === 70, "scale picker: every supported scale available");
   ok(E.scaleRows(d, "Equal divisions").length === 24, "scale picker: family filtering");

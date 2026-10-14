@@ -31,7 +31,7 @@ static const char NM_NUM[17] = "1234567890-._/#+";
 static const char NM_SET[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._/#+";   /* KNOB 2 */
 static struct {
     uint8_t kind;                                      /* NK_*: NK_NONE = closed */
-    uint8_t slot;
+    uint16_t slot;
     uint8_t len, cur;                                  /* the name's length; the cursor 0..len */
     uint8_t num;                                       /* the white keys: 0 ABC, 1 123 */
     uint8_t key;                                       /* the white key (place + 1) of the letter being cycled, 0 none */
@@ -46,7 +46,7 @@ static struct {
 static uint32_t name_limit(void)
 {
     if(nm.kind==NK_CZ_NAME)return CZ_NAME_LEN;
-    if((nm.kind==NK_USER_SAVE || nm.kind==NK_USER_RENAME) && native_limit(TSEL->eng_req))return TSEL->eng_req==ENGI_PROPHET?P5_NAME_LEN:TSEL->eng_req==ENGI_FM6?10u:CZ_NAME_LEN;
+    if((nm.kind==NK_USER_SAVE || nm.kind==NK_USER_RENAME) && native_limit(nm.kind==NK_USER_RENAME?up_engine(nm.slot):TSEL->eng_req)) {uint32_t e=nm.kind==NK_USER_RENAME?up_engine(nm.slot):TSEL->eng_req;return e==ENGI_PROPHET?P5_NAME_LEN:e==ENGI_FM6?10u:CZ_NAME_LEN;}
     return NM_LEN;
 }
 static int name_on(void) { return nm.kind != NK_NONE; }
@@ -83,7 +83,7 @@ static void name_open(uint32_t kind, uint32_t slot)
 {
     char b[P5_NAME_LEN+1u];
     nm.kind = (uint8_t)kind; ui.name_active = 1;
-    nm.slot = (uint8_t)slot;
+    nm.slot = (uint16_t)slot;
     nm.num = nm.key = nm.rep = 0;
     b[0] = 0;
     if(kind==NK_CZ_NAME){
@@ -92,10 +92,10 @@ static void name_open(uint32_t kind, uint32_t slot)
         for(uint32_t k=CZ_NAME_LEN;k && b[k-1]==' ';k--)b[k-1]=0;
         str_cpy(nm.ph,"CZ TONE",sizeof nm.ph);
     }else if (kind == NK_USER_SAVE || kind == NK_USER_RENAME) {
-        uint32_t e = kind == NK_USER_RENAME && !native_limit(TSEL->eng_req) ? up_engine(slot) : TSEL->eng_req;
+        uint32_t e = kind == NK_USER_RENAME ? up_engine(slot) : TSEL->eng_req;
         up_auto_name(nm.ph, e, slot);
         uint32_t origin=kind==NK_USER_RENAME?slot:user_of(TSEL);
-        if(origin<USER_NONE && (kind==NK_USER_RENAME || TSEL->user_native) && native_limit(e)){
+        if(origin<USER_NONE && native_used(e,origin)){
             uint32_t len=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u,off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u;
             memcpy(b,native_raw(e,origin)+off,len);b[len]=0;
             for(uint32_t i=0;i<len;i++)if(b[i]<' ' || b[i]>'~')b[i]=' ';
@@ -417,7 +417,7 @@ static void nm_draw_name(void)
 }
 static void name_draw(void)
 {
-    uint8_t st[7] = {nm.kind, nm.slot, nm.len, nm.cur, nm.num, nm.key, nm.tap};
+    uint8_t st[8] = {nm.kind, (uint8_t)nm.slot, (uint8_t)(nm.slot>>8), nm.len, nm.cur, nm.num, nm.key, nm.tap};
     uint32_t sig = fnv(fnv(2166136261u, st, sizeof st), nm.s, sizeof nm.s) + ux.gen * 7919u +
                    (uint32_t)transport_busy() * 104729u;
     if (ui.force) {

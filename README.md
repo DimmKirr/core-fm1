@@ -385,7 +385,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Quick layers:** hold GLO, SCL or EDIT for shortcuts on the keys and knobs; double-press to lock
   a layer. Multi-level undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
 - **Presets:** browse by category (BASS, LEAD, PAD, KEYS, ORGAN, STRING, BRASS, WIND, PLUCK, BELL, DRUM, FX), favourites or
-  RECENT, with knob acceleration; factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
+  RECENT, with knob acceleration; factory presets, 384 shared user slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
 - **Screen:** Melodee's own look: Rubik type, icons drawn for Melodee, every track in its own colour (the screen takes the
   selected track's), three palettes: NIGHT, DAY and CONTRAST
@@ -506,10 +506,10 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
 ### Browsing sounds
 
 Turn **PRESETS** to open the sound browser. **KNOB 1** chooses the list and **KNOB 2** chooses a
-sound: each engine's factory presets in engine order, its native user slots, then the general user presets.
+sound: each engine's factory presets in engine order, followed by the shared user slots that use that engine.
 The list can be **FAV**, **RECENT** (sounds browsed since power-on, newest first) or one category: **BASS LEAD PAD KEYS ORGAN STRING
 BRASS WIND PLUCK BELL DRUM FX OTHER**. Every factory sound, the Prophet, CZ-1 and FM6 libraries included, has a
-category; native and user slots take the category of a factory sound with the same name, otherwise the words in
+category; shared user slots take the category of a factory sound with the same name, otherwise the words in
 their name (BASS, PIANO, STRINGS, ...). The chosen category is kept with the device settings.
 
 **KNOB 4** chooses the engine and starts it from its init sound, nothing changed and dry (INIT PROPHET, INIT TONE,
@@ -693,19 +693,35 @@ User sample slots USR1–3 and sample uploads are removed; their flash space now
 SAMPLE, GRAIN, SLICE, OBXF and the custom drum kit are removed; DRUM provides synthesized 808 and
 909 kits. Earlier sample data is overwritten as projects
 are saved. Complete backups with nonempty user samples require firmware that supports those slots.
-FM6 and CZ-1 have independent native user collections: F001–F064 store the 128-byte Dexed/DX7
-voice, and Z001–Z128 store the complete 144-byte Casio tone. They appear alongside factory tones
-in normal global and engine-specific preset scrolling, and can be favorited. SAVE > USER selects
-the current engine's collection; FM6 > STORE uses those same FM6 slots. Native saves exclude
-Felucca envelopes, modulation settings and patterns. Loading keeps these track settings;
-when changing engines, only engine-specific controls receive their defaults.
+All engines use **one bank of 384 user presets, U001–U384**. Every slot can hold any engine:
+fill the entire bank with CZ-1 tones, Prophet programs, FM6 voices, SID sounds, drum sounds, or any mix.
+**SAVE > USER**, **FM6 > STORE**, and **P5 STORE** all show these same slots, including presets
+made with other engines. PRESETS groups user sounds beneath their own engine's factory tones.
 
-The 64 general U01–U64 slots remain available for other engines. First boot copies saved FM6
-voices and saved CZ banks into their native collections, imports embedded CZ user tones into free
-CZ slots, and releases successfully migrated general slots. If CZ's collection is full, unmatched
-legacy tones stay in their general slots. Migration and saves use atomic flash writes; full backups
-include both collections. The editor's User presets collection selector imports/exports .syx directly.
-Going back to older firmware cannot access these new native FM6 slots or U33–U64.
+First boot converts the preceding preset banks automatically. A dedicated startup screen shows
+**MIGRATING PRESETS**, progress, and **KEEP POWER CONNECTED** before conversion begins.
+Update cleanup uses the same screen. If migration fails, the error stays visible:
+**OCT+** keeps the presets and continues, with preset writes protected until conversion succeeds;
+**OCT-** offers **wipe all user presets and continue**, followed by a separate OCT+ confirmation
+(OCT- goes back). Wiping clears user presets for every engine; projects, settings and factory
+sounds remain. A completed wipe ends migration retries and makes all shared slots available.
+If power is interrupted after the wipe choice is committed, startup resumes the wipe.
+Later boots skip conversion once the banks are updated. Update cleanup errors offer continue/retry
+without a preset wipe option.
+
+Saving keeps the complete native voice and the sound's envelopes, modulation, voice controls and
+stereo spread. Loading keeps the destination track's mix, effects, scale, arpeggiator and notes.
+The web editor has one shared bank; native .syx imports identify their engine automatically and
+check occupied slots across every engine before offering an overwrite. Native exports retain the
+manufacturer's voice format; JSON bank exports also retain the Felucca sound parameters.
+
+The first boot converts the immediately preceding general, FM6, CZ-1 and current Prophet banks
+using atomic A/B writes. Names, native bytes and favorites survive; slot numbers are reassigned
+within the shared bank. A failed conversion keeps its source data and blocks further preset writes
+until conversion succeeds. Unsupported older formats remain protected as **OLD FORMAT**.
+The retired Prophet bank format is still ignored. Full backups contain all shared slots, and the
+current editor can restore preceding complete backups. Older firmware cannot read the new bank
+format; use a backup made before conversion when returning to an older version.
 
 ## Engines
 
@@ -743,8 +759,8 @@ ANALOG, DIGITAL, PHASE, VOICE, NOISE, TRIO, WHEEL and PHYS are retired. Their en
 values and favourite bits remain reserved; old tracks using these engines are silent. PROPHET replaces
 ANALOG in the engine list, and track 1 powers on with PROPHET FUNK BASS II.
 
-PROPHET opens on It's a Prophet 5 (or on user slot P001 once it holds your own program). PRESETS lists
-INIT and Sequential's 200 factory programs, then the native user slots P001–P128. In the web editor,
+PROPHET opens on It's a Prophet 5. PRESETS lists INIT and Sequential's 200 factory programs,
+then the shared user slots containing Prophet programs. In the web editor,
 choose PROPHET to edit a track's program field by field, read and send it, import or export .syx
 programs and banks in Sequential's format, and manage the user slots. Calibration, storage and format
 notes: [docs/PROPHET5_PROTOTYPE.md](docs/PROPHET5_PROTOTYPE.md).
@@ -753,7 +769,7 @@ The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DI
 as FM6 sounds converted from them.
 
 CZ-1 opens with a native INIT TONE; PRESETS then lists Casio's 64 CZ-1 preset tones (A-1 BRASS 1 to
-H-8 TYPHOON SOUND). The separate 128-slot user collection starts empty. Imported Casio tones use
+H-8 TYPHOON SOUND). Shared user slots start empty on a fresh device. Imported Casio tones use
 their original oscillator and six eight-point envelope parameters.
 
 **Native CZ-1 SysEx**: choose CZ-1 in the web editor, then **CZ-1 native patches → Import .syx**.
@@ -761,7 +777,7 @@ Select a tone from the imported bank and **Send to track**. **Read track** retri
 **Export .syx** writes a CZ-1-compatible tone. **Add to library** retains it for later use.
 In **User presets**, choose **CZ-1**, then import .syx into free native slots or save the current track's
 native tone. Export writes the collection as Casio frames. The device scrolls these tones in PRESETS;
-there is no BANK / PTCH selection page. Full backups include all 128 slots.
+there is no BANK / PTCH selection page. Full backups include all 384 shared slots.
 Both lines have separate eight-point DCO/DCW/DCA envelopes, including sustain,
 end points, velocity sensitivity and key follow. The original 144-byte CZ-1 tone survives user presets,
 projects, templates and library export; it is not reduced to common ADSR values. Compatible 128-byte

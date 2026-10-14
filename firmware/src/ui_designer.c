@@ -14,7 +14,8 @@ static void designer_page(void);
 /* One compact snapshot swaps A (original) and B (draft). Editing is allowed
  * only on B; switching engine during setup does not touch the track. */
 typedef struct {
-    uint8_t eng, preset, user, native;
+    uint8_t eng, preset, native;
+    uint16_t user;
     int16_t p[P_COUNT];
     union {
         struct { uint8_t patch[FP_SIZE+1u], fn[FM6_NFN], on; } fm;

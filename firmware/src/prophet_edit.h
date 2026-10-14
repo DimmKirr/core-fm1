@@ -29,7 +29,7 @@ static const param_desc_t P5_PANEL[88]={
 #undef P5_B
 static const param_desc_t P5_BEND_DISPLAY=PD("BEND",F_INT,1,12,1);
 static const param_desc_t P5_TUNE_DISPLAY[2]={PD("FREQ A",F_SEMI,-12,36,0),PD("FREQ B",F_SEMI,-12,36,0)};
-static const param_desc_t P5_STORE[4]={PD("SLOT",F_INT,1,128,1),PD("STORE",F_INT,0,1,0),PD("SEND",F_INT,0,1,0),PD("INIT",F_INT,0,1,0)};
+static const param_desc_t P5_STORE[4]={PD("SLOT",F_INT,1,UP_SLOTS,1),PD("STORE",F_INT,0,1,0),PD("SEND",F_INT,0,1,0),PD("INIT",F_INT,0,1,0)};
 static int p5_keyed_tune(const track_t *t,uint32_t id)
 {
     return id==P5_FREQ_A || (id==P5_FREQ_B && p5_patch_of(t)->raw[P5_KEY_B]);

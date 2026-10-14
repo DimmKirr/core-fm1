@@ -66,7 +66,8 @@ static const char *const N_FMPM[] = {"PEDAL", "ON"};   /* portamento: while CC 6
 static const char *const N_FMDEST[] = {"-", "P", "A", "PA", "E", "PE", "AE", "PAE"};   /* pitch, amp, EG bias */
 static const char *const N_FMENG[] = {"MODRN", "MARK I", "OPL"};                  /* Dexed's engine resolutions */
 static const char *const N_FMONOFF[] = {"OFF", "ON"};
-static uint8_t fm6_opsel, fm6_bslot;                    /* OP1..OP6 = 0..5; user preset slot 0..63 (U01..U64) */
+static uint8_t fm6_opsel;
+static uint16_t fm6_bslot;                    /* OP1..OP6 = 0..5; user preset slot 0..63 (U01..U64) */
 static int16_t fm6_cell[4];
 static const param_desc_t FM6_OPD[FP_OP + 1] = {        /* an operator; FP_OP: its switch */
     [FP_R1] = PD("R1", F_INT, 0, 99, 99), [FP_R1 + 1] = PD("R2", F_INT, 0, 99, 99),
@@ -625,7 +626,7 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
     uint8_t v[FP_SIZE + 1u];
     if (pg->graph == GR_FMSTORE) {
         if (!slot)
-            fm6_bslot = (uint8_t)(val - 1);
+            fm6_bslot = (uint16_t)(val - 1);
         return;
     }
     memcpy(v, fm6_patch[tr], FP_SIZE);

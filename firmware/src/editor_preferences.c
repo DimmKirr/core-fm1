@@ -39,7 +39,7 @@ static void ed_ui_state(void)
 #else
     ed_b(127);
 #endif
-    for(uint32_t bank=0;bank<5u;bank++){if(!p5_meta_ready[bank])p5_user_bank(bank);sig=(sig^p5_meta[bank].favorites)*16777619u;}
+    sig=(sig^up_gen)*16777619u;
     ed_u28(sig);
     ed_u28(up_gen);
     ed_b(settings_click);ed_b(settings_click_level);ed_b(settings_countin);ed_b(settings_preview);ed_b(settings_chord_add);

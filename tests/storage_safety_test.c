@@ -41,19 +41,20 @@ int main(void)
 
     reset(); up_bank_t bank = {0}; bank.magic = UP_BANK_MAGIC; bank.rsize = sizeof(up_rec_t); bank.nslot = UP_PER_BANK;
     bank.r[0] = rec; bank.r[0].ver = 1;
-    st_save(OBJ_UPRESET0, &bank, sizeof bank); up_boot();
+    up_disk_bank_t disk;memset(&disk,0,sizeof disk);disk.magic=UP_DISK_MAGIC;disk.rsize=sizeof(up_disk_rec_t);disk.nslot=UP_PER_BANK;memcpy(disk.r[0].head,&bank.r[0],160u);memcpy(disk.r[0].extra,bank.r[0].cz_extra,46u);
+    st_save(OBJ_UPRESET0,&disk,sizeof disk);up_boot();
     bad += check("unknown record inside current bank stays occupied", up_old(0) && !up_used(0) && !up_old(1));
     up_put(1, &rec); up_cache_reset();
     bad += check("saving another slot retains unknown record bytes", !memcmp(up_rec(0), &bank.r[0], sizeof(up_rec_t)) && up_old(0));
 
     reset(); st_save(OBJ_NATIVEFM0, old, sizeof old); st_save(OBJ_CZBANK0, old, sizeof old); up_boot();
-    bad += check("boot never formats occupied old FM or CZ banks", native_old(ENGI_FM6, 0) && native_old(ENGI_CZ, 0) && same_object(OBJ_NATIVEFM0, old, sizeof old) && same_object(OBJ_CZBANK0, old, sizeof old));
+    bad += check("boot never formats occupied old FM or CZ banks", native_old(ENGI_FM6, 72) && native_old(ENGI_CZ, 144) && same_object(OBJ_NATIVEFM0, old, sizeof old) && same_object(OBJ_CZBANK0, old, sizeof old));
     before = erases;
-    bad += check("native direct saves cannot erase old banks", native_put(ENGI_FM6, 0, FM6_INIT) == 2 && native_put(ENGI_CZ, 0, cz_patch[0].raw) == 2 && erases == before);
-    sysex_stage(ENGI_FM6, FM6_INIT, 1, FM6_PACKED); sysex_choose();
+    bad += check("native direct saves cannot erase old banks", native_put(ENGI_FM6, 72, FM6_INIT) == 2 && native_put(ENGI_CZ, 144, cz_patch[0].raw) == 2 && erases == before);
+    sysex_stage(ENGI_FM6, FM6_INIT, 1, FM6_PACKED);ui.uslot=72;sysex_choose();
     bad += check("incoming patch waits for old-bank confirmation", ui.confirm == CF_IMPORT && sx_import.count == 1 && same_object(OBJ_NATIVEFM0, old, sizeof old));
     preset_old_allow(1); sysex_commit(); preset_old_allow(0);
-    bad += check("confirmed import replaces old native bank", !sx_import.count && native_used(ENGI_FM6, 0) && !native_old(ENGI_FM6, 0) && !preset_old_write);
+    bad += check("confirmed import replaces old native bank", !sx_import.count && native_used(ENGI_FM6, 72) && !native_old(ENGI_FM6, 72) && !preset_old_write);
 
     reset(); st_save(OBJ_SETTINGS, old, sizeof old); persist_boot();
     bad += check("boot preserves unsupported settings record", persist_old && same_object(OBJ_SETTINGS, old, sizeof old));

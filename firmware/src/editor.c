@@ -282,6 +282,7 @@ static int ed_flash_stop(void)
 #include "editor_fm6.c"
 #include "editor_cz.c"
 #include "editor_native.c"
+#include "editor_library.c"
 #include "editor_prophet.c"
 
 static void ed_motion_reply(uint32_t k, uint32_t rc)
@@ -345,6 +346,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_cz_handle(cmd, a, na)) { ed_send(); return; }
+    if (ed_library_handle(cmd,a,na)) { ed_send(); return; }
     if (ed_native_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
     case 100: {
@@ -639,8 +641,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x50); ed_b(1); ed_b(NPAT); ed_b(CHAIN_ROWS);     /* bank controls: 73/74 */
         ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(0);   /* FM6 patches: cmds 68..71 */
         ed_b(0x43); ed_b(1); ed_b(CZ_BYTES & 127u); ed_b(CZ_BYTES >> 7); ed_b(0); ed_b(0); /* old CZ bank controls retired */
-        ed_b(0x35);ed_b(1);ed_b(ENGI_PROPHET);ed_b(USER_GENERAL);ed_b(USER_NATIVE_FM);ed_b(USER_NATIVE_CZ);ed_b(USER_NATIVE_P5);ed_b(0);ed_b(1); /* Prophet/native stable namespaces */
-        ed_b(0x4e); ed_b(1); ed_b(NATIVE_FM_SLOTS); ed_b(0); ed_b(NATIVE_CZ_SLOTS&127u); ed_b(NATIVE_CZ_SLOTS>>7); /* native user pools, command 78 */
+        ed_b(0x35);ed_b(1);ed_b(ENGI_PROPHET);ed_b(USER_GENERAL);ed_b(USER_NATIVE_FM);ed_b(USER_NATIVE_CZ);ed_b(USER_NATIVE_P5);ed_b(0);ed_b(1); /* legacy native clients see their addressable prefix */
+        ed_b(0x4e); ed_b(1); ed_b(64); ed_b(0); ed_b(0); ed_b(1); /* legacy command 78 addressable prefixes */
+        ed_b(0x55);ed_b(1);ed_b(UP_SLOTS&127u);ed_b(UP_SLOTS>>7); /* shared library, command 80 */
         break;
     case ED_GET:
     case ED_SET:
@@ -774,13 +777,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         s0 = a[0];
         cnt = a[1] > 16u ? 16u : a[1];
-        if (s0 >= UP_SLOTS)
-            cnt = 0;
-        else if (s0 + cnt > UP_SLOTS)
-            cnt = UP_SLOTS - s0;
+        if (s0 >= 128u)cnt=0;
+        else if(s0+cnt>128u)cnt=128u-s0;
         ed_b(s0);
         ed_b(cnt);
-        ed_b(UP_SLOTS);
+        ed_b(128u);
         for (i = s0; i < s0 + cnt; i++) {
             char nm[13] = {0};
             uint32_t j, u = (uint32_t)up_used(i);
@@ -798,7 +799,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         char nm[13] = {0};
         const up_rec_t *r;
         uint32_t u;
-        if (na < 1u || a[0] >= UP_SLOTS)
+        if (na < 1u || a[0] >= 128u)
             return;
         r = up_rec(a[0]);
         u = (uint32_t)up_used(a[0]);
@@ -847,7 +848,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         for (n0 = 0; 1u + n0 < na && a[1 + n0] && n0 < 13u; n0++)
             ;
-        if (a[0] < UP_SLOTS && (!n0 || up_name_ok(a + 1, n0)) &&
+        if (a[0] < 128u && (!n0 || up_name_ok(a + 1, n0)) &&
             (1u + n0 == na || (2u + n0 == na && !a[1u + n0]))) {   /* "" = automatic name */
             for (i = 0; i < n0; i++)
                 nm[i] = (char)a[1 + i];
@@ -863,13 +864,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (na < 1u)
             return;
         ed_b(a[0]);
-        ed_b(a[0] < UP_SLOTS && !up_load(a[0]) ? 0u : 1u);
+        ed_b(a[0] < 128u && !up_load(a[0]) ? 0u : 1u);
         break;
     case ED_UP_ERASE:
         if (na < 1u)
             return;
         ed_b(a[0]);
-        ed_b(a[0] >= UP_SLOTS ? 1u : ed_flash_stop() || up_put(a[0], 0) ? 2u : 0u);
+        ed_b(a[0] >= 128u ? 1u : ed_flash_stop() || up_put(a[0], 0) ? 2u : 0u);
         break;
     case ED_WATCH:                                         /* on -> on */
         if (na < 1u)

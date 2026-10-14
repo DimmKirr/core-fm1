@@ -7,7 +7,7 @@ enum { SK_NONE, SK_PROJECT, SK_USER, SK_FM6, SK_P5 };
 #define SL_Y0 22                                        /* the rows from y 22: 22 px, the card 46 */
 #define SL_ROW 22
 #define SL_CARD 46
-static struct { uint32_t sig; uint8_t first, save_page; } slv;   /* save_page: USER reached by SAVE (+1): its sheet on
+static struct { uint32_t sig; uint16_t first; uint8_t save_page; } slv;   /* save_page: USER reached by SAVE (+1): its sheet on
                                                                   * Save here */
 static void name_rename(void);                          /* ui_name.c */
 static void act_do(void);                               /* ui_input.c */
@@ -68,8 +68,6 @@ static void slot_detail(uint32_t k, uint32_t r, int used, char *b)   /* the card
                    : used ? "Saved" : "Empty", 24);
     else if (!used)
         str_cpy(b, "Empty", 24);
-    else if (library_native())
-        str_cpy(b, ENGINES[eng_idx(library_engine())]->name, 24);
     else
         str_cpy(b, ENGINES[eng_idx(up_engine(r))]->name, 24);
 }
@@ -173,7 +171,7 @@ static void slot_draw(void)
     pv_sound();
     if (vis > n)
         vis = n;
-    slv.first = (uint8_t)clamp((int32_t)cur - (int32_t)vis / 2, 0, (int32_t)(n - vis));
+    slv.first = (uint16_t)clamp((int32_t)cur - (int32_t)vis / 2, 0, (int32_t)(n - vis));
     sig = cur * 7u + slv.first * 131u + boot * 1031u + k * 40503u + ux.gen * 977u + ux.pal * 31u + song.sel * 13u +
           up_gen * 7919u + library_engine() * 104729u + bulk.on * 19u + bulk.anchor * 23u + bulk.end * 29u + sx_import.count * 37u;
     for (r = slv.first; r < slv.first + vis; r++)

@@ -120,7 +120,7 @@ static uint32_t cat_guess(uint32_t e, const char *nm)
 #define BRW_P5 128u                                    /* (native_presets.c, prophet_user.c, core.h assert these) */
 #define BRW_FM 64u
 #define BRW_CZ 128u
-#define BRW_DYN (BRW_P5 + BRW_FM + BRW_CZ + UP_SLOTS)
+#define BRW_DYN UP_SLOTS
 static uint8_t cat_dyn[BRW_DYN / 2u];
 static uint32_t cat_dyn_gen = 0xFFFFFFFFu;
 static int src_slot(uint32_t src)
@@ -138,8 +138,7 @@ static uint32_t entry_cat(uint32_t src, uint32_t k)
     char nm[16];
     if (!src_slot(src))
         return preset_cat(src % NENGINES, k);
-    i = src == USER_NATIVE_P5 ? k : src == USER_NATIVE_FM ? BRW_P5 + k : src == USER_NATIVE_CZ ? BRW_P5 + BRW_FM + k :
-        BRW_P5 + BRW_FM + BRW_CZ + k;
+    i = k;
     if (i >= BRW_DYN)
         return CAT_OTHER;
     if (cat_dyn_gen != up_gen) {
@@ -184,11 +183,11 @@ static void cur_entry(uint32_t *src, uint32_t *k)
 
 /* RECENT: the sounds loaded by browsing, newest first (src << 8 | k; RAM only) */
 #define RECENT_N 8u
-static uint16_t recent[RECENT_N];
+static uint32_t recent[RECENT_N];
 static uint8_t recent_n;
 static void recent_push(uint32_t src, uint32_t k)
 {
-    uint16_t v = (uint16_t)(src << 8 | (k & 0xFFu));
+    uint32_t v = src << 16 | (k & 0xFFFFu);
     uint32_t i, j = recent_n < RECENT_N ? recent_n : RECENT_N - 1u;
     for (i = 0; i < recent_n; i++)
         if (recent[i] == v) {
@@ -245,22 +244,8 @@ static int list_keep(uint32_t m, uint32_t src, uint32_t k)
  * *as, *ak (USER_GENERAL, UP_SLOTS past the end). The segments: 2 per engine in ENGINE_ORDER (factory, native), then
  * the user presets */
 #define LSEG_USER (2u * NENG_SHOWN)
-static uint32_t lseg_src(uint32_t seg)
-{
-    uint32_t e;
-    if (seg >= LSEG_USER)
-        return USER_GENERAL;
-    e = eng_vis(seg / 2u);
-    return !(seg & 1u) ? e : e == ENGI_PROPHET ? USER_NATIVE_P5 : e == ENGI_FM6 ? USER_NATIVE_FM : USER_NATIVE_CZ;
-}
-static uint32_t lseg_len(uint32_t seg)
-{
-    uint32_t e;
-    if (seg >= LSEG_USER)
-        return UP_SLOTS;
-    e = eng_vis(seg / 2u);
-    return seg & 1u ? native_limit(e) : preset_shown(e);
-}
+static uint32_t lseg_src(uint32_t seg){return seg&1u?USER_GENERAL:eng_vis(seg/2u);}
+static uint32_t lseg_len(uint32_t seg){return seg&1u?UP_SLOTS:preset_shown(eng_vis(seg/2u));}
 static uint32_t list_scan(uint32_t m, uint32_t ws, uint32_t wk, uint32_t n, uint32_t *as, uint32_t *ak,
                           uint32_t *total)
 {
@@ -269,8 +254,8 @@ static uint32_t list_scan(uint32_t m, uint32_t ws, uint32_t wk, uint32_t n, uint
     *ak = UP_SLOTS;
     if (m == LM_RECENT) {
         for (i = 0; i < recent_n; i++) {
-            src = recent[i] >> 8;
-            k = recent[i] & 0xFFu;
+            src = recent[i] >> 16;
+            k = recent[i] & 0xFFFFu;
             if (!entry_ok(src, k))
                 continue;
             if (src == ws && k == wk)
@@ -280,13 +265,13 @@ static uint32_t list_scan(uint32_t m, uint32_t ws, uint32_t wk, uint32_t n, uint
             c++;
         }
     } else {
-        for (seg = 0; seg <= LSEG_USER; seg++) {
-            uint32_t len = lseg_len(seg), slot = seg >= LSEG_USER || (seg & 1u), init;
+        for (seg = 0; seg < LSEG_USER; seg++) {
+            uint32_t len = lseg_len(seg), slot = seg & 1u, init;
             src = lseg_src(seg);
             init = slot || !len ? 0u : preset_init(src);   /* (an engine's INIT first: FM6's comes after F24) */
             for (i = 0; i < len; i++) {
                 k = (i + init) % len;
-                if (slot && !(src == USER_GENERAL ? up_used(k) : native_used(src_engine(src, k), k)))
+                if (slot && (!up_used(k) || up_engine(k)!=eng_vis(seg/2u)))
                     continue;
                 if (!list_keep(m, src, k))
                     continue;

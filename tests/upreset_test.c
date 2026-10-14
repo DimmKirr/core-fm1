@@ -105,7 +105,7 @@ int main(void)
         bad += check("short optional tail rejected", up_parse(a, n + 1u, &r, &slot) == 1 &&
                                                        !memcmp(&r, &keep, sizeof r));
     }
-    n = put_frame(a, UP_SLOTS, 0, "X", 0);
+    n = put_frame(a, 128u, 0, "X", 0);
     bad += check("UP_PUT past last slot -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 0, NENGINES, "X", 0);
     bad += check("UP_PUT bad engine -> args", up_parse(a, n, &r, &slot) == 1);
@@ -133,7 +133,7 @@ int main(void)
     up_cache_bank(1)->rsize = sizeof(up_rec_t);
     up_cache_bank(1)->nslot = UP_PER_BANK;
     *up_rec(17) = r;
-    bad += check("bank fits one object", sizeof(up_bank_t) <= ST_PAYLOAD_MAX);
+    bad += check("legacy wire bank fits one object", sizeof(up_bank_t) <= ST_PAYLOAD_MAX);
     bad += check("bank save", st_save(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1))) == 0);
     up_cache_reset();
     len = st_load(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1)));

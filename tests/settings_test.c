@@ -30,7 +30,11 @@ static uint8_t settings_boot, settings_drumch = 10;  /* (params.c) */
 static int16_t settings_budget=VOICE_BUDGET_DEFAULT;
 static int native_used(uint32_t e, uint32_t k) { (void)e; (void)k; return 0; }
 #if __has_include("../firmware/src/favorites.c")
+static int up_favorite(uint32_t k);
+static int up_favorite_set(uint32_t k,int on);
 #include "../firmware/src/favorites.c"
+static int up_favorite(uint32_t k){return k<64u && (((k<32u?favorites.user:favorites_user_hi)>>(k%32u))&1u);}
+static int up_favorite_set(uint32_t k,int on){if(k>=64u)return 0;uint32_t *word=k<32u?&favorites.user:&favorites_user_hi;uint32_t old=*word;if(on)*word|=1u<<(k%32u);else *word&=~(1u<<(k%32u));return old!=*word;}
 #endif
 #include "../firmware/src/settings_persist.c"
 int main(void)
@@ -68,9 +72,9 @@ int main(void)
 #ifdef MELODEE_FAVORITES
     assert(favorite_has(8, 0) && favorite_has(USER_GENERAL, 31) && favorites.filter);
 #endif
-    favorite_set(USER_NATIVE_FM,63,1);favorite_set(USER_NATIVE_CZ,127,1);favorite_set(USER_GENERAL,63,1);
+    favorite_set(USER_NATIVE_FM,63,1);favorite_set(USER_NATIVE_CZ,63,1);favorite_set(USER_GENERAL,63,1);
     settings_export(&p);memset(&favorites,0,sizeof favorites);favorites_user_hi=0;settings_import(&p,sizeof p);
-    assert(favorite_has(USER_NATIVE_FM,63) && favorite_has(USER_NATIVE_CZ,127) && favorite_has(USER_GENERAL,63));
+    assert(favorite_has(USER_NATIVE_FM,63) && favorite_has(USER_NATIVE_CZ,63) && favorite_has(USER_GENERAL,63));
     assert(!favorite_has(USER_NATIVE_FM,64) && !favorite_has(USER_NATIVE_CZ,128));
     p=original;settings_import(&p,sizeof p);
     {

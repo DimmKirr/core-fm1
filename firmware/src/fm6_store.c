@@ -38,7 +38,7 @@ static uint8_t fm6_chk(const uint8_t *p, uint32_t n)    /* DX7 checksum: data + 
     return sx_checksum(p,n);
 }
 
-static uint32_t fm6_sx_first(void) { return fm6_bslot < 32u ? 0u : 32u; }
+static uint32_t fm6_sx_first(void) { return (fm6_bslot/32u)*32u; }
 
 /* ------------------------------------------------------------- out --- */
 #if MELODEE_OTA

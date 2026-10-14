@@ -134,6 +134,7 @@ static void ui_power_on(void)
     chain_defaults(&chain_config);
     pattern_init();
     memset(&ui, 0, sizeof ui);
+    memset(&boot_work, 0, sizeof boot_work);
     memset(&step_history, 0, sizeof step_history);
     memset(&sx_import,0,sizeof sx_import);memset(&bulk,0,sizeof bulk);resource_release(RES_NOTE_HISTORY);note_transaction_ptr=0;
     midi_sync_active=0;memset(&midi_clock,0,sizeof midi_clock);
@@ -3943,7 +3944,7 @@ static int test_bughunt_ui(void)
         bad += check("  the beat counter runs (a bar of blocks wraps the beat of the bar)", beat_n < 4u && beat_pos < b);
         trk[2].p[P_AMODE] = 0; trk[2].nheld = 0;
     }
-    /* 3: USER ERASE asks first (ERASE U02?): OCT- keeps the preset, OCT+ erases it */
+    /* 3: USER ERASE asks first (ERASE U002?): OCT- keeps the preset, OCT+ erases it */
     ui_power_on_general();
     go_page(GR_USER); ui.uslot = 1;
     up_ui(2, 1);
@@ -3952,12 +3953,12 @@ static int test_bughunt_ui(void)
     {
         char a[24], b[32];
         confirm_text(a, b);
-        ok &= str_eq(a, "ERASE U02?") && b[0];
+        ok &= str_eq(a, "ERASE U002?") && b[0];
     }
     press(B_OCTDN);
     ok &= !ui.confirm && up_used(1);
     sheet_do("Erase"); press(B_OCTUP);
-    bad += check("USER ERASE: the ERASE U02? dialog; OCT- keeps the preset, OCT+ erases it",
+    bad += check("USER ERASE: the ERASE U002? dialog; OCT- keeps the preset, OCT+ erases it",
                  ok && !ui.confirm && !up_used(1));
     sheet_do("Erase");
     bad += check("  an empty slot: no dialog, EMPTY SLOT", !ui.confirm && msg_is("EMPTY SLOT"));
@@ -4824,9 +4825,9 @@ static int test_prophet_pages(void)
     bad+=check("Prophet exposes all sixteen native editing and store pages",visible==16);
     go_title("P5 OSC A");p5_patch_t before=*p5_patch_of(TSEL);turn(EN_K1,1);before.raw[P5_FREQ_A]+=2;
     bad+=check("native oscillator knob changes its field and preserves opaque bytes",!memcmp(&before,p5_patch_of(TSEL),sizeof before));
-    go_title("P5 STORE");p5_store_slot=128;turn(EN_K2,1);press(B_OCTUP);
-    bad+=check("native STORE: OCT+ the slot's sheet, no NAME yet",!name_on()&&pop.on==POP_SHEET&&p5_store_slot==128);
-    sheet_do("Save here");bad+=check("empty P128 opens native slot naming without overwrite",name_on()&&nm.slot==127&&name_limit()==20);
+    go_title("P5 STORE");p5_store_slot=383;turn(EN_K2,1);press(B_OCTUP);
+    bad+=check("native STORE: OCT+ the slot's sheet, no NAME yet",!name_on()&&pop.on==POP_SHEET&&p5_store_slot==384);
+    sheet_do("Save here");bad+=check("empty P128 opens native slot naming without overwrite",name_on()&&nm.slot==383&&name_limit()==20);
     nm.len=nm.cur=0;nm.s[0]=0;for(uint32_t k=0;k<20;k++){nm_insert((char)('A'+k));nm.cur++;}
     bad+=check("native NAME holds twenty characters and refuses a twenty-first",nm.len==20&&!nm_insert('Z')&&nm.s[20]==0);
     name_close();go_title("P5 STORE");p5_patch_of(TSEL)->raw[97]=255;sheet_do("Init sound");
@@ -4834,10 +4835,42 @@ static int test_prophet_pages(void)
     undo_swap();bad+=check("undo after native INIT restores opaque bytes",p5_patch_of(TSEL)->raw[97]==255);
     return bad;
 }
+static int test_boot_maintenance(void)
+{
+    int bad=0;ui_power_on();song.playing=0;
+    boot_work_begin("MIGRATING PRESETS",21u,1u);
+    uint32_t sel=song.sel;int16_t bpm=song.g[G_BPM];
+    press(B_PLAY);turn(EN_K1,4);press(B_OCTUP);
+    bad+=check("maintenance blocks transport, knobs and acknowledgment while writing",boot_work.state==1u && !song.playing && song.sel==sel && song.g[G_BPM]==bpm);
+    boot_work_progress(7u);boot_work_end(1);
+    ui.menu=1;ui.confirm=CF_CLEAR_SEQ;ui.uboot=3;ui.force=1;
+    uint16_t screen[240*240];memcpy(screen,host_screen,sizeof screen);ui_draw();
+    bad+=check("maintenance error stays above menu, dialogs and update countdown",boot_work.state==2u && !memcmp(screen,host_screen,sizeof screen));
+    settings_screen=SCR_CODE[1];fm1_ms+=3600000u;ui_draw();
+    bad+=check("maintenance error cannot time out or sleep",boot_work.state==2u && scrn.st==SCR_ON);
+    press(B_PLAY);bad+=check("error consumes ordinary actions until acknowledged",boot_work.state==2u && !song.playing);
+    press(B_OCTUP);bad+=check("OCT+ explicitly acknowledges the maintenance error",!boot_work.state && memcmp(screen,host_screen,sizeof screen));
+    ui_power_on();song.playing=0;
+    up_store(383,"KEEP UNTIL CONFIRMED");
+    boot_work_begin("MIGRATING PRESETS",21u,1u);boot_work_end(1);
+    press(B_OCTDN);
+    bad+=check("wipe option asks for confirmation without changing presets",boot_work.state==3u && up_used(383));
+    press(B_OCTDN);
+    bad+=check("back from wipe confirmation retains presets and the error",boot_work.state==2u && up_used(383));
+    fm1_in.buttons=(1u<<panel.btn[B_OCTDN])|(1u<<panel.btn[B_OCTUP]);
+    host_pressed=fm1_in.buttons;frame();fm1_in.buttons=0;frame();
+    bad+=check("simultaneous OCT keys cannot enter or confirm wiping",boot_work.state==2u && up_used(383));
+    press(B_OCTDN);press(B_OCTUP);
+    bad+=check("explicitly confirmed wipe clears the bank and continues",!boot_work.state && !up_count());
+    boot_work_begin("FINISHING UPDATE",5u,0u);boot_work_end(1);press(B_OCTDN);
+    bad+=check("update cleanup errors do not offer a preset wipe",boot_work.state==2u && !boot_work.presets);
+    press(B_OCTUP);ui_power_on();return bad;
+}
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-    int bad = test_prophet_pages();
+    int bad = test_boot_maintenance();
+    bad += test_prophet_pages();
     bad += test_large_face();
     bad += test_home_notes();
     bad += test_stage();

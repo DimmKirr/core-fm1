@@ -172,13 +172,13 @@ separate acceptance checks.
 
 Sixteen device pages cover STORE, OSC A/B, B waves, mixer, filter, both ADSRs,
 velocity/envelope modulation, Poly-Mod, LFO/wheel and performance settings.
-STORE offers 128 slots, naming up to twenty characters, native USB dump and
+STORE offers the shared 384 user slots, naming up to twenty characters, native USB dump and
 INIT. Store requires the normal stopped-transport/overwrite workflow.
 
 All 200 Sequential v1.03 programs are PROPHET's factory presets (1–200, after
 INIT at 0), always present whatever the user collection holds; they are dry, as
-the Prophet. All 201 factory entries can be favorites. Native user slots P001–P128
-start empty and hold only saved programs. `assets/prophet5-factory/README.md` records
+the Prophet. All 201 factory entries can be favorites. Shared slots U001–U384
+start empty and can hold any engine, including complete Prophet programs. `assets/prophet5-factory/README.md` records
 the original download and SHA-256; `tools/gen_prophet_factory.py` verifies that
 source before generating firmware and mock-editor data. Missing/invalid user banks
 start empty without writing flash; valid saved banks retain their contents.
@@ -191,14 +191,15 @@ The editor protocol carries preset numbers past 127 as trailing high bits on
 The matching web panel edits the known native fields and name, reads/sends
 complete patches, imports single dumps or whole `.syx` libraries, and exports
 patches/libraries with original wire layout and opaque bytes. Both official
-200-program banks remain browsable after import. The separate 128-slot native
-user collection supports list/load/store/rename/delete, favorites and native
-collection import/export. Larger libraries are not silently truncated into
-those 128 slots. Complete sound JSON exports/auditions retain the native patch.
+200-program banks remain browsable after import. The shared 384-slot bank
+supports list/load/store/rename/delete, favorites and native .syx import/export.
+Every slot can hold a Prophet program; imports check occupancy across all engines
+and offer an explicit overwrite when the library exceeds free capacity. Complete sound JSON exports/auditions retain the native patch.
 
-Native loads initialize native voice/performance behavior and reset eight
-common engine macros. They retain Melodee effects, modulation matrix, scales,
-chords and sequence. Common CUT/RES, A/B tuning, A/B width and A/B mixer macros
+Native imports initialize voice/performance behavior and default the common
+sound controls. Saving a designed sound also retains its modulation and engine
+macros. Loading restores these saved sound controls while retaining the destination
+track's effects, mix, scales, chords and sequence. Common CUT/RES, A/B tuning, A/B width and A/B mixer macros
 act as offsets; matrix PITCH/CUT/SHP/AMP are supported. Matrix ENV follows the
 native amplifier envelope. Common ENV destination controls are inactive because
 Prophet owns both envelopes. Native bend overrides common RPN bend range.

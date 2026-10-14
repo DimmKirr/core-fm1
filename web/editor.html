@@ -204,7 +204,7 @@
     <p class="dim" id="ctlhelp" data-t="ctlHelp"></p>
     <div id="p5panel" class="group" hidden>
       <h2>Prophet native programs</h2>
-      <p class="dim">Read the selected track before editing. Imported libraries stay browsable here; save up to 128 programs in the Prophet collection.</p>
+      <p class="dim">Read the selected track before editing. Imported libraries stay browsable here; save programs in the shared user bank.</p>
       <p class="bar"><button id="p5import">Import .syx</button><input id="p5file" type="file" accept=".syx" hidden>
         <select id="p5voices" aria-label="Imported Prophet program"></select><button id="p5read">Read track</button><button id="p5send">Send to track</button>
         <button id="p5export">Export program .syx</button><button id="p5exportbank">Export imported library .syx</button><button id="p5library">Add to library</button></p>
@@ -321,7 +321,7 @@
         <h2 data-t="bank" data-ic="port_disk"></h2>
         <p class="dim" id="bankhint"></p>
         <div id="bankpane" hidden>
-          <p class="bar"><label>Preset collection <select id="presetpool"><option value="0">General presets</option><option value="12">FM6 voices</option><option value="15">CZ-1 tones</option><option value="19">Prophet programs</option></select></label></p>
+          <p class="bar"><label>Preset collection <select id="presetpool"><option value="0">Shared user presets</option><option value="12">FM6 voices</option><option value="15">CZ-1 tones</option><option value="19">Prophet programs</option></select></label></p>
           <p class="dim" id="nativehint" hidden>Native tones appear in the preset browser. Effects and track settings stay unchanged when loaded.</p>
           <div class="bar"><b id="bankhead"></b></div>
           <div class="list" id="banklist"></div>
@@ -410,7 +410,7 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   TRACK_PARAM: 31, TRACK_CHANGED: 32, SONG: 33, PATTERN: 73, BANK_SONG: 74,
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
-  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78, PROPHET:95 };
+  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78, LIBRARY:80, PROPHET:95 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 
 /*P5-FACTORY-BEGIN*/
@@ -613,6 +613,9 @@ const parse = {
     const pp=trailer.findIndex((x,i)=>i>=25&&x===0x35&&trailer[i+1]===1);
     o.prophet=pp>=0&&trailer[pp+2]===19;
     if(o.prophet){o.namespace={general:trailer[pp+3],12:trailer[pp+4],15:trailer[pp+5],19:trailer[pp+6]};o.native={...o.native,19:trailer[pp+7]|trailer[pp+8]<<7};}
+    const shared=trailer.findIndex((x,i)=>i>=25&&x===0x55&&trailer[i+1]===1);
+    o.shared=shared>=0?{version:1,total:trailer[shared+2]|trailer[shared+3]<<7}:null;
+    if(o.shared)o.native=null;
     return o;
   },
   [CMD.UI_STATE](a) {
@@ -867,6 +870,7 @@ function replyMatches(cmd, args, a) {
     case CMD.BANK_SONG: case CMD.SONG: return a[0] === args[0];
     case CMD.PATTERN: return a[0] === args[0] && a[1] === args[1];
     case CMD.PROPHET: return a[2]===args[1]&&a[0]===(args[0]<=1?1:args[0]);
+    case CMD.LIBRARY: return a[0]===args[0]&&a[1]===args[1]&&a[2]===args[2];
     case CMD.NATIVE: return a[0]===args[0] && a[1]===args[1] && a[2]===args[2];
     case CMD.CZ_BANK: return a[0]===args[0];
     case CMD.CZ_GET: case CMD.CZ_PUT: case CMD.FM6_GET: case CMD.FM6_PUT: return a[0] === args[0] && a[1] === args[1];
@@ -1316,6 +1320,11 @@ function czLegacyTone(old) {
   d.splice(128,16,...p.slice(149));if(!CZ.valid(d))throw Error("Invalid migrated CZ tone");return d;
 }
 
+function drumWireValid(raw){
+  if(!Array.isArray(raw)||raw.length!==54||raw.some(v=>!Number.isInteger(v)||v<0||v>255))return false;
+  for(let voice=0;voice<16;voice++){let tune=0;for(let bit=0;bit<6;bit++){const at=voice*27+bit;tune|=((raw[at>>3]>>(at&7))&1)<<bit;}if(tune>48)return false;}
+  return true;
+}
 function cleanPatch(pt) {
   const now = new Date().toISOString();
   const pat = Array.isArray(pt.pattern) && pt.pattern.length
@@ -1335,6 +1344,7 @@ function cleanPatch(pt) {
   };
   if (Number.isInteger(pt.slot)) o.slot = pt.slot;
   if(pt.cz1!=null){o.cz=czLegacyTone(pt.cz1);o.engine=15;o.engineName="CZ-1";const pe=o.p.length-8;for(let k=0;k<8;k++)o.p[pe+k]=null;o.p[pe+7]=2;}
+  if(pt.drum!=null){if(pt.engine!==10||!drumWireValid(pt.drum))throw Error("Invalid drum patch");o.drum=pt.drum.slice();}
   if(pt.p5!=null){if(pt.engine!==19||!P5.valid(pt.p5))throw Error("Invalid native Prophet patch");o.p5=pt.p5.slice();}
   if (pt.cz != null) { if(!CZ.valid(pt.cz))throw new Error("Invalid native CZ patch");o.cz=pt.cz.slice(); }
   if (Array.isArray(pt.fm6) && pt.fm6.length === FM6.PACKED) o.fm6 = pt.fm6.map((x) => (x | 0) & 127);   /* (a converted */
@@ -1419,19 +1429,22 @@ const FLASH_OPT = { timeout: 2500, retries: 0 };
 /* Where a bulk .syx import goes: the empty slots while there are enough of them, else `count`
    consecutive slots from `from` (the selected one), overwriting the used ones after a confirmation. */
 function nativeImportTargets(slots,count,from=0) {
-  const empty=slots.filter(x=>!x.used);
+  const empty=slots.filter(x=>!x.used&&!x.old);
   if(count<=empty.length)return {targets:empty.slice(0,count),overwrite:null};
   if(from<0 || from+count>slots.length)throw Error(`${count} programs do not fit from slot ${from+1}; select an earlier slot`);
   const targets=slots.slice(from,from+count);
-  return {targets,overwrite:{from,to:from+count-1,used:targets.filter(x=>x.used).length}};
+  return {targets,overwrite:{from,to:from+count-1,used:targets.filter(x=>x.used||x.old).length}};
 }
 const nativeBank = {
   async list(rq,engine) {
+    const info=parse[CMD.INFO](await rq(req.info()));
+    if(info.shared){const all=await bank.list(rq,info);return {...all,engine,slots:all.slots.map(s=>({...s,used:s.used&&s.engine===engine}))};}
     const slots=[];let total;
     do {const r=parse[CMD.NATIVE](await rq(req.native(engine,0,slots.length,16)));if(r.rc || !r.count)throw Error("Cannot list native presets");total=r.total;slots.push(...r.slots);}while(slots.length<total);
     return {engine,total,slots};
   },
   async get(rq,info,engine,slot) {
+    if(info.shared){const p=await bank.get(rq,info,slot);return p.engine===engine?p:{used:false,engine,slot};}
     const r=parse[CMD.NATIVE](await rq(req.native(engine,1,slot)));if(r.rc===2)return {used:false,engine,slot};if(r.rc)throw Error("Cannot read native preset");
     const p=Array(info.pcount).fill(null);if(engine===15)p[info.pe0+7]=2;
     return {used:true,engine,slot,name:engine===19?P5.name(r.raw):engine===15?CZ.name(r.raw):FM6.name(FM6.unpack(r.raw)),p,pattern:null,grid:null,...(engine===19?{p5:r.raw}:engine===15?{cz:r.raw}:{fm6:r.raw})};
@@ -1440,20 +1453,68 @@ const nativeBank = {
     let raw=engine===19?pt.p5:engine===15?pt.cz:pt.fm6;
     if(pt.engine!==engine || !raw)throw Error("Choose a preset for this native collection");
     raw=Array.from(raw);if(engine===19){if(!P5.valid(raw))throw Error("Invalid Prophet patch");}else if(engine===15){if(!CZ.valid(raw))throw Error("Invalid CZ tone");}else if(raw.length!==128 || raw.some(x=>!Number.isInteger(x)||x<0||x>127))throw Error("Invalid DX7 voice");
-    if(pt.name){const clean=String(pt.name).replace(/[^ -~]/g," ").trim();if(engine===19){if(clean!==P5.name(raw))P5.setName(raw,clean);}else if(engine===15)CZ.setName(raw,clean);else {const name=clean.slice(0,10).padEnd(10," ");raw.splice(118,10,...Array.from(name,x=>x.charCodeAt(0)));}}
+    if(pt.name){const clean=String(pt.name).replace(/[^ -~]/g," ").trim();if(engine===19){if(clean!==P5.name(raw).trim())P5.setName(raw,clean);}else if(engine===15){if(clean!==CZ.name(raw).trim())CZ.setName(raw,clean);}else {if(clean!==FM6.name(FM6.unpack(raw)).replace(/[^ -~]/g," ").trim()){const name=clean.slice(0,10).padEnd(10," ");raw.splice(118,10,...Array.from(name,x=>x.charCodeAt(0)));}}}
+    const info=parse[CMD.INFO](await rq(req.info()));if(info.shared)return bank.put(rq,slot,{...pt,[engine===19?"p5":engine===15?"cz":"fm6"]:raw},info);
     return parse[CMD.NATIVE](await rq(req.native(engine,2,slot,...(engine===19?P5.nibbles(raw):engine===15?CZ.nibbles(raw):raw)),FLASH_OPT)).rc;
   },
   async store(rq,engine,slot,track,name="") {
+    const info=parse[CMD.INFO](await rq(req.info()));if(info.shared)return bank.store(rq,slot,name,info,track);
     name=String(name).replace(/[^ -~]/g," ").trim().slice(0,engine===19?20:engine===15?16:10);
     const rc=parse[CMD.NATIVE](await rq(req.native(engine,3,slot,track),FLASH_OPT)).rc;
     if(rc || !name)return rc;
     return parse[CMD.NATIVE](await rq(req.native(engine,6,slot,...strEnc(String(name).replace(/[^ -~]/g," ").trim().slice(0,engine===19?20:engine===15?16:10)).slice(0,-1)),FLASH_OPT)).rc;
   },
-  async load(rq,engine,slot,track) { return parse[CMD.NATIVE](await rq(req.native(engine,4,slot,track))).rc; },
-  async erase(rq,engine,slot) { return parse[CMD.NATIVE](await rq(req.native(engine,5,slot),FLASH_OPT)).rc; },
+  async load(rq,engine,slot,track) { const info=parse[CMD.INFO](await rq(req.info()));if(info.shared)return bank.load(rq,slot,info,track);return parse[CMD.NATIVE](await rq(req.native(engine,4,slot,track))).rc; },
+  async erase(rq,engine,slot) { const info=parse[CMD.INFO](await rq(req.info()));if(info.shared)return bank.erase(rq,slot,info);return parse[CMD.NATIVE](await rq(req.native(engine,5,slot),FLASH_OPT)).rc; },
+};
+const sharedBank = {
+  request(op,slot,...args) {
+    if(!Number.isInteger(slot)||slot<0||slot>=384)throw Error("Invalid shared preset slot");
+    return [CMD.LIBRARY,[op,slot&127,slot>>7,...args]];
+  },
+  reply(a,op,slot) {
+    if(a.length<4||a[0]!==op||(a[1]|a[2]<<7)!==slot)throw Error("Invalid shared library reply");
+    if(a[3])throw Error(`Preset operation failed (${a[3]})`);
+    return new Reader(a.slice(4));
+  },
+  async list(rq,start=0,count=16) {
+    const a=await rq(this.request(0,start,count)),r=this.reply(a,0,start);
+    const n=r.b(),total=r.b()|r.b()<<7,slots=[];
+    if(!n||n>count||total!==384||start+n>total)throw Error("Invalid shared library size");
+    for(let i=0;i<n;i++)slots.push({slot:start+i,used:r.b(),engine:r.b(),old:r.b(),name:r.s()});
+    return {start,count:n,total,slots};
+  },
+  async get(rq,info,slot) {
+    const a=await rq(this.request(1,slot)),r=this.reply(a,1,slot);
+    const p={slot,used:r.b(),engine:r.b(),name:r.s(),p:[],pattern:[],grid:null};
+    for(let i=0;i<info.pcount;i++)p.p.push(r.v());
+    for(let i=0;i<16;i++)p.pattern.push([r.b(),r.b()]);
+    const kind=r.b();
+    if(kind){const size=r.b()|r.b()<<7,raw=czBkUnpack(r.a.slice(r.i));
+      const key={1:"fm6",2:"cz",3:"p5",4:"drum"}[kind],engine={1:12,2:15,3:19,4:10}[kind];
+      if(!key||p.engine!==engine||raw.length!==size||size!==({1:128,2:144,3:138,4:54}[kind]))throw Error("Invalid shared native voice");
+      p[key]=raw;const fullName=kind===1?FM6.name(FM6.unpack(raw)):kind===2?CZ.name(raw):kind===3?P5.name(raw):p.name;
+      if(p.name.trim()===fullName.slice(0,12).trim())p.name=fullName;
+    }
+    return p;
+  },
+  async put(rq,info,slot,pt) {
+    const kind=pt.fm6?1:pt.cz?2:pt.p5?3:pt.drum?4:0,raw=kind?(pt.fm6||pt.cz||pt.p5||pt.drum):null;
+    if(kind && pt.engine!==({1:12,2:15,3:19,4:10}[kind]))throw Error("Native voice does not match its engine");
+    if(kind===1 && (raw.length!==128||raw.some(x=>!Number.isInteger(x)||x<0||x>127)) || kind===2&&!CZ.valid(raw) || kind===3&&!P5.valid(raw) || kind===4&&!drumWireValid(raw))throw Error("Invalid native voice");
+    const name=String(pt.name||"PATCH").replace(/[^ -~]/g," ").trim().slice(0,kind?20:12)||"PATCH";
+    const values=Array.from({length:info.pcount},(_,i)=>pt.p?.[i]??0),defaults=!pt.p;
+    const nativeName=kind===1?FM6.name(FM6.unpack(raw)):kind===2?CZ.name(raw):kind===3?P5.name(raw):"";
+    const preserveName=kind && kind<4 && name===nativeName.replace(/[^ -~]/g," ").trim();
+    const args=[pt.engine,...strEnc(name),...values.flatMap(v14enc),...Array(32).fill(0),kind|(kind&&defaults?64:0)|(preserveName?32:0)];
+    if(kind)args.push(raw.length&127,raw.length>>7,...czBkPack(new Uint8Array(raw)));
+    const a=await rq(this.request(2,slot,...args),FLASH_OPT);this.reply(a,2,slot);return 0;
+  },
+  async action(rq,op,slot,...args){const a=await rq(this.request(op,slot,...args),op===4?{}:FLASH_OPT);this.reply(a,op,slot);return 0;},
 };
 const bank = {
-  async list(rq) {
+  async list(rq,info=null) {
+    if(info?.shared){const out=await sharedBank.list(rq);while(out.slots.length<out.total){const next=await sharedBank.list(rq,out.slots.length);out.slots.push(...next.slots);}return {total:out.total,slots:out.slots};}
     const first = parse[CMD.UP_LIST](await rq(req.upList(0, UP.LIST_MAX)));
     const slots = first.slots.slice();
     while (slots.length < first.total) {
@@ -1464,6 +1525,7 @@ const bank = {
     return { total: first.total, slots };
   },
   async get(rq, info, slot) {
+    if(info.shared)return sharedBank.get(rq,info,slot);
     const p=parse[CMD.UP_GET](await rq(req.upGet(slot)),info);
     if(p.used && p.engine===15 && p.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(1,slot)));if(r.rc)throw new Error("Cannot read native CZ patch");p.cz=r.raw; }
     if (p.used && info.engines[p.engine] === "FM6" && info.fm6?.bank === 0) { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.USER,slot)));if(!r.rc)p.fm6=Array.from(r.packed);else if(r.rc!==2)throw new Error("Cannot read FM6 preset"); }
@@ -1471,15 +1533,16 @@ const bank = {
   },
   /* -> rc (0 ok) */
   async put(rq, slot, pt, info = null) {
+    if(info?.shared)return sharedBank.put(rq,info,slot,pt);
     if (pt.fm6 && pt.engine === 12 && info && info.fm6?.bank !== 0) throw new Error("Update firmware to save whole FM6 voices in user presets");
     if (pt.cz) return parse[CMD.CZ_PUT](await rq(req.czPut(1,slot,pt.cz,pt.pattern),FLASH_OPT)).rc;
     const rc = parse[CMD.UP_PUT](await rq(req.upPut(slot, pt), FLASH_OPT)).rc;
     if (rc || !pt.fm6 || pt.engine !== 12) return rc;
     return parse[CMD.FM6_PUT](await rq(req.fm6Put(FM6.TARGET.USER,slot,pt.fm6),FLASH_OPT)).rc;
   },
-  async store(rq, slot, name) { return parse[CMD.UP_STORE](await rq(req.upStore(slot, name), FLASH_OPT)).rc; },
-  async load(rq, slot) { return parse[CMD.UP_LOAD](await rq(req.upLoad(slot), { timeout: 1000 })).rc; },
-  async erase(rq, slot) { return parse[CMD.UP_ERASE](await rq(req.upErase(slot), FLASH_OPT)).rc; },
+  async store(rq, slot, name,info=null,track=0) { if(info?.shared)return sharedBank.action(rq,3,slot,track,...strEnc(name||"").slice(0,-1));return parse[CMD.UP_STORE](await rq(req.upStore(slot, name), FLASH_OPT)).rc; },
+  async load(rq, slot,info=null,track=0) { if(info?.shared)return sharedBank.action(rq,4,slot,track);return parse[CMD.UP_LOAD](await rq(req.upLoad(slot), { timeout: 1000 })).rc; },
+  async erase(rq, slot,info=null) { if(info?.shared)return sharedBank.action(rq,5,slot);return parse[CMD.UP_ERASE](await rq(req.upErase(slot), FLASH_OPT)).rc; },
 };
 
 /* the current sound: DUMP + the first 16 steps */
@@ -2057,12 +2120,12 @@ function makeMockDevice(opt = {}) {
     step: Array.from({ length: NSTEP }, () => ({ chance: 100, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
   const st = {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
-    native:{12:Array(64).fill(null),15:Array(128).fill(null),19:Array(128).fill(null)},
+    native:{12:Array(opt.shared?384:64).fill(null),15:Array(128).fill(null),19:Array(128).fill(null)},
     czbanks:Array.from({length:8},(_,i)=>czBankEncode({name:`BANK ${String.fromCharCode(65+i)}`,tones:[]})),
     g: GP.map((d) => d.def),
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
     smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, name: "", len: 0, next: SMP.DATA_OFF })),
-    bank: new Array(opt.slots || 64).fill(null),     /* user presets: {engine, name, p, pattern, grid} */
+    bank: new Array(opt.shared?384:(opt.slots||64)).fill(null),     /* user presets: {engine, name, p, pattern, grid} */
     uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 57,
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0, click:0, clickLevel:1, countin:0, preview:0, chordAdd:0, retiredPreference:127, screenOff:0,
     palettes: ["MONO", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON"],
@@ -2165,6 +2228,22 @@ function makeMockDevice(opt = {}) {
     };
     const NB = st.bank.length;
     switch (cmd) {
+      case CMD.LIBRARY: {
+        if(!opt.shared)return null;
+        const op=a[0],slot=a[1]|a[2]<<7;let rc=slot>=NB||op>6?1:0;
+        if(!rc&&op===2){let pos=4;while(a[pos])pos++;const name=String.fromCharCode(...a.slice(4,pos++)),values=[];for(let i=0;i<P_COUNT;i++){values.push(v14dec(a[pos++],a[pos++]));}pos+=32;const kind=a[pos++]&31;
+          const pt={engine:a[3],name,p:values,pattern:Array.from({length:16},()=>[0,0]),grid:null};
+          if(kind){const size=a[pos++]|a[pos++]<<7,raw=czBkUnpack(a.slice(pos));if(raw.length!==size)rc=1;else pt[({1:"fm6",2:"cz",3:"p5",4:"drum"})[kind]]=raw;}
+          if(!rc){st.bank[slot]=pt;st.bankSig++;}
+        }else if(!rc&&op===3){const tr=st.tracks[a[3]],name=String.fromCharCode(...a.slice(4));if(!tr)rc=1;else {st.bank[slot]={engine:tr.engine,name:name||"PATCH",p:tr.p.slice(),pattern:Array.from({length:16},()=>[0,0]),grid:null,...(tr.engine===19?{p5:tr.p5.slice()}:tr.engine===15?{cz:tr.cz.slice()}:tr.engine===12?{fm6:tr.fm6.slice()}:{} )};st.bankSig++;}}
+        else if(!rc&&op===4){const pt=st.bank[slot],tr=st.tracks[a[3]];if(!pt||!tr)rc=1;else {tr.engine=pt.engine;tr.user=slot+1;tr.preset=0;pt.p.forEach((value,i)=>{if(!trackOwn(i,P_E0))tr.p[i]=value;});for(const kind of ["p5","cz","fm6"])if(pt[kind])tr[kind]=pt[kind].slice();}}
+        else if(!rc&&op===5){st.bank[slot]=null;st.bankSig++;}
+        else if(!rc&&op===6){if(!st.bank[slot])rc=1;else {st.bank[slot].name=String.fromCharCode(...a.slice(3));st.bankSig++;}}
+        [op,slot&127,slot>>7,rc].forEach(b);if(rc)break;
+        if(op===0){const count=Math.min(a[3],NB-slot);[count,NB&127,NB>>7].forEach(b);for(let k=slot;k<slot+count;k++){const p=st.bank[k];[!!p,p?.engine||0,0].forEach(b);s(p?.name||"");}}
+        else if(op===1){const p=st.bank[slot];[!!p,p?.engine||0].forEach(b);s(p?.name||"");for(let i=0;i<P_COUNT;i++)v(p?.p[i]??0);Array(32).fill(0).forEach(b);const kind=p?.fm6?1:p?.cz?2:p?.p5?3:p?.drum?4:0;b(kind);if(kind){const raw=p.fm6||p.cz||p.p5||p.drum;[raw.length&127,raw.length>>7,...czBkPack(new Uint8Array(raw))].forEach(b);}}
+        break;
+      }
       case CMD.UP_LIST: {
         if (a.length < 2) return null;
         const start = a[0], n = Math.max(0, Math.min(a[1], UP.LIST_MAX, NB - start));
@@ -2342,7 +2421,7 @@ function makeMockDevice(opt = {}) {
         if (!opt.legacy) b(NTRK);
         if (!opt.legacy && !opt.v3 && !opt.v5) {
           b(0);
-          if (st.uiCaps) { [0x55,1,st.uiCaps,0x4d,2,64,1,0x42,1,3,0x50,1,8,16].forEach(b); if (!opt.noFm6) [0x46,1,FM6.FACTORY_PK.length,FM6_BANK,0x43,1,16,1,0,0,0x35,1,19,16,17,18,20,0,1,0x4e,1,64,0,0,1].forEach(b); }
+          if (st.uiCaps) { [0x55,1,st.uiCaps,0x4d,2,64,1,0x42,1,3,0x50,1,8,16].forEach(b); if (!opt.noFm6) [0x46,1,FM6.FACTORY_PK.length,FM6_BANK,0x43,1,16,1,0,0,0x35,1,19,16,17,18,20,0,1,0x4e,1,64,0,0,1].forEach(b); if(opt.shared)[0x55,1,0,3].forEach(b); }
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -2669,7 +2748,7 @@ async function readDevicePreferences(rq, info, names, previous = null) {
   let favorites = previous ? previous.favorites : [], slots = previous ? previous.slots : null, nativeSlots=previous?.nativeSlots||{};
   if (state.caps & 8) {
     if (!previous || state.bankSig !== previous.state.bankSig) {
-      slots = await bank.list(rq);
+      slots = await bank.list(rq,info);
       if(info.native)for(const engine of Object.keys(info.native).map(Number))nativeSlots[engine]=await nativeBank.list(rq,engine);
     }
     if (!previous || state.favoriteSig !== previous.state.favoriteSig || state.bankSig !== previous.state.bankSig) {
@@ -2711,7 +2790,8 @@ function devicePresetRows(info, names, preferences) {
     .map((name, preset) => ({ engine, preset, name, user: false })).filter((row) => aliasOf(names[engine], row.preset) === row.preset));
   if(info.native)for(const engine of Object.keys(info.native).map(Number))for(const slot of preferences.nativeSlots?.[engine]?.slots||[])if(slot.used)rows.push({engine:info.namespace?.[engine]??info.nengines+(engine===12?1:2),preset:slot.slot,name:slot.name,user:true,nativeEngine:engine});
   for (const slot of preferences.slots.slots) if (slot.used)
-    rows.push({ engine: info.namespace?.general??info.nengines, preset: slot.slot, name: slot.name, user: true });
+    rows.push({ engine: info.namespace?.general??info.nengines, preset: slot.slot, name: slot.name, user: true, actualEngine:slot.engine });
+  if(info.shared){const order=engineOrder(info.engines);rows.sort((a,b)=>order.indexOf(a.user?a.actualEngine:a.engine)-order.indexOf(b.user?b.actualEngine:b.engine)||Number(a.user)-Number(b.user)||a.preset-b.preset);}
   return rows.map((row) => ({ ...row, favorite: !!(preferences.favorites[row.engine] || [])[row.preset] }))
     .filter((row) => !preferences.state.filter || row.favorite);
 }
@@ -3263,7 +3343,7 @@ async function load(d) {
     d.v4 = d.watch === 3;                           /* TRACK_PARAM / TRACK_CHANGED */
     if (d.watch) {
       sayK("readingBank");
-      try { d.bank = await bank.list((r, o) => sessionRequest(d, r, { ...o, quiet: true })); }
+      try { d.bank = await bank.list((r, o) => sessionRequest(d, r, { ...o, quiet: true }),d.info); }
       catch (e) { if (e.message === "closed") throw e; d.bank = null; }
     }
     await syncPreferences(d);
@@ -3371,7 +3451,7 @@ function updateBrowser() {
   const ps = $("preset");
   const names = dev.names[e] || [];
   const currentNative=e===19 && !dev.dump.user && dev.dump.p5 && P5.name(dev.dump.p5)!==names[dev.dump.preset] ? P5.name(dev.dump.p5) : null;
-  const pool=dev.nativePools?.[e],sig=JSON.stringify([e,pool,currentNative]);
+  const pool=dev.info.shared?{slots:dev.bank?.slots.filter(x=>x.engine===e)}:dev.nativePools?.[e],sig=JSON.stringify([e,pool,currentNative]);
   if(ps.dataset.engine!==sig){
     ps.replaceChildren(...names.map((n,i)=>el("option",{value:i,text:n,hidden:aliasOf(names,i)!==i})),...(pool?.slots||[]).filter(x=>x.used).map(x=>el("option",{value:`u:${x.slot}`,text:`${slotName(x.slot,e)} ${x.name}`})));
     if(currentNative)ps.append(el("option",{value:"current-native",text:`${currentNative} (current)`,disabled:true}));
@@ -4358,7 +4438,7 @@ function renderPreferences(force = false) {
     star.addEventListener("click", () => changeFavorite(row));
     const load = el("button", { text: name });
     load.addEventListener("click", () => { if (!dev || busy) return; row.user ? bankLoad(row.preset,row.nativeEngine||0) : choosePreset(row.engine, row.preset); });
-    table.append(el("tr", {}, el("td", {}, star), el("td", {}, load), el("td", { text: row.user ? t("bank") : d.info.engines[row.engine] })));
+    table.append(el("tr", {}, el("td", {}, star), el("td", {}, load), el("td", { text: row.user ? (d.info.shared?d.info.engines[row.actualEngine]:t("bank")) : d.info.engines[row.engine] })));
   }
   $("device-preset-list").replaceChildren(rows.length ? table : el("p", { class: "dim", text: t("deviceEmpty") }));
 }
@@ -4535,7 +4615,7 @@ const newId = () => (self.crypto && crypto.randomUUID ? crypto.randomUUID() : Da
 const nowIso = () => new Date().toISOString();
 const poolEngine = () => dev?.info.native ? +$("presetpool").value : 0;
 const bankView = (d=dev,engine=poolEngine()) => engine?d?.nativePools?.[engine]:d?.bank;
-const slotName = (i,engine=poolEngine()) => (engine===19?"P":engine===12?"F":engine===15?"Z":"U") + String(i + 1).padStart(engine?3:2, "0");
+const slotName = (i,engine=poolEngine()) => dev?.info.shared?"U"+String(i+1).padStart(3,"0"):(engine===19?"P":engine===12?"F":engine===15?"Z":"U") + String(i + 1).padStart(engine?3:2, "0");
 $("presetpool").addEventListener("change",()=>{bankSel=null;renderBank();renderLib();});
 const libCtx = () => (dev && dev.keys ? { keys: dev.keys, engines: dev.info.engines, firmware: dev.info.version, pe0: dev.info.pe0 }
   : { keys: libMeta.keys, engines: libMeta.engines, firmware: "", pe0: libMeta.pe0 });
@@ -4668,18 +4748,18 @@ function renderBank() {
   $("bankhint").textContent = t(!dev || !dev.dump ? "bankConnect" : "bankNone");
   if (!dev || !bankView()) { pane.hidden = true; return; }
   pane.hidden = false;
-  $("presetpool").parentElement.hidden=!dev.info.native;
+  $("presetpool").parentElement.hidden=!!dev.info.shared||!dev.info.native;
   for(const o of $("presetpool").options)o.hidden=+o.value!==0&&!dev.info.native?.[+o.value];
   $("nativehint").hidden=!poolEngine();
-  $("bknativeimport").hidden=!poolEngine();
+  $("bknativeimport").hidden=!dev.info.shared&&!poolEngine();
   const b = bankView(), used = b.slots.filter((x) => x.used).length;
   $("bankhead").textContent = `${used} / ${b.total} ${t("used")}`;
   const tb = el("table", {}, el("colgroup", {}, el("col", { class: "n" }), el("col"), el("col", { class: "e" })),
     el("tr", {}, el("th", { text: "#" }), el("th", { text: t("name") }), el("th", { text: t("engine") })));
   for (const x of b.slots) {
-    const tr = el("tr", { "data-slot": x.slot, class: [x.slot === bankSel ? "sel" : "", x.used ? "" : "empty"].join(" ").trim() || null,
+    const tr = el("tr", { "data-slot": x.slot, class: [x.slot === bankSel ? "sel" : "", x.used||x.old ? "" : "empty"].join(" ").trim() || null,
       draggable: x.used ? "true" : null },
-      el("td", { text: slotName(x.slot) }), el("td", { text: x.used ? x.name : t("empty") }),
+      el("td", { text: slotName(x.slot) }), el("td", { text: x.used||x.old ? x.name : t("empty") }),
       el("td", { text: x.used ? engineLabel(dev.info.engines, x.engine) : "" }));
     tr.addEventListener("click", () => { bankSel = x.slot; renderBank(); renderLib(); });
     tr.addEventListener("dblclick", () => { if (x.used) bankLoad(x.slot); });
@@ -4725,7 +4805,7 @@ async function libOp(fn) {
 }
 const checkRc = (rc) => { if (rc) throw new Error(t("flashFail").replace("{rc}", rc)); };
 async function refreshSlot(slot,d=dev,engine=poolEngine()) {
-  const r=engine?parse[CMD.NATIVE](await sessionRequest(d,req.native(engine,0,slot,1))):parse[CMD.UP_LIST](await sessionRequest(d,req.upList(slot,1)));
+  const r=d.info.shared?await sharedBank.list((r,o)=>sessionRequest(d,r,o),slot,1):engine?parse[CMD.NATIVE](await sessionRequest(d,req.native(engine,0,slot,1))):parse[CMD.UP_LIST](await sessionRequest(d,req.upList(slot,1)));
   const view=bankView(d,engine);if(view&&r.slots?.[0])view.slots[slot]=r.slots[0];updateBrowser();
 }
 
@@ -4781,12 +4861,12 @@ function libPut(id, slot) {
   if(dev.info.native && (engine || dev.info.native[p.engine]) && engine!==p.engine){say("Select the matching preset collection first");return;}
   const s = bankView().slots[slot];
   if (!engineOk(p)) { sayK("badEngine", p.engineName || p.engine); return; }
-  if (s.used && !confirm(t("confirmOverwrite").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
+  if ((s.used||s.old) && !confirm(t("confirmOverwrite").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
   libOp(async (d, rqf) => {
     const keep4 = p.fm4 && dev.info.engines[1] === "-" && p.fm4.length === dev.info.pcount;   /* a converted DIGITAL sound:
                                                      its DIGITAL values as engine 1 (the device converts them on load) */
     checkRc(engine?await nativeBank.put(rqf,engine,slot,p):await bank.put(rqf, slot, keep4 ? { ...p, engine: 1, name: upName(p.name), p: fullParams({ ...p, p: p.fm4 }) }
-      : { ...p, name: upName(p.name), p: fullParams(p) }, d.info));
+      : { ...p, name: d.info.shared?p.name:upName(p.name), p: fullParams(p) }, d.info));
     await refreshSlot(slot,d,engine);
     sayK("putDone", `${slotName(slot)} ${upName(p.name)}`);
   });
@@ -4866,7 +4946,7 @@ function bankLoad(slot,engine=poolEngine()) {
   const s = bankView(dev,engine).slots[slot];
   libOp(async (d, rqf) => {
     selfLoad();
-    const rc = engine?await nativeBank.load(rqf,engine,slot,d.sel||0):await bank.load(rqf,slot);
+    const rc = engine?await nativeBank.load(rqf,engine,slot,d.sel||0):await bank.load(rqf,slot,d.info,d.sel||0);
     if (rc) { sayK("emptySlot", slotName(slot)); return; }
     await afterSoundChange("ready", d);
     sayK("loadedUser", `${slotName(slot,engine)} ${s.name}`);
@@ -4881,9 +4961,9 @@ $("bkstore").addEventListener("click", () => {
   const s = bankView().slots[slot];
   const name = prompt(t("promptNameAuto"), s.used ? s.name : "");
   if (name == null) return;
-  if (s.used && !confirm(t("confirmOverwrite").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
+  if ((s.used||s.old) && !confirm(t("confirmOverwrite").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
   libOp(async (d, rqf) => {
-    checkRc(engine?await nativeBank.store(rqf,engine,slot,d.sel||0,name.trim()):await bank.store(rqf,slot,name.trim()));
+    checkRc(engine?await nativeBank.store(rqf,engine,slot,d.sel||0,name.trim()):await bank.store(rqf,slot,name.trim(),d.info,d.sel||0));
     await refreshSlot(slot,d,engine);
     sayK("storedSlot", `${slotName(slot)} ${bankView().slots[slot].name}`);
   });
@@ -4894,7 +4974,7 @@ function bankGet(slot) {
   libOp(async (d, rqf) => {
     const u=engine?await nativeBank.get(rqf,d.info,engine,slot):await bank.get(rqf,d.info,slot);
     if (!u.used) { sayK("emptySlot", slotName(slot)); return; }
-    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, pattern: u.pattern, grid: u.grid, tags: ["device"] };
+    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, drum:u.drum, pattern: u.pattern, grid: u.grid, tags: ["device"] };
     await libAdd([reservedFm4(dev.info.engines, u.engine) ? fromDigital(pt, dev.info.engines, dev.info.pe0) : pt]);
     sayK("copiedLib", u.name);
   });
@@ -4906,14 +4986,14 @@ $("bkerase").addEventListener("click", () => {
   const s = bankView().slots[slot];
   if (!s.used || !confirm(t("confirmEraseSlot").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
   libOp(async (d, rqf) => {
-    checkRc(engine?await nativeBank.erase(rqf,engine,slot):await bank.erase(rqf,slot));
+    checkRc(engine?await nativeBank.erase(rqf,engine,slot):await bank.erase(rqf,slot,d.info));
     await refreshSlot(slot,d,engine);
     sayK("erasedSlot", slotName(slot));
   });
 });
 $("bkrefresh").addEventListener("click", () => libOp(async (d, rqf) => {
   sayK("readingBank");
-  const engine=poolEngine();if(engine)dev.nativePools[engine]=await nativeBank.list(rqf,engine);else dev.bank=await bank.list(rqf);
+  const engine=poolEngine();if(engine)dev.nativePools[engine]=await nativeBank.list(rqf,engine);else dev.bank=await bank.list(rqf,d.info);
   sayK("ready");
 }));
 $("bkexport").addEventListener("click", () => libOp(async (d, rqf) => {
@@ -4922,7 +5002,7 @@ $("bkexport").addEventListener("click", () => libOp(async (d, rqf) => {
     if (!x.used) continue;
     sayK("readingBank", ` ${slotName(x.slot)}`);
     const u=engine?await nativeBank.get(rqf,d.info,engine,x.slot):await bank.get(rqf,d.info,x.slot);
-    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, pattern: u.pattern, grid: u.grid, slot: x.slot,
+    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, drum:u.drum, pattern: u.pattern, grid: u.grid, slot: x.slot,
       engineName: reservedFm4(dev.info.engines, u.engine) ? "DIGITAL" : dev.info.engines[u.engine] });   /* (DIGITAL's values) */
   }
   if(engine===19)downloadBytes(`prophet-presets-${today()}.syx`,new Uint8Array(out.flatMap(x=>Array.from(P5.sysex(x.p5)))));
@@ -4934,15 +5014,15 @@ $("bkexport").addEventListener("click", () => libOp(async (d, rqf) => {
 
 $("bknativeimport").addEventListener("click",()=>$("bknativefile").click());
 $("bknativefile").addEventListener("change",async()=>{
-  const file=$("bknativefile").files[0],engine=poolEngine();$("bknativefile").value="";if(!file||!engine)return;
+  const file=$("bknativefile").files[0];let engine=poolEngine();$("bknativefile").value="";if(!file||(!engine&&!dev?.info.shared))return;
   try{
-    const bytes=new Uint8Array(await file.arrayBuffer()),parsed=engine===19?P5.read(bytes):engine===15?CZ.read(bytes,file.name):FM6.parseSysex(bytes);
+    const bytes=new Uint8Array(await file.arrayBuffer());if(dev.info.shared)engine=bytes[1]===0x43?12:bytes[1]===0x44?15:bytes[1]===1?19:0;if(!engine)throw Error("Unknown SysEx manufacturer");const parsed=engine===19?P5.read(bytes):engine===15?CZ.read(bytes,file.name):FM6.parseSysex(bytes);
     if(!parsed.voices.length || parsed.badSum)throw Error("Invalid SysEx file");
     const tones=parsed.voices.map(v=>({engine,name:v.name,...(engine===19?{p5:v.raw}:engine===15?{cz:v.raw}:{fm6:Array.from(FM6.pack(v.v))})}));
     const {targets,overwrite}=nativeImportTargets(bankView().slots,tones.length,bankSel??0);
     if(overwrite && !confirm(overwrite.from===overwrite.to?t("confirmOverwrite").replace("{n}",slotName(overwrite.from)).replace("{name}",targets[0].name||"")
       :t("confirmOverwriteRange").replace("{n}",tones.length).replace("{from}",slotName(overwrite.from)).replace("{to}",slotName(overwrite.to)).replace("{used}",overwrite.used)))return;
-    await libOp(async(d,rqf)=>{for(let i=0;i<tones.length;i++){checkRc(await nativeBank.put(rqf,engine,targets[i].slot,tones[i]));say(`Saved ${i+1}/${tones.length} native presets`);}d.nativePools[engine]=await nativeBank.list(rqf,engine);updateBrowser();});
+    await libOp(async(d,rqf)=>{for(let i=0;i<tones.length;i++){checkRc(await nativeBank.put(rqf,engine,targets[i].slot,tones[i]));say(`Saved ${i+1}/${tones.length} native presets`);}if(d.info.shared)d.bank=await bank.list(rqf,d.info);else d.nativePools[engine]=await nativeBank.list(rqf,engine);updateBrowser();});
   }catch(e){report(e);}
 });
 

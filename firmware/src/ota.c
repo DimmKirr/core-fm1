@@ -388,17 +388,34 @@ static int ota_session(void)
 
 /* boot: a staging area left over (we are running, so the update finished or
  * never started): erase it so the SPL does not re-enter the loader */
+#ifndef BOOT_WORK_BEGIN
+#define BOOT_WORK_BEGIN(title, total) ((void)0)
+#define BOOT_WORK_PROGRESS(done) ((void)0)
+#define BOOT_WORK_END(failed) ((void)0)
+#endif
 static int ota_boot_cleanup(void)
 {
-    uint8_t a[4], r[8];
+    uint8_t bytes[128];
     uint32_t i, used = 0;
-    if (ota_fread(OTA_AREA, a, 4) || ota_fread(OTA_RES, r, 8))
-        return -1;
-    for (i = 0; i < 4u; i++)
-        used |= a[i] != 0xFFu;
-    for (i = 0; i < 8u; i++)
-        used |= r[i] != 0xFFu;
-    if (used)
-        ota_unstage();
+    /* Also find a partially erased staging area after a failed cleanup. */
+    for (uint32_t off = 0; off < OTA_AREA_LEN && !used; off += sizeof bytes) {
+        if (ota_fread(OTA_AREA + off, bytes, sizeof bytes)) {
+            BOOT_WORK_BEGIN("FINISHING UPDATE", OTA_AREA_LEN / 0x1000u);
+            BOOT_WORK_END(1);
+            return -1;
+        }
+        for (i = 0; i < sizeof bytes; i++) used |= bytes[i] != 0xFFu;
+    }
+    if (used) {
+        BOOT_WORK_BEGIN("FINISHING UPDATE", OTA_AREA_LEN / 0x1000u);
+        for (i = 0; i < OTA_AREA_LEN; i += 0x1000u) {
+            if (ota_erase(OTA_AREA + i)) {
+                BOOT_WORK_END(1);
+                return -1;
+            }
+            BOOT_WORK_PROGRESS(i / 0x1000u + 1u);
+        }
+        BOOT_WORK_END(0);
+    }
     return (int)used;
 }

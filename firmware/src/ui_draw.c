@@ -992,7 +992,7 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "CLEAR T1 MOTION?", 24); a[7] = (char)('1' + k % NTRK);
         break;
     case CF_OVR_USER:
-        if (user_old_bank(k)) { str_cpy(a, "REPLACE OLD BANK?", 24); str_cpy(b, "All 16 old slots replaced", 32); break; }
+        if (user_old_bank(k)) { str_cpy(a, "REPLACE OLD BANK?", 24); str_cpy(b, "All 18 old slots replaced", 32); break; }
         str_cpy(a, "OVERWRITE ", 24);
         user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
@@ -1004,7 +1004,7 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_IMPORT:
         for (uint32_t slot = sx_import.first; slot < sx_import.first + sx_import.count; slot++) {
-            if (sx_import.general ? up_old_bank(slot) : native_old(sx_import.engine, slot)) {
+            if (up_old_bank(slot)) {
                 str_cpy(a, "REPLACE OLD BANKS?", 24); str_cpy(b, "All slots in old banks replaced", 32); return;
             }
         }
@@ -1014,7 +1014,7 @@ static void confirm_text(char *a, char *b)
         str_cpy(a,"ERASE SELECTED PRESETS?",24);
         str_cpy(b,"Selected slots will be empty",32);break;
     case CF_ERASE_USER:
-        if (user_old_bank(k)) { str_cpy(a, "ERASE OLD BANK?", 24); str_cpy(b, "All 16 old slots erased", 32); break; }
+        if (user_old_bank(k)) { str_cpy(a, "ERASE OLD BANK?", 24); str_cpy(b, "All 18 old slots erased", 32); break; }
         str_cpy(a, "ERASE ", 24);
         user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
@@ -1150,6 +1150,11 @@ static void ui_draw(void)                               /* (gfx.c: the fills wai
 }
 static void ui_draw_frame(void)
 {
+    if (boot_work.state) {
+        scrn.idle = fm1_ms;                          /* maintenance/errors never sleep or get covered */
+        if (ui.force) { boot_work_draw(); ui.force = 0; }
+        return;
+    }
     if (!scr_frame()) return;
     ui.frame++;
     if (palette_track(song.sel))                       /* THEME is the selected track's colour */

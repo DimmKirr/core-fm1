@@ -11,7 +11,7 @@ static void fresh_sysex(void)
     fm6_rx_ready = fm6_rx_on = 0; fm6_rx_n = 0; fm6_bslot = 0;
     usb.sx_on = 0;
     set_engine_of(&trk[0], ENGI_FM6);
-    for (uint32_t b = 0; b < 4; b++) native_fm_empty(b);
+    up_cache_reset();
 }
 /* Interleave clock and emulate macOS splitting a long message into CIN F
  * single-byte packets in addition to normal CIN 4/5/6/7 packets. */
@@ -53,18 +53,18 @@ int main(void)
     fresh_sysex(); make_bank(7);
     native_put(ENGI_FM6, 63, FM6_INIT);
     usb_dump(cartridge, sizeof cartridge);
-    bad += check("valid bank stages all names and bytes before any preset is overwritten",sx_import.count==32u && fm6_rx_ready==2u && native_count(ENGI_FM6)==1u && !memcmp(sx_import.data,cartridge+6,4096));
+    bad += check("valid bank stages all names and bytes before any preset is overwritten",sx_import.count==32u && fm6_rx_ready==2u && up_count()==1u && !memcmp(sx_import.data,cartridge+6,4096));
     ui.uslot=0;sysex_choose();
-    ok = native_count(ENGI_FM6) == 33;
+    ok = up_count() == 33;
     for (uint32_t k = 0; k < 32; k++) ok &= !memcmp(native_raw(ENGI_FM6,k),cartridge+6+k*128u,128);
     bad += check("bank receive stores all 32 packed patches without the editor", ok && native_used(ENGI_FM6,63));
     native_load(ENGI_FM6,0,0);
     fm6_unpack(cartridge + 6, unpacked);
-    bad += check("chosen user preset can be loaded explicitly after importing", !memcmp(fm6_patch[0],unpacked,FP_SIZE) && trk[0].user_native && trk[0].user == 1);
+    bad += check("chosen user preset can be loaded explicitly after importing", !memcmp(fm6_patch[0],unpacked,FP_SIZE) && !trk[0].user_native && trk[0].user == 1);
     dump_request(7,9);
     bad += check("bank dump reply round trips every byte and request channel", host_wire_n == FM6_RX && !memcmp(host_wire,cartridge,FM6_RX));
     fm6_bslot = 32; make_bank(15); usb_dump(cartridge, sizeof cartridge);ui.uslot=32;sysex_choose();ui.confirm=0;sysex_commit();native_load(ENGI_FM6,32,0);
-    bad += check("STORE slot F033 selects the upper half for bank receive", native_count(ENGI_FM6) == 64 && !memcmp(native_raw(ENGI_FM6,32),cartridge+6,128) && trk[0].user == 33);
+    bad += check("STORE slot F033 selects the upper half for bank receive", up_count() == 64 && !memcmp(native_raw(ENGI_FM6,32),cartridge+6,128) && trk[0].user == 33);
     dump_request(15,9);
     bad += check("upper bank dump returns its 32 voices on channel 16", host_wire_n == FM6_RX && !memcmp(host_wire,cartridge,FM6_RX));
     fm6_factory(3,pk); fm6_unpack(pk,unpacked);
@@ -74,7 +74,7 @@ int main(void)
     bad+=check("single voice stages its native name without detaching the current saved sound",sx_import.count==1 && trk[0].user==33 && library_engine()==ENGI_FM6);
     ui.uslot=31;sysex_choose();bad+=check("occupied destination requires overwrite confirmation",ui.confirm==CF_IMPORT);ui.confirm=0;sysex_commit();native_load(ENGI_FM6,31,0);dump_request(3,0);
     bad += check("single voice receive and reply preserve patch and channel", host_wire_n == sizeof voice && !memcmp(host_wire,voice,sizeof voice));
-    bad += check("explicitly loaded import records its chosen user slot", trk[0].user==32 && trk[0].user_native);
+    bad += check("explicitly loaded import records its chosen user slot", trk[0].user==32 && !trk[0].user_native);
     song.sel=2;set_engine_of(&trk[2],ENGI_FM6);fm6_put_patch(2,unpacked,1);
     host_wire_n=0;fm6_send();host_drain();
     bad += check("device SEND uses the selected track MIDI channel", host_wire_n==163 && host_wire[2]==2 && !memcmp(host_wire+6,unpacked,FP_SIZE) && !strcmp(ui.msg,"VOICE SENT"));

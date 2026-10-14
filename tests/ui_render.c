@@ -458,7 +458,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_PICKER_MODE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
        S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_REF_SHEET_NOTE, S_REF_SHEET_HIT, S_REF_MOTION,
        S_REF_SHEET_MOTION, S_REF_MOD, S_REF_PICKER_MOD, S_REF_ARP, S_REF_PATTERN,
-       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_SEND, S_FX_SEPARATE, S_FX_SENDS, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_COUNT };
+       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_SEND, S_FX_SEPARATE, S_FX_SENDS, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_BOOT_MIGRATION, S_BOOT_UPDATE, S_BOOT_ERROR, S_BOOT_COMPLETE, S_BOOT_WIPE_CONFIRM, S_BOOT_WIPING, S_BOOT_UPDATE_ERROR, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -482,7 +482,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "view", "view_letgo", "view_note", "view_empty", "view_knobs", "view_slash", "menu_home_select", "home_select_mod", "home_select_chord",
     "home_select_level",
     "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "new_roles_1track",
-    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_separate", "fx_sends", "fx_bus1", "fx_bus2", "fx_bus3"};
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_separate", "fx_sends", "fx_bus1", "fx_bus2", "fx_bus3", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -1242,7 +1242,7 @@ static void setup(int s)
         go_title("PITCH EG"); break;
     case S_FM6_STORE:
         eng(ENGI_FM6); song.playing = 0; fm6_factory(5, fm6_buf); (void)native_store(ENGI_FM6, 63, song.sel, "WOOD BARS");
-        go_title("STORE"); fm6_bslot = 63;
+        go_title("STORE"); fm6_bslot = 383;
         break;
     case S_CZ1_ENV: eng(ENGI_CZ); go_title("C1 WAV R1-4"); break;   /* INIT TONE: R1 R2 live, R3 R4 dim (END 2) */
     case S_CONFIRM_SEQ: ui.confirm = CF_CLEAR_SEQ; ui.confirm_trk = 2; break;
@@ -1357,8 +1357,8 @@ static void setup(int s)
         ui.hot_col = 1; ui.hot_t = 30;
         break;
 #endif
-    case S_NATIVE_FM_USER: eng(ENGI_FM6); song.playing=0; native_store(ENGI_FM6,63,song.sel,"LAST VOICE"); ui.uslot=63; go_page(GR_USER); break;
-    case S_NATIVE_CZ_USER: eng(ENGI_CZ); song.playing=0; native_store(ENGI_CZ,127,song.sel,"LAST CZ TONE"); ui.uslot=127; go_page(GR_USER); break;
+    case S_NATIVE_FM_USER: eng(ENGI_FM6); song.playing=0; native_store(ENGI_FM6,383,song.sel,"LAST VOICE"); ui.uslot=383; go_page(GR_USER); break;
+    case S_NATIVE_CZ_USER: eng(ENGI_CZ); song.playing=0; native_store(ENGI_CZ,383,song.sel,"LAST CZ TONE"); ui.uslot=383; go_page(GR_USER); break;
     default: break;
     }
 }
@@ -1368,6 +1368,16 @@ static void draw(int s)
     ntight = 0;
     tight[0] = 0;
     screen_clear();
+    if (s >= S_BOOT_MIGRATION && s <= S_BOOT_UPDATE_ERROR) {
+        boot_work.title = s == S_BOOT_UPDATE || s == S_BOOT_UPDATE_ERROR ? "FINISHING UPDATE" : s == S_BOOT_WIPING ? "WIPING PRESETS" : "MIGRATING PRESETS";
+        boot_work.presets = s == S_BOOT_WIPING ? 2u : s != S_BOOT_UPDATE && s != S_BOOT_UPDATE_ERROR;
+        boot_work.total = s == S_BOOT_UPDATE ? 5u : s == S_BOOT_WIPING ? 45u : 21u;
+        boot_work.done = s == S_BOOT_COMPLETE ? boot_work.total : s == S_BOOT_UPDATE ? 2u : 7u;
+        boot_work.state = s == S_BOOT_WIPE_CONFIRM ? 3u : s == S_BOOT_ERROR || s == S_BOOT_UPDATE_ERROR ? 2u : s == S_BOOT_COMPLETE ? 0u : 1u;
+        boot_work_draw();
+        boot_work.state = 0;
+        return;
+    }
     if (s == S_CALIBRATION) {                     /* the blocking setup screen: its two drawing steps */
         setup_title();
         setup_show("TURN RIGHT", "ALGORITHM");
@@ -1416,7 +1426,7 @@ static void sweep_columns(void)
                     draw_columns();
                     lint();
                     nsweep++;
-                    if (v - d->min > 300) v = d->max - 1;      /* wide ranges: the ends */
+                    if (v - d->min > 300 && v < d->max - 1) v = d->max - 1;      /* wide ranges: the ends */
                 }
                 if (fm6)
                     fm6_page_put(cur_page(), c, v0);
