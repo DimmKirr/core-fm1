@@ -4958,6 +4958,46 @@ static int test_boot_maintenance(void)
     bad+=check("update cleanup errors do not offer a preset wipe",boot_work.state==2u && !boot_work.presets);
     press(B_OCTUP);ui_power_on();return bad;
 }
+/* HOME's light (ui_glow.c): a note lights the screen's edges (the margins, the floor, the top behind the header), gone
+ * once it fades; Settings > STAGE EFFECTS OFF (HOME held) keeps them dark; the setting survives export and restore */
+static int edges_lit(void)
+{
+    uint32_t i, n = 0;
+    uint16_t bg = swap16(T_BG);
+    for (i = 0; i < 240u; i++)
+        n += host_screen[i * 240u] != bg || host_screen[i * 240u + 239u] != bg || host_screen[239u * 240u + i] != bg ||
+             host_screen[i] != bg;
+    return n != 0u;
+}
+static int test_stage_light(void)
+{
+    int bad = 0;
+    persist_t stored = {0};
+    ui_power_on();
+    stop_transport();
+    PREF_BITS &= (uint8_t)~PREF_GLOW_OFF;
+    go_home(); ui.force = 1; frame(); frame();
+    bad += check("STAGE LIGHT: nothing played, the edges dark", !edges_lit());
+    input_on(TSEL, 60, 120); frame(); frame(); frame();
+    bad += check("  a note: the edges lit", edges_lit());
+    input_off(TSEL, 60); frames(3000);
+    bad += check("  let go, three seconds on: dark again", !edges_lit());
+    hold(B_HOME); ui.menu_sel = MI_GLOW; press(B_OCTUP);
+    bad += check("  HOME held, STAGE EFFECTS, OCT+: OFF", (PREF_BITS & PREF_GLOW_OFF) != 0u);
+    hold(B_HOME);
+    go_home(); ui.force = 1; frame(); frame();
+    input_on(TSEL, 60, 120); frame(); frame(); frame();
+    bad += check("  OFF: a note lights nothing", ui.home && !edges_lit());
+    input_off(TSEL, 60); frames(500);
+    settings_export(&stored);
+    PREF_BITS &= (uint8_t)~PREF_GLOW_OFF;
+    settings_import(&stored, sizeof stored);
+    bad += check("  OFF survives settings export and restore", (PREF_BITS & PREF_GLOW_OFF) != 0u);
+    PREF_BITS &= (uint8_t)~PREF_GLOW_OFF;
+    ui_power_on();
+    return bad;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -4966,6 +5006,7 @@ int main(void)
     bad += test_large_face();
     bad += test_home_notes();
     bad += test_stage();
+    bad += test_stage_light();
     bad += test_capture();
     bad += test_undo_levels();
     bad += test_new_song();

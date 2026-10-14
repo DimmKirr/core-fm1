@@ -255,3 +255,41 @@ Storage: the four Rubik faces are 4-bit alpha kept in four steps (0, 5, 10, 15) 
 table for all of them (at 28 px, scaled per face); with the pixel face 31.4 KB in all. Glyphs stay in flash: no
 decode table lives in RAM (`gfx.c` builds a 64-entry one on the stack per string).
 
+
+## HOME's light (2026-10-14)
+
+What each track plays lights the screen from its edges, in the track's colour, behind everything on it (Kerem: "the
+effects start from the edges of the screen and behind all the boxes"). How the light moves is the kind of sound (the
+browser's category, `browse.c`):
+
+| Category | The light |
+|---|---|
+| BASS | swells from the floor, up the lower half of the sides |
+| LEAD | streaks from the floor's middle round the corners, up the sides and along the top |
+| PAD | breathes: a slow wave up the sides while held |
+| PLUCK | a ripple out from its row, both ways |
+| KEYS | a block a note of the chord, stacked up the sides |
+| DRUM | by lane: the kick from the floor, snare and clap all round (paler), hats high and along the top, toms and the rest mid-way |
+| FX | sparks along the edges |
+| ORGAN | a steady glow while held |
+| STRING | a slow swell, brighter higher up |
+| BRASS | rises from the floor as high as the note has swelled |
+| WIND | bands drifting up while held |
+| BELL | two rings out from its row, the second paler |
+| anything else | one soft glow |
+
+Settings (HOME held) > STAGE EFFECTS turns it off (ON by default; favorites.factory[15][30] bit 7, ui.c
+PREF_GLOW_OFF): the light stays dark, nothing is painted or sent for it.
+
+Where it shows: all round the screen, the header included (Kerem: without it the light looked cut off). On Stage the
+2 px margins from the top to the floor, the gaps between the rows, the band (from the floor only) and the header's top
+rows (from the top only; its canvas is x 2 .. 237, so the margins beside it carry the sides' light); on the wheel page
+the margins beside the header, then 6 px at the sides (beside the pulses and the keys) and under the keys.
+`ui_glow.c` works the light out every frame on HOME before the header is drawn (`ui_view.c` home_light) as a path round
+the floor, the sides and the top (2 px a step, on `ui_draw_frame`'s stack; ~89 B of state); whatever background is
+drawn takes its part of it by its distance from each edge. The strips redraw on drawn frames where the light changed,
+the header only for the top's light, on drawn frames. Nothing lit or nothing changed: nothing sent. The knobs out:
+dark. LCD cost while a busy song plays (tests/ui_render.c audit, "light"): ~5.2 k px a frame on Stage and ~3.6 k on
+the wheel page over the same frames without it; a drawn frame at most ~11 k px (~14 ms of the SPI, inside the 32 ms
+between drawn frames). The band, the header and the wheel page's keys sit inside the side strips, so the light from
+the sides never makes them send whole.

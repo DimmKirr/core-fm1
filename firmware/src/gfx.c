@@ -410,6 +410,10 @@ static int df_diff(uint32_t x, uint32_t y)
         rb[0] = rb[nr - 1u]; cb[0] = cb[nc - 1u];
         nr = nc = 1;
     }
+    if (nc > 1u && cv_px == cv_alt) {                   /* (nothing gathers from the small canvas: whole rows, once) */
+        cb[0] = cb[nc - 1u];
+        nc = 1;
+    }
     for (j = 0; j < nc; j++) {
         uint32_t c0 = ca[j] * DF_BLK, c1 = (cb[j] + 1u) * DF_BLK < cv_w ? (cb[j] + 1u) * DF_BLK : cv_w;
         if ((c1 - c0) * 4u >= cv_w * 3u) {              /* (most of the width: whole rows, no gathering) */

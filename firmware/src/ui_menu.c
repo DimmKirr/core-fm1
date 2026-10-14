@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee menu (HOME held): COLOR, FONT (the type: RUBIK or PIXEL, ui.c TY_*), HOLD (the layer threshold), LIGHTS (the keys' and buttons'
- * glow: ui_input.c ui_leds), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (IN+OUT, IN, OUT or OFF; usb.c ua_off_set),
+ * glow: ui_input.c ui_leds), STAGE EFFECTS (HOME's light from the screen's edges: ui_glow.c), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (IN+OUT, IN, OUT or OFF; usb.c ua_off_set),
  * USB INPUT (stereo master or four track stems; usb.c ua_tracks_set),
  * AUTOSAVE (automatic project saves after five seconds stopped and untouched), HOME SELECT (what SELECT turns on HOME:
  * ui.c HS_*),
@@ -10,13 +10,13 @@
  * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information. */
 /* ------------------------------------------------------------ menu --- */
 #define MENU_HEAD H_HEAD                 /* the menu's own title strip */
-enum { MI_COLOR, MI_FONT, MI_HOLD, MI_LIGHTS,
+enum { MI_COLOR, MI_FONT, MI_HOLD, MI_LIGHTS, MI_GLOW,
 #if MELODEE_USB_AUDIO
        MI_USB, MI_USB_INPUT,
 #endif
        MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_PICKER, MI_ACCEL, MI_HOME_SEL, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
-static const char *const MI_NAME[MI_COUNT] = {"COLOR", "FONT", "HOLD", "LIGHTS",
+static const char *const MI_NAME[MI_COUNT] = {"COLOR", "FONT", "HOLD", "LIGHTS", "STAGE EFFECTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO", "USB INPUT",
 #endif
@@ -270,6 +270,7 @@ static void draw_menu(void)
                   i==MI_PREVIEW?(settings_preview?"ON":"OFF"):(settings_chord_add?"ADD":"HOLD");
             if (i == MI_ACCEL) value = PREF_BITS & PREF_ACCEL_OFF ? "OFF" : "ON";
             if (i == MI_PICKER) value = PREF_BITS & PREF_PICK_OFF ? "OFF" : "ON";
+            if (i == MI_GLOW) value = PREF_BITS & PREF_GLOW_OFF ? "OFF" : "ON";
             if (i == MI_FONT) value = TY_PIXEL ? "PIXEL" : "RUBIK";
             if (i == MI_AUTOSAVE) value = settings_autosave ? "ON" : "OFF";
             if (i == MI_HOME_SEL) value = HS_NAME[home_select()];
@@ -397,6 +398,11 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
     if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_PICKER) {
         uint32_t on = s > 0 ? 1u : s < 0 ? 0u : !!(PREF_BITS & PREF_PICK_OFF);
         PREF_BITS = (uint8_t)(on ? PREF_BITS & ~PREF_PICK_OFF : PREF_BITS | PREF_PICK_OFF);
+        ui.force = 1; ok = 0;
+    }
+    if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_GLOW) {   /* KNOB 1 right ON, left OFF; OCT+ toggles */
+        uint32_t on = s > 0 ? 1u : s < 0 ? 0u : !!(PREF_BITS & PREF_GLOW_OFF);
+        PREF_BITS = (uint8_t)(on ? PREF_BITS & ~PREF_GLOW_OFF : PREF_BITS | PREF_GLOW_OFF);
         ui.force = 1; ok = 0;
     }
     if ((s || ok) && ui.menu==1 && ui.menu_sel==MI_ACCEL) {   /* KNOB 1 right ON, left OFF; OCT+ toggles */

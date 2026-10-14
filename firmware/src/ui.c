@@ -76,11 +76,12 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "favorites.c"
 /* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..4 retired (OVERCLOCK until
- * 1.3.4 / 1.4: left as saved, never read), bit 5 PICKER OFF, bit 6 FONT PIXEL. */
+ * 1.3.4 / 1.4: left as saved, never read), bit 5 PICKER OFF, bit 6 FONT PIXEL, bit 7 STAGE EFFECTS OFF. */
 #define PREF_BITS (favorites.factory[15][30])
 #define PREF_ACCEL_OFF 2u
 #define PREF_PICK_OFF 32u
 #define PREF_PIXEL 64u                         /* Settings > FONT: PIXEL (else RUBIK) */
+#define PREF_GLOW_OFF 128u                     /* Settings > STAGE EFFECTS: OFF (HOME's light, ui_glow.c) */
 #define TY_PIXEL ty_pixel()
 static uint32_t ty_pixel(void) { return (PREF_BITS & PREF_PIXEL) != 0u; }   /* (gfx.c TY_*: the type's roles) */
 /* HOME SELECT (the menu): what SELECT turns on HOME, kept in favorites.factory[15][25] (0, any other: BPM) */
