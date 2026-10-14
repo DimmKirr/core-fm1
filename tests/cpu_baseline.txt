@@ -229,3 +229,22 @@ Watch this number again after:
   - anything that makes a knob detent do more than publish 156 bytes
   - say() being called from somewhere that repeats (it is cheap once, and the
     voice line redraws on every message)
+
+
+ADSR
+====
+
+The envelope page gained a bank that says the DX7's eight envelope bytes as the four knobs every
+other synth has, and a bank stopped being a fixed number of rows so that bank could be one row of
+four cells instead of two rows of one.
+
+  image   112112 B -> 112524 B   (+412)
+  RAM     30664 B                (unchanged)
+  cpu     unchanged
+
+The +412 is the three bank helpers that replaced the stride arithmetic, the four-cell drawing, and
+the four new parameter rows. There is no audio cost at all: ADSR writes the same eight bytes the raw
+rows always wrote, and the engine never learns that anything changed. The drawing cost moved rather
+than grew -- the graph is 104 pixels tall on the ADSR bank instead of 72, which is 7680 more pixels
+to blit sixteen times a second, but the two parameter rows it replaced were 15360 pixels between
+them. cpu_q8 does not see either, as ever; both are blit bandwidth, not audio.

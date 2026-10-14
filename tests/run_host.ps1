@@ -60,3 +60,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'home.txt') {
     python tests\homecheck.py $out           # and the four knobs HOME puts under your fingers
     if ($LASTEXITCODE) { throw 'the knobs on HOME are not the operators they name' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'env.txt') {
+    python tests\envcheck.py $out            # and ADSR against the eight bytes it writes
+    if ($LASTEXITCODE) { throw 'ADSR does not match the segments underneath it' }
+}

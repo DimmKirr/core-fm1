@@ -484,7 +484,10 @@ static const uint16_t SP_SPAN[5] = {1000, 2000, 5000, 10000, 20000};    /* the s
 #define SP_NSPAN (sizeof SP_SPAN / sizeof SP_SPAN[0])
 
 enum { P_G = 0, P_OP = 1, P_UI = 2 };
-enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, K_TRSP, K_SPAN };
+enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, K_TRSP, K_SPAN,
+       K_TIME,                                  /* a DX7 rate, said as the time it takes: 99 - rate */
+       K_DEC,                                   /* the same, and it writes the next rate with it */
+       K_SUS };                                 /* a level, and it writes the one before it with it */
 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
@@ -515,7 +518,28 @@ static const param_t PG_OP[] = {
     {"L CURVE", "L CRV", P_OP, 11, 3,  K_CURVE, 1},
     {"R CURVE", "R CRV", P_OP, 12, 3,  K_CURVE, 1},
 };
-static const param_t PG_EG[] = {                /* a rate and the level it is heading for, paired */
+/* ---- the envelope, said twice
+ *
+ * The DX7 gives an operator four segments, each a rate and the level it is heading for. It is the
+ * honest shape and it is on this page, but it is not how anyone thinks about an envelope, and two
+ * of its eight numbers almost never earn their keep.
+ *
+ * So the page leads with the four every other synth has. ATTACK is rate 1. DECAY is rate 2, and it
+ * writes rate 3 with it, so a decay drawn in two stages becomes one that moves at one speed.
+ * SUSTAIN is level 3 -- where the envelope actually sits while you hold the key -- and it writes
+ * level 2 with it, which is what flattens stages 2 and 3 into the single decay DECAY then steers.
+ * RELEASE is rate 4. Levels 1 and 4 are left alone: a patch whose attack peaks below full, or
+ * whose release lands above silence, goes on doing that.
+ *
+ * The rates are turned round. On a DX7 a bigger rate is a faster one, which is backwards from
+ * every knob labelled ATTACK ever made, so what these three show is 99 - rate: turn it up and the
+ * segment takes longer. The byte underneath is untouched, and the four raw segments are still on
+ * the banks after these, saying the same thing the other way. */
+static const param_t PG_EG[] = {
+    {"ATTACK",  "ATK", P_OP, 0, 99, K_TIME},
+    {"DECAY",   "DEC", P_OP, 1, 99, K_DEC},     /* rate 2, and rate 3 with it */
+    {"SUSTAIN", "SUS", P_OP, 6, 99, K_SUS},     /* level 3, and level 2 with it */
+    {"RELEASE", "REL", P_OP, 3, 99, K_TIME},
     {"RATE 1",  0, P_OP, 0, 99, K_NUM},
     {"LEVEL 1", "LVL 1", P_OP, 4, 99, K_NUM},
     {"RATE 2",  0, P_OP, 1, 99, K_NUM},
@@ -597,7 +621,33 @@ static const param_t *page_at(uint32_t want)
     return 0;
 }
 
-#define PAGE_NBANK ((page_n() + PAGE_ROWS - 1u) / PAGE_ROWS)
+/* ---- what a bank is
+ *
+ * On four of the five pages a bank is simply the next `rows` parameters. ENVELOPE is the exception:
+ * its first bank is all four of ADSR at once, in a single row of four cells, and the banks after it
+ * are the raw segments two at a time. So a bank is a span rather than a fixed stride, and anything
+ * that walks one has to ask how long it is and where it starts. */
+static uint32_t bank_rows(uint32_t b)
+{
+    if (page == PAGE_EG)
+        return b == 0u ? 4u : 2u;
+    return PAGE_ROWS;
+}
+
+static uint32_t bank_first(uint32_t b)
+{
+    if (page == PAGE_EG)
+        return b == 0u ? 0u : 4u + (b - 1u) * 2u;
+    return b * PAGE_ROWS;
+}
+
+static uint32_t page_nbank(void)
+{
+    uint32_t b = 0, i = 0, n = page_n();
+    while (i < n && b < 32u)
+        i += bank_rows(b++);
+    return b ? b : 1u;
+}
 
 /* ---- the four knobs on HOME
  *
@@ -635,7 +685,7 @@ static void page_to(uint8_t p)
     } else if (page == PAGE_HOME) {
         bank = (uint8_t)((bank + 1u) % HOME_NBANK);
     } else if (page_n()) {
-        bank = (uint8_t)((bank + 1u) % PAGE_NBANK);
+        bank = (uint8_t)((bank + 1u) % page_nbank());
     }
 }
 
@@ -819,6 +869,8 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
         i = put(s, i, NOTE_NAME[(v + 21u) % 12u]);
         return putn(s, i, (v + 21u) / 12u, 1);
     case K_TRSP: s[i++] = v < 24u ? '-' : '+'; return putn(s, i, v < 24u ? 24u - v : v - 24u, 1);
+    case K_TIME:
+    case K_DEC:  return putn(s, i, 99u - (v < 99u ? v : 99u), 1);   /* a rate, said as a time */
     default: return putn(s, i, v, 1);
     }
 }
@@ -1262,7 +1314,10 @@ static void draw_spectrum(void)
  * run one block at a time: falling is linear, and rising is linear within each octave of level,
  * so a handful of exact steps covers it. */
 #define EG_Y 44
-#define EG_H 72
+#define EG_H 72                                 /* beside the two raw rows; ADSR needs only one */
+#define EG_H_TALL 104
+#define EGC_Y 152u                              /* where the row of four ADSR cells sits */
+static int32_t eg_h = EG_H;                     /* how tall the graph is on the bank being shown */
 #define EG_FULL (16 << 24)                      /* the level the engine saturates at */
 
 static int32_t eg_target(const dx_env_t *e, uint32_t i)
@@ -1308,11 +1363,15 @@ static int32_t eg_y(int32_t level)              /* level is already logarithmic:
 {
     if (level < 0) level = 0;
     if (level > EG_FULL) level = EG_FULL;
-    return (EG_H - 3) - (int32_t)(((int64_t)level * (EG_H - 4)) / EG_FULL);
+    return (eg_h - 3) - (int32_t)(((int64_t)level * (eg_h - 4)) / EG_FULL);
 }
 
 /* The four segments to scale, a held-sustain gap between 3 and 4, and a marker where the envelope
- * of the operator on screen has actually got to. `seg` is the segment being edited. */
+ * of the operator on screen has actually got to. `seg` is a mask of what is being edited: bits 0
+ * to 3 are the segments, bit 4 the flat stretch where the key is held. The ADSR bank owns all of
+ * it at once and gets no tick marks, because singling out everything singles out nothing. */
+#define EG_HOLD 16u
+#define EG_ALL 31u
 static void draw_eg(const dx_env_t *e, const dx_env_t *live, uint32_t seg)
 {
     int32_t t[4], x[5], lvl[5];
@@ -1330,8 +1389,8 @@ static void draw_eg(const dx_env_t *e, const dx_env_t *live, uint32_t seg)
     }
     if (!tot) tot = 1u;
 
-    cv_begin(240, EG_H, C_BLACK);
-    cv_rect(0, EG_H - 2, 240, 1, RGB(40, 40, 40));
+    cv_begin(240, (uint32_t)eg_h, C_BLACK);
+    cv_rect(0, eg_h - 2, 240, 1, RGB(40, 40, 40));
 
     span = x1 - x0 - hold;
     acc = 0;
@@ -1345,16 +1404,18 @@ static void draw_eg(const dx_env_t *e, const dx_env_t *live, uint32_t seg)
     if (x[4] > x1) x[4] = x1;
 
     for (i = 0; i < 4u; i++) {
-        uint16_t c = (i == seg) ? C_ACC : RGB(95, 100, 135);
+        uint32_t on = seg >> i & 1u;
+        uint16_t c = on ? C_ACC : RGB(95, 100, 135);
         int32_t xa = (i == 3) ? x[3] : x[i], ya = eg_y(lvl[i]), yb = eg_y(lvl[i + 1]);
         if (i == 3) {                           /* the sustain, flat, before the release */
-            cv_line(x[2] + 1, eg_y(lvl[3]), x[3], eg_y(lvl[3]), RGB(90, 95, 120));
+            cv_line(x[2] + 1, eg_y(lvl[3]), x[3], eg_y(lvl[3]),
+                    (seg & EG_HOLD) ? C_ACC : RGB(90, 95, 120));
             ya = eg_y(lvl[3]);
         }
         cv_line(xa, ya, x[i + 1], yb, c);
-        if (i == seg) {                         /* the segment the two knobs are moving */
-            cv_line(xa, EG_H - 2, xa, EG_H - 6, C_ACC);
-            cv_line(x[i + 1], EG_H - 2, x[i + 1], EG_H - 6, C_ACC);
+        if (on && seg != EG_ALL) {              /* the ends of what the knobs are moving */
+            cv_line(xa, eg_h - 2, xa, eg_h - 6, C_ACC);
+            cv_line(x[i + 1], eg_h - 2, x[i + 1], eg_h - 6, C_ACC);
         }
     }
 
@@ -1375,9 +1436,14 @@ static void draw_eg(const dx_env_t *e, const dx_env_t *live, uint32_t seg)
  * note at middle C would build it, so the page is never blank. The shape always comes from `edit`,
  * so a switched-off operator still shows the envelope it would have -- but it gets no marker,
  * because the one the ISR is running has been taken to the floor and would sit there. */
-static void draw_eg_now(uint32_t seg)
+static void draw_eg_now(uint32_t bank)
 {
+    /* bank 0 is all four ADSR knobs, so it owns the whole envelope and nothing is singled out;
+     * the banks after it are the raw segments, one to a bank. */
+    static const uint8_t EG_SEG[] = {EG_ALL, 0x1u, 0x2u, 0x4u, 0x8u};
+    uint32_t seg = EG_SEG[bank < sizeof EG_SEG ? bank : 0];
     dx_env_t scratch;
+    eg_h = bank == 0u ? EG_H_TALL : EG_H;   /* the ADSR bank needs one row, so the graph gets the rest */
     uint32_t v = v_last;
     const uint8_t *o = &edit[opsel * 21u];
     int rs = 0, ol = dx_op_level(o, 60, 100, &rs);
@@ -1403,6 +1469,7 @@ static const char *p_knob(const param_t *p)
 static uint32_t p_bar(const param_t *p, uint32_t v, uint32_t *max)
 {
     uint32_t exact;
+    if (p->kind == K_TIME || p->kind == K_DEC) { *max = p->max; return 99u - (v < 99u ? v : 99u); }
     if (p->kind != K_RAT) { *max = p->max; return v; }
     if (*op_byte(opsel, 17)) { *max = 399u; return fix_step(opsel); }
     *max = RAT_N - 1u;
@@ -1442,6 +1509,42 @@ static void draw_row(uint32_t slot, const param_t *p, uint32_t v)
     draw_text_box(150, y, 84, &FONT_S, s, C_WHITE, 2);
 }
 
+/* ADSR four to a row. Two columns of two would have fitted as well, but these cells line up with
+ * the four knobs and with the legend under them, and a value you cannot match to a knob is half a
+ * value. The bar is a quarter as wide as a full row's and says exactly the same thing. */
+static void draw_eg_cells(void)
+{
+    uint32_t e;
+    cv_begin(240, 32, C_BLACK);
+    for (e = 0; e < 4u; e++) {
+        const param_t *p = page_at(e);
+        uint32_t max, n, w;
+        if (e)
+            cv_rect((int32_t)(e * 60u), 2, 1, 22, RGB(44, 44, 44));
+        if (!p)
+            continue;
+        n = p_bar(p, *p_ref(p), &max);
+        w = max ? (54u * n) / max : 0u;
+        cv_rect((int32_t)(e * 60u + 3u), 26, 54, 4, RGB(45, 45, 45));
+        if (w)
+            cv_rect((int32_t)(e * 60u + 3u), 26, (int32_t)w, 4, C_ACC);
+    }
+    cv_blit(0, EGC_Y);
+    for (e = 0; e < 4u; e++) {                  /* the text goes on top, as it does on a full row */
+        const param_t *p = page_at(e);
+        char s[16];
+        uint32_t i;
+        if (!p)
+            continue;
+        i = put(s, 0, p_knob(p));
+        s[i] = 0;
+        draw_text_box(e * 60u + 3u, EGC_Y + 4u, 28, &FONT_S, s, C_LBL, 0);
+        i = putval(s, 0, p, *p_ref(p));
+        s[i] = 0;
+        draw_text_box(e * 60u + 31u, EGC_Y + 4u, 26, &FONT_S, s, C_WHITE, 2);
+    }
+}
+
 static void draw_head(void)
 {
     char s[32];
@@ -1455,7 +1558,7 @@ static void draw_head(void)
         if (opmute >> opsel & 1u)
             i = put(s, i, " OFF");
     }
-    nb = PAGE_NBANK;
+    nb = page_nbank();
     if (nb > 1u) {
         i = put(s, i, "  ");
         i = putn(s, i, bank + 1u, 1);
@@ -1495,8 +1598,7 @@ static void draw_legend(void)
                 s = buf;
             }
         } else {
-            uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
-            const param_t *p = e < PAGE_ROWS ? page_at(pi) : 0;
+            const param_t *p = e < bank_rows(bank) ? page_at(bank_first(bank) + e) : 0;
             if (p)
                 s = p_knob(p);
         }
@@ -1819,8 +1921,8 @@ static void app_main(void)
                 patch_publish();
             }
         }
-        for (e = 0; e < PAGE_ROWS; e++) {                  /* KNOB1..n: the parameters on screen */
-            uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
+        for (e = 0; e < bank_rows(bank); e++) {            /* KNOB1..n: the parameters on screen */
+            uint32_t pi = bank_first(bank) + e;
             const param_t *p;
             int32_t v;
             if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || (p = page_at(pi)) == 0)
@@ -1841,15 +1943,20 @@ static void app_main(void)
                     for (k = 0; k < 240u; k++)
                         sp_pk[k] = 0;                      /* the held peaks belonged to the old axis */
                 }
-                if (bank >= PAGE_NBANK)                    /* fewer parameters than there were banks */
-                    bank = (uint8_t)(PAGE_NBANK - 1u);
+                if (bank >= page_nbank())                  /* fewer parameters than there were banks */
+                    bank = (uint8_t)(page_nbank() - 1u);
                 dirty = 1;
                 t_change = fm1_ms;
                 repaint = 1;
                 continue;
             }
-            v = (int32_t)*p_ref(p) + enc;
-            *p_ref(p) = (uint8_t)(v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v);
+            v = (int32_t)*p_ref(p) + (p->kind == K_TIME || p->kind == K_DEC ? -enc : enc);
+            v = v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v;
+            *p_ref(p) = (uint8_t)v;
+            if (p->kind == K_DEC)               /* the second stage of the decay goes with the first */
+                edit[p_at(p) + 1u] = (uint8_t)v;
+            if (p->kind == K_SUS)               /* and the level it was heading for, so the two are flat */
+                edit[p_at(p) - 1u] = (uint8_t)v;
             modified = 1;
             patch_publish();
         }
@@ -1956,9 +2063,20 @@ static void app_main(void)
                 alg_op_drawn = opsel;
                 draw_alg();
             }
+        } else if (page == PAGE_EG && bank == 0u) {
+            uint32_t ch = 0;                    /* the four cells are one blit, so one of them is all */
+            for (e = 0; e < 4u; e++) {
+                const param_t *p = page_at(e);
+                uint16_t v = p ? (uint16_t)p_cache(p) : (uint16_t)0xFFFEu;
+                if (shown[e] != v) { shown[e] = v; ch = 1; }
+            }
+            if (ch) {
+                draw_eg_cells();
+                eg_dirty = 1;
+            }
         } else {
-            for (e = 0; e < PAGE_ROWS; e++) {
-                uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
+            for (e = 0; e < bank_rows(bank); e++) {
+                uint32_t pi = bank_first(bank) + e;
                 const param_t *p = page_at(pi);
                 uint16_t v = p ? (uint16_t)p_cache(p) : (uint16_t)0xFFFEu;  /* FFFE: this row is empty */
                 if (shown[e] != v) {

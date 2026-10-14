@@ -87,7 +87,7 @@ the title says what moved instead — `OP1 LVL 69`, or `OP3 x2.00` — for a sec
 | --- | --- | --- |
 | **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them; the knobs move four operators at a time |
 | **EDIT** | OPERATOR | level, ratio, detune, mode / velocity sensitivity, amp mod, rate scaling |
-| **ENV** | ENVELOPE | the envelope drawn to scale, and one segment's rate and level at a time |
+| **ENV** | ENVELOPE | the envelope drawn to scale; attack, decay, sustain and release, then the four raw segments a rate and level at a time |
 | **LFO** | LFO | speed, delay, pitch mod, amp mod, wave, key sync, pitch mod sensitivity |
 | **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope, **SHOW ALL** and **SPECTRUM** |
 
@@ -234,9 +234,21 @@ speed, not a time, so the same rate takes longer the further it has to travel, a
 are nothing like four equal segments. The graph is stepped with the engine's own arithmetic, so the widths
 are the real times and the heights are the real levels — in dB, which is how the levels are specified.
 
-**SEL** — or **ENV** again — walks the four segments, and the knobs give you that segment's rate and its
-level together, which is the pair that means something. The segment you are on is picked out in colour, and
-the white dot is where the envelope of the selected operator has actually got to in the note you are holding.
+The first bank is **attack, decay, sustain and release**, one to a knob, which is the envelope every other
+synth you have met describes. The four fit in a single row of cells under the graph, lined up with the knobs
+that move them, and the graph takes the space that saves. **ENV** again — or **SEL** — walks on to the four
+raw segments the DX7 actually stores, a rate and its level at a time, which is the pair that means something.
+The segment you are on is picked out in colour; on the ADSR bank the whole envelope is, because there you are
+moving all of it. The white dot is where the envelope of the selected operator has actually got to in the
+note you are holding.
+
+ADSR is a way of saying the eight bytes, not a replacement for them. Attack is rate 1 counted backwards —
+the engine makes a bigger rate *faster*, which is upside down from every knob ever labelled attack, so the
+page shows you `99` minus it. Decay is rate 2, and writes rate 3 to match, so a patch that draws its decay
+in two stages still obeys one knob. Sustain is level 3, and writes level 2 to match, which flattens those two
+stages into the single slope the knob implies. Release is rate 4. Level 1 and level 4 are deliberately left
+alone: a patch that peaks below full, or releases to something other than silence, goes on doing so. Turn to
+the raw banks at any time and you can see exactly what the four knobs did.
 
 The voice name shows a `*` while you have changed anything. To throw an edit away, turn **PRESETS** off the
 voice and back onto it — it is reloaded from the bank.
@@ -356,7 +368,7 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Seven more scripts go with it:
+which is the thing most worth listening to. Eight more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
@@ -367,6 +379,7 @@ tests/run_host.sh tests/spectrum.txt      # the analyser, against where the part
 tests/run_host.sh tests/levels.txt        # the operator boxes, against the envelopes behind them
 tests/run_host.sh tests/edit.txt          # RATIO and SHOW ALL, against the bytes underneath them
 tests/run_host.sh tests/home.txt          # HOME's four knobs, against the bytes they move
+tests/run_host.sh tests/env.txt           # ADSR, against the eight raw bytes it is a view of
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -396,6 +409,14 @@ harmonic at 25.1 and its third at 37.7; widen the span to 10 kHz and every one o
 the distance across. That is a claim about FM, about the axis and about the transform all at once, and it is
 only true if all three are right. It also checks that the bars fall when you let go and that the held peaks
 outlive them, and that HOME really does swap between two screens and back.
+
+`tests/envcheck.py` tests a translation, so it reads both languages and checks they agree. It drives the
+four ADSR knobs to known numbers, then walks on to the raw banks and reads the bars there. Attack plus rate 1
+has to come to ninety-nine, which is only true if the inversion is the right way round; rate 3 has to equal
+rate 2 and level 2 has to equal level 3, which is only true if the twin writes landed; and level 1 and level
+4 have to be exactly where the preset left them, which is only true if ADSR kept its hands off them. It reads
+the ADSR values off the four cells and the raw ones off the full-width bars, so a layout that put a value
+under the wrong knob would fail too.
 
 `tests/homecheck.py` has nothing on the screen to read, because HOME draws no parameter rows. It proves the
 wiring from the far end instead: turn KNOB1 thirty steps down on HOME, walk out to the EDIT page, and the bar
