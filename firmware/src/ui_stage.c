@@ -407,6 +407,26 @@ static void stage_row(uint32_t k)
         sig += (uint32_t)t->p[P_AMODE] * 3001u + (uint32_t)t->p[P_AHOLD] * 37u + (uint32_t)t->p[P_CHRD] * 641u +
                (uint32_t)t->p[P_QUANT] * 1291u + (uint32_t)t->p[P_ROOT] * 17u + (uint32_t)t->p[P_SCALE] * 4099u;
     g = steps_hash(t) + page * 613u + ph * 104729u;
+    char l1[24], l2[24];
+    l1[0] = l2[0] = 0;
+    if (!wide && nf == TY_VL && text_w(nf, nm) > (steps_row ? BOX_W - 6 : gx - 8) - tx)
+        nf = TY_TX;                                     /* (two tracks: a long name whole at 20 px, not cut at 28) */
+    if (wide) {                                         /* one track: the sound as large as it fits, on two lines if need be */
+        int32_t room = BOX_W - tx - 8;
+        if (text_w(TY_HR, nm) <= room && text_has(TY_HR, nm)) {
+            nf = TY_HR;
+        } else if (text_w(TY_VL, nm) > room) {
+            stage_two_lines(nm, l1, l2, room, TY_VL);
+            if (l2[0] && text_w(TY_VL, l1) <= room)
+                str_cpy(nm, l1, sizeof nm);
+            else
+                l2[0] = 0;
+        }
+    }
+    /* the block, centred by its capitals: the name (its first capital to its last baseline), 6 px, the role's pills (16),
+     * then the steps (18) */
+    int32_t ncap = nf->cap + (l2[0] ? nf->h - 4 : 0), blk = ncap + 6 + 16 + (steps_row && !idle ? 18 : 0);
+    int32_t T = (h - blk) / 2, by = T - (nf->asc - nf->cap), pcy = T + ncap + 6 + 8;
     if (stage.out)                                      /* (the knobs and the hero over the rows: nothing to draw) */
         return;
     if (!ui.force && sig == stage.col[k]) {
@@ -415,7 +435,7 @@ static void stage_row(uint32_t k)
             if (steps_row) {
                 cv_begin(BOX_W - tx - 6, 14, bg);
                 stage_steps(t, page, ph, tc, bg, 0, 7, 1, BOX_W - tx - 6);
-                cv_blit((uint32_t)(BOX_X + tx), (uint32_t)(y + h - 20));
+                cv_blit((uint32_t)(BOX_X + tx), (uint32_t)(y + pcy + 18 - 7));
             } else {
                 cv_begin(ST_GRID, ST_GRID, bg);
                 stage_steps(t, page, ph, tc, bg, 0, 0, 0, 0);
@@ -431,24 +451,8 @@ static void stage_row(uint32_t k)
         if (t->p[P_AHOLD]) str_cpy(line + str_len(line), "  HOLD", 8);
         if (t->p[P_CHRD]) { str_cpy(line + str_len(line), "  ", 3); str_cpy(line + str_len(line), N_CHRD[clamp(t->p[P_CHRD], 0, (int32_t)NELEM(N_CHRD) - 1)], 8); }
     }
-    char l1[24], l2[24];
-    l1[0] = l2[0] = 0;
-    if (wide) {                                         /* one track: the sound as large as it fits, on two lines if need be */
-        int32_t room = BOX_W - tx - 8;
-        if (text_w(TY_HR, nm) <= room && text_has(TY_HR, nm)) {
-            nf = TY_HR;
-        } else if (text_w(TY_VL, nm) > room) {
-            stage_two_lines(nm, l1, l2, room, TY_VL);
-            if (l2[0] && text_w(TY_VL, l1) <= room)
-                str_cpy(nm, l1, sizeof nm);
-            else
-                l2[0] = 0;
-        }
-    }
     for (top = 0; top < h; top += (int32_t)(CV_MAX / BOX_W)) {   /* (a tall row: in slices) */
         int32_t sh = h - top < (int32_t)(CV_MAX / BOX_W) ? h - top : (int32_t)(CV_MAX / BOX_W);
-        int32_t nh = nf->h + (l2[0] ? nf->h - 4 : 0);    /* (the name's lines) */
-        int32_t by = (h - (nh + lf->h - 2) - (steps_row && !idle ? 18 : 0)) / 2;   /* (the words' block, centred) */
         cv_begin(BOX_W, (uint32_t)sh, T_BG);
         cv_oy = -top;
         if (sel) {                                      /* (the selected: outlined in its colour) */
@@ -466,7 +470,7 @@ static void stage_row(uint32_t k)
         if (l2[0])
             cv_free_text(tx, by + nf->h - 4, nf, l2, pending ? T_ACCENT : mute ? T_DIM : T_TEXT, bg, BOX_W - 6 - tx);
         {   /* the role, then the pattern (a pill in the track's colour), the next one waiting for the bar dashed */
-            int32_t lx = tx, ly = by + nh - 2, re = (steps_row ? BOX_W - 6 : gx - 8);
+            int32_t lx = tx, cy = pcy, ly = ty_y(cy, lf), re = (steps_row ? BOX_W - 6 : gx - 8);
             char role[16], pt[3] = {'P', (char)('1' + t->pattern % NPAT), 0}, pn[3] = {'P', (char)('0' + next), 0};
             uint32_t m;
             for (m = 0; line[m] && line[m] != ' ' && m + 1u < sizeof role; m++)
@@ -474,12 +478,12 @@ static void stage_row(uint32_t k)
             role[m] = 0;
             lx = cv_text_on(lx, ly, lf, role, tc, bg) + 8;
             if (!idle) {
-                int32_t pw = text_w(lf, pt) + 10, cy = ly + lf->asc - (lf->cap + 1) / 2;
-                cv_rrect(lx, cy - 10, pw, 20, 5, tc, bg);
+                int32_t pw = text_w(lf, pt) + 10;
+                cv_rrect(lx, cy - 8, pw, 16, 4, tc, bg);
                 cv_text_on(lx + 5, ly, lf, pt, T_INK, tc);
                 lx += pw + 4;
                 if (next) {
-                    cv_dashed(lx, cy - 10, pw, 20, 5, tc);
+                    cv_dashed(lx, cy - 8, pw, 16, 4, tc);
                     cv_text_on(lx + 5, ly, lf, pn, tc, bg);
                     lx += pw + 4;
                 }
@@ -489,7 +493,7 @@ static void stage_row(uint32_t k)
         }
         if (!idle) {
             if (steps_row)
-                stage_steps(t, page, ph, tc, bg, tx, h - 13, 1, BOX_W - tx - 6);
+                stage_steps(t, page, ph, tc, bg, tx, pcy + 8 + 10, 1, BOX_W - tx - 6);
             else
                 stage_steps(t, page, ph, tc, bg, gx, (h - ST_GRID) / 2, 0, 0);
         }

@@ -105,6 +105,7 @@ static void view_wheel(const uint32_t *on, const uint8_t *of, int faded)
         q = micro_active(TSEL) ? 0 : chord_of(pcs, bass, &root);
     }
     cv_begin(VW_WHEEL_W, VW_WHEEL_H, T_BG);
+    cv_scroll = stage.out;                              /* (the knobs over its top: its words there cut on purpose) */
     cv_ring(VW_CX, VW_CY, 2 * VW_R + 1, T_LINE);
     for (k = 0; k <= 12u && npc > 1u; k++) {              /* the chord's shape: its notes joined round the wheel */
         uint32_t pc = (k * 7u) % 12u;
@@ -176,6 +177,7 @@ static void view_wheel(const uint32_t *on, const uint8_t *of, int faded)
             b[str_len(N_NOTE[key]) + 1u] = (char)(b[str_len(N_NOTE[key]) + 1u] + 32);
         cv_free_text(st_mid_x(VW_CX, TY_TX, b, 2 * VW_R - 4), ty_y(VW_CY, TY_TX), TY_TX, b, T_MID, T_BG, 2 * VW_R - 4);
     }
+    cv_scroll = 0;
     if (stage.out)                                      /* (the knobs over its top: the rows under them only) */
         cv_blit_from(VW_WHEEL_X, VW_WHEEL_Y, (uint32_t)(Y_LABEL + CARD_H - VW_WHEEL_Y));
     else
