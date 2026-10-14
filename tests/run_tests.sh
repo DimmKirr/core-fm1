@@ -1,6 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 # Host tests of the Melodee sources (no hardware). Run from the repo root after ./build.sh:
 #   tests/run_tests.sh               everything
 #   SOUND=0 tests/run_tests.sh       everything but the sound tests
@@ -164,6 +165,12 @@ old_to_new() {                                    # a package of another app (th
         python3 tools/fm1pkg_make.py "$OUT/old_app.bin" build/loader/ota.bin "$OUT/old.fwsc" >/dev/null &&
         "$OUT/ldr_test" "$OUT/old.fwsc" build/melodee.fwsc
 }
+powercut_tests() {
+    python3 tests/boot_fixtures.py &&
+        "$OUT/loader_powercut_test" build/host/boot-fixtures/legacy.fwsc build/melodee.fwsc \
+        build/host/boot-fixtures/same-stub.fwsc build/host/boot-fixtures/other-legacy.fwsc \
+        build/host/boot-fixtures/old-stub.fwsc
+}
 ui_renders() {
     build ui_render ui_render -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_new/ppm build/ui_slot
@@ -237,10 +244,14 @@ if core; then
     t "resident audio: four-track resource budget and removed buses" ram_audio_test -O2 $FW
     t "resident audio: expanded voice budget and CPU1 fallback" ram_voice_budget_test -O2 $FW
     t "USB audio: four isolated track stems through the real mixer" usb_audio_tracks_test -O2 $FW
+    t "boot stub: CRCs, rescue keys, damaged staging and retry fallback" boot_stub_test -O2
+    run "boot packages: constant entry sector and valid directory CRCs" python3 tests/boot_stub_pkg_test.py
+    t "power cuts: every erase/page, resume and unchanged boot sector" loader_powercut_test -O2 -- powercut_tests
     t "M-UPGRADE entry (own loader)" ota_test -DOWN_PKG=1 -- "$OUT/ota_test" build/melodee.fwsc
     t "update loader: other app -> this build" ldr_test -- old_to_new
     run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/install_test.py
     run "ROM USB recovery: backup, protected regions, interrupted writes and transport failures" python3 tests/recovery_test.py
+    run "recovery diagnostics: legacy and boot-protected retained RAM" python3 tests/retained_ram_test.py
     run "release assets: firmware identity, application bytes, native provenance and ZIP integrity" python3 tests/release_assets_test.py
     run "recovery correction: preserve signed firmware and verify public replacement assets" python3 tests/recovery_correction_test.py
 fi

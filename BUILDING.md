@@ -167,10 +167,10 @@ Or, to install your own build from the web installer, make a local copy of the s
 
 ```
 # Build both variants from the same source; release outputs are kept separately.
-MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.4
-MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.4
-python3 web/make_site.py build/release-1.3.4/melodee-1.3.4.fwsc \
-  build/release-1.3.4-1core/melodee-1.3.4-1core.fwsc 1.3.4 /tmp/melodee-site
+MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.5
+MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.5
+python3 web/make_site.py build/release-1.3.5/melodee-1.3.5.fwsc \
+  build/release-1.3.5-1core/melodee-1.3.5-1core.fwsc 1.3.5 /tmp/melodee-site
 cd /tmp/melodee-site && python3 -m http.server 8000
 # open http://localhost:8000/webapp/installer/
 ```
@@ -180,6 +180,16 @@ starts, identify its recovery mode using the steps below.
 
 ### Recover a black-screen FM-1
 
+Builds with the boot stub can recover an interrupted application write after power loss.
+Switch on again, or hold **OCT− alone** while switching on: three short key-light flashes
+mean the USB MIDI update loader is starting. Reconnect USB and install the same package
+again; already verified sectors are skipped. Both octave buttons at power-on still enter
+calibration. One long flash means ROM UBOOT; use the recovery steps below.
+
+The first install of the stub, an intentional stub change, and installing firmware without
+the stub still have an unprotected window. Keep the FM-1 charged and the computer awake.
+See [boot protection design and validation](docs/BOOT-SAFETY.md).
+
 If the device appears as **Melodee Update**, it is in the MIDI update loader:
 `python3 tools/fm1_install.py /path/to/working-firmware.fwsc --yes` resumes installation.
 
@@ -187,7 +197,7 @@ If it appears as USB **4c4a:8057**, with inquiry identity **WL82 / UBOOT1.00**, 
 already in mask-ROM UBOOT. `tools/fm1_recover.py` can recover it over a normal USB data
 cable, without an RP2040. It does not force a running device into UBOOT.
 
-The [1.3.4 release downloads](https://github.com/keremimo/melodee/releases/tag/v1.3.4)
+The [1.3.5 release downloads](https://github.com/keremimo/melodee/releases/tag/v1.3.5)
 include standalone recovery archives for Windows x64, Linux x64, macOS Intel/x64
 and Apple Silicon/arm64. Extract the matching archive and follow its `RECOVERY.md`,
 also available [here](docs/RECOVERY.md). Python, libusb and the RAM helper are bundled.

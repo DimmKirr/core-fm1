@@ -6,6 +6,14 @@
 
 **TL;DR:** connect your FM-1 to a computer by USB, open the
 [web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
+
+Melodee 1.3.5 introduces boot protection for interrupted application updates,
+including power loss. The stub requests USB update mode when the application is
+incomplete. Switch on again, or hold **OCT− alone** while
+switching on; three short key-light flashes mean you can reconnect USB and press Install
+again. The first installation remains unprotected until its boot sector is complete. Releases through 1.3.4 do not have it. See
+[boot protection and validation limits](docs/BOOT-SAFETY.md).
+
 No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the installer's
 **Return to official V15** takes you back to the official firmware.
 It saves a complete backup first. If your firmware cannot export one, you can select
@@ -14,7 +22,7 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.4** ([what's new](#whats-new-in-134)).
+**Melodee 1.3.5** ([what's new](#whats-new-in-135)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -28,6 +36,22 @@ runs Felucca.
   into a computer; choose **Synth only** in the installer, edit it with its own
   [synth editor](https://keremimo.github.io/melodee/webapp/synth-editor/) ([BUILDING.md](BUILDING.md#synth-only-firmware))
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.3.5
+
+- **Recovery after an interrupted update:** a boot stub checks the application
+  before starting it. An incomplete write returns to the retained USB MIDI update
+  loader, with ROM UBOOT as a fallback. Reconnect USB and install the same package
+  again; sectors that already match are skipped.
+- **OCT− rescue at power-on:** hold OCT− alone while switching on to request the
+  update loader. Three short key-light flashes signal loader handover; one long
+  flash signals the request for ROM UBOOT. Both octave buttons still select calibration.
+- **First installation:** upgrading from stock V15 or Melodee through 1.3.4 writes
+  the boot-stub sector. Power loss while that sector is being written can still
+  require hardware recovery. Keep the FM-1 charged and connected throughout the update.
+- **Validation:** automated boot, package and interruption tests cover this change;
+  physical boot and recovery validation remains pending. See
+  [boot protection and limits](docs/BOOT-SAFETY.md).
 
 ## What's new in 1.3.4
 
@@ -806,7 +830,7 @@ You can leave a tip with [ko-fi](https://ko-fi.com/keremimo).
 - Based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com)
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
   Felucca itself; the PHASE engine's waveforms (a C port of the oscillator of
-  [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the synthesized 808; the [Fukiai](https://github.com/hugelton/Fukiai) icon
+  [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the [Fukiai](https://github.com/hugelton/Fukiai) icon
   font of the web editor ([MIT](LICENSES/MIT-Fukiai.txt))
 - Font: [Rubik](https://github.com/googlefonts/rubik) by The Rubik Project Authors, [SIL OFL 1.1](LICENSES/OFL-Rubik.txt);
   the panel diagram: [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors, [SIL OFL 1.1](LICENSES/OFL-InterTight.txt)
@@ -831,7 +855,7 @@ ported DSP keep their own licences ([LICENSES/](LICENSES/)); details in [LICENSI
 "Felucca" and "Hügelton Instruments" are names of Hügelton Instruments. M-VAVE and FM-1 are
 trademarks of their respective owners. Melodee is not affiliated with or endorsed by any of them.
 
-Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments\
-Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+Melodee code and modifications: Copyright (C) 2026 Kerem Kilic (Ellic Studio)\
+Retained Felucca portions: Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 
 See [Recording and performance controls](docs/RECORDING_PERFORMANCE.md) for count-in, metronome, drum levels, temporary knob edits, additive chords and MIDI parameter control.

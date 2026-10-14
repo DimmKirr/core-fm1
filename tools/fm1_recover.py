@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Recover an FM-1 already in WL82 ROM UBOOT over direct USB.
 
   fm1_recover.py --info
@@ -32,7 +32,7 @@ from fm1_install import STOCK_V15_SHA256, logical_image, product_of
 from fm1pkg_make import chipkey_decode, crc16, enc, sfc
 
 APP_LO, APP_HI, FLASH_SIZE, SECTOR = 0x4000, 0x93000, 0x100000, 4096
-VERSION = "1.3.4"
+VERSION = "1.3.5"
 LOADER_SHA256 = "d9de9f1c81a3bb52998e5bced678f0ca851223014a7d43965b03f0719a44eb55"
 LOADER_ADDRESS = 0x1C02000
 

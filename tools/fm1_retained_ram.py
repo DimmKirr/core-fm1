@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Decode retained-ram.bin: the 512 bytes of .noinit at 0x01C7C000 that fm1-recover saves from a unit in UBOOT.
 
   tools/fm1_retained_ram.py retained-ram.bin [more.bin ...]
 
+Boot-protected builds reserve the first 32 bytes for the stub mailbox; the
+application layout then starts at 0x01C7C020. Earlier builds start at 0x01C7C000.
 Layout (app.ld NOINIT, link order): fm1_crash, melodee_dbg, bootguard, then fm1_core1_bar (dual core only),
 oc_guard (1.3.0 .. 1.4.0-rc.2 only) and panel. The loader leaves this RAM alone (loader.ld), so a unit that entered UBOOT
 through the boot guard still holds what its last boots left here.
@@ -32,6 +35,16 @@ def decode(b):
     if len(b) < 0xB0:
         raise SystemExit('expected 512 bytes from 0x01C7C000')
     out = []
+    info = struct.unpack_from('<I', b, 4)[0]
+    if info & 0xFFFF0000 == 0x53420000:
+        if len(b) < 0xD0:
+            raise SystemExit('boot-stub dump is truncated')
+        _, _, ticks, detail = struct.unpack_from('<4I', b)
+        decisions = {1: 'application', 2: 'update loader', 3: 'ROM UBOOT'}
+        out.append('boot stub  v%d, %s, %.1f ms; marker %d, loader %d, prior rescues %d' %
+                   ((info >> 8) & 255, decisions.get(info & 255, 'unknown'), ticks / 24000,
+                    detail & 255, (detail >> 8) & 255, (detail >> 16) & 255))
+        b = b[32:]
     c = words(b, 0x00, CRASH)
     if c['magic'] == MAGIC['crash']:
         out.append('crash      count %(count)d  vec %(vec)d  pc %(pc)08x  rets %(rets)08x  dbg %(dbg)08x  '

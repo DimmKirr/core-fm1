@@ -13,7 +13,7 @@ on:
       - 'assets/recovery/**'
       - 'tests/recovery_test.py'
       - 'tests/recovery_correction_test.py'
-    tags: ['v1.3.4']
+    tags: ['v1.3.5']
   workflow_dispatch:
 
 permissions:
@@ -129,7 +129,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" build/release-assets/* \
-            --verify-tag --title "Melodee ${GITHUB_REF_NAME#v}" --notes-file docs/RELEASE_1.3.4.md
+            --verify-tag --title "Melodee ${GITHUB_REF_NAME#v}" --notes-file docs/RELEASE_1.3.5.md
       - name: Prepare correction while preserving published firmware
         if: github.ref == 'refs/heads/release/recovery-v1.3.1'
         env:
@@ -180,6 +180,21 @@ jobs:
           # in next's order: stage the earlier stable releases, then make the site.
           git fetch --no-tags --depth 1 origin next
           git worktree add --detach .site-tools FETCH_HEAD
+          # Keep next's channel/version UI, with this release's updater and rescue instructions.
+          cp web/fm1ota.js .site-tools/web/fm1ota.js
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path("web/index_pkg.html").read_text()
+          target = Path(".site-tools/web/index_pkg.html")
+          pattern = r"^    brick: .*$"
+          instructions = re.findall(pattern, source, re.M)
+          page = target.read_text()
+          if len(instructions) != 2 or len(re.findall(pattern, page, re.M)) != 2:
+              raise RuntimeError("Expected Japanese and English installer recovery instructions")
+          lines = iter(instructions)
+          target.write_text(re.sub(pattern, lambda _: next(lines), page, flags=re.M))
+          PY
           python .site-tools/web/import_releases.py .nightly-pages --repo "$GITHUB_REPOSITORY"
           python .site-tools/web/make_site.py "build/release-assets/melodee-$version.fwsc" \
             "build/release-assets/melodee-$version-1core.fwsc" "$version" .nightly-pages
