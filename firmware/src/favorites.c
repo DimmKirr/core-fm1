@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 #define MELODEE_FAVORITES 1
 /* Stable engine/preset references; fixed capacity independent of optional engines.
  * Bytes no engine's presets reach hold other settings, kept with the favorites (settings_persist.c):
@@ -11,6 +12,7 @@
  *          31 the quick layers seen (ui_layer.c); free: 24 bits 1..7, 25, 30 bits 5..7
  *   row 0 bytes 2..27 hold all 201 Prophet factory stars, tagged in bytes 28..31;
  *         bytes 0..1 held retired ANALOG's stars.
+ *   row 1 bytes 28..31 mark validated Melodee settings (MDS + version 1).
  * Rows 1 (DIGITAL, retired), 4 (SAMPLE) and 13 (SLICE, built with MELODEE_SLICE) may hold Felucca 1.0's stars; 6, 7, 9 are LEGACY_EXTRAS' engines. Native FM6 slots: row 12 bits 24..87. */
 typedef struct {
     uint8_t factory[16][32]; /* engine 0..15, preset 0..255 */

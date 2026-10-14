@@ -89,7 +89,7 @@ static void reset(void)
     host_tracks_init();
     fm1_ms = 0;
     transport_req = 0;
-    persist_pending = 0;
+    persist_pending = persist_repair = 0;
     persist_old = tmpl_old = preset_old_write = 0;
     persist_retry_ms = 0;
     flash_ok = 1;
@@ -130,14 +130,16 @@ static int test_boot_maintenance_writes(void)
     int bad = 0;
     reset(); boot_trace = 1;
     persist_boot();
-    bad += check("first boot flushes warning before all 12 preset-bank erases",
-                 erases == 12u && !boot_trace_bad && boot_syncs >= 14u &&
+    bad += check("first boot flushes warning before settings and 12 bank erases",
+                 erases == 13u && !boot_trace_bad && boot_syncs >= 17u &&
                  !boot_work.state && boot_work.total == 12u && boot_work.done == 12u);
     uint32_t before = erases, flushed = boot_syncs;
     persist_boot();
     bad += check("completed first boot needs no more bank writes or progress screen",
                  erases == before && boot_syncs == flushed && !boot_work.state);
-    reset(); boot_trace = 1; fail_after = 30;       /* first three FM6 banks commit, the fourth fails */
+    reset(); persist_t prefs = {0}; settings_init(); settings_export(&prefs);
+    st_save(OBJ_SETTINGS, &prefs, sizeof prefs); erases = 0;
+    boot_trace = 1; fail_after = 30;               /* first three FM6 banks commit, the fourth fails */
     persist_boot();
     bad += check("failed first-boot write preserves completed banks and visible failure",
                  boot_work.state == 2u && boot_work.done == 3u && !boot_trace_bad &&

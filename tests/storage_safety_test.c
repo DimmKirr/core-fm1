@@ -1,5 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
-/* Real UI and NOR paths: unsupported data stays intact until a confirmed replacement. */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Real UI and NOR paths: musical data stays protected; foreign settings reset at boot. */
 #define PERSISTENCE_TEST_NO_MAIN
 #include "persistence_test.c"
 
@@ -56,13 +57,9 @@ int main(void)
     bad += check("confirmed import replaces old native bank", !sx_import.count && native_used(ENGI_FM6, 0) && !native_old(ENGI_FM6, 0) && !preset_old_write);
 
     reset(); st_save(OBJ_SETTINGS, old, sizeof old); persist_boot();
-    bad += check("boot preserves unsupported settings record", persist_old && same_object(OBJ_SETTINGS, old, sizeof old));
+    bad += check("boot resets foreign settings to owned sane defaults", !template_old() && settings_owned(&persist_saved) && settings.palette == UI_DEFAULT_INDEX);
     settings.palette = 2; settings_save();
-    bad += check("first settings write requires replacement confirmation", ui.confirm == CF_OLD_SETTINGS && same_object(OBJ_SETTINGS, old, sizeof old));
-    ui.confirm = 0; settings_poll();
-    bad += check("cancel keeps unsupported settings protected", persist_old && same_object(OBJ_SETTINGS, old, sizeof old));
-    settings_save(); ui.confirm = 0; settings_old_accept(); settings_save();
-    bad += check("accepted settings replacement stores PER5", !persist_old && !tmpl_old && persist_saved.magic == PERSIST_MAGIC && !persist_pending);
+    bad += check("clean settings save normally without replacement confirmation", !ui.confirm && persist_saved.palette == palette_to_stored(2) && !persist_pending);
 
     reset(); persist_t prefs = {0}; settings_export(&prefs);
     uint8_t legacy_template[sizeof(persist_t) + 20]; memcpy(legacy_template, &prefs, sizeof prefs); memset(legacy_template + sizeof prefs, 0x5a, 20);

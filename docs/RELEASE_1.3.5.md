@@ -8,8 +8,29 @@ stored data, then **INITIALIZING PRESETS** with a progress bar when first-boot
 banks are created, or **FINISHING UPDATE** during update cleanup. The display
 says to keep power connected and wait. The watchdog is serviced between
 maintenance writes. A failed operation stays visible with **Restart to retry**;
-press **OCT+** to acknowledge and continue. Existing preset/settings formats
-and bank contents follow the same initialization rules as 1.3.4.
+press **OCT+** to acknowledge and continue. Existing preset banks follow the
+same initialization rules as 1.3.4.
+
+First boot validates the complete settings object before using it. Empty,
+damaged, stock or incompatible fork settings show **RESETTING SETTINGS** and
+save sane defaults once: stereo USB audio enabled, startup project OFF,
+440 Hz tuning, default panel/display preferences and AUTOSAVE ON. Retained RAM
+preferences are replaced too. In particular, a fork's longer PER5 record is no
+longer truncated and mistaken for Melodee settings. The existing A/B save keeps
+the previous committed copy if cleanup is interrupted; safe defaults apply in
+RAM and cleanup retries. Valid Melodee settings and supported templates are
+preserved and marked during a one-time **CHECKING SETTINGS** pass. The marker
+uses unused bytes of the retired DIGITAL favorites row, preserving the PER5
+layout and compatibility with earlier Melodee builds.
+
+Projects and templates must match a supported schema, including the parameter
+count, track selection and engine IDs. Unknown engine IDs cannot wrap into a
+Melodee engine. Incompatible projects are kept as **OLD FORMAT**, excluded from
+startup loading and protected against automatic overwrite; settings cleanup
+does not erase musical data. A marked Melodee record with an unsupported template
+or future settings version remains protected for backup and explicit replacement.
+Legacy records have no firmware identity, so acceptance establishes supported
+layout compatibility rather than proving which firmware wrote them.
 
 - Before starting Melodee, the stub checks the completion marker and the
   application checksum. An incomplete application requests the retained USB MIDI

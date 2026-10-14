@@ -64,6 +64,30 @@ Damaged or foreign staging is erased. Presets, projects, samples and settings
 outside the update windows are untouched. The stub reserves 32 bytes at RAM
 `0x01C7C000`; application retained state begins at `0x01C7C020`.
 
+## Stored data at first boot
+
+Settings are checked before USB starts or a startup project/template loads.
+Empty, invalid or incompatible foreign settings use defaults immediately,
+including retained RAM preferences, then commit one owned PER5 record through
+the existing A/B save. The display is flushed before this write. A failed write
+keeps the previous committed object, shows an error and queues a retry; retry
+also shows progress even if the RAM defaults have not changed.
+
+Legacy PER5 has no firmware identity. Its tagged palette, settings schema and
+complete optional template layout must match Melodee before it is accepted.
+The longer ChoralRoot PER5 layout is rejected rather than truncated into our
+USB/startup/global settings. A versioned `MDS` marker in the retired DIGITAL
+favorites row records validation without changing the PER5 layout. This is a
+compatibility marker, not authentication of the firmware that last ran.
+Unknown future marker versions and recognizable but unreadable Melodee
+templates stay protected for backup and explicit replacement.
+
+Projects require known magic, size, hashes, parameter count and field bounds;
+templates also require known layout, selection and engine IDs. A fork's unknown
+engine must not wrap into an existing engine. Rejected projects remain
+**OLD FORMAT**, occupied and excluded from automatic startup loading. Settings
+cleanup does not format these slots or any existing preset bank.
+
 ## Limits and verification
 
 The first installation of the stub, a stub change, or a directory/SDK layout change
@@ -132,3 +156,18 @@ verify that working screens consume input and that errors remain visible above
 menus/dialogs, do not sleep, and require OCT+ acknowledgment. Progress and error
 renders were visually checked. Physical first-boot/display validation remains
 pending.
+
+First-boot data hotfix validation on 2026-10-14: the full host suite passed in
+57 seconds, including sound, target cost, backup/restore and storage safety.
+Both release variants built successfully and retained the same pinned stub and
+boot sector. Simulated NOR tests cover the CRC-valid 764-byte ChoralRoot PER5
+collision, erased storage, 31 random settings-sector fills, CRC-valid malformed
+settings, retained RAM, compatible legacy settings/templates, intentional USB
+OFF, future ownership versions, and all four settings-program interruption points.
+Successful retries persist defaults even when RAM has not changed, and subsequent
+boots do not rewrite them. Checksums outside the two settings sectors remain
+unchanged during cleanup. CRC-valid incompatible bank/project layouts and unknown
+engine IDs cannot load at boot and keep their raw bytes; incompatible template
+engines stay inert while compatible settings survive. Settings progress/error
+renders were visually checked. Physical stock-to-Melodee first-boot validation
+remains pending.

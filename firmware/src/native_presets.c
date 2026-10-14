@@ -133,6 +133,7 @@ static int native_save_bank(uint32_t e,uint32_t b)
  * written once: FM6 empty, CZ-1 BANK A..D Casio's tones, E..H empty */
 static void native_boot(void)
 {
+    if (boot_work.state == 2u) return;            /* retain an earlier settings-repair failure on screen */
     uint32_t pending = 0, total = 0, done = 0;
     for (uint32_t b = 0; b < 4u; b++) {
         if (native_fm_valid(native_fm_bank(b)) || native_old(ENGI_FM6, b * 16u)) continue;

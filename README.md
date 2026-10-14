@@ -43,6 +43,9 @@ runs Felucca.
   with a progress bar and a keep-power-connected message during first-boot
   preset initialization or update cleanup. Errors remain visible until OCT+
   acknowledges them; restart to retry unfinished work.
+- **Safe first-boot settings:** foreign or invalid settings reset once to sane
+  defaults, with stereo USB audio enabled. Compatible Melodee settings are kept.
+  Incompatible projects stay recoverable as OLD FORMAT and cannot load at startup.
 - **Recovery after an interrupted update:** a boot stub checks the application
   before starting it. An incomplete write returns to the retained USB MIDI update
   loader, with ROM UBOOT as a fallback. Reconnect USB and install the same package
