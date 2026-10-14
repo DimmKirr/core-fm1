@@ -65,7 +65,7 @@ static int slot_row(uint32_t k, uint32_t r, char *tag, char *nm)
 static void slot_detail(uint32_t k, uint32_t r, int used, char *b)   /* the card's second line */
 {
     if (k == SK_PROJECT)
-        str_cpy(b, used == 2 ? "Starts empty" : r + 1u == (uint32_t)PROJ_TMPL ? (used ? "Saved as the template" : "No template")
+        str_cpy(b, used == 2 ? "Starts empty" : r + 1u == (uint32_t)PROJ_TMPL ? (used ? "Saved" : "Empty")
                    : used ? "Saved" : "Empty", 24);
     else if (!used)
         str_cpy(b, "Empty", 24);
@@ -191,7 +191,7 @@ static void slot_draw(void)
             int32_t nw = 236 - nx - 8 - (boot == r + 1u ? text_w(lf, "Boot") + 10 : 0);
             cv_rrect(BOX_X, 0, BOX_W, h - 2, 8, bg, T_BG);
             cv_text_on(12, ty_y(17, tf), tf, tag, T_THEME, bg);
-            cv_free_text(nx, ty_y(17, tf), tf, used ? nm : "Empty", used ? T_TEXT : T_MID, bg, nw);
+            cv_free_text(nx, ty_y(17, ty_fit(tf, nm, nw)), ty_fit(tf, nm, nw), used ? nm : "Empty", used ? T_TEXT : T_MID, bg, nw);
             slot_detail(k, r, used, d);
             if(sx_import.count){fmt_int(d,sx_import.count);str_cpy(d+str_len(d)," incoming patches",20);}
             else if(bulk_has(r))str_cpy(d,"Selected",24);
@@ -201,8 +201,11 @@ static void slot_draw(void)
         } else {
             if(k!=SK_PROJECT && bulk_has(r))cv_rect(BOX_X,6,3,SL_ROW-14,T_THEME);
             cv_text_on(12, ty_y(SL_ROW / 2 - 1, tf), tf, tag, used ? T_MID : T_DIM, T_BG);
-            cv_free_text(nx, ty_y(SL_ROW / 2 - 1, tf), tf, nm, used ? T_SEC : T_DIM, T_BG,
-                         boot == r + 1u ? 228 - text_w(lf, "Boot") - 8 - nx : 228 - nx);
+            {
+                int32_t nw = boot == r + 1u ? 228 - text_w(lf, "Boot") - 8 - nx : 228 - nx;
+                const aafont_t *f = ty_fit(tf, nm, nw);
+                cv_free_text(nx, ty_y(SL_ROW / 2 - 1, f), f, nm, used ? T_SEC : T_DIM, T_BG, nw);
+            }
             if (boot == r + 1u)
                 cv_text_r(228, ty_y(SL_ROW / 2 - 1, lf), lf, "Boot", T_MID, T_BG);
         }

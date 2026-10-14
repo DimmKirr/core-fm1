@@ -83,7 +83,7 @@ static void scales_draw(void)
                     uint16_t bg = ux_mix(T_BG, T_THEME, 18);
                     y = 2 * SC_ROW;
                     cv_rrect(BOX_X, y, BOX_W, SC_CARD - 2, 8, bg, T_BG);
-                    cv_free_text(12, ty_y(y + 18, tf), tf, b, T_TEXT, bg, 210);
+                    cv_free_text(12, ty_y(y + 18, ty_fit(tf, b, 196)), ty_fit(tf, b, 196), b, T_TEXT, bg, 196);
                     fmt_int(dt, SCALE_DEGREES[id]);
                     str_cpy(dt + str_len(dt), SCALE_FAMILY[id] == 6u ? " notes \xB7 non-octave" : " notes \xB7 octave", 20);
                     cv_text_on(12, ty_y(y + 42, lf), lf, dt, T_THEME, bg);
@@ -91,7 +91,8 @@ static void scales_draw(void)
                                 scale_favorite(id) ? T_THEME : T_DIM, bg);
                     continue;
                 }
-                cv_free_text(12, ty_y(y + SC_ROW / 2 - 1, tf), tf, b, d == 1 || d == -1 ? T_SEC : T_DIM, T_BG, 220);
+                cv_free_text(12, ty_y(y + SC_ROW / 2 - 1, ty_fit(tf, b, 220)), ty_fit(tf, b, 220), b,
+                             d == 1 || d == -1 ? T_SEC : T_DIM, T_BG, 220);
             }
             if (total > 1u && rank < total) {           /* where it is */
                 int32_t th = 24, ty = (int32_t)rank * (h - th) / (int32_t)(total - 1u);

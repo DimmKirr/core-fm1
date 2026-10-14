@@ -208,9 +208,13 @@ static void list_scale_pic(int32_t y, int32_t h)
  * colour, the others' names secondary and values mid (vc T_DIM: dim). Returns the value's left edge */
 static int32_t row_draw(int32_t y, const char *lb, const char *v, uint16_t vc, int on, int more)
 {
-    const aafont_t *tf = TY_TX;
+    const aafont_t *tf = TY_TX, *vf = tf, *nf = tf;
     uint16_t bg = on ? ux_mix(T_BG, T_THEME, 18) : T_BG;
-    int32_t cy = y + LIST_RH / 2, xr = more ? 218 : 228, vx = xr, vw;
+    int32_t cy = y + LIST_RH / 2, xr = more ? 218 : 228, vx = xr, vw, room = xr - 12 - 8;
+    if (v[0] && binary_value(v) < 0 && text_w(tf, lb) + text_w(tf, v) > room)
+        vf = TY_LB;                                     /* (both do not fit: the value smaller, then the name) */
+    if (v[0] && binary_value(v) < 0 && text_w(tf, lb) + text_w(vf, v) > room)
+        nf = TY_LB;
     if (on)
         cv_rrect(BOX_X, y, BOX_W, LIST_RH, 8, bg, T_BG);
     if (v[0] && binary_value(v) >= 0) {
@@ -218,14 +222,15 @@ static int32_t row_draw(int32_t y, const char *lb, const char *v, uint16_t vc, i
         binary_badge(xr - vw / 2, cy - 11, 22, v, bg);
         vx = xr - vw;
     } else if (v[0]) {
-        vw = text_w(tf, v);
-        if (vw > 128) vw = 128;
+        vw = text_w(vf, v);
+        if (vw > 150) vw = 150;
         vx = xr - vw;
-        cv_free_text(vx, ty_y(cy, tf), tf, v, vc == T_DIM ? T_DIM : on ? T_THEME : T_MID, bg, 128);
+        cv_free_text(vx, ty_y(cy, vf), vf, v, vc == T_DIM ? T_DIM : on ? T_THEME : T_MID, bg, 150);
     }
     if (more)
         cv_text_on(222, ty_y(cy, tf), tf, ">", on ? T_THEME : T_DIM, bg);
-    cv_free_text(12, ty_y(cy, tf), tf, lb, on ? T_TEXT : T_SEC, bg, vx - 8 - 12);
+    nf = nf == tf ? ty_fit(tf, lb, vx - 8 - 12) : nf;
+    cv_free_text(12, ty_y(cy, nf), nf, lb, on ? T_TEXT : T_SEC, bg, vx - 8 - 12);
     return vx;
 }
 /* n rows from LIST_Y0, row r's label and value from cap (1: a list behind it, ">"), row picked, first .. first + vis

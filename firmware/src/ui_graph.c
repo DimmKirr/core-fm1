@@ -794,11 +794,12 @@ static const char *eng_abbr(const char *name)
 #define LIST_Y(k) (3 + 17 * (int32_t)(k))
 static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const char *name, uint16_t nc, int32_t x1)
 {
-    uint16_t bg = sel ? T_THEME : T_SURF;
+    uint16_t bg = sel ? T_THEME : T_SURF;               /* (large type: 28 px, the text face) */
     if (sel)
-        cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
-    cv_text_on(14, y + 1, &AF_S, tag, sel ? T_INK : tc, bg);
-    cv_free_text(54, y + 1, &AF_S, name, sel ? T_INK : nc, bg, x1 - 54);
+        cv_rrect(6, y, 228, 28, 6, T_THEME, T_SURF);
+    int32_t nx = cv_text_on(14, ty_y(y + 14, TY_TX), TY_TX, tag, sel ? T_INK : tc, bg) + 10;
+    if (nx < 64) nx = 64;
+    cv_free_text(nx, ty_y(y + 14, TY_TX), TY_TX, name, sel ? T_INK : nc, bg, x1 - nx);
 }
 /* an empty list: a title and a hint, centred */
 static void note_line(int32_t y, const char *s, uint16_t fg)   /* centred S; "[K2] ADD PATTERN": a key hint */
@@ -867,9 +868,9 @@ static void engine_sound_row(int32_t y)
         str_cpy(nm, e->npresets ? eng_preset(e, TSEL->preset % e->npresets)->name : "", sizeof nm);
     }
     if(TSEL->eng_req==ENGI_PROPHET)p5_short_name(TSEL,nm,sizeof nm);
-    list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232);
+    list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 206 : 228);
     if (fav)
-        cv_icon_on(214, y + 2, 12, ICON_X_STAR, T_INK, T_THEME);
+        cv_icon_mid(210, y + 14, 16, ICON_X_STAR, T_INK, T_THEME);
     (void)total;
 }
 /* MIXER page: four SURF columns, one under each card: the circled numeral (filled and in the accent:

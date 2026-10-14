@@ -222,6 +222,18 @@ static void head_pages(int32_t x, int32_t x1)          /* (x: after the transpor
         x += w + 6;
     }
 }
+/* the message (or the layer's name) does not fit the header from x: it goes under it as a toast (draw_toast) */
+static uint8_t toast_shown;                             /* the toast drawn (its place to give back when it goes) */
+static const char *head_msg(void) { return ui.msg_t ? ui.msg : ui.layer ? layer_head() : ""; }
+static int head_toast(int32_t x)
+{
+    const char *m = head_msg();
+    uint32_t n;
+    int32_t w = text_w(TY_TX, m);
+    if (kc_tag(m, &n) >= 0 || (m[0] && str_len(m) > 6u && m[str_len(m) - 1u] == ']'))
+        w += 40;                                        /* (a keycap: its pill wider than its word) */
+    return m[0] && w > 236 - x;
+}
 static void draw_head(void)
 {
     char b[16], chip[16];
@@ -263,6 +275,9 @@ static void draw_head(void)
         cv_icon_mid(x, H_HEAD / 2, 16, ((song.rec & ~song.rec_wait) >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, T_BG);
         x += 18;
     }
+    if (msg && head_toast(x + 6))                       /* (too long for the header: a toast under it, draw_toast; the
+                                                         * header as it is) */
+        msg = 0;
     if (seq_erase_active(TSEL)) {
         cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX, "ERASING", T_REC, T_BG);
     } else if (msg) {                                   /* a message, or the layer's name (may hold a keycap) */
@@ -978,10 +993,10 @@ static void draw_uboot(void)
 }
 
 /* the OCT- / OCT+ dialog: what it does (ui.confirm, ui.confirm_trk) on two lines, on a surface */
-#define DLG_X 16
-#define DLG_Y 58
-#define DLG_W 208
-#define DLG_H 124
+#define DLG_X 8                                         /* (large type: 224 wide, as tall as its words, centred) */
+#define DLG_Y 36
+#define DLG_W 224
+#define DLG_H 168
 static void confirm_text(char *a, char *b)
 {
     uint32_t k = ui.confirm_trk;
@@ -1097,34 +1112,96 @@ static void confirm_words(char *s)                      /* "OVERWRITE PROJECT A?
             s[i] = (char)(s[i] + 32);
     }
 }
+/* s (n bytes at most) on two lines of w px in face f: the first ends at the last space that fits, the rest below (one
+ * line when it fits) */
+static void text_two_lines(const char *s, char *a, char *b, uint32_t n, int32_t w, const aafont_t *f)
+{
+    uint32_t i, cut = 0;
+    str_cpy(a, s, n);
+    b[0] = 0;
+    if (text_w(f, a) <= w)
+        return;
+    for (i = 1; s[i] && i + 1u < n; i++)
+        if (s[i] == ' ') {
+            str_cpy(a, s, i + 1u);
+            if (text_w(f, a) <= w) cut = i;
+        }
+    if (!cut) {
+        str_cpy(a, s, n);
+        return;
+    }
+    str_cpy(a, s, cut + 1u);
+    str_cpy(b, s + cut + 1u, n);
+}
+/* s wrapped into at most m lines of w px in face f (at spaces; a word wider than the line: at the last character that
+ * fits), each line up to 31 characters; the number of lines */
+#define TL_MAX 4u
+static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f)
+{
+    uint32_t k = 0;
+    while (*s && k < m) {
+        uint32_t i, cut = 0;
+        while (*s == ' ')
+            s++;
+        for (i = 1; s[i - 1] && i < 32u; i++) {
+            str_cpy(l[k], s, i + 1u);
+            if (text_w(f, l[k]) > w)
+                break;
+            if (!s[i] || s[i] == ' ')
+                cut = i;
+        }
+        if (!cut) {                                     /* (one long word: as much of it as fits) */
+            for (cut = 1; s[cut] && cut < 31u; cut++) {
+                str_cpy(l[k], s, cut + 2u);
+                if (text_w(f, l[k]) > w)
+                    break;
+            }
+        }
+        str_cpy(l[k++], s, cut + 1u);
+        s += cut;
+    }
+    return k;
+}
+/* the question card: the warning, the question (the text face) and its detail (the label face), each wrapped onto as
+ * many lines as it needs (nothing is ever cut), OCT- "No" and OCT+ "Yes" (the track's colour); the card as tall as
+ * its words, centred over the page under it (dimmed) */
 static void draw_confirm(void)
 {
-    char a[24], b[32];
-    const aafont_t *tf = &AF_M;
-    uint16_t ring = ux_mix(T_SURF, T_THEME, 20);
+    char a[24], b[32], q[TL_MAX][32], d[TL_MAX][32];
+    const aafont_t *tf = TY_TX, *lf = TY_LB;
+    uint32_t nq, nd, i;
+    int32_t top, h, y0;
     confirm_text(a, b);
     confirm_words(a);
-    cv_begin(DLG_W, DLG_H, T_BG);
-    cv_rrect(0, 0, DLG_W, DLG_H, 10, T_LINE, T_BG);
-    cv_rrect(1, 1, DLG_W - 2, DLG_H - 2, 9, T_SURF, T_LINE);
-    cv_disc(DLG_W / 2, 26, 22, ring, 0);
-    cv_icon_mid(DLG_W / 2 - 6, 26, 12, ui.confirm == CF_CLEAR_MOTION ? ICON_X_MOTION_DEL : ICON_X_WARN, T_THEME, ring);
-    if (text_w(tf, a) > DLG_W - 16)
-        tf = &AF_S;
-    cv_text_c(DLG_W / 2, 45, tf, a, T_TEXT, T_SURF);
-    if (b[0]) {
-        char f[32];
-        text_fit(f, sizeof f, b, &AF_S, DLG_W - 16);    /* a name: free text */
-        cv_text_flags(DLG_W / 2 - text_w(&AF_S, f) / 2, 67, &AF_S, f, T_MID, T_SURF, 8u | (f[str_len(f) - 1u] == ELLIPSIS));
+    nq = text_lines(a, q, 3u, DLG_W - 20, tf);
+    nd = b[0] ? text_lines(b, d, 3u, DLG_W - 20, lf) : 0u;
+    h = 34 + (int32_t)nq * 24 + (nd ? 6 + (int32_t)nd * 20 : 0) + 14 + 34 + 12;
+    y0 = H_HEAD + (240 - H_HEAD - h) / 2;
+    for (top = 0; top < h; top += (int32_t)(CV_MAX / DLG_W)) {   /* (in slices: a canvas holds 132 rows of it) */
+        int32_t sh = h - top < (int32_t)(CV_MAX / DLG_W) ? h - top : (int32_t)(CV_MAX / DLG_W), y = 34;
+        cv_begin(DLG_W, (uint32_t)sh, T_BG);
+        cv_oy = -top;
+        cv_rrect(0, 0, DLG_W, h, 12, T_LINE, T_BG);
+        cv_rrect(1, 1, DLG_W - 2, h - 2, 11, T_SURF, T_LINE);
+        cv_icon_mid(DLG_W / 2 - 8, 18, 16, ui.confirm == CF_CLEAR_MOTION ? ICON_X_MOTION_DEL : ICON_X_WARN, T_THEME,
+                    T_SURF);
+        for (i = 0; i < nq; i++, y += 24)
+            cv_text_c(DLG_W / 2, y, tf, q[i], T_TEXT, T_SURF);
+        for (i = 0, y += 6; i < nd; i++, y += 20)
+            cv_text_c(DLG_W / 2, y, lf, d[i], T_MID, T_SURF);
+        {   /* OCT-: no, OCT+: yes (the track's colour) */
+            int32_t by = h - 46, cy = by + 17;
+            cv_rrect(12, by, 96, 34, 8, T_LINE, T_SURF);
+            cv_rrect(13, by + 1, 94, 32, 7, T_PANEL, T_LINE);
+            cv_icon_mid(60 - text_w(tf, "No") / 2 - 12, cy, 16, ICON_X_UNDO, T_MID, T_PANEL);
+            cv_text_on(60 - text_w(tf, "No") / 2 + 8, ty_y(cy, tf), tf, "No", T_MID, T_PANEL);
+            cv_rrect(116, by, 96, 34, 8, T_THEME, T_SURF);
+            cv_icon_mid(164 - text_w(tf, "Yes") / 2 - 12, cy, 16, ICON_X_CHECK, T_INK, T_THEME);
+            cv_text_on(164 - text_w(tf, "Yes") / 2 + 8, ty_y(cy, tf), tf, "Yes", T_INK, T_THEME);
+        }
+        cv_oy = 0;
+        cv_blit(DLG_X, (uint32_t)(y0 + top));
     }
-    cv_rrect(16, 92, 80, 22, 6, T_LINE, T_SURF);       /* OCT-: no */
-    cv_rrect(17, 93, 78, 20, 5, T_PANEL, T_LINE);
-    cv_icon_mid(56 - 6 - text_w(&AF_S, "No") / 2 - 4, 103, 12, ICON_X_UNDO, T_MID, T_PANEL);
-    cv_text_on(56 - text_w(&AF_S, "No") / 2 + 6, 96, &AF_S, "No", T_MID, T_PANEL);
-    cv_rrect(112, 92, 80, 22, 6, T_THEME, T_SURF);     /* OCT+: yes */
-    cv_icon_mid(152 - 6 - text_w(&AF_S, "Yes") / 2 - 4, 103, 12, ICON_X_CHECK, T_INK, T_THEME);
-    cv_text_on(152 - text_w(&AF_S, "Yes") / 2 + 6, 96, &AF_S, "Yes", T_INK, T_THEME);
-    cv_blit(DLG_X, DLG_Y);
 }
 
 #include "ui_pages.c"                                   /* the redesign's other pages (R5) */
@@ -1186,6 +1263,31 @@ static void draw_page(void)
     melodee_dbg.stage = 6;
     if (!ui.home && !own_screen() && !pv_kind() && !list_on() && !slot_kind() && !motion_page())
         draw_foot();
+}
+/* the toast: a message too long for the header on a card under it, wrapped (nothing cut); when it goes, what it covered
+ * is drawn again */
+static void draw_toast(void)
+{
+    char l[3][32];
+    const char *m = head_msg();
+    uint32_t n, i;
+    int32_t h;
+    if (!(ui.msg_t || ui.layer) || !head_toast(BPM_X + BPM_W + 6)) {
+        if (toast_shown) {
+            toast_shown = 0;
+            ui.force = 1;
+        }
+        return;
+    }
+    n = text_lines(m, l, 3u, BOX_W - 20, TY_TX);
+    h = 10 + (int32_t)n * 24;
+    cv_begin(BOX_W, (uint32_t)h, T_BG);
+    cv_rrect(0, 0, BOX_W, h, 8, T_LINE, T_BG);
+    cv_rrect(1, 1, BOX_W - 2, h - 2, 7, T_SURF, T_LINE);
+    for (i = 0; i < n; i++)
+        cv_free_hint(10, 5 + (int32_t)i * 24, l[i], T_TEXT, T_SURF, BOX_W - 20);
+    cv_blit(BOX_X, H_HEAD + 2);
+    toast_shown = 1;
 }
 static void ui_draw_frame(void);
 static void ui_draw(void)                               /* (gfx.c: the fills wait for the frame's canvases) */
@@ -1269,6 +1371,7 @@ static void ui_draw_frame(void)
             draw_frame(0);
         draw_head();
         draw_layer();
+        draw_toast();
         if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {
             str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
             ui.msg2[0] = 0;
@@ -1282,6 +1385,7 @@ static void ui_draw_frame(void)
         return;
     }
     draw_page();
+    draw_toast();
     if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {     /* the second message (ui_notices) */
         str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
         ui.msg2[0] = 0;

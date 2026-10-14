@@ -968,6 +968,12 @@ static int32_t text_w(const aafont_t *f, const char *s)
 }
 /* the line top that centres f's capitals on row cy (a pill, a row, a chip: the same place in Rubik and pixel) */
 static int32_t ty_y(int32_t cy, const aafont_t *f) { return cy - f->asc + (f->cap + 1) / 2; }
+/* the face to set s in within maxw px: f when it fits, else the label face (a name is cut only when even that does not
+ * fit) */
+static const aafont_t *ty_fit(const aafont_t *f, const char *s, int32_t maxw)
+{
+    return text_w(f, s) <= maxw ? f : TY_LB;
+}
 /* every character of s is in f (the hero's face holds only what values and names need: else the value's face) */
 static int text_has(const aafont_t *f, const char *s)
 {
