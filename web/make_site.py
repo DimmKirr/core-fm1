@@ -23,6 +23,7 @@ the same; the device must report it after the install.
 
 Manual screenshots are generated into web/manual/ and are not stored in git. Publish
 jobs and web/quick-host.sh run tools/manual_shots.py first — see BUILDING.md "Local site".
+The build checks every screenshot embedded in the manual before it writes the output site.
 """
 import json
 import re
@@ -125,6 +126,28 @@ def release_history(out, current):
                         if v != current["version"]]
 
 
+def manual_figures(manual):
+    """PNG names embedded in the manual, in order; each src is a file name beside index.html"""
+    page = manual / "index.html"
+    if not page.is_file():
+        raise SystemExit(f"{page} is missing")
+    names = []
+    for name in re.findall(r'<img\b[^>]*\bsrc="([^"]*)"', page.read_text(encoding="utf-8")):
+        if name in names:
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+\.png", name):
+            raise SystemExit(f"{page}: screenshot src {name!r} must name a PNG beside the manual")
+        names.append(name)
+    return names
+
+
+def require_manual(manual):
+    """every embedded screenshot exists; called before the output site is written"""
+    missing = [name for name in manual_figures(manual) if not (manual / name).is_file()]
+    if missing:
+        raise SystemExit(f"{manual}: {len(missing)} screenshot(s) missing: {', '.join(missing)}")
+
+
 def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None):
     pkg, single, out = Path(pkg), Path(single), Path(out)
     raw, product = check_package(pkg)
@@ -158,6 +181,8 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
     html = html.replace("/*LIB*/", lib).replace("/*META*/{}", meta)
     inst, ed, man, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "webapp" / "manual", out / "firmware"
+    man_src = HERE / "manual"
+    require_manual(man_src)                         # before any write: a missing figure must leave the site untouched
     for d in (inst, ed, man, fw):
         d.mkdir(parents=True, exist_ok=True)
     keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-1core.fwsc"}
@@ -198,9 +223,6 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
         shutil.copy(HERE.parent / doc, fw / doc)
     if not installer_only:
         shutil.copy(HERE / "editor.html", ed / "index.html")
-    man_src = HERE / "manual"
-    if not (man_src / "index.html").is_file():
-        raise SystemExit(f"{man_src}/index.html is missing")
     retired = re.compile(r"^v\d+(?:\.\d+)*(?:-rc\.\d+)?$")
     for old in list(man.iterdir()):              # drop versioned manuals left by an older publish
         if old.name == "versions.json" or (old.is_dir() and retired.match(old.name)):

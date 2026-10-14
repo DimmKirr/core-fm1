@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
-from make_site import main
+from make_site import main, manual_figures
 from publish_nightly import publish
 from publish_rc import publish as publish_rc
 from import_releases import verify_pair
@@ -24,6 +24,21 @@ def package(path, product, variant):
 
 
 class NightlySite(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.manual = Path(__file__).resolve().parents[1] / "web" / "manual"
+        cls._shot_stubs = []
+        for name in manual_figures(cls.manual):
+            path = cls.manual / name
+            if not path.exists():
+                path.write_bytes(b"png")
+                cls._shot_stubs.append(path)
+
+    @classmethod
+    def tearDownClass(cls):
+        for path in cls._shot_stubs:
+            path.unlink(missing_ok=True)
+
     def test_history_preserves_versions_and_core_variants(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -191,6 +206,26 @@ class NightlySite(unittest.TestCase):
             self.assertFalse(retired.exists())
             self.assertFalse((manual / "versions.json").exists())
             self.assertIn("<h1>Manual</h1>", (manual / "index.html").read_text())
+
+    def test_missing_screenshot_does_not_write_the_site(self):
+        shot = self.manual / "home.png"
+        saved = shot.read_bytes()
+        shot.unlink()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                dual = package(root / "release.fwsc", "FM-1_91010", 1)
+                single = package(root / "single.fwsc", "FM-1_91010", 2)
+                site = root / "site"
+                site.mkdir()
+                (site / "sentinel").write_text("keep")
+                with self.assertRaises(SystemExit) as caught:
+                    main(dual, single, "1.1.0", site)
+                self.assertIn("home.png", str(caught.exception))
+                self.assertEqual([p.name for p in site.iterdir()], ["sentinel"])
+                self.assertEqual((site / "sentinel").read_text(), "keep")
+        finally:
+            shot.write_bytes(saved)
 
 
 if __name__ == "__main__":

@@ -904,7 +904,10 @@
     let current = null;
     for (const a of tocLinks) {
       const id = a.getAttribute("href").slice(1);
-      if (seen.has(id)) { current = id; break; }
+      if (!seen.has(id)) continue;
+      const el = document.getElementById(id);
+      // Nested sections follow their parent in the contents. Keep the contained one (#fm6 over #engines).
+      if (!current || document.getElementById(current).contains(el)) current = id;
     }
     tocLinks.forEach((a) => a.classList.toggle("here", a.getAttribute("href") === "#" + current));
   }, { rootMargin: "0px 0px -70% 0px", threshold: 0 });
