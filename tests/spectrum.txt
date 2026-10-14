@@ -1,0 +1,36 @@
+# FM Lab -- the analyser: HOME's second screen, and whether what it draws is really the sound.
+#
+#   build/host/fmlab build/host/spectrum tests/spectrum.txt
+#
+# The claims are about where the ink lands. A note at a known pitch has to put its partials on
+# whole multiples of that pitch, and widening the span has to move every one of them in by the
+# same factor -- which is only true if the axis means what it says.
+#
+# It boots on HOME showing the diagram, so the first press of HOME is already the second screen.
+200 shot
+
+400 btn 8
+600 shot
+
+# C4 (key 7), with the span where it starts: 0 to 5 kHz.
+800 keys 0x80
+1400 shot
+
+# The same note at 0 to 10 kHz: every partial is now half as far across the screen.
+1600 enc 2 1
+2200 shot
+
+# And back to 5 kHz, which has to look like it did before.
+2400 enc 2 -1
+3000 shot
+
+# Let go and wait for the bars to fall. The held peaks take seconds longer, by design: a sound that
+# is gone in a moment still leaves its shape on the screen long enough to be read.
+3200 keys 0
+3600 shot
+4400 shot
+
+# HOME once more wraps back to the diagram.
+4600 btn 8
+4800 shot
+5200 end

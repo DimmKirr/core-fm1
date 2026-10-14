@@ -68,6 +68,7 @@
 #include "dx7_core.c"
 #include "dx7_voice.h"
 #include "dx7_voices.h"
+#include "spectrum.h"
 
 #define NV 8u                                   /* voices (RAM: 428 B each) */
 
@@ -458,6 +459,8 @@ static void app_audio(int32_t *out, uint32_t n)
             dc_x = s;
             y = y > 32767 ? 32767 : y < -32767 ? -32767 : y;
             dc_y = y;
+            if (sp_want)
+                sp_feed(y);                     /* the analyser's tap, on the finished sample */
             out[2u * (b + i)] += y;
             out[2u * (b + i) + 1u] += y;
         }
@@ -546,6 +549,7 @@ static const struct { const char *name; const param_t *p; uint8_t n, perop, rows
 };
 #define PAGE_ROWS ((uint32_t)PAGE[page].rows)
 #define PAGE_NBANK (((uint32_t)PAGE[page].n + PAGE_ROWS - 1u) / PAGE_ROWS)
+#define HOME_NBANK 2u                           /* HOME's two screens: the diagram, and the spectrum */
 
 static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
 
@@ -555,6 +559,8 @@ static void page_to(uint8_t p)
     if (page != p) {
         page = p;
         bank = 0;
+    } else if (page == PAGE_HOME) {
+        bank = (uint8_t)((bank + 1u) % HOME_NBANK);
     } else if (PAGE[page].n) {
         bank = (uint8_t)((bank + 1u) % PAGE_NBANK);
     }
@@ -935,6 +941,104 @@ static void draw_alg_levels(void)
     }
 }
 
+/* ---- the spectrum, the other half of HOME
+ *
+ * What the instrument is putting out, 1024 points of it, on a linear frequency axis. Linear is the
+ * whole point: FM builds its harmonics as sidebands at the carrier plus and minus whole multiples
+ * of the modulator, so on a linear axis they are a row of evenly spaced lines, and raising a
+ * modulator's LEVEL makes that row visibly spread outward. That is the one picture worth having.
+ *
+ * It analyses the output and not a single operator, which sounds like the lesser thing but is not:
+ * ARP and SEQ already switch an operator off and solo one, so soloing a carrier gives you exactly
+ * that branch of the algorithm, with nothing here having to make a second claim about what the
+ * engine is doing.
+ *
+ * The faint lines are whole multiples of the note being played. Partials that sit on them are
+ * harmonic and partials that sit between them are not, which is the difference between a COARSE of
+ * 2 and a COARSE of 2 with DETUNE, or between a ratio of 3 and a ratio of 3.5, and it is far easier
+ * to see here than to hear. */
+#define SP_Y ALG_Y
+typedef char fmlab_spectrum_fits[(240u * SP_H <= CV_MAX) ? 1 : -1];
+
+static const uint16_t SP_SPAN[5] = {1000, 2000, 5000, 10000, 20000};
+#define SP_NSPAN (sizeof SP_SPAN / sizeof SP_SPAN[0])
+static uint8_t spspan = 2, sp_note;             /* the span on the knob, and the note to mark up */
+static uint8_t sp_pk[240];                      /* a peak that falls back slowly, so a pluck reads */
+
+/* middle A is 440: one octave of equal temperament in Q8 Hz, starting at MIDI note 0 */
+static const uint16_t SP_NOTE_HZ[12] = {2093, 2218, 2349, 2489, 2637, 2794,
+                                        2960, 3136, 3322, 3520, 3729, 3951};
+static uint32_t sp_hz(uint32_t note)
+{
+    if (note > 127u)
+        note = 127u;
+    return ((uint32_t)SP_NOTE_HZ[note % 12u] << (note / 12u)) >> 8;
+}
+
+static void draw_spectrum(void)
+{
+    uint32_t span = SP_SPAN[spspan], c, k, grid, f0 = 0;
+    if (v_lit) {                                /* something is sounding: mark its harmonics */
+        int32_t n = (int32_t)sp_note + (int32_t)edit[144] - 24;   /* the patch's own transpose */
+        f0 = sp_hz((uint32_t)(n < 0 ? 0 : n));
+    }
+    cv_begin(240, SP_H, C_BLACK);
+    /* Nothing crosses the plot: a ruler along the top for the harmonics and a scale along the
+     * floor for the kilohertz, so the only tall things on the screen are the partials. */
+    cv_rect(0, SP_H / 3u, 240, 1, RGB(22, 22, 22));       /* -24 dB */
+    cv_rect(0, SP_H * 2u / 3u, 240, 1, RGB(22, 22, 22));  /* -48 dB */
+    cv_rect(0, SP_H - 1, 240, 1, RGB(48, 48, 48));        /* and the floor the bars stand on */
+    grid = span <= 2000u ? 500u : span <= 5000u ? 1000u : span <= 10000u ? 2000u : 5000u;
+    for (k = grid; k < span; k += grid)
+        cv_rect((int32_t)(k * 240u / span), SP_H - 5, 1, 4, RGB(70, 70, 70));
+    /* The harmonics, but only the first sixteen and only while they are far enough apart to be
+     * read as a comb: past that they stop being a ruler and turn into a hedge. */
+    if (f0 * 240u / span >= 4u)
+        for (k = 1u; f0 && k <= 16u && k * f0 < span; k++)
+            cv_rect((int32_t)(k * f0 * 240u / span), 0, 1, k == 1u ? 9 : 5,
+                    k == 1u ? RGB(150, 118, 210) : RGB(96, 76, 136));
+    for (c = 0; c < 240u; c++) {
+        uint32_t b0 = (c * span / 240u) * SP_N / FS;
+        uint32_t b1 = ((c + 1u) * span / 240u) * SP_N / FS;
+        uint32_t h = 0;
+        if (b1 <= b0)
+            b1 = b0 + 1u;                       /* a column narrower than a bin still shows one */
+        if (b1 > SP_BINS)
+            b1 = SP_BINS;
+        for (k = b0; k < b1; k++)
+            if (sp_bin[k] > h)
+                h = sp_bin[k];
+        sp_pk[c] = (uint8_t)(h > sp_pk[c] ? h : sp_pk[c] > 2u ? sp_pk[c] - 2u : 0u);
+        if (h) {
+            cv_rect((int32_t)c, (int32_t)(SP_H - h), 1, (int32_t)h, RGB(52, 62, 120));
+            cv_rect((int32_t)c, (int32_t)(SP_H - h), 1, 1, C_WHITE);
+        }
+        if (sp_pk[c] > h)
+            cv_rect((int32_t)c, (int32_t)(SP_H - sp_pk[c]), 1, 1, C_ACC);
+    }
+    cv_blit(0, SP_Y);
+}
+
+/* the line under it: the note the markers belong to, and how far across the screen reaches */
+static void draw_spectrum_foot(void)
+{
+    char s[32];
+    uint32_t i = 0, span = SP_SPAN[spspan];
+    if (v_lit) {
+        uint32_t n = sp_note;
+        i = put(s, i, NOTE_NAME[n % 12u]);
+        if (i && s[i - 1u] == ' ')
+            i--;
+        i = putn(s, i, n / 12u >= 1u ? n / 12u - 1u : 0u, 1);   /* middle C is C4 */
+        i = put(s, i, "   ");
+    }
+    i = put(s, i, "0-");
+    i = putn(s, i, span / 1000u, 1);
+    i = put(s, i, " KHZ");
+    s[i] = 0;
+    draw_text_box(0, SP_Y + SP_H + 6u, 240, &FONT_S, s, C_OFF, 1);
+}
+
 /* ---- the envelope, drawn by stepping it the way the engine does
  *
  * A DX7 envelope is four (rate, level) pairs. The level is where the segment is heading and the
@@ -1262,14 +1366,17 @@ static int app_sysex(const uint8_t *p, uint32_t n)
 
 static void app_main(void)
 {
-    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; } set = {0, 0, 0, 0};
-    uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1;
+    /* Only ever append to this: settings_load takes a short store and leaves the rest at default,
+     * so a new field costs nothing, but moving one would hand the old bytes to the wrong name. */
+    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; } set = {0, 0, 0, 0, 2};
+    uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
+    uint32_t foot_drawn = ~0u;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
     uint32_t nv_drawn = ~0u, cpu_drawn = ~0u, pk_drawn = ~0u, vkey_drawn = ~0u;
     int32_t oct_drawn = 99;
     uint8_t held[27] = {0}, shown[4] = {255, 255, 255, 255};
-    uint8_t page_drawn = 255, bank_drawn = 255, op_drawn = 255, mono_drawn = 255;
+    uint8_t page_drawn = 255, bank_drawn = 255, bank_drawn2 = 255, op_drawn = 255, mono_drawn = 255;
     uint8_t alg_drawn = 255, alg_op_drawn = 255, mute_drawn = 255;
 
     bank_init();                                /* before the first load_voice: a slot may be the voice */
@@ -1277,6 +1384,9 @@ static void app_main(void)
     if (set.oct < -2 || set.oct > 2) set.oct = 0;
     if (set.voice >= NVOICE) set.voice = 0;
     if (set.slot >= NUSER) set.slot = 0;
+    if (set.span >= SP_NSPAN) set.span = 2;
+    spspan = set.span;
+    sp_init();
     set.mono = set.mono ? 1u : 0u;
     ev_push(EV_MONO, set.mono, 0);              /* the ISR owns the mode: tell it what was stored */
     save_slot = set.slot;
@@ -1311,6 +1421,7 @@ static void app_main(void)
                 } else {
                     held[k] = (uint8_t)(base + k);
                     sounding |= 1u << k;
+                    sp_note = held[k];          /* the analyser marks the harmonics of the last note */
                     ev_push(EV_ON, held[k], 100);
                     midi_send(0x90, held[k], 100);
                 }
@@ -1336,8 +1447,8 @@ static void app_main(void)
         if (b & (1u << BTN_ENV))  page_to(PAGE_EG);
         if (b & (1u << BTN_LFO))  page_to(PAGE_LFO);
         if (b & (1u << BTN_GLO))  page_to(PAGE_GLO);
-        if (b & (1u << BTN_SEL) && PAGE[page].n)           /* the next bank of parameters */
-            bank = (uint8_t)((bank + 1u) % PAGE_NBANK);
+        if (b & (1u << BTN_SEL))                           /* the next bank of parameters, or screen */
+            page_to(page);
         if (b & (1u << BTN_SAVE)) {                        /* press to pick a slot, press again to write */
             if (!saving) {
                 saving = 1;
@@ -1403,6 +1514,15 @@ static void app_main(void)
                 patch_publish();
             }
         }
+        if (page == PAGE_HOME && bank == 1u && (enc = fm1_enc_take(ENC_KNOB1)) != 0) {
+            int32_t s = (int32_t)spspan + enc;  /* HOME has no parameters, so KNOB1 is the span */
+            spspan = (uint8_t)(s < 0 ? 0 : s >= (int32_t)SP_NSPAN ? (int32_t)SP_NSPAN - 1 : s);
+            set.span = spspan;
+            for (k = 0; k < 240u; k++)
+                sp_pk[k] = 0;                   /* the held peaks belonged to the old axis */
+            dirty = 1;
+            t_change = fm1_ms;
+        }
         for (e = 0; e < PAGE_ROWS; e++) {                  /* KNOB1..n: the parameters on screen */
             uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
             const param_t *p;
@@ -1417,7 +1537,7 @@ static void app_main(void)
         }
 
         while (midi_get(&st, &d1, &d2)) {       /* USB-MIDI in, any channel */
-            if ((st & 0xF0u) == 0x90u && d2) ev_push(EV_ON, d1, d2);
+            if ((st & 0xF0u) == 0x90u && d2) { sp_note = d1; ev_push(EV_ON, d1, d2); }
             else if ((st & 0xF0u) == 0x80u || (st & 0xF0u) == 0x90u) ev_push(EV_OFF, d1, 0);
             else if ((st & 0xF0u) == 0xB0u && d1 == 123u) ev_push(EV_PANIC, 0, 0);
         }
@@ -1467,12 +1587,18 @@ static void app_main(void)
         if (flash_msg && fm1_ms - flash_at > 1500u)
             flash_msg = 0;
 
-        if (page != page_drawn) {               /* a new page: clear once, then only what changes */
+        if (page != page_drawn || bank != bank_drawn2) {   /* a new screen: clear once, then only
+                                                            * what changes */
             page_drawn = page;
+            bank_drawn2 = bank;
             bank_drawn = op_drawn = 255;
             alg_drawn = alg_op_drawn = 255;
+            foot_drawn = 0xFFFFFFFFu;
             eg_dirty = 1;
-            lcd_fill(0, 0, 240, 208, C_BLACK);
+            repaint_meter = 1;
+            for (k = 0; k < 240u; k++)
+                sp_pk[k] = 0;
+            lcd_fill(0, 0, 240, 240, C_BLACK);  /* all of it: the meter is only on one page now */
             if (page == PAGE_HOME)
                 draw_text_box(0, 18, 240, &FONT_L, APP_NAME, C_ACC, 1);
             repaint = 1;
@@ -1500,7 +1626,7 @@ static void app_main(void)
         if (page == PAGE_HOME) {
             /* the whole diagram only when the shape of it changes: the live brightness is six
              * small blits on the tick below, which is a great deal cheaper than 240 x 136 */
-            if (edit[134] != alg_drawn || opsel != alg_op_drawn || opmute != mute_drawn) {
+            if (bank == 0u && (edit[134] != alg_drawn || opsel != alg_op_drawn || opmute != mute_drawn)) {
                 alg_drawn = edit[134];
                 alg_op_drawn = opsel;
                 draw_alg();
@@ -1518,10 +1644,18 @@ static void app_main(void)
             }
         }
         mute_drawn = opmute;
+        sp_want = (page == PAGE_HOME && bank == 1u);
         if (fm1_ms - t_live > 60u) {            /* the displays that follow the sound, ~16 times a second */
             t_live = fm1_ms;
             if (page == PAGE_HOME) {
-                draw_alg_levels();
+                if (bank == 0u) {
+                    draw_alg_levels();
+                } else {
+                    uint32_t foot = (uint32_t)spspan | (v_lit ? 0x100u | (uint32_t)sp_note << 9 : 0u);
+                    sp_run();
+                    draw_spectrum();
+                    if (foot != foot_drawn) { foot_drawn = foot; draw_spectrum_foot(); }
+                }
             } else if (page == PAGE_EG) {
                 uint32_t snd = v_lit ? 1u : 0u; /* when it goes quiet, one last pass clears the marker */
                 if (snd || snd != eg_live || eg_dirty) {
@@ -1532,16 +1666,18 @@ static void app_main(void)
             }
         }
 
-        if (fm1_ms - t_meter > 250u) {          /* the meter moves every block: redraw it 4 times a second */
+        if (page == PAGE_GLO && fm1_ms - t_meter > 250u) {   /* the meter moves every block: redraw it
+                                                              * 4 times a second, and only where it is */
             uint32_t cpu = cpu_q8 * 100u / 256u, pk = cpu_peak;
             t_meter = fm1_ms;
             if (set.oct != oct_drawn || nv != nv_drawn || cpu != cpu_drawn || pk != pk_drawn
-                || monomode != mono_drawn) {
+                || monomode != mono_drawn || repaint_meter) {
                 oct_drawn = set.oct;
                 nv_drawn = nv;
                 cpu_drawn = cpu;
                 pk_drawn = pk;
                 mono_drawn = monomode;
+                repaint_meter = 0;
                 draw_status(set.oct, nv, cpu, pk);
             }
         }

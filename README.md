@@ -48,7 +48,7 @@ so a bank fills them exactly.
 | **The keys** | 27 of them, F3 to G5. **OCT-** / **OCT+** move it two octaves either way; the button lights for a shift that way and pulses once you are at the end of the travel. A key stops the note it started, so changing octave mid-chord does the right thing. |
 | **PRESETS** | The voice. It changes under anything still sounding, so you can hold a chord and walk through the bank. 20 factory voices, then your 32, numbered `U01` to `U32`. |
 | **SAVE** | Keep the sound you are on, under a name of your own. Press, name it and pick the slot, press again. Any other button backs out. |
-| **HOME** | The algorithm drawn out, the voice name, the meter. |
+| **HOME** | Two screens, and pressing it again swaps them: the algorithm drawn out, or the spectrum of what you are hearing. |
 | **MONO / POLY** | The top two black keys, on the OPERATOR page. Mono is one voice, last note wins. |
 | **A / B** | The voice line starts with the side you are listening to. **PLAY** flips it, **REC** copies this side onto the other. |
 
@@ -61,7 +61,7 @@ that got you there also walks you through it, and wraps around to the start.
 
 | Button | Page | What is on it |
 | --- | --- | --- |
-| **HOME** | | the algorithm diagram and the voice |
+| **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them |
 | **EDIT** | OPERATOR | level, coarse, fine, detune / mode, velocity sensitivity, amp mod, rate scaling / break point, both depths, both curves |
 | **ENV** | ENVELOPE | the envelope drawn to scale, and one segment's rate and level at a time |
 | **LFO** | LFO | speed, delay, pitch mod, amp mod, wave, key sync, pitch mod sensitivity |
@@ -125,7 +125,7 @@ side, change *one* thing, then flip back and forth. Hearing the same parameter t
 you far more than hearing it once. Each side carries its own voice number and its own `*`, so you can also
 park a factory voice on one side and your edit of it on the other.
 
-## The two drawings
+## The three drawings
 
 **HOME draws the algorithm.** Filled boxes are carriers — the operators you hear. Outlined boxes are
 modulators, which you only hear through whatever they are bending. The orange box and the loop beside it is
@@ -136,6 +136,35 @@ its wires fade out with it.
 Each box brightens with how hard that operator is actually working, read straight out of the running voice.
 Hold a note and watch a modulator fade while its carrier holds: that is the envelope you cannot hear doing
 the thing you *can* hear.
+
+**HOME again draws the spectrum.** This is the one screen here purely to teach, and it is worth the stare.
+
+<p align="center"><img src="docs/spectrum.png" width="240" alt="FM Lab drawing the spectrum of BRASS held at C4 over 0 to 5 kHz: a row of bars falling away to the right, each one standing under a tick of the harmonic ruler along the top edge"></p>
+
+FM makes its harmonics by a rule you can write down: a carrier at *fc* modulated at *fm* grows sidebands at
+*fc* ± *k·fm*, and the number of them loud enough to matter grows with how hard you are modulating. That is
+the whole of FM in one sentence, and it is almost invisible from the numbers on the other pages. Here it is a
+row of evenly spaced lines that spreads outward as you raise a modulator's **LEVEL**. Hold a note, put your
+other hand on that knob, and watch the sound get brighter and wider at the same time, because for FM those
+are the same thing.
+
+The axis is linear and not logarithmic, which is the point. A log axis would fit 20 Hz to 20 kHz on the screen
+at once, but it squeezes the sidebands closer together the higher they go, and the even spacing is exactly the
+structure worth seeing. The span is on **KNOB1** instead — 1, 2, 5, 10 or 20 kHz, named in the line underneath
+— so the top end is a turn away. It is remembered across a power cycle.
+
+The ticks along the top edge are whole multiples of the note you are playing, the first one taller and
+brighter. Partials that line up with them are harmonic; partials that sit between them are not. That is the
+difference between a **COARSE** of 2 and a **COARSE** of 2 with a little **DETUNE**, or between a ratio of 3
+and a ratio of 3.5, and it is far easier to see than to hear. The ticks along the floor are the kilohertz, and
+the two faint lines across the middle are 24 and 48 dB down from full scale — the bottom of the screen is 72.
+The lilac marks are a peak that falls back slowly, so a plucked sound leaves its shape behind long enough
+to read.
+
+It analyses the output and not a single operator, which sounds like the lesser choice but is not: **ARP** and
+**SEQ** already switch an operator off and solo one, so soloing a carrier gives you exactly that branch of the
+algorithm, and nothing here has to make a second claim about what the engine is doing. What you see is what
+you hear, always.
 
 **ENV draws the envelope, to scale.** This is the part of a DX7 that catches everyone out: a *rate* is a
 speed, not a time, so the same rate takes longer the further it has to travel, and four equal-looking rates
@@ -213,10 +242,14 @@ No patches are shipped with FM Lab. The test bank in `tests/mksyx.py` is generat
 
 ## The meter
 
-The bottom line reads `OCT+0  VOX3  CPU 26% PK 33%`: the octave, how many voices sound, how much of the audio
-ISR's budget the smoothed load is, and the worst single block since you last pressed **FX**. The ISR has
-5804 µs to render 256 frames; over 100 % and it cannot keep up, at which point FM Lab drops its quietest voice
-rather than glitch. It is there because the whole point is to see the cost of what you are doing.
+**GLOBAL**'s bottom line reads `OCT+0  VOX3  CPU 26% PK 33%`: the octave, how many voices sound, how much of
+the audio ISR's budget the smoothed load is, and the worst single block since you last pressed **FX**. The ISR
+has 5804 µs to render 256 frames; over 100 % and it cannot keep up, at which point FM Lab drops its quietest
+voice rather than glitch. It is there because the whole point is to see the cost of what you are doing.
+
+It lives on **GLOBAL** alone, so that it is out of the way while you are playing and programming. `PK` holds
+until you clear it, so to measure something you cannot watch at the same time — the spectrum screen, say —
+press **FX**, do the thing, then come to **GLOBAL** and read it.
 
 ## Building it
 
@@ -260,13 +293,14 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Four more scripts go with it:
+which is the thing most worth listening to. Five more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
 tests/run_host.sh tests/operators.txt     # the operator switches and the A/B compare, sound checked
 tests/run_host.sh tests/bank.txt          # saving, and .syx in and out, data and sound checked
 tests/run_host.sh tests/panel.txt         # the pages and the operator keys, screens and MIDI checked
+tests/run_host.sh tests/spectrum.txt      # the analyser, against where the partials belong
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -287,6 +321,14 @@ four different screens and then the first one back, and arriving at a page from 
 over. Mono it checks by ear, so to speak — a chord in mono has to be a third of the same chord in poly, a
 slurred note has to come in at what is left of the one before it rather than at a fresh attack, and letting
 go of the newer of two held keys has to fall back to the older one instead of to silence.
+
+`tests/speccheck.py` reads the analyser off the screen and checks it against arithmetic done elsewhere. A
+bar's top is drawn in white and nothing else on that screen is, so the white pixels give the height of every
+column. Hold C4 — 261.63 Hz — at a span of 5 kHz and its fundamental belongs at column 12.6, its second
+harmonic at 25.1 and its third at 37.7; widen the span to 10 kHz and every one of them has to move to half
+the distance across. That is a claim about FM, about the axis and about the transform all at once, and it is
+only true if all three are right. It also checks that the bars fall when you let go and that the held peaks
+outlive them, and that HOME really does swap between two screens and back.
 
 ## Where to go next
 

@@ -44,3 +44,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'panel.txt') {
     python tests\panelcheck.py $out          # and the panel with what it is supposed to do
     if ($LASTEXITCODE) { throw 'the panel does not behave' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'spectrum.txt') {
+    python tests\speccheck.py $out           # and the analyser with the arithmetic
+    if ($LASTEXITCODE) { throw 'the spectrum is not where it should be' }
+}

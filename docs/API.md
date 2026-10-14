@@ -174,7 +174,12 @@ static int settings_save(const void *p, uint32_t n);   /* 0 = saved */
 ```
 
 Up to 256 bytes, kept with their length and a CRC32 in one 4 KiB flash sector (`SETTINGS_AT`, 0xFC000). A
-change of size or a broken save reads as "nothing saved": start from your defaults then.
+broken save reads as "nothing saved": start from your defaults then.
+
+**Fields may only be appended.** A store shorter than what you ask for is an older build of the same
+settings, so it loads what it has and leaves the rest of your struct alone — adding a setting costs nothing
+and keeps the octave and the current voice. A store *longer* than you ask for is a newer build, and is
+refused. Reordering or removing a field needs a new `SETTINGS_MAGIC`.
 
 **Save when nothing sounds.** Erasing the sector holds the interrupts off for tens of milliseconds: the sound
 drops out. `fmlab.c` saves 2 s after the last change, once all voices are silent. Flash wears out after about

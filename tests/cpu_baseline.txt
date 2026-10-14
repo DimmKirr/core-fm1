@@ -113,6 +113,33 @@ Mono mode uses one voice, so the figure there is roughly an eighth of the poly
 one. It is not a number to tune against: measure in poly, which is the worst
 case.
 
+The spectrum
+------------
+Image 106904 -> 107516 -> 109464 of 581564, RAM 24760 -> 24776 -> 30648 of 98304,
+over the naming and spectrum commits. The spectrum's RAM is the ring, the
+twiddles, the window and the two column arrays, 5874 bytes; its 8 KB of FFT
+workspace is in the pool, 65280 -> 73472 of 344064.
+
+The measured figure on voice 6 BRASS with eight voices is 26 % / PK 33 % with
+the spectrum screen up and playing -- unchanged. That is not quite the result it
+looks like, because the meter only times app_audio: the only thing the analyser
+adds to the ISR is sp_feed, a store and an increment, and the transform itself
+runs in the main loop where the meter cannot see it.
+
+So the cost of this screen has to be judged the other way, by whether the panel
+still answers. A 1024-point FFT is 5120 butterflies, once every 60 ms, which is
+small; the thing that is not small is the blit. The plot is 240 x 136 and it goes
+to the screen sixteen times a second, by far the most screen traffic this
+firmware has ever pushed. lcd_blit is asynchronous and cv_begin waits on it, so
+the transform for the next frame overlaps the last frame's DMA -- but if the DMA
+ever took longer than the frame, the main loop would stall in cv_begin and the
+keys would go with it. On the hardware it does not: nothing feels slow. If a
+later change makes it feel slow, the first thing to try is drawing it less often.
+
+To measure anything that you cannot watch the meter during, press FX to clear PK,
+do the thing, then go to GLOBAL and read it: PK holds until it is cleared, and
+GLOBAL is the only page the meter is on now.
+
 What it means
 -------------
 NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better

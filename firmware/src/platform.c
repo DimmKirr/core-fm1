@@ -156,11 +156,16 @@ static int settings_load(void *p, uint32_t n)   /* 0: loaded; else p is untouche
 {
     static uint8_t buf[256];
     uint32_t h[3];
-    if (!flash_ok || n > sizeof buf || st_read(SETTINGS_AT, h, sizeof h) || h[0] != SETTINGS_MAGIC || h[1] != n)
+    if (!flash_ok || n > sizeof buf || st_read(SETTINGS_AT, h, sizeof h) || h[0] != SETTINGS_MAGIC)
         return -1;
-    if (st_read(SETTINGS_AT + sizeof h, buf, n) || crc32(buf, n) != h[2])
+    /* A shorter store is an older build of the same settings, so load what it has and leave the
+     * rest of p at the caller's defaults. That makes a new setting free: appending one no longer
+     * throws away the octave and the current voice. Fields may only ever be added at the end. */
+    if (h[1] == 0u || h[1] > n)
         return -1;
-    memcpy(p, buf, n);
+    if (st_read(SETTINGS_AT + sizeof h, buf, h[1]) || crc32(buf, h[1]) != h[2])
+        return -1;
+    memcpy(p, buf, h[1]);
     return 0;
 }
 static int settings_save(const void *p, uint32_t n)   /* p in RAM, n <= 256 */

@@ -7,6 +7,7 @@
 #   tests/run_host.sh tests/operators.txt   the operator switches and the A/B compare
 #   tests/run_host.sh tests/bank.txt        the bank, saving, and .syx in and out
 #   tests/run_host.sh tests/panel.txt       the pages, the operator keys, and what they send
+#   tests/run_host.sh tests/spectrum.txt    the analyser, against where the partials belong
 #
 # A script's output is named after it, so the runs do not overwrite each other.
 set -e
@@ -27,6 +28,7 @@ build/host/fmlab "$out" $script > "$out".log   # the log is kept: panelcheck.py 
 cat "$out".log
 case "$script" in                                           # while the screens are still PPMs
 */panel.txt) python3 tests/panelcheck.py "$out" ;;          # the pages and the keys that are not keys
+*/spectrum.txt) python3 tests/speccheck.py "$out" ;;        # the analyser, against the arithmetic
 esac
 OUT="$out" python3 - <<'PY'
 import os

@@ -82,13 +82,14 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 static uint8_t host_store[256 + 4];
 static int settings_load(void *p, uint32_t n)
 {
-    if (host_store[0] != 1 || n > 256u) return -1;
-    memcpy(p, host_store + 4, n);
+    if (host_store[0] != 1 || n > 256u || host_store[1] == 0u || host_store[1] > n) return -1;
+    memcpy(p, host_store + 4, host_store[1]);   /* a short store loads its prefix, as on the device */
     return 0;
 }
 static int settings_save(const void *p, uint32_t n)
 {
     host_store[0] = 1;
+    host_store[1] = (uint8_t)n;
     memcpy(host_store + 4, p, n);
     printf("%6u ms  settings saved (%u B)\n", fm1_ms, n);
     return 0;
