@@ -5,20 +5,14 @@
 """Pre-rasterise TTF fonts into anti-aliased 4-bit alpha glyph tables for the UI (run by
 tools/build.py generate() with --preset rubik).
 
-  gen_aa_font.py OUT.h --preset rubik|standin|inter-tight [--tracking EM] [--gamma G] [--kern-min N]
+  gen_aa_font.py OUT.h --preset rubik [--tracking EM] [--gamma G] [--kern-min N]
   gen_aa_font.py OUT.h --face NAME=FONT[#index]:PX:FIRST-LAST[+0xNN,...] ...   (explicit faces)
 
-Faces of the presets (S labels, M values/headers, L big numerals / titles):
-  rubik       assets/fonts/Rubik[wght].ttf (SIL OFL 1.1, Google Fonts): Melodee's face, at 10 / 12 / 15 / 30 px and weights
-              400 / 500 / 600 (its tall x-height reads as Inter Tight's 12 / 15 / 28 at about the same width); X and S
-              on the line metrics of 9 / 11 px (lifted a row).
-              The large type (docs/design/README.md "Large type"): the four roles, Rubik 500 at 16 / 20 / 28 / 48 px
-              (LB labels, TX text, VL values, HR the hero; VL and HR one phase, HR the characters a value or a name
+The preset's faces, the large type's roles (docs/design/README.md "Large type"):
+  rubik       assets/fonts/Rubik[wght].ttf (SIL OFL 1.1, Google Fonts), Melodee's face: Rubik 500 at 16 / 20 / 28 / 48
+              px (LB labels, TX text, VL values, HR the hero; VL and HR one phase, HR the characters a value or a name
               needs), and the same roles in Melodee Pixel (assets/fonts/melodee_pixel.txt: a 5 x 7 1-bit face drawn at
               2 / 2 / 3 / 5 times, AP_*), each on its Rubik role's line height and baseline so a layout holds in both.
-  standin     an installed Inter (~/Library/Fonts/Inter.ttc, else Inter in fonts/ next to tools/) with
-              -2.5 % tracking: a stand-in for Inter Tight, for previews only.
-  inter-tight assets/fonts/InterTight[wght].ttf (SIL OFL 1.1, Google Fonts) at weights 400 / 500 / 600.
 
 Output (a C header; the glyph / font types live in the renderer, firmware/src/gfx.c):
   AF_<N>_DATA   4-bit alpha, trimmed to the ink box, rows back to back, each glyph a byte-aligned bit stream
@@ -26,7 +20,7 @@ Output (a C header; the glyph / font types live in the renderer, firmware/src/gf
                 a run of 1..16 zeros or 15s, or one value 1..14 (huff_pack; about 28 % less than 2 px per byte)
   AF_<N>_HC     the code: the number of codes of each length 1..15, then the symbols in code order
                 ((count - 1) << 4 | value)
-  AF_<N>_G      aag_t {off, adv (1/16 px), bx, by, bw, bh} per glyph and phase (PHASES of S M, PHASES_L of L:
+  AF_<N>_G      aag_t {off, adv (1/16 px), bx, by, bw, bh} per glyph and phase (PHASES of LB TX, one of VL HR:
                 the glyph drawn at a pen of +0, +1/phases .. px, next to each other), ASCII 32..126, then the
                 extras (Latin-1 by their code; the ellipsis U+2026 as code 0x85, as in Windows-1252)
   AF_<N>_KL / _KR / _KM  kerning (GPOS of the weight) as classes: each glyph's left and right class (0 = none),
@@ -45,52 +39,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aa_raster as ar  # noqa: E402
 
 FONTS = Path(__file__).resolve().parents[1] / "fonts"
-LOCAL_INTER = os.path.expanduser("~/Library/Fonts/Inter.ttc")   # 4.001: 0 Regular, 10 Medium, 12 SemiBold
 EXTRAS = [0xA9, 0xB0, 0xB7, 0xC4, 0xD6, 0xDC, 0xE4, 0xF6, 0xFC, 0x2026]  # (c) deg . A: O: U: a: o: u: (Latin-1), ...
 CODE = {0x2026: 0x85}                  # characters outside Latin-1 -> their one-byte code in the firmware
-PHASES, PHASES_L = 2, 2                # horizontal phases per glyph (aa_raster.raster_font): X S M, L
-# faces stored Huffman-coded (--huff): M and L. S, the most drawn and the least compressible (-15 %), stays
-# 2 px per byte, so the labels draw at full speed
-HUFF = [("M", "L", "LB", "TX", "VL", "HR")]
-# L draws "Melodee", the UPDATE MODE countdown digit, the HOME notes / chord roots, the calibration's control names
-# (panel.c B_NAME / E_NAME), NAME's name and NEW SONG's key (R6): every letter, the digits and the name's signs, and
-# the one-track Stage's sound name (the factory names' ' ( ) too); the space as its range and the rest as extras
-# (ui_test.c checks that every L string is covered)
-L_CHARS = " #'()+./-_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-# HR (the hero, 48 px) draws a value or a name: L's characters and the signs values use; a string with another
-# character is drawn in VL (gfx.c text_has)
-HR_CHARS = L_CHARS + "%&*,:<>"
+PHASES = 2                             # horizontal phases per glyph (aa_raster.raster_font): LB and TX
+# faces stored Huffman-coded (--huff): all four (the pixel faces are 1 bit and need no code)
+HUFF = [("LB", "TX", "VL", "HR")]
+# HR (the hero, 48 px) draws a value or a name: every letter, the digits and the signs names and values use (the
+# factory names' ' ( ) too); the space as its range and the rest as extras. A string with another character is drawn
+# in VL (gfx.c text_has)
+HR_CHARS = " #'()+./-_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz%&*,:<>"
 PIXEL = Path(__file__).resolve().parents[1] / "assets" / "fonts" / "melodee_pixel.txt"
 
 
 def preset(name):
     if name == "rubik":
         v = str(FONTS.parent / "assets" / "fonts" / "Rubik[wght].ttf")       # SIL OFL 1.1, Google Fonts
-        # X and S: a pixel larger than the layout's 9 / 11 px, lifted a row so their baselines and line heights stay
-        # the 9 / 11 px faces' (every y and every baseline shared with M and L as it was; the ink grows upwards).
-        # X at 490: at 500 its 'li' lands 0.28 px off (tests/text_spacing_test.py allows 0.25)
-        return [("X", v + "@490", 10, (32, 126), EXTRAS, 0.0, PHASES, 1),     # the redesign's labels (docs/design)
-                ("S", v + "@400", 12, (32, 126), EXTRAS, 0.0, PHASES, 1),
-                ("M", v + "@500", 15, (32, 126), EXTRAS, 0.0, PHASES),
-                ("L", v + "@500", 30, (32, 32), [ord(c) for c in L_CHARS[1:]], 0.0, PHASES_L),
-                ("LB", v + "@500", 16, (32, 126), EXTRAS, 0.0, PHASES),             # the large type's roles
+        return [("LB", v + "@500", 16, (32, 126), EXTRAS, 0.0, PHASES),             # the large type's roles
                 ("TX", v + "@500", 20, (32, 126), EXTRAS, 0.0, PHASES),
                 ("VL", v + "@500", 28, (32, 126), EXTRAS, 0.0, 1),
                 ("HR", v + "@500", 48, (32, 32), [ord(c) for c in HR_CHARS[1:]], 0.0, 1),
                 ("PIX", str(PIXEL), 0, (32, 126), EXTRAS, None, 1, [("LB", 2, 1), ("TX", 2, 0), ("VL", 3, 0), ("HR", 5, 0)])]
-    if name == "inter-tight":
-        v = str(FONTS.parent / "assets" / "fonts" / "InterTight[wght].ttf")   # SIL OFL 1.1, Google Fonts
-        return [("S", v + "@400", 12, (32, 126), EXTRAS, 0.0, PHASES),
-                ("M", v + "@500", 15, (32, 126), EXTRAS, 0.0, PHASES),
-                ("L", v + "@600", 28, (32, 32), [ord(c) for c in L_CHARS[1:]], 0.0, PHASES_L)]
-    if name == "standin":
-        if os.path.exists(LOCAL_INTER):
-            reg, med, semi = LOCAL_INTER + "#0", LOCAL_INTER + "#10", LOCAL_INTER + "#12"
-        else:                                  # the repo's Inter 3.019 (only Regular + Light)
-            reg = med = semi = str(FONTS / "Inter-Regular.ttf")
-        t = -0.025                             # Inter Tight is Inter with tighter spacing
-        return [("S", reg, 12, (32, 126), EXTRAS, t, PHASES), ("M", med, 15, (32, 126), EXTRAS, t, PHASES),
-                ("L", semi, 28, (32, 32), [ord(c) for c in L_CHARS[1:]], t, PHASES_L)]
     raise SystemExit(f"unknown preset {name}")
 
 
@@ -360,7 +328,7 @@ def emit_pixel(face, metrics):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out")
-    ap.add_argument("--preset", choices=["rubik", "standin", "inter-tight"])
+    ap.add_argument("--preset", choices=["rubik"])
     ap.add_argument("--face", action="append", default=[])
     ap.add_argument("--tracking", type=float, default=0.0, help="extra advance per glyph in em")
     ap.add_argument("--gamma", type=float, default=1.0, help="coverage curve; <1 thickens light-on-dark text")

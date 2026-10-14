@@ -1585,9 +1585,9 @@ static int test_information(void)
     press(B_OCTUP);
     ui_draw();
     bad += check("ABOUT opens one document with scrollable license text and credits", ui.menu == 2 && !ui.menu_scroll && menu_scroll_max() > MENU_DOC_H);
-    for (y = 28; y < 102; y++)                          /* (the QR at the top right, by the name) */
+    for (y = MENU_HEAD + 66; y < MENU_HEAD + 140; y++)  /* (the QR at the right, by the version) */
         for (x = 158; x < 232; x++)
-            if (x < 166 || x >= 224 || y < 36 || y >= 94)
+            if (x < 166 || x >= 224 || y < MENU_HEAD + 74 || y >= MENU_HEAD + 132)
                 quiet &= host_screen[y * 240 + x] == swap16(UI_QR_LIGHT);
     bad += check("ABOUT QR keeps its complete white quiet zone", quiet);
     memcpy(header, host_screen, sizeof header);
@@ -1608,6 +1608,7 @@ static int test_information(void)
     ui_draw();
     bad += check("the continuous document stops at its final credit",
                  ui.menu == 2 && ui.menu_scroll == menu_scroll_max());
+    turn(EN_PRESET, -10000);
     turn(EN_PRESET, -10000);
     bad += check("scrolling back through CREDITS returns to ABOUT's top", ui.menu == 2 && !ui.menu_scroll);
     press(B_OCTDN);
@@ -3990,7 +3991,7 @@ static int test_bughunt_ui(void)
     pattern_init();                      /* no song rows */
     go_title("SONG"); frame();
     hold(B_OCTUP); sheet_do("Delete section");
-    ok = !ui.confirm && msg_is("NOTHING TO DELETE") && text_w(&AF_S, ui.msg) <= 236 - 106;   /* (fits the header) */
+    ok = !ui.confirm && msg_is("NOTHING TO DELETE");   /* (the header, or wrapped on the toast: never cut) */
     hold(B_OCTUP); sheet_do("Clear song");
     ok &= !ui.confirm && msg_is("NOTHING TO CLEAR");
     track_defaults_steps(TSEL);
@@ -4159,7 +4160,7 @@ static int test_piano_roll(void)
     screen_clear(); ui.force = 1; ui_draw();
     ok = pr_columns_match(t, &nb);
     bad += check("piano roll: ACID's bars drawn at their notes' rows, ties carried, rests empty", ok && nb >= 10u);
-    bad += check("  the view holds the page's notes (A2..A3 in 14 rows), MONO gray", proll.lo <= 45 && proll.lo + PR_ROWS - 1 >= 57 &&
+    bad += check("  the view holds the page's notes (A2..A3 in 13 rows), MONO gray", proll.lo <= 45 && proll.lo + PR_ROWS - 1 >= 57 &&
                  screen_gray());
     t->p[P_VOICE] = V_POLY;                                           /* chords: up to 4 bars in a column */
     for (i = 0; i < 16u; i += 4u) {
@@ -4190,13 +4191,13 @@ static int test_piano_roll(void)
     }
     nb = 0;
     bad += check("  after the follow the bars match again", pr_columns_match(t, &nb));
-    key_down(7); frames(200);                                         /* a key held: its row lit on the strip */
+    key_down(8); frames(200);                                         /* a key held (C#: no C label over it): its row lit */
     {
-        int32_t r = (int32_t)proll.lo + PR_ROWS - 1 - (int32_t)kb_chord[7][0];
+        int32_t r = (int32_t)proll.lo + PR_ROWS - 1 - (int32_t)kb_chord[8][0];
         uint16_t c = r >= 0 && r < PR_ROWS ? swap16(host_screen[(PR_TOP + PR_Y0 + (uint32_t)r * PR_RH + 1u) * 240u + PR_KX + 7]) : 0;
-        bad += check("  a key held: its row on the keyboard strip is the accent", kb_chn[7] && c == T_ACCENT);
+        bad += check("  a key held: its row on the keyboard strip is the accent", kb_chn[8] && c == T_ACCENT);
     }
-    key_up(7); frames(100);
+    key_up(8); frames(100);
     return bad;
 }
 
@@ -4267,28 +4268,23 @@ static int test_bughunt_ui2(void)
             }
         bad += check("STEP entry with CHRD: POLY the chord, MONO its root, as live recording writes", ok);
     }
-    {   /* 3. MIXER: the knob just turned is the control drawn in text (K1 the LEVEL ring, K2 PAN's value, K3 REV's,
-         * K4 the MUTE chip) in the selected track's strip (ui_pages.c pv_strip) */
-        uint32_t k, a[4][4], ok = 1;
+    {   /* 3. MIXER: the knob just turned is the control drawn in text (K1 the level's bar, K2 the pan, K3 nothing, K4
+         * "Mute") in the selected track's row (ui_pages.c pv_strip) */
+        uint32_t k, a[4][2], ok = 1;
         for (k = 0; k < 4u; k++) {
-            int32_t X = CARD_X(song.sel), Y = st_row_y(song.sel);
+            int32_t Y, ly;
             ui_power_on();
             settings.palette = 1; palette_set(1);
             go_page(GR_TRK); frame(); frame();
-            X = CARD_X(song.sel);
+            Y = st_row_y(song.sel);
+            ly = pv_mix_y(st_row_h()) + TY_TX->cap + 8;
             turn(EN_K1 + k, 1);                                       /* (K4 right: MUTE on) */
             ui.force = 1; frame();
-            a[k][0] = text_in(X + 7, Y + 50, X + 15, Y + 90);         /* the LEVEL ring's left (its arc) */
-            a[k][1] = text_in(X + 5, Y + 145, X + 26, Y + 157);       /* PAN's value */
-            a[k][2] = text_in(X + 29, Y + 145, X + 50, Y + 157);      /* REV's */
-            a[k][3] = text_in(X + 6, Y + 168, X + 48, Y + 184);       /* the MUTE chip */
+            a[k][0] = text_in(BOX_X + PV_MIX_BAR_X, Y + ly, BOX_X + PV_MIX_BAR_X + PV_MIX_BAR_W, Y + ly + 5);   /* the bar */
+            a[k][1] = text_in(BOX_X + 180, Y + ly - 8, BOX_X + 230, Y + ly + 16);   /* the pan, or Mute */
         }
-        for (k = 0; k < 4u; k++) {
-            uint32_t j;
-            for (j = 0; j < 4u; j++)
-                ok &= j == k && k!=2 ? a[k][j] > 0u : a[k][j] == 0u;
-        }
-        bad += check("MIXER: K1..K4 light the LEVEL ring / PAN / the MUTE chip, nothing else", ok);
+        ok = a[0][0] && !a[0][1] && !a[1][0] && a[1][1] && !a[2][0] && !a[2][1] && !a[3][0] && a[3][1];
+        bad += check("MIXER: K1 lights the level's bar, K2 the pan, K4 Mute, K3 nothing", ok);
     }
     {   /* 4. renaming the slot the music came from renames the music: the next SAVE prefills the new name */
         char pn[16];
@@ -4334,7 +4330,7 @@ static int test_bughunt_ui2(void)
         ok &= !name_on() && up_used(3);
         bad += check("NAME: PLAY stops a running transport (never starts), REC ignored, then OCT+ saves", ok);
     }
-    {   /* 6. the piano roll's lowest C name ("C-1") stays inside the panel: nothing drawn left of x 3 */
+    {   /* 6. the piano roll's lowest C name ("C-1") stays inside the panel: nothing drawn left of it (x 2) */
         uint32_t p, x, y, out = 0;
         uint16_t bg;
         for (p = 0; p < NPALETTES; p++) {
@@ -4347,7 +4343,7 @@ static int test_bughunt_ui2(void)
             go_page(GR_ROLL); cursor_set(0); ui.force = 1; frame(); frame();
             bg = (uint16_t)((T_BG >> 8) | (T_BG << 8));
             for (y = PR_TOP; y < PR_TOP + PR_H; y++)
-                for (x = 0; x < 3u; x++)
+                for (x = 0; x < BOX_X; x++)
                     out += host_screen[y * 240u + x] != bg;
         }
         bad += check("piano roll: the C-1 label stays inside the panel (every palette)", !out);
@@ -4367,16 +4363,18 @@ static int test_bughunt_ui2(void)
 }
 
 #ifndef UI_TEST_NO_MAIN
-/* L is a sparse face (tools/gen_aa_font.py L_CHARS): every string drawn in it has all its glyphs */
+/* HR is a sparse face (tools/gen_aa_font.py HR_CHARS): every string drawn in it has all its glyphs (what may lack one
+ * asks gfx.c text_has first and falls back to VL) */
 static int test_large_face(void)
 {
-    static const char *const FIXED[] = {"MELODEE", "0123456789", "C#4 / .."};   /* main.c, ui_menu.c; ui_draw.c draw_uboot */
+    static const char *const FIXED[] = {"MELODEE", "Melodee", "0123456789", "C#4 / .."};   /* main.c, ui_menu.c About;
+                                                                                         * ui_draw.c draw_uboot */
     uint32_t i, missing = 0;
     const char *s;
     for (i = 0; i < NB + NE + sizeof FIXED / sizeof FIXED[0]; i++)                              /* ui_input.c setup_show: the control names */
         for (s = i < NB ? B_NAME[i] : i < NB + NE ? E_NAME[i - NB] : FIXED[i - NB - NE]; *s; s++)
-            missing += glyph_at(&AF_L, (uint8_t)*s) < 0;
-    return check("the L face holds every glyph of the strings drawn in it", !missing);
+            missing += glyph_at(&AF_HR, (uint8_t)*s) < 0;
+    return check("the HR face holds every glyph of the strings drawn in it", !missing);
 }
 
 

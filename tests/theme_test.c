@@ -16,6 +16,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #define UI_TEST_PALETTE 1
 #include "../firmware/src/gfx.c"
+static uint32_t ty_pixel(void) { return 0; }            /* (ui.c: Settings > FONT; Rubik here) */
 
 #define SHEET_W 960u
 #define SHEET_H (((NPALETTES + 3u) / 4u) * 124u)
@@ -91,26 +92,26 @@ int main(int argc, char **argv)
             unsigned k;
             snprintf(w, sizeof w, "%s", UI_PALETTES[p].name);
             for (k = 1; w[k]; k++) if (w[k] >= 'A' && w[k] <= 'Z') w[k] = (char)(w[k] + 32);
-            assert(text_w(&AF_S, w) <= 60);
+            assert(text_w(&AF_TX, w) <= 120);
         }
         cv_begin(240, 124, T_BG);
-        cv_text(4, 2, &AF_M, UI_PALETTES[p].name, T_TEXT);
-        for (unsigned k = 0; k < 5; k++) cv_rect(150 + k * 16, 4, 12, 12, tok[k]);
-        cv_text(4, 26, &AF_S, "LABEL", T_MID);
-        cv_text(70, 22, &AF_M, "VALUE 127", T_THEME);
-        cv_text(170, 22, &AF_M, "HOT", T_ACCENT);
-        cv_text(4, 46, &AF_S, "INACTIVE", T_DIM);
-        cv_rect(80, 44, 150, 17, T_SEL);
-        cv_text_on(86, 45, &AF_S, "SELECTED ROW", T_INK, T_SEL);
-        cv_rect(4, 66, 232, 1, T_LINE);
-        cv_rect(4, 72, 120, 3, T_LINE);
-        cv_rect(4, 72, 70, 3, T_SEL);
-        cv_rect(74, 70, 1, 7, T_THEME);
-        cv_text(136, 66, &AF_S, "REC", T_REC);
-        cv_text(4, 82, &AF_L, "124", T_THEME);
-        cv_text(80, 92, &AF_S, "Mixed case text", T_TEXT);
-        cv_key_hint(80, 108, KC_OCTUP, "LOAD", 1, T_BG);          /* keycaps: available, unavailable */
-        cv_key_hint(150, 108, KC_OCTDN, "BACK", 0, T_BG);
+        cv_text(4, 0, &AF_TX, UI_PALETTES[p].name, T_TEXT);      /* (the large type's roles) */
+        for (unsigned k = 0; k < 5; k++) cv_rect(150 + k * 16, 6, 12, 12, tok[k]);
+        cv_text(4, 26, &AF_LB, "LABEL", T_MID);
+        cv_text(70, 24, &AF_TX, "VALUE 127", T_THEME);
+        cv_text(180, 24, &AF_TX, "HOT", T_ACCENT);
+        cv_text(4, 46, &AF_LB, "INACTIVE", T_DIM);
+        cv_rect(84, 46, 150, 20, T_SEL);
+        cv_text_on(90, 47, &AF_LB, "SELECTED ROW", T_INK, T_SEL);
+        cv_rect(4, 70, 232, 1, T_LINE);
+        cv_rect(4, 76, 120, 3, T_LINE);
+        cv_rect(4, 76, 70, 3, T_SEL);
+        cv_rect(74, 74, 1, 7, T_THEME);
+        cv_text(136, 70, &AF_LB, "REC", T_REC);
+        cv_text(4, 84, &AF_VL, "124", T_THEME);
+        cv_text(80, 82, &AF_LB, "Mixed case text", T_TEXT);
+        cv_key_hint(80, 100, KC_OCTUP, "LOAD", 1, T_BG);          /* keycaps: available, unavailable */
+        cv_key_hint(160, 100, KC_OCTDN, "BACK", 0, T_BG);
         for (unsigned y = 0; y < 124; y++)
             for (unsigned x = 0; x < 240; x++) {
                 uint16_t v = swap16(cv_px[y * 240 + x]);
@@ -129,20 +130,22 @@ int main(int argc, char **argv)
     assert(palette_track(1) && !palette_track(1));             /* (and so does the track: once) */
     cv_begin(3, 1, T_BG); cv_text(0, 0, &probe, "A", T_THEME);
     assert(swap16(cv_px[1]) != night);
-    /* fonts (docs/design): Rubik X 10 px, S 12 px (on the line metrics of 9 / 11 px), M 15 px, L 30 px; tabular
-     * digits; the ellipsis; L capitals only */
-    assert(AF_X.h == 12 && AF_X.asc == 9 && AF_S.h == 14 && AF_S.asc == 11 && AF_M.h == 19 && AF_M.asc == 15 &&
-           AF_L.h == 37 && AF_L.asc == 29);
-    assert(text_w(&AF_X, "0000") == text_w(&AF_X, "1111"));
-    assert(text_w(&AF_M, "0000") == text_w(&AF_M, "1111") && text_w(&AF_S, "1.25") == text_w(&AF_S, "8.75"));
-    assert(glyph(&AF_S, (uint8_t)ELLIPSIS) != glyph(&AF_S, '?') && glyph(&AF_M, (uint8_t)ELLIPSIS) != glyph(&AF_M, '?'));
-    assert(text_w(&AF_L, "abc") != text_w(&AF_L, "ABC") && glyph(&AF_L, 'a') != glyph(&AF_L, 'A'));   /* (L: small letters too) */
+    /* fonts (docs/design README "Large type"): Rubik 500 LB 16, TX 20, VL 28, HR 48 px; Melodee Pixel's faces on the
+     * same line heights and baselines; tabular digits; the ellipsis; HR small letters too */
+    assert(AF_LB.h == 19 && AF_LB.asc == 15 && AF_TX.h == 24 && AF_TX.asc == 19 && AF_VL.h == 34 && AF_VL.asc == 27 &&
+           AF_HR.h == 57 && AF_HR.asc == 45);
+    assert(AP_LB.h == AF_LB.h && AP_LB.asc == AF_LB.asc && AP_TX.h == AF_TX.h && AP_TX.asc == AF_TX.asc &&
+           AP_VL.h == AF_VL.h && AP_VL.asc == AF_VL.asc && AP_HR.h == AF_HR.h && AP_HR.asc == AF_HR.asc);
+    assert(text_w(&AF_LB, "0000") == text_w(&AF_LB, "1111") && text_w(&AF_VL, "0000") == text_w(&AF_VL, "1111"));
+    assert(text_w(&AF_TX, "0000") == text_w(&AF_TX, "1111") && text_w(&AF_LB, "1.25") == text_w(&AF_LB, "8.75"));
+    assert(glyph(&AF_LB, (uint8_t)ELLIPSIS) != glyph(&AF_LB, '?') && glyph(&AF_TX, (uint8_t)ELLIPSIS) != glyph(&AF_TX, '?'));
+    assert(text_w(&AF_HR, "abc") != text_w(&AF_HR, "ABC") && glyph(&AF_HR, 'a') != glyph(&AF_HR, 'A'));
     {
         char b[32];
-        assert(!text_fit(b, sizeof b, "KICK", &AF_S, 60) && !strcmp(b, "KICK"));
-        assert(text_fit(b, sizeof b, "A VERY LONG PRESET NAME", &AF_S, 60) && text_w(&AF_S, b) <= 60);
+        assert(!text_fit(b, sizeof b, "KICK", &AF_LB, 60) && !strcmp(b, "KICK"));
+        assert(text_fit(b, sizeof b, "A VERY LONG PRESET NAME", &AF_LB, 60) && text_w(&AF_LB, b) <= 60);
         assert(b[strlen(b) - 1] == ELLIPSIS && b[strlen(b) - 2] != ' ');
-        assert(text_fit(b, sizeof b, "WWWWWWWW", &AF_M, 1) && b[0] == ELLIPSIS && !b[1]);
+        assert(text_fit(b, sizeof b, "WWWWWWWW", &AF_TX, 1) && b[0] == ELLIPSIS && !b[1]);
     }
     if (argc > 1) {
         FILE *f = fopen(argv[1], "wb"); assert(f);

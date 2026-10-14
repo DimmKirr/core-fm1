@@ -378,12 +378,10 @@ static void col_old_value(uint32_t c, char *ov)          /* the value card c dre
         ov[i++] = *++k;
     ov[i] = 0;
 }
-enum { CS_CARD, CS_STRIP, CS_RING, CS_FADER, CS_CHIP, CS_CAPTURE };   /* how draw_column draws a knob: CARD, STRIP,
-                                                                      * RING, FADER: the strip's cell (the large type);
-                                                                      * CHIP: ui_pages.c pv_chip; CAPTURE: kept for a
-                                                                      * list's rows, ui_list.c) */
+enum { CS_CARD, CS_RING, CS_CAPTURE };               /* how draw_column draws a knob: CARD, RING: the strip's cell (the
+                                                         * large type); CAPTURE: kept for a list's rows, ui_list.c */
 static void list_capture(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc);
-static uint8_t col_style;                               /* (ui_pages.c pv_column) */
+static uint8_t col_style;
 static int32_t card_y = Y_LABEL;                        /* the strip's row (sections' tabs: lower) */
 static uint16_t card_tc[4];                             /* a cell's label colour (0: the track's; the GLO layer: each's) */
 /* the knob turning's words as its cell shows them (ui_pages.c pv_hero draws them large); dim: no effect as it is */
@@ -391,8 +389,6 @@ static struct { char label[12], val[16], unit[8]; uint8_t dim, kc; int16_t ratio
 static void pv_words(const char *label, const char *val, const char *unit, char *lb, char *v, char *u);   /* ui_pages.c */
 static int pv_hero_on(void);                            /* ui_pages.c: a knob turned on the page lately */
 static void pv_value_c(uint32_t c, int32_t xc, int32_t y, const char *val, const char *unit, uint16_t vc, uint16_t bg, int32_t room);
-static void pv_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
-                      int hot);
 /* a label as its cell shows it: in full when it fits (55 px), else its short form (the hero shows it in full) */
 static const struct { const char *k, *s; } CELL_SHORT[] = {
     {"PRIORITY", "PRIO"}, {"VEL AMP", "V.AMP"}, {"VEL FLT", "V.FLT"}, {"RELEASE", "REL"}, {"ENV AMT", "ENV"},
@@ -429,17 +425,11 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
         return;
     }
     fmt_named = 0;                                      /* (params.c: a name, for this card only) */
-    if (col_style == CS_CHIP) {                         /* (a chip: its own words) */
-        str_cpy(label, label0, sizeof label);
-        str_cpy(val, val0, sizeof val);
-        str_cpy(unit, unit0, sizeof unit);
-    } else {                                            /* a cell: the words as the pages write them ("Saw", "ms") */
-        pv_words(label0, val0, unit0, label, val, unit);
-    }
+    pv_words(label0, val0, unit0, label, val, unit);    /* (the words as the pages write them: "Saw", "ms") */
     if (str_eq(unit0, label0))
         unit[0] = 0;                                    /* "BPM 124 BPM", "USB OFF USB": the label says it */
     kid = kc_tag(val, &kn);
-    if (c == ui.hot_col && col_style != CS_CHIP) {     /* (the hero's words) */
+    if (c == ui.hot_col) {                              /* (the hero's words) */
         str_cpy(hero_w.label, label, sizeof hero_w.label);
         str_cpy(hero_w.val, val, sizeof hero_w.val);
         str_cpy(hero_w.unit, unit, sizeof hero_w.unit);
@@ -475,20 +465,6 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
     strip = !snap && str_eq(key, ui.col[c]);
     if (strip && !ui.roll[c].from[0])
         return;
-    if (col_style == CS_CHIP) {                         /* NOTES, the drum grid, MOD: chips (ui_pages.c) */
-        if (!strip) {                                   /* (or not: strips' and chips' values snap) */
-            char ov[16];
-            col_old_value(c, ov);
-            ui.roll[c].sig = sig;
-            if (!str_eq(ov, val))
-                roll_note(c, ov, val, snap || named || vf != TY_TX || kid >= 0 || col_style == CS_CHIP);
-            else if (snap)
-                ui.roll[c].from[0] = 0;
-            str_cpy(ui.col[c], key, sizeof ui.col[c]);
-        }
-        pv_column(c, label, val, unit, vc, ratio, hot);
-        return;
-    }
     roll_bg = cbg;
     if (hot && vc != T_DIM)                             /* the knob turning: its value in the track's colour */
         vc = lc;
@@ -896,16 +872,18 @@ static void draw_uboot(void)
     shown = ui.uboot;
     lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
     ui.head_sig = ~0u;
-    draw_text_box(0, 76, 240, &AF_M, "UPDATE MODE IN", T_TEXT, 1);
-    draw_text_box(0, 102, 240, &AF_L, d, T_THEME, 1);
-    {   /* the two keycaps held, and what letting go does */
-        int32_t w = kc_w(KC_OCTDN) + 3 + kh_w(KC_OCTUP, "LET GO TO CANCEL"), x = (240 - w) / 2;
-        cv_begin(240, KC_H + 2, T_BG);
-        x = cv_keycap(x, 1, KC_OCTDN, T_KEY, T_INK, T_BG) + 3;
-        cv_key_hint(x, 1, KC_OCTUP, "LET GO TO CANCEL", 1, T_BG);
-        cv_blit(0, 149);
+    draw_text_box(0, 50, 240, TY_TX, "Update mode in", T_TEXT, 1);   /* (large type: the count large, the keys held,
+                                                                     * what letting go does) */
+    draw_text_box(0, 80, 240, TY_HR, d, T_THEME, 1);
+    {
+        int32_t w = kc_w(KC_OCTDN) + 6 + kc_w(KC_OCTUP), x = (240 - w) / 2;
+        cv_begin(240, KC_PH + 2, T_BG);
+        x = cv_keycap(x, 1, KC_OCTDN, T_KEY, T_INK, T_BG) + 6;
+        cv_keycap(x, 1, KC_OCTUP, T_KEY, T_INK, T_BG);
+        cv_blit(0, 150);
         lcd_sync();
     }
+    draw_text_box(0, 184, 240, TY_TX, "Let go to cancel", T_MID, 1);
     ui.force = 0;
     scr_shown();
 }
@@ -1029,27 +1007,6 @@ static void confirm_words(char *s)                      /* "OVERWRITE PROJECT A?
         if (s[i] >= 'A' && s[i] <= 'Z' && !single)
             s[i] = (char)(s[i] + 32);
     }
-}
-/* s (n bytes at most) on two lines of w px in face f: the first ends at the last space that fits, the rest below (one
- * line when it fits) */
-static void text_two_lines(const char *s, char *a, char *b, uint32_t n, int32_t w, const aafont_t *f)
-{
-    uint32_t i, cut = 0;
-    str_cpy(a, s, n);
-    b[0] = 0;
-    if (text_w(f, a) <= w)
-        return;
-    for (i = 1; s[i] && i + 1u < n; i++)
-        if (s[i] == ' ') {
-            str_cpy(a, s, i + 1u);
-            if (text_w(f, a) <= w) cut = i;
-        }
-    if (!cut) {
-        str_cpy(a, s, n);
-        return;
-    }
-    str_cpy(a, s, cut + 1u);
-    str_cpy(b, s + cut + 1u, n);
 }
 /* s wrapped into at most m lines of w px in face f (at spaces; a word wider than the line: at the last character that
  * fits), each line up to 31 characters; the number of lines */

@@ -8,7 +8,7 @@
  * (the glyph at the rounded pen) to horizontal phases (tools/aa_raster.py): of the two phase positions around
  * the pen, the one whose offset is nearer the previous glyph's, plus that phase's ink offset; a glyph with one
  * phase (figures, .) at the rounded pen as before; restated here too.
- * How close that lands to the font's own spacing is tests/text_spacing_test.py's question. Every string below, in S M L, THEME on SURF and TEXT on BG, in every palette: the end pen and every
+ * How close that lands to the font's own spacing is tests/text_spacing_test.py's question. Every string below, in LB TX VL (the large type's Rubik roles), THEME on SURF and TEXT on BG, in every palette: the end pen and every
  * pixel must be identical (MONO expands its gray with G = 2 R, the gray rule; the prototype's G = 2 R + R / 16
  * differed by one green LSB there, and that is the only difference to the mock renders). */
 #include <math.h>
@@ -21,6 +21,7 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #include "../firmware/src/gfx.c"
+static uint32_t ty_pixel(void) { return 0; }            /* (ui.c: Settings > FONT; the Rubik faces here) */
 
 static const char *const STR[] = {
     "CUTOFF", "RESO", "ATK", "DEC", "LEVEL", "PAN", "REV", "MUTE", "STEP", "LANE", "HIT", "ACC", "No.",
@@ -138,7 +139,7 @@ static int32_t ref_text(int32_t x, int32_t y, const aafont_t *f, const char *s, 
 
 int main(void)
 {
-    const aafont_t *F[3] = {&AF_S, &AF_M, &AF_L};
+    const aafont_t *F[3] = {&AF_LB, &AF_TX, &AF_VL};
     uint32_t n = 0, bad_px = 0, bad_pen = 0;
     for (uint32_t p = 0; p < NPALETTES; p++) {
         palette_set(p);

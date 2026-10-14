@@ -11,6 +11,7 @@
 #define PANEL_X0 10                                  /* the graphs' inner area: x 10..230 */
 #define PANEL_W 220
 #define GOY 11                                       /* graphs drawn on a 100 px scale sit at y 11..111 */
+static int32_t graph_y = Y_GRAPH, graph_h = H_GRAPH, graph_oy = GOY;   /* (graph_oy: the 100 px scale's top) */
 
 /* Matches voice.c: attack is linear, decay and release are exponential
  * (env += (target - env) * k each tick, ~99 % after the set time). Time
@@ -130,8 +131,8 @@ static void graph_steps(const track_t *t, uint16_t c)
  * holds it, so a page that does not change is not drawn again. */
 #define PR_TOP Y_GRAPH                              /* the panel's top on the screen (ui_pages.c: NOTES, under the strip) */
 #define PR_H 154                                    /* .. its rows (84 .. 237) */
-#define PR_ROWS 12                                  /* semitones shown (an octave) */
-#define PR_RH 12                                    /* px per row */
+#define PR_ROWS 13                                  /* semitones shown (an octave and its top note) */
+#define PR_RH 11                                    /* px per row */
 #define PR_Y0 4                                     /* the top row (panel y) */
 #define PR_X0 32                                    /* the first step column */
 #define PR_CW 12                                    /* px per step */
@@ -279,9 +280,10 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
         if (micro_active(t) ? ((note - 60) % (int32_t)scale_note_period(t) == 0) : note % 12 == 0) {
             char name[8];
             if (micro_active(t)) str_cpy(name, "D1", sizeof name); else note_name(name, (uint32_t)note);
-            cv_rrect(0, ty_y(y + PR_RH / 2, TY_LB) + TY_LB->asc - TY_LB->cap - 3, text_w(TY_LB, name) + 8, TY_LB->cap + 6, 4,
-                     T_RAISE, T_PANEL);
-            cv_text_on(4, ty_y(y + PR_RH / 2, TY_LB), TY_LB, name, T_TEXT, T_RAISE);
+            uint16_t lf = (held >> row) & 1u ? T_ACCENT : T_RAISE;   /* (held: the accent, as the key) */
+            cv_rrect(3, ty_y(y + PR_RH / 2, TY_LB) + TY_LB->asc - TY_LB->cap - 3, text_w(TY_LB, name) + 8, TY_LB->cap + 6, 4,
+                     lf, T_PANEL);
+            cv_text_on(7, ty_y(y + PR_RH / 2, TY_LB), TY_LB, name, lf == T_ACCENT ? T_INK : T_TEXT, lf);
         }
     }
     uint32_t base = notes_base(), end = base + notes_span();
@@ -340,7 +342,7 @@ static void graph_grid(const track_t *t, uint16_t c)
         uint16_t row = sel ? T_RAISE : T_SURF;
         if (sel)
             cv_rrect(6, y, 226, 14, 3, T_RAISE, T_SURF);
-        cv_text_on(10, y - 1, &AF_S, drum_lane_abbr(t, l), sel ? T_ACCENT : T_MID, row);   /* ink rows 2 .. 11, as the hits */
+        cv_text_on(10, ty_y(y + 7, TY_LB), TY_LB, drum_lane_abbr(t, l), sel ? T_ACCENT : T_MID, row);
         for (i = 0; i < 16u && base + i < len; i++) {
             const step_t *st = &seq_steps(t)[base + i];
             uint32_t b = 1u << l;
@@ -366,7 +368,7 @@ static void graph_scale(const track_t *t, uint16_t c)
         char label[24];
         fmt_int(label, s->count);
         str_cpy(label + str_len(label), " DEGREES / PERIOD", 20);
-        cv_text_c(120, 8, &AF_S, label, T_MID, T_SURF);
+        cv_text_c(120, ty_y(14, TY_LB), TY_LB, label, T_MID, T_SURF);
         cv_rect(12, 91, 216, 1, T_RAISE);
         for (uint32_t d = 0; d <= s->count; d++) {
             int32_t x = 12 + s->pitch[d] * 216 / s->pitch[s->count];
@@ -408,10 +410,10 @@ static void graph_chord(const track_t *t, uint16_t c)
             n = chord_last[k].n;
             for (i = 0; i < n; i++) nn[i] = chord_last[k].note[i];
         } else n = chord_make(t, 60u, nn, &r, &mask);
-        cv_text_c(120, 10, &AF_S, "SCALE DEGREES", T_MID, T_SURF);
+        cv_text_c(120, ty_y(16, TY_LB), TY_LB, "SCALE DEGREES", T_MID, T_SURF);
         for (i = 0; i < n; i++) {
             note_name(b, nn[i]);
-            cv_text_c(30 + (int32_t)i * 60, 55, &AF_S, b, i ? c : T_ACCENT, T_SURF);
+            cv_text_c(30 + (int32_t)i * 60, ty_y(60, TY_TX), TY_TX, b, i ? c : T_ACCENT, T_SURF);
         }
         return;
     }
@@ -428,8 +430,8 @@ static void graph_chord(const track_t *t, uint16_t c)
     if (trk_vmode(t) != V_POLY)
         cap = "ROOT ONLY";                              /* MONO / LEGATO / UNISON */
     chord_name(b, (uint32_t)r, mask);
-    cv_text_on(14, 8, &AF_M, b, T_TEXT, T_SURF);
-    cv_text_r(226, 12, &AF_S, cap, T_MID, T_SURF);
+    cv_text_on(14, ty_y(18, TY_VL), TY_VL, b, T_TEXT, T_SURF);
+    cv_text_r(226, ty_y(18, TY_LB), TY_LB, cap, T_MID, T_SURF);
     lo = nn[0] - nn[0] % 12u;
     cnt = nn[n - 1u] - lo < 24u ? 24u : 36u;
     w = 216u / cnt;
@@ -513,8 +515,8 @@ static void graph_slices(void)
     slice_time(u, j < n ? slice_mark(j + 1u) - slice_mark(j) : len - mb);
     str_cpy(t + 4, u, sizeof t - 4);
     str_cpy(t + str_len(t), " S", sizeof t - str_len(t));
-    cv_text(12, 106, &AF_S, t, T_MID);
-    cv_text_r(228, 106, &AF_S, src ? N_SLC_SRC[src] : "BREAK", src ? T_THEME : T_DIM, T_SURF);
+    cv_text(12, ty_y(114, TY_LB), TY_LB, t, T_MID);
+    cv_text_r(228, ty_y(114, TY_LB), TY_LB, src ? N_SLC_SRC[src] : "BREAK", src ? T_THEME : T_DIM, T_SURF);
 }
 #endif
 
@@ -533,7 +535,7 @@ static void graph_wheel(const track_t *t, uint16_t c)
         cv_rrect(x + 7, 2, 4, 73, 2, T_RAISE, T_SURF);
         if (level) cv_rrect(x + 3, 75 - level * 8, 12, level * 8, 3, hot ? T_ACCENT : c, T_SURF);
         else cv_rrect(x + 3, 73, 12, 2, 1, hot ? T_ACCENT : T_DIM, T_SURF);
-        cv_text_c(x + 9, 82, &AF_S, names[k], T_MID, T_SURF);
+        cv_text_c(x + 9, ty_y(88, TY_LB), TY_LB, names[k], T_MID, T_SURF);
     }
 }
 #endif
@@ -702,10 +704,11 @@ static void graph_fm6(const track_t *t, uint16_t c)
         char n[2] = {(char)('1' + k), 0};
         FM6_CHART_HOOK(FMH_BOX, k, 0);
         cv_rrect(x[k] - 10, y[k], 21, FM_BH, 3, fill, T_SURF);
-        cv_text_c(x[k] + 1, y[k] + 1, &AF_S, n, fill_c ? T_INK : on ? f : T_DIM, fill);
+        cv_text_c(x[k] + 1, ty_y(y[k] + FM_BH / 2, TY_LB), TY_LB, n, fill_c ? T_INK : on ? f : T_DIM, fill);
     }
     FM6_CHART_HOOK(FMH_LABEL, 0, 0);
-    cv_text(10, 4 - GOY, &AF_S, b, hot == P_E0 || hot == P_E7 ? T_ACCENT : T_MID);
+    if (graph_oy == GOY)                             /* (raised under the designer's tabs: no room for it) */
+        cv_text(10, ty_y(12 - GOY, TY_LB), TY_LB, b, hot == P_E0 || hot == P_E7 ? T_ACCENT : T_MID);
     FM6_CHART_HOOK(FMH_END, alg, 0);
 }
 
@@ -814,20 +817,20 @@ static void note_line(int32_t y, const char *s, uint16_t fg)   /* centred S; "[K
     uint32_t n;
     int32_t id = kc_tag(s, &n);
     if (id < 0) {
-        cv_text_c(120, y, &AF_S, s, fg, T_SURF);
+        cv_text_c(120, ty_y(y + 8, TY_LB), TY_LB, s, fg, T_SURF);
         return;
     }
     s += n;
     while (*s == ' ')
         s++;
-    cv_text_on(cv_keycap(120 - kh_w((uint32_t)id, s) / 2, y + 1, (uint32_t)id, T_KEY, T_INK, T_SURF) + KH_GAP, y,
-               &AF_S, s, fg, T_SURF);
+    cv_text_on(cv_keycap(120 - kh_w((uint32_t)id, s) / 2, y + 8 - KC_PH / 2, (uint32_t)id, T_KEY, T_INK, T_SURF) + KH_GAP,
+               ty_y(y + 8, TY_LB), TY_LB, s, fg, T_SURF);
 }
 static void panel_note(const char *a, const char *b, const char *c)
 {
-    cv_text_c(120, 30, &AF_M, a, T_TEXT, T_SURF);
+    cv_text_c(120, ty_y(36, ty_fit(TY_TX, a, 220)), ty_fit(TY_TX, a, 220), a, T_TEXT, T_SURF);
     if (b) note_line(60, b, T_MID);
-    if (c) note_line(82, c, T_DIM);
+    if (c) note_line(86, c, T_DIM);
 }
 
 /* preset browser: the global list (every engine), the current one selected; tag DIM, name TEXT,
@@ -907,61 +910,8 @@ static int32_t meter_px(int32_t a)                   /* |sample| (Q15) -> px: 60
     return clamp((v - 48) * (TS_MH - 2) / 80, 0, TS_MH - 2);
 }
 
-/* a knob's ring: 270 degrees (7:30 .. 4:30 o'clock), 2 px, anti-aliased, from the quadrant mask of its size
- * (tools/gen_aa_keycaps.py: coverage and angle; the other three quadrants mirror it, no trigonometry here).
- * Box top-left (x, y), outer radius r. Angles: 1/1024 turn from 12 o'clock, clockwise, -384 .. 384; the value
- * arc is lo .. hi (in vc), the rest of the ring the track (tr); bg lies under the ring */
-#define KA_END 384
-static void knob_arc(int32_t x, int32_t y, int32_t r, const uint8_t *cov, const uint8_t *ang, int32_t lo, int32_t hi,
-                     uint16_t tr, uint16_t vc, uint16_t bg)
-{
-    const uint16_t *rt = ramp(tr, bg), *rv = ramp(vc, bg);
-    int32_t i, j, m;
-    for (j = 0; j < r; j++)
-        for (i = 0; i < r; i++) {
-            uint32_t k = (uint32_t)(j * r + i), a = (cov[k >> 1] >> ((k & 1u) ? 0 : 4)) & 15u;
-            int32_t q = ang[k];
-            if (!a)
-                continue;
-            for (m = 0; m < 4; m++) {                /* top right, bottom right, bottom left, top left */
-                int32_t s = m == 0 ? q : m == 1 ? 512 - q : m == 2 ? q - 512 : -q;
-                int32_t px = m < 2 ? x + r + i : x + r - 1 - i, py = (m == 0 || m == 3 ? y + r - 1 - j : y + r + j) + cv_oy;
-                if (s < -KA_END || s > KA_END || (uint32_t)px >= cv_w || (uint32_t)py >= cv_h)
-                    continue;
-                cv_px[(uint32_t)py * cv_w + (uint32_t)px] = (s >= lo && s <= hi ? rv : rt)[a];
-            }
-        }
-}
-/* value v of lo..hi as an arc: from the start, or (bipolar, lo < 0) from 12 o'clock with a 1 px nub at 0 */
-static void knob(int32_t x, int32_t y, int32_t r, const uint8_t *cov, const uint8_t *ang, int32_t v, int32_t lo,
-                 int32_t hi, uint16_t vc)
-{
-    int32_t a0, a1;
-    if (lo < 0) {
-        int32_t s = v * KA_END / (v < 0 ? -lo : hi);
-        a0 = (s < 0 ? s : 0) - 8;
-        a1 = (s > 0 ? s : 0) + 8;
-    } else {
-        a0 = -KA_END;
-        a1 = v > lo ? -KA_END + (v - lo) * 2 * KA_END / (hi - lo) : -KA_END - 1;
-    }
-    knob_arc(x, y, r, cov, ang, a0, a1, T_RAISE, vc, T_SURF);
-}
-
 static uint32_t trk_level(uint32_t c) { return (uint32_t)trk[c].p[P_LEVEL] & 127u; }   /* LEVEL 0..127 */
 
-static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b holds 13 */
-{
-    const track_t *t = &trk[c];
-    const engine_t *e = ENGINES[t->eng_req % NENGINES];
-    if(t->eng_req==ENGI_PROPHET)p5_short_name(t,b,13);
-    else if(user_of(t)<USER_NONE && t->user_native)native_name(t->eng_req,user_of(t),b);
-    else if (user_of(t) < UP_SLOTS)up_name(user_of(t), b);
-    else if (e->npresets)
-        str_cpy(b, eng_preset(e, t->preset % e->npresets)->name, 13);
-    else
-        str_cpy(b, e->name, 13);
-}
 
 /* HOME note/chord names: the same recognizer as next, with the 1.0 fonts and palette. */
 static const struct {
@@ -1057,7 +1007,6 @@ static void graph_scope(uint16_t c, int32_t top, int32_t h)
 }
 
 /* Each arrangement row selects one bank per track. graph_y, graph_h: the panel's place (ui_pages.c: under its rings) */
-static int32_t graph_y = Y_GRAPH, graph_h = H_GRAPH, graph_oy = GOY;   /* (graph_oy: the 100 px scale's top) */
 static void (*graph_over)(void);                        /* drawn over the panel last (ui_pages.c: the hero), 0 none */
 static void draw_graph(void)
 {
@@ -1093,8 +1042,9 @@ static void draw_graph(void)
         case GR_SCALE:
             if (scale_settings_page(pg)) {
                 cv_oy = 0;
-                cv_text_fit(12, 3, &AF_S, SCALE_TITLE[clamp(t->p[P_SCALE], 0, SCALE_TOTAL - 1u)], T_TEXT, T_SURF, 216);
-                cv_oy = 20;
+                const char *st = SCALE_TITLE[clamp(t->p[P_SCALE], 0, SCALE_TOTAL - 1u)];
+                cv_free_text(12, ty_y(14, ty_fit(TY_TX, st, 216)), ty_fit(TY_TX, st, 216), st, T_TEXT, T_SURF, 216);
+                cv_oy = 24;
             }
             graph_scale(t, c);
             break;

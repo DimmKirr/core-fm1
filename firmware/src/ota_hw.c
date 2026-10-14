@@ -27,9 +27,9 @@ static void ota_show(uint32_t step, int32_t code)
     static const char *const STEP[] = {"", "PACKAGE", "CHECK HEAD", "LOADER", "CONFIRM", "RESTART"};
     char b[24];
     lcd_fill(0, 0, 240, 240, T_BG);
-    draw_text_box(0, 92, 240, &AF_M, "UPDATE", T_TEXT, 1);
+    draw_text_box(0, 80, 240, TY_VL, "UPDATE", T_TEXT, 1);   /* (large type) */
     if (step < 9u) {
-        draw_text_box(0, 124, 240, &AF_S, STEP[step < 6u ? step : 0], T_THEME, 1);
+        draw_text_box(0, 128, 240, TY_TX, STEP[step < 6u ? step : 0], T_THEME, 1);
         return;
     }
     if (code == 1)
@@ -44,7 +44,7 @@ static void ota_show(uint32_t step, int32_t code)
         b[k++] = (char)('0' + v % 10u);
         b[k] = 0;
     }
-    draw_text_box(0, 124, 240, &AF_S, b, T_THEME, 1);
+    draw_text_box(0, 128, 240, TY_TX, b, T_THEME, 1);
     fm1_delay_ms(1500);
 }
 static void ota_commit(const uint8_t *parm)

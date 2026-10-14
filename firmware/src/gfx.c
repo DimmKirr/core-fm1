@@ -27,12 +27,12 @@ typedef struct {
     uint8_t px;                         /* a pixel face: its multiple (1-bit glyphs, adv in 1/16 font px; cv_pix); 0 = AA */
 } aafont_t;
 typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4]; } ui_pal_t;
-typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
-#include "ui_fonts.h"                   /* AF_X 10 px / 500 (labels), AF_S 12 px / 400, AF_M 15 px / 500, AF_L 30 px / 500;
-                                         * the large type's AF_LB 16, AF_TX 20, AF_VL 28, AF_HR 48 (Rubik 500) and AP_* */
+typedef struct { const char *label; } kc_t;
+#include "ui_fonts.h"                   /* the large type's AF_LB 16, AF_TX 20, AF_VL 28, AF_HR 48 px (Rubik 500) and
+                                         * Melodee Pixel's AP_* (tools/gen_aa_font.py) */
 #include "ui_palettes.h"
-#include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
-#define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
+#include "ui_keycaps.h"                 /* KC_*: the keycaps' / badges' labels (tools/gen_aa_keycaps.py) */
+#define ELLIPSIS '\x85'                 /* the ellipsis glyph (every face's extras) */
 /* the type's roles (docs/design/README.md "Large type"): Rubik, or Melodee Pixel as Settings > FONT says (ui.c
  * ty_pixel). A role's two faces share its line height and baseline, so a layout holds in both; widths differ (a
  * layout fits the wider) */
@@ -1151,40 +1151,6 @@ static int32_t cv_free_text(int32_t x, int32_t y, const aafont_t *f, const char 
 }
 
 /* ---------------------------------------------------------- keycaps --- */
-/* a pre-rendered pill (tools/gen_aa_keycaps.py): nibble 0 outside, 1..4 the edge over `under`, 5 the fill,
- * 6..15 the label over the fill; the 16 colours per (under, fill, ink) are cached like the text ramps */
-#define NKRAMP 4u
-static struct {
-    uint16_t key[NKRAMP][3], v[NKRAMP][16];
-    uint32_t gen;
-    uint8_t next, n;
-} kr __attribute__((section(".pool")));      /* (zero-initialised; outside .bss) */
-static const uint16_t *kc_ramp(uint16_t under, uint16_t fill, uint16_t ink)
-{
-    uint32_t i, a;
-    uint16_t *v;
-    if (kr.gen != ux.gen) {
-        kr.gen = ux.gen;
-        kr.n = kr.next = 0;
-    }
-    for (i = 0; i < kr.n; i++)
-        if (kr.key[i][0] == under && kr.key[i][1] == fill && kr.key[i][2] == ink)
-            return kr.v[i];
-    i = kr.next;
-    kr.next = (uint8_t)((i + 1u) % NKRAMP);
-    if (kr.n < NKRAMP)
-        kr.n++;
-    kr.key[i][0] = under;
-    kr.key[i][1] = fill;
-    kr.key[i][2] = ink;
-    v = kr.v[i];
-    v[0] = swap16(under);
-    for (a = 1; a < 5u; a++)
-        v[a] = swap16(ux_mix(under, fill, (int32_t)a * 20));
-    for (a = 5; a < 16u; a++)
-        v[a] = swap16(ux_mix(fill, ink, (int32_t)(a - 5u) * 10));
-    return v;
-}
 /* a keycap (the large type): a pill KC_PH tall, its label (KC[id].label) in the label face, 4 px each side */
 #define KC_PH 22
 static int32_t kc_w(uint32_t id) { return id < KC_COUNT ? text_w(TY_LB, KC[id].label) + 8 : 0; }

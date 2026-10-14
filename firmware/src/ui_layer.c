@@ -390,7 +390,6 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
     return oct & ~mine;
 }
 
-static const char W_NOTE[16];
 /* --------------------------------------------------------- the LEDs --- */
 /* lit = in effect now (held, the value, a track sounding), slow blink = can be pressed, dark = nothing there */
 static int glo_sounding(uint32_t t) { return !trk[t].p[P_MUTE] && (!track_solo || ((track_solo >> t) & 1u)); }
@@ -422,13 +421,6 @@ static uint32_t layer_leds(void)
  * map of the keys as cells (the key's note name, an icon, a name); the footer the keycaps. A cell: RAISE
  * (can be pressed), the selection's fill (the value now, SET), the accent (held, HOLD), DIM (cannot now: pressing
  * it says why), KEY (a muted track, as the MUTE badge); HOLD cells in a SET layer: a corner triangle */
-static const char W_NOTE[16] = {'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'A', 'B', 'C', 'D', 'E', 'F', 'G'};
-static const char B_NOTE[NTRK] = {'F', 'G', 'A', 'C'};  /* black keys 1..4: F# G# A# C# */
-#define LC_X(c) (6 + 58 * (int32_t)(c))                 /* cell column c: 54 px wide, 4 px apart */
-#define LC_W 54
-#define LC_H 42                                          /* the big cells: rows at y 4 and 50 */
-#define LM_Y 96                                          /* the black keys' row (22 px) */
-#define LM_H 22
 #define LY_ROW 24                                        /* (large type) the EDIT and SCL cells: 22 px, 24 apart */
 enum { LS_OFF, LS_SEL, LS_HELD, LS_WAIT, LS_DIM, LS_MUTE };
 
@@ -448,58 +440,6 @@ static uint16_t lc_fill(uint32_t st, uint16_t *ink)
         return T_THEME;
     }
     return T_RAISE;
-}
-/* a cell at x, y, h px high: big (h > 30) the icon over the name; a name: compact, the icon at the right (none: no
- * icon); else a black key's: two icons at the right. tri: a HOLD cell in a SET layer */
-static void lcell(int32_t x, int32_t y, int32_t h, const char *note, uint32_t icon, uint32_t icon2, const char *name,
-                  uint32_t st, int tri)
-{
-    uint16_t ink, fill = lc_fill(st, &ink);
-    cv_rrect(x, y, LC_W, h, 4, fill, T_SURF);
-    if (note)
-        cv_text_on(x + 5, y + 3, &AF_S, note, fill == T_RAISE ? T_MID : ink, fill);
-    if (h > 30) {
-        cv_icon_on(x + (LC_W - 16) / 2, y + 4, 16, icon, ink, fill);
-        cv_text_c(x + LC_W / 2, y + 23, &AF_S, name, ink, fill);
-    } else if (name && h > 24) {
-        cv_icon_on(note ? x + LC_W - 17 : x + 5, y + 4, 12, icon, ink, fill);
-        cv_text_c(x + LC_W / 2, y + 15, &AF_S, name, ink, fill);
-    } else if (name) {
-        if (!note && icon < ICON_COUNT) {                  /* (the EDIT layer: the engine's icon instead of the key) */
-            cv_icon_on(x + 3, y + (h - 12) / 2, 12, icon, ink, fill);
-            cv_text_r(x + LC_W - 3, y + 5, &AF_S, name, ink, fill);
-        } else {
-            cv_text_r(x + LC_W - 5, y + 5, &AF_S, name, ink, fill);
-        }
-    } else {
-        cv_icon_on(x + LC_W - 31, y + 5, 12, icon, ink, fill);
-        cv_icon_on(x + LC_W - 17, y + 5, 12, icon2, ink, fill);
-    }
-    if (tri) {
-        int32_t j;
-        for (j = 0; j < 4; j++)
-            cv_rect(x + LC_W - 7 + j, y + 2 + j, 4 - j, 1, ink);
-    }
-}
-static void bnote(char *n, uint32_t t) { n[0] = B_NOTE[t]; n[1] = '#'; n[2] = 0; }
-
-
-static void layer_glo(void)
-{
-    uint32_t e;
-    char n[3] = {0, 0, 0};
-    for (e = 0; e < NTRK; e++) {                        /* F3 .. B3: SOLO while held */
-        n[0] = W_NOTE[e];
-        lcell(LC_X(e), 4, LC_H, n, trk_icon(e, 0), 0, "SOLO", (track_solo >> e) & 1u ? LS_HELD : LS_OFF, 1);
-    }
-    n[0] = 'C';
-    lcell(LC_X(0), 50, LC_H, n, ICON_MUTE, 0, "ALL", LS_OFF, 0);   /* (unmute all) */
-    n[0] = 'F';
-    lcell(LC_X(3), 50, LC_H, n, ICON_TEMPO, 0, "TAP", song.g[G_CLOCK] ? LS_DIM : LS_OFF, 0);
-    for (e = 0; e < NTRK; e++) {                        /* the black keys 1..4: MUTE, latched */
-        bnote(n, e);
-        lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0, trk[e].p[P_MUTE] ? LS_MUTE : LS_OFF, 0);
-    }
 }
 static void layer_scl(void)                             /* KNOB 2's scales as a list (their names in full), four
                                                          * around the one now selected (filled) */
@@ -667,9 +607,7 @@ static void draw_layer(void)
         cv_begin(240, H_GRAPH, T_BG);
         cv_rrect(BOX_X, 0, BOX_W, H_GRAPH, 6, T_SURF, T_BG);
         cv_bg = T_SURF;
-        if (l == LAYER_GLO)
-            layer_glo();
-        else if (l == LAYER_SCL)
+        if (l == LAYER_SCL)
             layer_scl();
         else
             layer_edit();

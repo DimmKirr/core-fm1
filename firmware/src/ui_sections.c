@@ -187,14 +187,6 @@ static void tabs_draw(const char *const *name, uint32_t n, uint32_t cur, uint32_
     }
     cv_blit(0, H_HEAD);
 }
-/* an engine's sections as the tabs */
-static void sec_tabs(void)
-{
-    uint32_t cur;
-    sec_build();
-    cur = sec_of(ui.page);
-    tabs_draw(sec.name, sec.n, cur, cur * 7u + sec.n * 131u + sec.eng * 1031u + ux.gen * 977u + ux.pal * 31u + song.sel);
-}
 
 /* ---------------------------------------------------------- the map --- */
 static uint32_t smap_pages(uint32_t r, uint8_t *pg)     /* section r's pages (an operator's: the operator pages) */

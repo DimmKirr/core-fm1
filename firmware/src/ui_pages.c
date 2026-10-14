@@ -15,7 +15,7 @@
  * MIXER: Stage's columns as channel strips: the sound, its level (a ring, dB in it) and meter, PAN, MUTE,
  * armed;
  * the selected track's lifted, the knob just turned (its control) in text.
- * Each part remembers what it drew. draw_column draws the knobs in the style col_style asks (pv_column). Included by
+ * Each part remembers what it drew. draw_column draws the knobs in the style col_style asks. Included by
  * ui_draw.c */
 enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES, PV_MOD, PV_GRID };
 #define PV_GRID_Y Y_GRAPH                               /* the drum grid: its panel, rows 84 .. 237 (under the strip) */
@@ -30,10 +30,7 @@ static void menu_words(char *d, const char *s, uint32_t n);         /* ui_menu.c
 #define PV_SOUND_Y Y_FOOT                               /* the sound: rows 212 .. 239 */
 #define PV_PIC_Y Y_GRAPH                                /* RINGS: the picture, rows 84 .. 207 */
 #define PV_PIC_H H_GRAPH
-#define PV_CHIP_Y 200                                   /* NOTES: a knob a chip, 54 x 18 at CARD_X(c) */
-#define PV_CHIP_H 18
 #define PV_HERO_MS 1500u                                /* the hero stays this long after the last turn */
-static int32_t pv_chip_y = PV_CHIP_Y;                   /* (MOD: its chips at the bottom, no sound line) */
 
 static struct { uint32_t panel, sound, hero; int32_t slice0, gplay, pplay; } pv;   /* gplay, pplay: the step playing drawn
                                                                                * (drum grid, PATTERN; -1 none) */
@@ -49,7 +46,7 @@ static uint32_t pv_nbox;
 static uint32_t pv_kind(void)
 {
     const page_t *pg = cur_page();
-    if (!ui.home && grid_on() && pg->graph == GR_ROLL && !ui.layer)
+    if (!ui.home && grid_on() && (pg->graph == GR_ROLL || pg->graph == GR_DRUMHIT) && !ui.layer)
         return PV_GRID;
     if (ui.home || act_cols() || grid_on())
         return PV_NONE;
@@ -129,30 +126,6 @@ static void pv_mod_rows(void)
 }
 
 /* ---------------------------------------------------------- knobs --- */
-/* the value and its unit centred on xc (the text face, rolling as column c's when it changes; the label face when it is
- * wide; the unit in the label face, mid, on its baseline); y: the text face's line top */
-static void pv_value_c(uint32_t c, int32_t xc, int32_t y, const char *val, const char *unit, uint16_t vc, uint16_t bg,
-                       int32_t room)
-{
-    if (binary_value(val) >= 0) {
-        binary_badge(xc, y + 1, 22, val, bg);
-        return;
-    }
-    const aafont_t *f = TY_TX, *lf = TY_LB;
-    int32_t uw = unit[0] ? text_w(lf, unit) + 2 : 0, w, x;
-    if (text_w(f, val) + uw > room) f = lf;
-    if (text_w(f, val) + uw > room) uw = 0;
-    w = text_w(f, val) + uw;
-    x = xc - (w < room ? w : room) / 2;
-    if (f == TY_TX) {
-        roll_bg = bg;
-        x = roll_text(c, x, y, val, vc);
-    } else {
-        x = cv_free_text(x, y + TY_TX->asc - f->asc, f, val, vc, bg, room - uw);
-    }
-    if (uw)
-        cv_text_on(x + 2, y + TY_TX->asc - lf->asc, lf, unit, T_MID, bg);
-}
 /* a knob's words as the mockups write them: a name value in sentence case ("SAW" -> "Saw"; numbers and notes as they
  * are), a unit in lower case ("STEP" -> "steps"); its label as the page has it (the hero writes it in full: pv_long) */
 static const struct { const char *k, *w; } PV_LABEL[] = {
@@ -184,43 +157,6 @@ static const char *pv_long(const char *label)          /* a label in full ("ATK"
             return PV_LABEL[i].w;
     return label;
 }
-/* CS_CHIP: "Step 7/16" in a 54 x 18 chip (its label in words, the value and unit after it; too long: the value); the
- * knob just turned: filled in the track's colour */
-static void pv_chip(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int hot)
-{
-    char b[32];
-    uint32_t i, n;
-    uint16_t bg = hot ? T_THEME : T_SURF, fg = hot ? T_INK : vc == T_DIM ? T_DIM : T_TEXT;
-    str_cpy(b, label, 12);
-    for (i = 1; b[i]; i++)                              /* STEP -> Step */
-        if (b[i] >= 'A' && b[i] <= 'Z' && b[i - 1] != ' ') b[i] = (char)(b[i] + 32);
-    n = str_len(b);
-    if (n) b[n++] = ' ';
-    str_cpy(b + n, val, sizeof b - n);
-    if (val[0] >= 'A' && val[0] <= 'Z' && val[1] >= 'A' && val[1] <= 'Z')   /* a word in capitals: "SNARE" -> "Snare", */
-        for (i = n ? n : 1u; b[i]; i++)                                      /* after a label all small: "Hit on" */
-            if (b[i] >= 'A' && b[i] <= 'Z') b[i] = (char)(b[i] + 32);
-    str_cpy(b + str_len(b), unit, sizeof b - str_len(b));
-    if (text_w(&AF_X, b) > CARD_W - 6) {
-        str_cpy(b, val, sizeof b);
-        str_cpy(b + str_len(b), unit, sizeof b - str_len(b));
-    }
-    cv_begin(CARD_W, PV_CHIP_H, T_BG);
-    if (label[0] || val[0]) {
-        cv_rrect(0, 0, CARD_W, PV_CHIP_H, 5, bg, T_BG);
-        int32_t w = text_w(&AF_X, b) < CARD_W - 6 ? text_w(&AF_X, b) : CARD_W - 6;
-        cv_free_text(3 + (CARD_W - 6 - w) / 2, 3, &AF_X, b, fg,
-                     bg, CARD_W - 6);
-    }
-    cv_blit((uint32_t)CARD_X(c), (uint32_t)pv_chip_y);
-}
-static void pv_column(uint32_t c, const char *label0, const char *val0, const char *unit0, uint16_t vc, int32_t ratio,
-                      int hot)
-{
-    (void)ratio;
-    pv_chip(c, label0, val0, unit0, vc, hot);
-}
-
 /* ---------------------------------------------------------- parts --- */
 /* the sound bar: the track's numeral (filled in its colour) and the sound's name (the text face, secondary), capitals
  * centred on the bar's middle row (en: a page of no track's, its words in the name's place when there is no name) */
@@ -279,35 +215,6 @@ static void pv_cols(uint32_t y, int32_t from, int32_t to, int32_t w)
         cv_blit_spans(0, y, from >= 0 ? (uint32_t)from : 0u, from >= 0 ? (uint32_t)w : 0u, to >= 0 ? (uint32_t)to : 0u,
                       to >= 0 ? (uint32_t)w : 0u);
     }
-}
-/* a label on a panel: below the labels already on it that it would cover (pv.nbox: a panel's), moved up off a slice's
- * seam, drawn in the slice that holds it */
-static void pv_text(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t c, int align)
-{
-    int32_t w = text_w(f, s), seam;
-    uint32_t i;
-    if (align == 1) x -= w / 2;
-    else if (align == 2) x -= w;
-    for (i = 0; i < pv_nbox; i++)
-        if (x < pv_box[i].x1 && x + w > pv_box[i].x0 && y < pv_box[i].y1 && y + f->h > pv_box[i].y0)
-            y = pv_box[i].y1 + 1;
-    seam = (y + f->h) / PV_SLICE * PV_SLICE;
-    if (seam > y && seam < y + f->h)
-        y = seam - f->h;
-    if (pv_nbox < NELEM(pv_box))
-        pv_box[pv_nbox++] = (typeof(pv_box[0])){(int16_t)x, (int16_t)y, (int16_t)(x + w), (int16_t)(y + f->h)};
-    if (y >= pv.slice0 && y + f->h <= pv.slice0 + PV_SLICE)
-        cv_text_on(x, y, f, s, c, T_PANEL);
-}
-/* knob c's value as the page formats it, and its unit */
-static void pv_value(uint32_t c, char *val, const char **unit)
-{
-    int16_t *vp;
-    const param_desc_t *d = page_desc(cur_page(), c, &vp);
-    val[0] = 0;
-    *unit = "";
-    if (d && vp)
-        param_format(d, *vp, val, unit);
 }
 static int32_t pv_hot(void) { return ui.hot_t || pv_hero_on() ? (int32_t)(ui.hot_col & 3u) : -1; }
 
@@ -715,11 +622,13 @@ static void pv_picture(void)
         pv.hero = hs;
         graph_y = y;
         graph_h = h;
+        graph_oy = h < H_GRAPH ? GOY - 8 : GOY;         /* (under the designer's tabs: the chart a little higher) */
         graph_over = pv_hero_graph;
         draw_graph();
         graph_over = 0;
         graph_y = Y_GRAPH;
         graph_h = H_GRAPH;
+        graph_oy = GOY;
         return;
     }
     if (!ui.force && sig == pv.panel && pp == pv.pplay)
@@ -746,21 +655,6 @@ static void pv_picture(void)
 #define PV_MIX_BAR_X 46                                 /* the level's bar: x 46 .. 46 + PV_MIX_BAR_W, in the row */
 #define PV_MIX_BAR_W 120
 static struct { uint32_t strip[NTRK]; uint8_t meter[NTRK]; } pvm;
-/* knob_arc as knob() draws it (a bipolar value from 12 o'clock), on bg */
-static void pv_knob(int32_t x, int32_t y, int32_t r, const uint8_t *cov, const uint8_t *ang, int32_t v, int32_t lo,
-                    int32_t hi, uint16_t vc, uint16_t bg)
-{
-    int32_t a0, a1;
-    if (lo < 0) {
-        int32_t s = v * KA_END / (v < 0 ? -lo : hi);
-        a0 = (s < 0 ? s : 0) - 8;
-        a1 = (s > 0 ? s : 0) + 8;
-    } else {
-        a0 = -KA_END;
-        a1 = v > lo ? -KA_END + (v - lo) * 2 * KA_END / (hi - lo) : -KA_END - 1;
-    }
-    knob_arc(x, y, r, cov, ang, a0, a1, T_LINE, vc, bg);
-}
 static int32_t pv_mix_y(int32_t h) { return (h - (TY_TX->cap + 8 + 10)) / 2; }   /* the row's block: its first capital */
 /* track k's meter: a 3 px bar under its level's, as long as the output now */
 static void pv_meter_draw(uint32_t k, int32_t x, int32_t y, uint16_t c, uint16_t bg)

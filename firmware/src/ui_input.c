@@ -2183,21 +2183,24 @@ static void ui_input(void)
 static void setup_title(void)
 {
     lcd_fill(0, 0, 240, 240, T_BG);
-    {   /* the title with its icon (the menu row's), centred together; M from y 8 as before */
-        const char *t = "HARDWARE CALIBRATION";
-        int32_t x = (240 - (16 + 6 + text_w(&AF_M, t))) / 2;
-        cv_begin(240, 24, T_BG);
-        cv_icon_on(x, 4, 16, ICON_X_DOCTOR, T_THEME, T_BG);
-        cv_text(x + 22, 3, &AF_M, t, T_TEXT);
-        cv_blit(0, 5);
+    {   /* the title with its icon (the menu row's), centred together (large type) */
+        const char *t = "Calibration";
+        int32_t x = (240 - (16 + 8 + text_w(TY_TX, t))) / 2;
+        cv_begin(240, 30, T_BG);
+        cv_icon_mid(x, 15, 16, ICON_X_DOCTOR, T_THEME, T_BG);
+        cv_text(x + 24, ty_y(15, TY_TX), TY_TX, t, T_TEXT);
+        cv_blit(0, 4);
     }
-    draw_text_box(0, 32, 240, &AF_S, "TEACH EACH BUTTON AND KNOB", T_MID, 1);
-    lcd_fill(16, 56, 208, 1, T_LINE);
+    draw_text_box(0, 38, 240, TY_LB, "Teach every control", T_MID, 1);
+    lcd_fill(16, 66, 208, 1, T_LINE);
 }
-static void setup_show(const char *what, const char *name)     /* "PRESS" / "TURN RIGHT", the control */
+static void setup_show(const char *what, const char *name)     /* "PRESS" / "TURN RIGHT", the control (as large as
+                                                                 * it fits) */
 {
-    draw_text_box(0, 80, 240, &AF_S, what, T_MID, 1);
-    draw_text_box(0, 100, 240, &AF_L, name, T_THEME, 1);
+    const aafont_t *f = text_w(TY_HR, name) <= 230 && text_has(TY_HR, name) ? TY_HR : text_w(TY_VL, name) <= 230 ? TY_VL : TY_TX;
+    draw_text_box(0, 90, 240, TY_TX, what, T_MID, 1);
+    lcd_fill(0, 120, 240, 70, T_BG);
+    draw_text_box(0, (uint32_t)ty_y(155, f), 240, f, name, T_THEME, 1);
 }
 static void panel_setup(void)
 {

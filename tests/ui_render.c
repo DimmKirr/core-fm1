@@ -1854,12 +1854,12 @@ int main(int argc, char **argv)
         state(); pal(0); cur_name = "self-test";
         nscr = npend = 0;
         cv_begin(COL_W, COL_H, T_BG);
-        cv_text(0, 0, &AF_S, "AAAA", T_TEXT);
-        cv_text(10, 4, &AF_S, "BBBB", T_TEXT);
-        cv_text_fit(0, 15, &AF_M, "WWWWWWWW", T_THEME, T_BG, COL_W);
-        cv_text(40, 30, &AF_M, "CUT", T_THEME);
-        cv_rrect(2, 31, 20, 13, 3, T_SURF, T_BG);          /* a cell narrower than its word */
-        cv_text(4, 31, &AF_S, "SPILL", T_TEXT);
+        cv_text(0, 0, &AF_LB, "AAAA", T_TEXT);
+        cv_text(10, 4, &AF_LB, "BBBB", T_TEXT);
+        cv_text_fit(0, 12, &AF_TX, "WWWWWWWW", T_THEME, T_BG, COL_W);
+        cv_text(40, 20, &AF_TX, "CUT", T_THEME);
+        cv_rrect(2, 28, 20, 17, 3, T_SURF, T_BG);          /* a cell narrower than its word */
+        cv_text(4, 27, &AF_LB, "SPILL", T_TEXT);
         cv_blit(4, Y_LABEL);
         lint();
         if (nfind < 4u || !nspill) { fprintf(stderr, "ui_render: the lint missed its self-test (%u)\n", nfind); return 1; }

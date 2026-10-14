@@ -9,8 +9,8 @@ whole string (advances and GPOS kerning at 16 x the size).
 
 Per glyph: its displacement d = ink centroid (tables) - ink centroid (reference); area coverage keeps the first
 moment, so d is how far the glyph sits from its true place. Per pair: gap error = d[i+1] - d[i], the error of
-the space between two neighbours. Fails when a pair is off by more than 0.51 px: every face has 2 phases (a half
-pixel step) since the 2026-10 storage pass, as L always had; X, S and M had 4 and a 0.25 px limit before.
+the space between two neighbours. Fails when a pair is off by more than a phase step: LB and TX have 2 phases (a
+half pixel, 0.51 px), VL and HR one (at 28 / 48 px a pixel is a small part of a letter: 1.01 px).
 
   text_spacing_test.py [ui_fonts.h] [--png DIR [--tag NAME]] [--rule gfx|rounded] [--no-limit]
   (PNG: the specimen strings x4, gray on black; --rule rounded measures tables made before the phases)
@@ -35,7 +35,7 @@ LOWER = ["oeo", "coco", "eco", "nono", "minimum", "hello", "level", "decay", "re
 UPPER = ["CUTOFF", "RESO", "LEVEL", "DECAY", "RELEASE", "SOUND", "OCOE", "COCO", "NONO", "MINIMUM", "SUPER SAW",
          "MELODEE", "PRESETS", "ANALOG", "DIGITAL", "PITCH", "SWING", "AV AW LT TA YO"]
 RULE = ["gfx"]   # "gfx": src/gfx.c cv_text; "rounded": the earlier rule (each glyph at the rounded pen, 1 phase)
-LIMIT = {"X": 0.51, "S": 0.51, "M": 0.51, "L": 0.51}   # a phase step, plus raster noise
+LIMIT = {"LB": 0.51, "TX": 0.51, "VL": 1.01, "HR": 1.01}   # a phase step (VL, HR: one phase, a pixel), plus raster noise
 
 
 def parse(path):
@@ -185,7 +185,7 @@ def main():
         font, px = spec[name]
         font_hi = ar.open_font(font, px * SS)
         words = LOWER if f["last"] >= ord("z") else UPPER
-        # a sparse face (L): the words it can draw (the firmware draws no others in it)
+        # a sparse face (HR): the words it can draw (the firmware draws no others in it)
         words = [w for w in words if all(glyph_at(f, ord(ch.upper())) is not None for ch in w)]
         pairs = [p for s in words for p in measure(f, font_hi, s)]
         e = sorted(pairs, key=lambda p: -abs(p[1]))

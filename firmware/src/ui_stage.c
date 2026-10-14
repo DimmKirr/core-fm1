@@ -36,13 +36,6 @@ static int32_t st_col_w(void)
     int32_t n = (int32_t)trk_n();
     return n >= NTRK ? CARD_W : (ST_AREA_W - 4 * (n - 1)) / n;
 }
-static int32_t st_col_x(uint32_t k)
-{
-    int32_t n = (int32_t)trk_n(), w = st_col_w();
-    if (n >= NTRK)
-        return CARD_X(k);
-    return 4 + (int32_t)k * (w + 4) + (n > 1 ? (int32_t)k * (ST_AREA_W - n * w - 4 * (n - 1)) / (n - 1) : 0);
-}
 /* the x of a text centred on cx in at most maxw px */
 static int32_t st_mid_x(int32_t cx, const aafont_t *f, const char *s, int32_t maxw)
 {
