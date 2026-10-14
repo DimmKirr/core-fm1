@@ -80,7 +80,7 @@
     </div>
   </nav>
   <h1>Manual</h1>
-  <p>How to use Melodee on the M-VAVE FM-1 after installing the custom firmware. This guide shows screenshots of each page and tables what each knob and control on that page does. Screens shown here use the NIGHT theme; your colors depend on the MENU Settings page (long hold HOME button) → COLOR.</p>
+  <p>How to use Melodee on the M-VAVE FM-1 after installing the custom firmware. This guide shows screenshots of each page and tables what each knob and control on that page does. Screens shown here use the NIGHT theme; your colors depend on the MENU Settings page (long hold HOME button) → COLOR. Type on the device is large. FONT in that same menu switches between Rubik and Melodee Pixel.</p>
 
   <div class="layout">
     <nav class="toc" id="toc" aria-label="Contents">
@@ -162,14 +162,15 @@
           <li>Named values often open a picker. Hold <kbd>HOME</kbd> and set <strong>PICKER POPUPS</strong> to <strong>OFF</strong> to edit those names on the knob instead. The choice is remembered. Sheets, and lists you open yourself, stay as they are. Short pages (CHORD, ENV DEST, LFO DEST, LFO 2, ARP 2) put their settings straight on the four knobs.</li>
         </ul>
         <h3>Holds and locks</h3>
-        <p>Hold <kbd>GLO</kbd>, <kbd>SEL</kbd> or <kbd>EDIT</kbd> for a quick layer on the keys and knobs (hold time is set in the global settings menu as <strong>HOLD</strong>). Double-press the same button within about 300&nbsp;ms to lock the layer open with both hands free; press it again to close. Holding <kbd>FX</kbd> does not open a layer. Hold <kbd>SAVE</kbd> for undo, <kbd>HOME</kbd> for the menu, <kbd>SEQ</kbd> for the PATTERNS grid, <kbd>REC</kbd> to capture.</p>
+        <p>Hold <kbd>GLO</kbd> or <kbd>SEL</kbd> for a quick layer on the keys and knobs (hold time is set in the global settings menu as <strong>HOLD</strong>). Double-press the same button within about 300&nbsp;ms to lock the layer open with both hands free; press it again to close. Holding <kbd>FX</kbd> does not open a layer. Hold <kbd>EDIT</kbd> to undo, <kbd>SAVE</kbd> to write the project back to its slot, <kbd>HOME</kbd> for the menu, <kbd>SEQ</kbd> for the PATTERNS grid, <kbd>REC</kbd> to capture.</p>
         <h3>Sheets and undo</h3>
         <p>Hold <kbd>OCT+</kbd> on pages that have a sheet (Stage, sound pages, NOTES, PATTERNS, SONG, and others) to open actions such as Init sound, Copy to…, or Sound designer.</p>
         <p><strong>Undo / redo:</strong></p>
         <ul>
-          <li>Hold <kbd>SAVE</kbd> to undo. On NOTES, that undoes the last step edit first; otherwise it undoes the last sound or pattern load (or Capture).</li>
-          <li>While <kbd>SAVE</kbd> is held, <kbd>OCT−</kbd> undoes further and <kbd>OCT+</kbd> redoes.</li>
-          <li>Melodee keeps eight levels of undo. A new edit clears redo. Recording, changing track or bank, or changing loop length starts a fresh step-edit history.</li>
+          <li>Hold <kbd>EDIT</kbd> to undo. On NOTES, that undoes the last step edit first. Otherwise a finished recording take is undone first (<strong>UNDO RECORDING</strong>), and if there is none, the last sound or pattern load (or Capture).</li>
+          <li>While <kbd>EDIT</kbd> is held, <kbd>OCT−</kbd> undoes further and <kbd>OCT+</kbd> redoes. On NOTES those keys stay on the step edits. Elsewhere <kbd>OCT+</kbd> redoes the take (<strong>REDO RECORDING</strong>) before the load history.</li>
+          <li>A take keeps one undo: recorded notes, manual steps, length, division, swing, gate and that track’s motion, put back in one step. Playback can keep going. It is refused while that track is still recording (<strong>FINISH RECORDING</strong>). A newer take replaces it. Switching pattern or engine, or loading a project, drops it. Other tracks stay as they are. If the snapshot cannot be kept, the screen says <strong>NO RECORD UNDO MEMORY</strong> or <strong>UNDO MEMORY FULL</strong>.</li>
+          <li>Sound and pattern loads keep eight levels. A new edit clears redo. Recording, changing track or bank, or changing loop length starts a fresh step-edit history.</li>
           <li>If a song or chain is busy, the device may ask you to stop first (<strong>STOP TO UNDO</strong>).</li>
         </ul>
       </section>
@@ -187,7 +188,7 @@
             <tr><td><kbd>SELECT KNOB</kbd></td><td>Turn the pages within the open section, both ways. On Stage, turn the <strong>HOME SELECT</strong> control instead.</td></tr>
             <tr><td><kbd>FX</kbd> <kbd>SEL</kbd> <kbd>ENV</kbd> <kbd>LFO</kbd> <kbd>EDIT</kbd> <kbd>GLO</kbd> <kbd>ARP</kbd> <kbd>SEQ</kbd></td><td>Open that family’s pages; press again for the next page.</td></tr>
             <tr><td><kbd>HOME</kbd></td><td>Return to Stage. On Stage, tap again for the chord view. Hold for the menu.</td></tr>
-            <tr><td><kbd>SAVE</kbd></td><td>Tap for PRESETS / USER / PROJECT. Hold for undo.</td></tr>
+            <tr><td><kbd>SAVE</kbd></td><td>Tap for PRESETS / USER / PROJECT. Hold to write the project back to its slot. Playing stops first.</td></tr>
             <tr><td><kbd>PLAY/STOP</kbd></td><td>Start and stop the tracks in use.</td></tr>
             <tr><td><kbd>REC</kbd></td><td>Arm or disarm the selected track. While playing, recording starts at the next pattern start, runs one pass, then disarms. Hold to capture (or take a jam on SONG).</td></tr>
             <tr><td><kbd>OCT−</kbd> <kbd>OCT+</kbd></td><td>On Stage: shift octave (both together reset). In menus and everywhere else: go back / enter or confirm.</td></tr>
@@ -199,9 +200,10 @@
 
       <section id="stage">
         <h2>Stage</h2>
-        <p><kbd>HOME</kbd> is Stage: the live performance screen. Each track in use has a lane with its sound name, pattern (and the next one while it waits for the bar), a small step grid, and level. With one track, that sound is drawn large across the screen, with its pattern, the bar, and the level. The header shows tempo, a REC mark, and an octave badge such as <code>+2</code> or <code>−1</code>. On Stage, <kbd>SELECT</kbd> turns the value chosen in <strong>HOME SELECT</strong>, and the header shows it.</p>
+        <p><kbd>HOME</kbd> is Stage: the live performance screen. Each track in use has a lane with its sound name, pattern (and the next one while it waits for the bar), every step of that pattern as dots, and level. A hit is the track’s color, a tie is dimmer, a rest is faint, and the step playing now is bright. The dots are as large as the row allows, grouped by bar. With one track, that sound is drawn large across the screen, with its pattern, the bar, and the level. The header shows tempo, a REC mark, and an octave badge such as <code>+2</code> or <code>−1</code>. On Stage, <kbd>SELECT</kbd> turns the value chosen in <strong>HOME SELECT</strong>, and the header shows it.</p>
+        <p>As the tracks play, light runs in from the edges of the screen in each track’s color. The motion follows the kind of sound: a bass swells from the floor, a lead runs around the edges, a pad breathes, and drums light by lane (the kick from the floor, the hats high). A muted track stays dark. The light hides while the sound knobs are up. Hold <kbd>HOME</kbd> and set <strong>STAGE EFFECTS</strong> to <strong>OFF</strong> to leave the edges dark. The chord view uses the same light.</p>
         <div class="shots">
-          <figure class="shot"><img src="home.png" alt="Stage with a lane for each track in use" width="240" height="240"><figcaption>Tracks in use: sound, pattern, step grid, level.</figcaption></figure>
+          <figure class="shot"><img src="home.png" alt="Stage with a lane for each track in use" width="240" height="240"><figcaption>Tracks in use: sound, pattern, step dots, level.</figcaption></figure>
           <figure class="shot"><img src="home_note.png" alt="Stage showing played notes over the waveform" width="240" height="240"><figcaption>Notes you play sit in front of the live waveform.</figcaption></figure>
           <figure class="shot"><img src="stage_filter.png" alt="Stage with a sound knob turning" width="240" height="240"><figcaption>Turning a knob shows what it shapes.</figcaption></figure>
         </div>
@@ -217,13 +219,13 @@
           </tbody>
         </table>
         <p>On a Drum track, lanes light as they hit. Hold <kbd>OCT+</kbd> for the Stage sheet: Init sound, Save as user…, Favourite, Undo last load, Sound designer, <strong>Add track</strong> and <strong>Remove track</strong>.</p>
-        <p>Tap <kbd>HOME</kbd> again for the chord view: the twelve notes in a circle of fifths, the song’s key marked, sounding notes lit in their track’s color and joined into the chord, each track’s level pulsing in a corner, the output waveform, and four octaves of keys. A Drum track pulses with its level and does not add pitches to the wheel. Let go and the last chord stays, faded. The knobs and octave buttons work as they do on Stage. Tap <kbd>HOME</kbd> again to return.</p>
+        <p>Tap <kbd>HOME</kbd> again for the chord view: the twelve notes in a circle of fifths, the song’s key marked, sounding notes lit in their track’s color and joined into the chord, each track’s level pulsing in a corner, the output waveform, and four octaves of keys. A Drum track pulses with its level and does not add pitches to the wheel. Let go and the last chord stays, faded. Lifting notes one at a time keeps that whole chord until the last note is up; playing a new note starts a new chord. The knobs and octave buttons work as they do on Stage. Tap <kbd>HOME</kbd> again to return.</p>
         <p><strong>HOME SELECT</strong> (hold <kbd>HOME</kbd>) chooses what <kbd>SELECT</kbd> turns on both Stage pages: <strong>BPM</strong> (default), <strong>MOD WHEEL</strong> (the selected track’s, also sent as MIDI CC1), <strong>LEVEL</strong>, <strong>SWING</strong>, <strong>TRANSPOSE</strong>, <strong>CHORD</strong> (OFF, DIA3, DIA7, MAJ, MIN, DOM7, MAJ7, MIN7, SUS4, POW), <strong>ARP RATE</strong>, <strong>PATTERN</strong> (that track’s next pattern), or <strong>OFF</strong>. The choice is remembered.</p>
       </section>
 
       <section id="tracks">
         <h2>Tracks</h2>
-        <p>One to four tracks, one instrument and sound each. A new song starts with one. <kbd>ALGORITHM</kbd> selects among the tracks in use; the screen takes that track’s color (coral orange, amber yellow, mint green, lilac purple).</p>
+        <p>One to four tracks, one instrument and sound each. A new song starts with one. <kbd>ALGORITHM</kbd> selects among the tracks in use; the screen and its knobs take that track’s color. In <strong>NIGHT</strong> the four tracks are coral, amber, mint and lilac. Other themes use their own four. Knob 1 is the track color; the other three knobs are shades of it.</p>
         <ul>
           <li>On Stage, hold <kbd>OCT+</kbd> and choose <strong>Add track</strong>. The next track (up to four) starts with its own power-on sound and empty patterns, becomes selected, and opens the sound browser. <kbd>OCT−</kbd> keeps that starting sound. <strong>TRACKS FULL</strong> means four are already in use.</li>
           <li><strong>Remove track</strong> removes the selected track after a question, and only while stopped (<strong>STOP FIRST</strong> otherwise). The tracks after it move down, taking their sounds, patterns, song sections, motion and recordings with them. The last remaining track cannot be removed.</li>
@@ -253,7 +255,7 @@
         </table>
         <ul>
           <li>Knobs accelerate on a spin; MENU → <strong>KNOB ACCEL</strong> OFF keeps every detent one step.</li>
-          <li>Hold <kbd>SAVE</kbd> to return to the sound you had before browsing. Loading a sound never changes your patterns.</li>
+          <li>Hold <kbd>EDIT</kbd> to return to the sound you had before browsing. Loading a sound never changes your patterns.</li>
           <li>Hold <kbd>OCT+</kbd> on a sound page for the sheet: Init sound, Save as user…, Favourite, Undo last load, Sound designer. On Stage that sheet also has <strong>Add track</strong> and <strong>Remove track</strong>.</li>
         </ul>
 
@@ -307,17 +309,14 @@
         <ul>
           <li><strong>NEW</strong> opens the wizard, stopped only. Set key, scale and tempo (<kbd>KNOB 1</kbd> ROOT, <kbd>KNOB 2</kbd> SCALE, <kbd>KNOB 3</kbd> TEMPO), then a role on each of the four knobs: <strong>--</strong> (no track), <strong>KEEP</strong>, <strong>DRUMS</strong>, <strong>BASS</strong>, <strong>CHORDS</strong>, <strong>LEAD</strong> or <strong>PAD</strong>. The song keeps the places that have a role, in order, with empty patterns. With no template, track 1 starts as KEEP and the rest as --, so the song has one track. A saved template starts KEEP on as many tracks as the template has. A role’s first factory sound is used when the template’s sound does not already fit that role.</li>
           <li><strong>TMPL</strong>: save your current sounds, settings and number of tracks as the template for new projects (empty patterns). With BOOT off and no template, power-on is one track and the power-on sound.</li>
-          <li><kbd>SAVE</kbd>+<kbd>REC</kbd> writes the project back to its slot (<code>SAVED B</code>, and so on), stopping the transport first. A new project opens PROJECT on a free slot.</li>
+          <li>Holding <kbd>SAVE</kbd>, or <kbd>SAVE</kbd>+<kbd>REC</kbd>, writes the project back to its slot (<code>SAVED B</code>, and so on). If it is playing, the screen says <strong>STOPPING TO SAVE</strong> and the transport stops first. A project with no slot yet opens PROJECT on a free slot (<strong>NEW PROJECT: PICK SLOT</strong>).</li>
           <li><strong>Autosave:</strong> stopped and untouched for five seconds (no key, button, knob or MIDI), a project that already has a slot saves itself when it changed. Hold <kbd>HOME</kbd> and set <strong>AUTOSAVE</strong> to <strong>OFF</strong> to save only by hand. It defaults <strong>ON</strong>, and the choice survives power-off. Manual <kbd>SAVE</kbd> stays available either way.</li>
         </ul>
       </section>
 
       <section id="engines">
         <h2>Engines</h2>
-        <p>Selectable instruments: <strong>PROPHET</strong>, <strong>FM6</strong>, <strong>CZ-1</strong>, <strong>SID</strong>, <strong>DRUM</strong>. Press <kbd>EDIT</kbd> for that engine’s pages; press again or use <kbd>SELECT</kbd> to move through them. On engines with several sections, <kbd>PRESETS</kbd> jumps between sections (and on FM6 / CZ-1 picks the operator / line). Hold <kbd>EDIT</kbd> for a quick map of sections on the white keys (on FM6, black keys pick operators).</p>
-        <div class="shots">
-          <figure class="shot"><img src="layer_edit_active.png" alt="EDIT hold layer section map on the keys" width="240" height="240"><figcaption>Hold EDIT: sections on the white keys.</figcaption></figure>
-        </div>
+        <p>Selectable instruments: <strong>PROPHET</strong>, <strong>FM6</strong>, <strong>CZ-1</strong>, <strong>SID</strong>, <strong>DRUM</strong>. Press <kbd>EDIT</kbd> for that engine’s pages; press again or use <kbd>SELECT</kbd> to move through them. On engines with several sections, <kbd>PRESETS</kbd> jumps between sections (and on FM6 / CZ-1 picks the operator / line). On an EDIT page, tap <kbd>EDIT</kbd> again for the section map. Hold <kbd>EDIT</kbd> to undo.</p>
         <p>Track 1 powers on with PROPHET FUNK BASS II. Retired engines (ANALOG, DIGITAL, PHASE, VOICE, NOISE, TRIO, WHEEL, PHYS, and others) stay silent if an old project still names them; their saved values remain. Choose another sound to play again. Ranges below are the device’s own; the same values appear in the <a href="../editor/">web editor</a>.</p>
 
         <section id="prophet">
@@ -326,7 +325,7 @@
           <p>Sequential Prophet-5 Rev 4–style programs: two oscillators (saw, pulse; B also triangle), hard sync, mixer, SSI or Curtis four-pole filter, separate filter and amp envelopes, Poly-Mod, LFO, wheel, unison, glide and Vintage. PRESETS browses INIT, Sequential’s 200 factory programs, then the shared user slots that hold Prophet programs (<strong>U001–U384</strong>). Navigate between sections/pages with PRESETS knob, Navigate between individual settings per page (e.g. OSC A vs OSC B), with SELECT knob. In the SECTION map, navigate with Knob 2, and select a section to jump to with OCT+.</p>
           <div class="shots">
             <figure class="shot"><img src="stage_p5.png" alt="Prophet Stage knobs" width="240" height="240"><figcaption>Prophet Stage knobs: cutoff, res, env amount, release.</figcaption></figure>
-            <figure class="shot"><img src="ref_map_p5.png" alt="Prophet section map" width="240" height="240"><figcaption>The section map (hold EDIT, or EDIT on an EDIT page).</figcaption></figure>
+            <figure class="shot"><img src="ref_map_p5.png" alt="Prophet section map" width="240" height="240"><figcaption>The section map (tap EDIT on an EDIT page).</figcaption></figure>
             <figure class="shot"><img src="ref_edit_osc.png" alt="Prophet oscillator page" width="240" height="240"><figcaption>OSC A page.</figcaption></figure>
           </div>
           <h4>Oscillators</h4>
@@ -383,9 +382,9 @@
         <section id="fm6">
           <h3>FM6</h3>
           <p class="small">Uses msfa from <a href="https://github.com/asb2m10/dexed" target="_blank" rel="noopener">Dexed</a> (Google Inc., Pascal Gauthier).</p>
-          <p>Six-operator FM (Dexed / DX7–compatible): 32 algorithms with an on-screen chart, per-operator frequency, levels, envelopes and scaling, pitch envelope, LFO, and controller / portamento settings. On operator pages, <kbd>PRESETS</kbd> picks the operator; black keys do the same under a held <kbd>EDIT</kbd>. FM6 voices live in the shared slots <strong>U001–U384</strong>. DX7 librarians can send a 32-voice bank over USB into any 32 consecutive slots.</p>
+          <p>Six-operator FM (Dexed / DX7–compatible): 32 algorithms with an on-screen chart, per-operator frequency, levels, envelopes and scaling, pitch envelope, LFO, and controller / portamento settings. On operator pages, <kbd>PRESETS</kbd> picks the operator. FM6 voices live in the shared slots <strong>U001–U384</strong>. DX7 librarians can send a 32-voice bank over USB into any 32 consecutive slots.</p>
           <div class="shots">
-            <figure class="shot"><img src="ref_map_fm6.png" alt="FM6 section map with operators" width="240" height="240"><figcaption>Section map; black keys pick operators.</figcaption></figure>
+            <figure class="shot"><img src="ref_map_fm6.png" alt="FM6 section map with operators" width="240" height="240"><figcaption>Section map. Tap EDIT on an EDIT page.</figcaption></figure>
             <figure class="shot"><img src="fm6_freq.png" alt="FM6 operator frequency page" width="240" height="240"><figcaption>FREQ for the selected operator.</figcaption></figure>
             <figure class="shot"><img src="fm6_eg.png" alt="FM6 operator envelope page" width="240" height="240"><figcaption>EG RATE: the operator envelope.</figcaption></figure>
             <figure class="shot"><img src="fm6_alg_01.png" alt="FM6 algorithm chart" width="240" height="240"><figcaption>ALGO: the algorithm chart.</figcaption></figure>
@@ -704,11 +703,11 @@
               <tr><td><kbd>KNOB 3</kbd> LENGTH</td><td>Resize at quarter-step boundaries (0.25, 0.50, 0.75, 1.00, …). Hold <kbd>ENV</kbd> for fine 1/16-step adjustments on recorded notes.</td></tr>
               <tr><td><kbd>KNOB 4</kbd> VEL</td><td>Velocity 1–127. Hold <kbd>ENV</kbd> and turn KNOB 4 for SLIDE on a manual note.</td></tr>
               <tr><td><kbd>PRESETS</kbd></td><td>Zoom (16 steps down to one). Hold <kbd>SEL</kbd> and turn SELECT or KNOB 1 to move; hold <kbd>ENV</kbd> and turn them to resize.</td></tr>
-              <tr><td><kbd>EDIT</kbd></td><td>Tap to delete the highlighted pitch. Hold <kbd>EDIT</kbd> while recording to erase under the playhead (header: ERASING).</td></tr>
+              <tr><td><kbd>EDIT</kbd></td><td>Tap to delete the highlighted pitch. Hold <kbd>EDIT</kbd> while recording to erase under the playhead (header: ERASING). Otherwise a hold undoes.</td></tr>
               <tr><td><kbd>OCT+</kbd></td><td>On empty space places a note; on a note opens its sheet: Length, Velocity, Chance, Slide, Move note, Copy note, Delete note. Recorded notes offer Length, Velocity, Move, Copy and Delete.</td></tr>
             </tbody>
           </table>
-          <p>Stop live recording before editing recorded properties. Hold <kbd>SAVE</kbd> to undo step edits; <kbd>SAVE</kbd>+<kbd>OCT−</kbd> / <kbd>OCT+</kbd> undo / redo up to eight edits. An erase pass starts a fresh history. Tap <kbd>EDIT</kbd> deletes the highlighted pitch, including a recorded hit.</p>
+          <p>Stop live recording before editing recorded properties. Hold <kbd>EDIT</kbd> to undo step edits; <kbd>EDIT</kbd>+<kbd>OCT−</kbd> / <kbd>OCT+</kbd> undo / redo up to eight edits. An erase pass starts a fresh history. Tap <kbd>EDIT</kbd> deletes the highlighted pitch, including a recorded hit.</p>
           <p>Hold <kbd>OCT+</kbd> and turn <kbd>SELECT</kbd>, <kbd>KNOB 1</kbd> or <kbd>KNOB 2</kbd> to select a range, then turn <kbd>KNOB 1</kbd> to move those notes at quarter-step boundaries. Tap or hold <kbd>OCT+</kbd> for <strong>Copy: KNOB 1</strong>, <strong>Quantize</strong>, <strong>Delete selected</strong> or <strong>Clear selection</strong>. Delete selected removes manual and recorded notes in the range. A single note’s <strong>Move note</strong> or <strong>Copy note</strong> works the same way: choose it, then turn <kbd>KNOB 1</kbd>. Copies and moves wrap around the loop. Hold <kbd>OCT+</kbd> without a range for the pattern tools: <strong>Quantize</strong> (the whole pattern, or the selection if there is one), <strong>Clear pattern</strong> and <strong>Clear motion</strong>. On Quantize, <kbd>KNOB 1</kbd> chooses <strong>1</strong>, <strong>0.5</strong> or <strong>0.25</strong> step and <kbd>OCT+</kbd> applies it. Durations and velocities stay. Each of these is one undo. They need the transport stopped.</p>
         </section>
 
@@ -722,7 +721,7 @@
           <ul>
             <li>Hold <kbd>SEQ</kbd> and press one of the first eight white keys to select pattern 1–8 (or use the PATTERNS grid / <kbd>SEQ</kbd>+<kbd>SELECT</kbd>). The playing pattern is lit; ones with notes glow; one waiting for the loop end breathes.</li>
             <li>Hold one pattern key and press another to copy notes, ties, timing, chance, drum hits and motion within the track.</li>
-            <li>On PATTERNS, <kbd>OCT+</kbd> opens the sheet: <strong>Copy to…</strong> (confirm before replacing a used slot) or <strong>Delete pattern</strong> (confirm). Delete removes the pattern’s manual notes, recorded notes and motion together. <kbd>OCT−</kbd> clears what is queued. Hold <kbd>SAVE</kbd> to undo.</li>
+            <li>On PATTERNS, <kbd>OCT+</kbd> opens the sheet: <strong>Copy to…</strong> (confirm before replacing a used slot) or <strong>Delete pattern</strong> (confirm). Delete removes the pattern’s manual notes, recorded notes and motion together. <kbd>OCT−</kbd> clears what is queued. Hold <kbd>EDIT</kbd> to undo.</li>
             <li>While playing, a pattern change waits until that track’s loop ends. Selecting the active pattern cancels a queued change. STOP applies pending choices.</li>
           </ul>
         </section>
@@ -758,7 +757,7 @@
           </table>
           <ul>
             <li>Arm <kbd>REC</kbd>, start playback, then turn a sound knob. Armed but stopped: the screen shows <strong>PLAY TO RECORD MOTION</strong>.</li>
-            <li>Edits and clears need the song stopped. If a song is playing or armed, the screen says <strong>STOP TO EDIT</strong>. Hold <kbd>SAVE</kbd> to undo one edit or clear. Other lanes, tracks and pattern banks stay as they were.</li>
+            <li>Edits and clears need the song stopped. If a song is playing or armed, the screen says <strong>STOP TO EDIT</strong>. Hold <kbd>EDIT</kbd> to undo one edit or clear. Other lanes, tracks and pattern banks stay as they were.</li>
             <li>Stopping or bypassing motion restores the original patch; project snapshots keep that original.</li>
             <li>Hold <kbd>LFO</kbd> while turning knobs for temporary tweaks that do not record as motion; release to restore, or press <kbd>OCT+</kbd> while LFO is held to keep them.</li>
             <li>Shared pool of <strong>64 events</strong> across the project. MOTION is hidden until the selected pattern has events. <strong>MOTION FULL</strong> when the pool is exhausted.</li>
@@ -771,8 +770,9 @@
         <ul>
           <li>Tap <kbd>REC</kbd> to arm or disarm the selected track. Transport stays put.</li>
           <li>Arm before <kbd>PLAY</kbd> to record from step zero. Arm during playback to record from that track’s next pattern start. Recording ends after one pass and disarms; playback continues. <kbd>REC</kbd>+<kbd>PLAY</kbd> arms and starts in one gesture. Timing, velocity and held length are kept (including repeats and overlapping chord releases).</li>
+          <li><strong>Undo a take:</strong> when the pass finishes, or you stop or disarm early, hold <kbd>EDIT</kbd> to put that pattern back as it was (<strong>UNDO RECORDING</strong>). Motion recorded while armed is included, even when no notes were played. There is one such undo. Details are under <a href="#navigate">Sheets and undo</a>.</li>
           <li>While stopped and armed, the first key or MIDI note starts playback and records immediately, skipping count-in. A count-in you start with <kbd>PLAY</kbd> still runs (internal clock only; external clock skips it).</li>
-          <li><strong>Capture:</strong> sometimes referred to as "retroactive recording" - while the transport runs, Melodee keeps what you play on tracks that are not recording. Hold <kbd>REC</kbd> to write the selected track’s last bars into its pattern. An empty pattern takes 1, 2 or 4 bars and sets LEN (the pattern length on SEQ → Pattern); a pattern with notes takes its last LEN steps. Hold <kbd>SAVE</kbd> to undo. You cannot use the capture feature while a track is actively armed to be directly recorded.</li>
+          <li><strong>Capture:</strong> sometimes referred to as "retroactive recording" - while the transport runs, Melodee keeps what you play on tracks that are not recording. Hold <kbd>REC</kbd> to write the selected track’s last bars into its pattern. An empty pattern takes 1, 2 or 4 bars and sets LEN (the pattern length on SEQ → Pattern); a pattern with notes takes its last LEN steps. Hold <kbd>EDIT</kbd> to undo. You cannot use the capture feature while a track is actively armed to be directly recorded.</li>
           <li><strong>SEQ → TEMPO → QNT</strong> quantizes the new take’s onsets when recording ends. <strong>OFF</strong> (default) keeps the timing you played. This is separate from scale QNT on SEL. Track GATE affects manually entered steps.</li>
           <li>A project shares <strong>1,024 timed notes</strong> across all 32 banks. <strong>RECORDING FULL</strong> leaves existing takes intact; clear or replace recorded steps to free space.</li>
         </ul>
@@ -793,7 +793,7 @@
           <tbody>
             <tr><td>MIXER</td><td><kbd>KNOB 1</kbd> LEVEL, <kbd>KNOB 2</kbd> PAN, <kbd>KNOB 4</kbd> MUTE for the selected track. Sends live on the effect pages.</td></tr>
             <tr><td>GLOBAL</td><td><kbd>KNOB 1</kbd> A4 concert pitch (<strong>400–480&nbsp;Hz</strong>, default 440), <kbd>KNOB 2</kbd> <strong>BUDGET</strong> budget for CPU resources (8–32 points, default 18; see <a href="#tracks">Tracks</a>), <kbd>KNOB 3</kbd> CLK (INT / USB / TRS), <kbd>KNOB 4</kbd> TUNE (fine cents, ±50). A4, BUDGET, CLK and TUNE are device settings; they survive power-off and stay when you load projects.</td></tr>
-            <tr><td>SYSTEM</td><td>MIDI input source (USB or TRS), DRUM channel (OFF or 1–16, default 10), ROUT (CH1-4 or SEL), and CPU info. <kbd>KNOB 1</kbd> also shows USB / TRS receive activity.</td></tr>
+            <tr><td>SYSTEM</td><td>MIDI input source (USB or TRS), DRUM channel (OFF or 1–16, default 10), ROUT (<strong>CH1-4</strong>, <strong>SEL</strong>, <strong>CH5-8</strong>, <strong>CH9-12</strong> or <strong>CH13-16</strong>), and CPU info. <kbd>KNOB 1</kbd> also shows USB / TRS receive activity. See <a href="#midi">MIDI</a>.</td></tr>
           </tbody>
         </table>
       </section>
@@ -810,9 +810,11 @@
         <table>
           <thead><tr><th>Item</th><th>What it does</th></tr></thead>
           <tbody>
-            <tr><td>COLOR</td><td>NIGHT / DAY / CONTRAST palettes/themes.</td></tr>
+            <tr><td>COLOR</td><td><strong>NIGHT</strong> (default), <strong>DAY</strong>, <strong>CONTRAST</strong>, <strong>SUNSET</strong>, <strong>OCEAN</strong>, <strong>NEON</strong>, <strong>CANDY</strong> or <strong>LO-FI</strong>. Knob 1 uses the selected track’s color; the other three knobs are shades of it. Remembered.</td></tr>
+            <tr><td>FONT</td><td><strong>RUBIK</strong> (default) or <strong>PIXEL</strong> (Melodee Pixel, a block face). Pages keep the same layout in either. Remembered.</td></tr>
             <tr><td>HOLD</td><td>The duration of a long hold of a button or knob (0.3–0.6&nbsp;s) to pull up an additional menu or action.</td></tr>
             <tr><td>LIGHTS</td><td>Idle indicator brightness, OFF (only pressed / engaged / selectable) through FULL.</td></tr>
+            <tr><td>STAGE EFFECTS</td><td><strong>ON</strong> (default) lights Stage and the chord view from the screen edges as the tracks play. <strong>OFF</strong> leaves those edges dark. Remembered. See <a href="#stage">Stage</a>.</td></tr>
             <tr><td>USB AUDIO</td><td>In+Out / In / Out / Off.</td></tr>
             <tr><td>USB INPUT</td><td><strong>STEREO</strong> (default) records the master, including track and shared effects. <strong>4 TRACKS</strong> records an isolated mono stem per track place, after that track’s effects and level and before the shared effects and the master. A track that is not in the song is silent on its stem.</td></tr>
             <tr><td>AUDIO CLICK</td><td><strong>OFF</strong> / <strong>REC</strong> (while recording) / <strong>ON</strong>.</td></tr>
@@ -836,8 +838,9 @@
         <h2>MIDI</h2>
         <p>USB and TRS MIDI in and out.</p>
         <ul>
-          <li>With ROUT <strong>CH1-4</strong>, channels 1–4 play tracks 1–4, for the tracks in use; other channels play the selected track. With <strong>SEL</strong>, everything goes to the selected track.</li>
-          <li>The <strong>DRUM</strong> channel (default 10) plays the first Drum track, independent of ROUT. If there is no Drum track, it plays the selected track. Set OFF to disable.</li>
+          <li>ROUT chooses which MIDI channels play. <strong>CH1-4</strong>, <strong>CH5-8</strong>, <strong>CH9-12</strong> and <strong>CH13-16</strong> map those four channels onto tracks 1–4, and only onto tracks in use. Notes and controllers on a channel outside the group are ignored. <strong>SEL</strong> sends every channel to the selected track.</li>
+          <li>The <strong>DRUM</strong> channel (default 10) plays the first Drum track only when that channel is inside the ROUT group, or when ROUT is <strong>SEL</strong>. With <strong>CH1-4</strong>, channel 10 does nothing: set ROUT to <strong>CH9-12</strong> or <strong>SEL</strong>, or set DRUM to a channel in the group (DRUM 2 plays the kit instead of track 2). With no Drum track, the channel follows ordinary routing. Set OFF to disable.</li>
+          <li>A note that already started still releases on the track that played it if you change ROUT so its channel is no longer included.</li>
           <li>The keys send on the selected track’s channel.</li>
           <li>Pitch bend, sustain, panic and clock (INT / USB / TRS) are supported. Common CCs control level, pan, cutoff/brightness, envelope times and glide. CC91 and CC93 do nothing.</li>
           <li>Local <kbd>PLAY</kbd> keeps the internal tempo until the selected MIDI input sends Start, Continue or Stop. Clock pulses alone do not take over.</li>
@@ -847,12 +850,12 @@
 
       <section id="usb-audio">
         <h2>USB audio</h2>
-        <p>Class-compliant, no driver. 16- or 24-bit at 44.1&nbsp;kHz. In the computer you see:</p>
+        <p>Class-compliant, no driver. 16- or 24-bit at 44.1&nbsp;kHz. The computer sees one device named <strong>Melodee</strong>, with playback and recording together:</p>
         <ul>
-          <li><strong>Melodee Out</strong> — play the computer through the FM-1. Computer playback and the monitor click stay out of recordings.</li>
-          <li><strong>Melodee In</strong> — <strong>STEREO</strong> by default: a copy of the master, including track effects, shared effects, pan and the output protection. Hold <kbd>HOME</kbd> and set <strong>USB INPUT</strong> to <strong>4 TRACKS</strong> for four isolated mono stems, after each track’s effects and level and before the shared effects and the master. A track that is not in the song is silent on its stem.</li>
+          <li><strong>Playback</strong> — play the computer through the FM-1. The computer’s volume and mute apply to that playback, on top of the <kbd>MASTER KNOB</kbd>. Computer playback and the monitor click stay out of recordings, and the computer’s volume does not change what is recorded.</li>
+          <li><strong>Recording</strong> — <strong>STEREO</strong> by default: a copy of the master, including track effects, shared effects, pan and the output protection. Hold <kbd>HOME</kbd> and set <strong>USB INPUT</strong> to <strong>4 TRACKS</strong> for four isolated mono stems, after each track’s effects and level and before the shared effects and the master. A track that is not in the song is silent on its stem.</li>
         </ul>
-        <p>Switch either direction off from the HOME menu’s <strong>USB AUDIO</strong>. Changing a USB option reconnects the device; reselect the input in your DAW if it disappears.</p>
+        <p>Switch either direction off from the HOME menu’s <strong>USB AUDIO</strong>. Changing a USB option reconnects the device; reselect Melodee in your DAW if it disappears. A computer that still lists the older separate playback and recording devices needs that same reselection.</p>
       </section>
 
       <section id="editor">
@@ -868,7 +871,9 @@
           <li><strong>Skip backup</strong> is available when export is impossible; confirm that Melodee music, sounds and settings may be lost.</li>
           <li>After reinstalling Melodee, restore from the <a href="../editor/">web editor</a>’s backup tools.</li>
           <li>Older Melodee builds cannot read newer data (for example native motion events need 1.0.2 or later; the new effects and one-pass recording need 1.3.0 or later; the shared 384-slot bank needs this version). Export user sounds and keep the installer’s backup before downgrading. A backup made before the preset migration is what an older version can restore.</li>
-          <li>The first start that converts older preset banks shows <strong>MIGRATING PRESETS</strong> and <strong>KEEP POWER CONNECTED</strong>. If it cannot finish, the error stays on screen: <kbd>OCT+</kbd> keeps the presets and continues (preset writes stay protected until conversion succeeds); <kbd>OCT−</kbd> offers to wipe all user presets, then asks again with <kbd>OCT+</kbd>. Projects, settings and factory sounds stay. A wipe that was confirmed resumes if power is lost during it.</li>
+          <li>Startup maintenance stays on screen while it works: the job’s name, then <strong>Keep power connected</strong> and <strong>Do not switch off.</strong> A short <strong>CHECKING SETTINGS</strong> pass can appear when saved settings need a small repair. The first start that converts older preset banks is <strong>MIGRATING PRESETS</strong>. If it cannot finish, the screen says <strong>Could not finish</strong> and <strong>Restart to retry</strong>. <kbd>OCT+</kbd> (<strong>KEEP</strong>) keeps the presets and continues (preset writes stay protected until conversion succeeds). <kbd>OCT−</kbd> (<strong>WIPE</strong>) asks <strong>Wipe all user presets?</strong>, then <kbd>OCT+</kbd> confirms. Projects, settings and factory sounds stay. A wipe that was confirmed resumes if power is lost during it.</li>
+          <li><strong>RESETTING PRESETS</strong> runs when a bank or a slot cannot be read. An unreadable bank becomes empty. Unreadable slots in a bank that can be read are cleared; presets this version understands stay, including a recognized older conversion. A newer preset record this version cannot read is cleared. If the reset cannot finish, the same <strong>KEEP</strong> / <strong>WIPE</strong> choice applies.</li>
+          <li><strong>RESETTING SETTINGS</strong> replaces device settings this version cannot read with the defaults (color, calibration, and the globals kept on the device). Projects stay. A template stored with those settings is not kept. Settings saved by a newer Melodee are left alone. If the write cannot finish, the screen stays until you restart; <kbd>OCT+</kbd> continues, and there is no wipe.</li>
           <li>The updater does not scan or move legacy Prophet banks from the abandoned flash area. Sounds that lived only in that old area are not recovered on upgrade; keep an export or a full backup if you still need them.</li>
           <li>A slot saved before Melodee 1.0 shows <strong>OLD FORMAT</strong> and is left as it is until you choose to replace it. The device asks first. A backup it cannot read is refused before anything is written.</li>
         </ul>
@@ -879,7 +884,7 @@
         <ul>
           <li>Install stops or fails: unplug and replug the cable, use a data cable and a direct port, open Chrome or Edge, and press Install again.</li>
           <li>Standard build crashes, freezes, or restarts into update mode: install <strong>Single core</strong>. Install Standard again later if you want dual core back.</li>
-          <li>A unit that shows <strong>Melodee Update</strong> is in the MIDI update loader: press Install again, or run <code>tools/fm1_install.py</code> with a working package.</li>
+          <li>A unit that shows <strong>Melodee Update</strong> is in the MIDI update loader: press Install again, or run <code>tools/fm1_install.py</code> with a working package. An update that loses power while the application is being written comes back here on its own. Hold <kbd>OCT−</kbd> alone as you power on to force that rescue. Holding <kbd>OCT−</kbd> and <kbd>OCT+</kbd> together is calibration, not rescue. The first install of this recovery, and an update that rewrites the boot stub, can still need the ROM recovery below if power is lost during that write.</li>
           <li>A unit that no longer starts and appears as USB <strong>4c4a:8057</strong> (inquiry <strong>WL82 / UBOOT1.00</strong>) is already in ROM UBOOT. Release downloads include <code>fm1-recover</code> for Windows x64, Linux x64, and macOS Intel and Apple Silicon. Extract the archive, open a terminal in that folder, and run <code>fm1-recover --info</code> (<code>.\fm1-recover.exe --info</code> in Windows PowerShell). Passing a <code>.fwsc</code> file makes a full backup and leaves flash alone; add <code>--write</code> to restore application flash. The bootloader and the current saved-data regions are kept. Read <code>RECOVERY.md</code> in the archive for drivers and the full procedure. The tool does not force a running device into UBOOT. Melodee 1.4 does not change the system clock. A black screen left by a 1.3.0 or 1.3.1 clock change is this same UBOOT state: recover, then install.</li>
           <li>Report Melodee bugs on <a href="https://github.com/keremimo/melodee/issues" target="_blank" rel="noopener">GitHub Issues</a>, not to Felucca or M-VAVE.</li>
         </ul>
