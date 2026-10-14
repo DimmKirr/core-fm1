@@ -84,17 +84,16 @@ def main(prefix):
             fields += 1
         return b[i + 1:i + 1 + w * CROP_H * 3]
 
-    s = {ms: screen(ms) for ms in (400, 800, 1200, 1600, 2000, 2400, 2800, 3200, 3800, 4400)}
+    s = {ms: screen(ms) for ms in (1100, 2200, 3300, 4400, 5500, 6600, 7700, 8800, 9400, 10000)}
 
-    walked = [s[400], s[800], s[1200], s[1600]]
-    check("OPERATOR has two banks until SHOW ALL",
-          len(set(walked)) == 2 and walked[2] == walked[0] and walked[3] == walked[1])
-    check("the fifth press wrapped to the first", s[2000] == s[400])
-    check("ENVELOPE walked a bank of its own", s[2400] != s[2800])
-    check("ENVELOPE is not OPERATOR", s[2400] != s[400])
-    check("coming back to a page starts it over", s[3200] == s[400])
-    check("a black key picked another operator", s[3800] != s[3200])
-    check("and the first black key picked OP1 back", s[4400] == s[3200])
+    walked = [s[1100], s[2200], s[3300], s[4400]]
+    check("OPERATOR walks four banks, all different", len(set(walked)) == 4)
+    check("the fifth press wrapped to the first", s[5500] == s[1100])
+    check("ENVELOPE walked a bank of its own", s[6600] != s[7700])
+    check("ENVELOPE is not OPERATOR", s[6600] != s[1100])
+    check("coming back to a page starts it over", s[8800] == s[1100])
+    check("a black key picked another operator", s[9400] != s[8800])
+    check("and the first black key picked OP1 back", s[10000] == s[8800])
 
     # One voice against eight: the chord is the same three keys either way, so the only thing that
     # can account for the difference is how many of them the engine let through.
@@ -113,21 +112,21 @@ def main(prefix):
         a, b = int(t0 * 44100 / 1000) * ch, int(t1 * 44100 / 1000) * ch
         return max(abs(v) for v in pcm[a:b]) if b > a else 0
 
-    one, three = peak(6850, 7350), peak(8050, 8550)
+    one, three = peak(13150, 13650), peak(14350, 14850)
     check("a chord in mono is one note", three and one * 100 // three < 60,
           f"{one} against {three} ({one * 100 // max(three, 1)}%)")
     check("and poly still plays all three", three > 1000, str(three))
 
     # The first note has had a second to die away by the time the second is pressed. A slur carries
     # on from there; a note struck on its own starts again.
-    slur, struck = peak(10450, 10650), peak(11150, 11350)
+    slur, struck = peak(16750, 16950), peak(17450, 17650)
     check("a slurred note gets no new attack", struck and slur * 100 // struck < 25,
           f"{slur} against {struck} ({slur * 100 // max(struck, 1)}%)")
     check("and a note struck on its own does", struck > 1000, str(struck))
 
     # Letting go of the newer note drops back to the one still held, not to silence; letting go of
     # that one is the end of it.
-    back, gone = peak(12700, 13100), peak(13600, 13950)
+    back, gone = peak(19000, 19400), peak(19900, 20250)
     check("the older note is still there to fall back to", back > 300, str(back))
     check("and the last key up is the end of it", back and gone * 100 // back < 10,
           f"{gone} against {back}")

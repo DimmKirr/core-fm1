@@ -106,7 +106,7 @@ def main(stem):
     check("the analyser has the same four knobs", sets[2200] == sets[200])
 
     # KNOB1 is OP1's level. Thirty steps of a byte whose bar is 228 pixels wide for 99.
-    before, after = bars(3000), bars(4000)
+    before, after = bars(3700), bars(5400)
     want = round(30 * BAR_W / 99.0)
     check("a HOME knob moves the operator's own byte", before[0] - after[0] != 0,
           f"{before[0]} -> {after[0]} pixels")
@@ -116,10 +116,10 @@ def main(stem):
           f"{before[1]} against {after[1]}")
 
     # With no note held the boxes show nothing, so the voice line has to say what moved.
-    check("and HOME says what it did", band(3600, VOICE_Y, VOICE_H) != band(200, VOICE_Y, VOICE_H))
+    check("and HOME says what it did", band(4300, VOICE_Y, VOICE_H) != band(200, VOICE_Y, VOICE_H))
 
     # The third set puts the ratio under the same knob, and now the other bar is the one that moves.
-    last = bars(5200)
+    last = bars(7300)
     check("the ratio set moves the ratio instead", last[1] > after[1],
           f"{after[1]} -> {last[1]} pixels")
     check("and leaves the level where the first set put it", last[0] == after[0],

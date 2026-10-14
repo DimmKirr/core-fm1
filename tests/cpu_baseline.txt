@@ -248,3 +248,30 @@ rows always wrote, and the engine never learns that anything changed. The drawin
 than grew -- the graph is 104 pixels tall on the ADSR bank instead of 72, which is 7680 more pixels
 to blit sixteen times a second, but the two parameter rows it replaced were 15360 pixels between
 them. cpu_q8 does not see either, as ever; both are blit bandwidth, not audio.
+
+
+FOCUS
+=====
+
+EDIT and ENV learned the difference between a tap and a hold. A hold is the page they always were; a
+tap leaves HOME on the screen and lends that page's first rows to the four knobs. SHOW ALL came out
+at the same time -- there is no longer a wall between the parameters worth reaching for and the rest,
+because a tap reaches the first three without leaving the sound.
+
+  image   112524 B -> 113232 B   (+708)
+  RAM     30664 B                (unchanged)
+  cpu     unchanged
+
+Removing SHOW ALL gave back more than it looks: the adv flag was a byte on every one of the sixty-odd
+parameter rows and a filter in front of every page lookup, so page_n and page_at went back to plain
+indexing. The +708 is net of that -- the long-press timing, the two focus tables, focus_at, p_turn,
+op_point, say_param and draw_home_title, less what SHOW ALL cost.
+
+No audio cost. A focused knob turn goes through exactly the same p_turn as a knob turn on the page,
+which is the reason it was factored out, and it publishes the same 156 bytes. Drawing is cheaper than
+a page, not dearer: the title is 240x32 and the legend is already redrawn on any page change.
+
+Watch this number again after:
+  - the fourth EDIT cell gaining a WAVE parameter
+  - LONG_MS being changed (400 ms is comfortably past a deliberate tap and comfortably
+    short of a wait, but it has only been judged by one pair of hands)

@@ -55,7 +55,7 @@
 5800 keys 0
 
 # now change one thing on B: OP1's level down 20
-5900 btn 6
+5900 btn 6 600
 6000 enc 0 -1
 6100 enc 2 -20
 6200 keys 0x4880

@@ -7,85 +7,86 @@
 # which have to differ when the bank moves on and come back around when it wraps.
 0 btn 8
 
-# OPERATOR shows seven parameters four at a time until SHOW ALL asks for the rest, so two banks.
-# Press EDIT five times: the first arrives at the page, and the rest walk it there and back.
-200 btn 6
-400 shot
-600 btn 6
-800 shot
-1000 btn 6
-1200 shot
-1400 btn 6
-1600 shot
-1800 btn 6
-2000 shot
+# OPERATOR shows fourteen parameters four at a time, so four banks. Press and HOLD EDIT five times:
+# a held EDIT is the page, and pressing it again there walks the banks and wraps. (A tap of EDIT is
+# a different thing entirely and is tested in focus.txt.)
+200 btn 6 600
+1100 shot
+1300 btn 6 600
+2200 shot
+2400 btn 6 600
+3300 shot
+3500 btn 6 600
+4400 shot
+4600 btn 6 600
+5500 shot
 
 # ENVELOPE is a page of its own: arriving starts at its first bank, pressing again walks it.
-2200 btn 4
-2400 shot
-2600 btn 4
-2800 shot
+5700 btn 4 600
+6600 shot
+6800 btn 4 600
+7700 shot
 
 # Back to OPERATOR -- a different page, so its first bank again, not the bank ENV was left on.
-3000 btn 6
-3200 shot
+7900 btn 6 600
+8800 shot
 
 # F#4 is the sixth black key: OP6. It must change the screen and send no note.
-3400 keys 0x2000
-3600 keys 0
-3800 shot
+9000 keys 0x2000
+9200 keys 0
+9400 shot
 
 # F#3 is the first: OP1. A different operator, so a different screen again.
-4000 keys 0x2
-4200 keys 0
-4400 shot
+9600 keys 0x2
+9800 keys 0
+10000 shot
 
 # A white key on the same page is still a key.
-4600 keys 0x1
-4800 keys 0
+10200 keys 0x1
+10400 keys 0
 
 # And on HOME the black key is an ordinary key once more.
-5000 btn 8
-5200 keys 0x2000
-5400 keys 0
+10600 btn 8
+10800 keys 0x2000
+11000 keys 0
 
 # Held across a page change: the note was started as a note, so it has to end as one. If the page
 # took the key away on the way up, this note would hang.
-5600 keys 0x1
-5800 btn 6
-6000 keys 0
+11200 keys 0x1
+11400 btn 6 600
+12300 keys 0
 
 # MONO and POLY are the top two black keys, and they only mean that on OPERATOR, where we still
 # are. Like the operator keys they must not sound. The proof that the switch did anything is the
 # chord: in mono it is one note, so it has to be markedly quieter than the same chord in poly.
-6400 keys 0x100000
-6600 keys 0
-6800 keys 0x4880
-7400 keys 0
-7600 keys 0x400000
-7800 keys 0
-8000 keys 0x4880
-8600 keys 0
+12700 keys 0x100000
+12900 keys 0
+13100 keys 0x4880
+13700 keys 0
+13900 keys 0x400000
+14100 keys 0
+14300 keys 0x4880
+14900 keys 0
 
 # Legato, which is the whole point of mono. Back to mono, and over to a plucked voice so that the
 # first note has visibly died away by the time the second arrives. Press the second while the first
 # is still down and it is a slur: no attack of its own, so it comes in at whatever is left. Strike
 # the same note cleanly afterwards and it is loud again.
 # (Keys 7 and 9 are white; the black ones on this page belong to the operators.)
-8800 keys 0x100000
-9000 keys 0
-9100 enc 6 12
-9300 keys 0x80
-10400 keys 0x280
-10700 keys 0
-11100 keys 0x200
-11400 keys 0
+15100 keys 0x100000
+15300 keys 0
+15400 enc 6 12
+15600 keys 0x80
+16700 keys 0x280
+17000 keys 0
+17400 keys 0x200
+17700 keys 0
 
 # Fall-back: let go of the top note while an older one is still down and you drop back to that one
 # rather than to silence. A sustaining voice, so there is something left to hear.
-11700 enc 6 -7
-11900 keys 0x80
-12200 keys 0x280
-12500 keys 0x80
-13200 keys 0
-14000 end
+18000 enc 6 -7
+18200 keys 0x80
+18500 keys 0x280
+18800 keys 0x80
+19500 keys 0
+20300 end

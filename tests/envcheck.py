@@ -85,11 +85,11 @@ def main(stem):
     def want(v, full=BAR_W):
         return full * v // 99
 
-    adsr = cells(1100)
-    r1, l1 = bars(1300)
-    r2, l2 = bars(1500)
-    r3, l3 = bars(1700)
-    r4, l4 = bars(1900)
+    adsr = cells(1800)
+    r1, l1 = bars(2700)
+    r2, l2 = bars(3600)
+    r3, l3 = bars(4500)
+    r4, l4 = bars(5400)
 
     # All four fit on one bank, a cell to a knob, and each landed where the script drove it.
     check("ADSR is four cells in one row", len([c for c in adsr if c]) == 4,
@@ -120,8 +120,8 @@ def main(stem):
     check("level 4 was left alone", l4 == 0, f"{l4} pixels")
 
     # Walking all five banks and coming back has to be a round trip.
-    check("five banks and round to the start again", cells(2100) == adsr,
-          f"{cells(2100)} against {adsr}")
+    check("five banks and round to the start again", cells(6300) == adsr,
+          f"{cells(6300)} against {adsr}")
 
     print(f"\n{bad} checks failed")
     return 1 if bad else 0

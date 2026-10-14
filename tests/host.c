@@ -32,9 +32,21 @@
 
 static volatile uint32_t fm1_ms;
 static struct { uint32_t notes, buttons; } fm1_in;
-static uint32_t host_edges;
+/* A button is a thing you hold, not an instant: EDIT and ENV mean different things depending on
+ * how long you hold them, so the script has to be able to say. `btn n` is a tap; `btn n 600` holds
+ * it for 600 ms. The press edge goes out at once, the bit stays in fm1_in.buttons meanwhile, and
+ * the release edge goes out when the time is up -- which is exactly what the hardware does. */
+#define HOST_TAP 50u
+static uint32_t host_edges, host_rel, host_btn_up[14];
 static int32_t host_enc[7];
-static uint32_t fm1_input_edges(uint32_t *released) { uint32_t b = host_edges; host_edges = 0; *released = 0; return b; }
+static uint32_t fm1_input_edges(uint32_t *released)
+{
+    uint32_t b = host_edges;
+    host_edges = 0;
+    *released = host_rel;
+    host_rel = 0;
+    return b;
+}
 static uint32_t fm1_input_note_edges(void) { return 0; }   /* (the script sets fm1_in.notes) */
 static int32_t fm1_enc_take(uint32_t e) { int32_t d = e < 7u ? host_enc[e] : 0; if (e < 7u) host_enc[e] = 0; return d; }
 static void fm1_led_key(uint32_t id, int on) { (void)id; (void)on; }
@@ -112,7 +124,7 @@ static void app_main(void);
 /* the script: at t ms, keys down (bit k = key k, 0 = F3), a button edge, an encoder's detents, a MIDI
  * message. A script file (the second argument) replaces it, a line each: "T keys MASK" (hex or decimal),
  * "T btn ID", "T enc ID STEPS", "T midi ST D1 D2", "T end" */
-typedef struct { uint32_t t, keys; int btn, enc, encd; uint8_t st, d1, d2; const char *syx; } host_ev_t;
+typedef struct { uint32_t t, keys; int btn, enc, encd; uint8_t st, d1, d2; const char *syx; uint32_t hold; } host_ev_t;
 static const host_ev_t SCRIPT0[] = {
     {200, 1u << 7, -1, -1, 0, 0, 0, 0},                                 /* C4 */
     {700, 1u << 7 | 1u << 11 | 1u << 14, -1, -1, 0, 0, 0, 0},           /* + E4 G4: a chord */
@@ -162,13 +174,13 @@ static void read_script(const char *path)
     uint32_t n = 0, ns = 0;
     if (!f) { perror(path); exit(1); }
     while (fgets(line, sizeof line, f) && n < 4096u) {
-        host_ev_t e = {0, 0, -1, -1, 0, 0, 0, 0, 0};
+        host_ev_t e = {0, 0, -1, -1, 0, 0, 0, 0, 0, 0};
         unsigned a = 0, b = 0, c = 0;
         if (line[0] == '#' || sscanf(line, "%u %15s", &e.t, what) != 2) continue;
         if (!strcmp(what, "end")) { end_ms = e.t; continue; }
         if (!strcmp(what, "shot")) { if (ns < 512u) shot_at[ns++] = e.t; continue; }
         if (!strcmp(what, "keys")) { sscanf(line, "%*u %*s %i", (int *)&e.keys); }
-        else if (!strcmp(what, "btn")) { sscanf(line, "%*u %*s %d", &e.btn); }
+        else if (!strcmp(what, "btn")) { sscanf(line, "%*u %*s %d %u", &e.btn, &e.hold); }
         else if (!strcmp(what, "enc")) { sscanf(line, "%*u %*s %d %d", &e.enc, &e.encd); }
         else if (!strcmp(what, "midi")) { sscanf(line, "%*u %*s %i %u %u", (int *)&a, &b, &c); e.st = (uint8_t)a; e.d1 = (uint8_t)b; e.d2 = (uint8_t)c; }
         else if (!strcmp(what, "syx")) {        /* a .syx file, as if the host had sent it */
@@ -293,14 +305,27 @@ static void platform_poll(void)                 /* one call = one millisecond */
     static uint32_t step, shot, owed, frame;
     static int32_t blk[2u * HALF_FRAMES];
     fm1_ms++;
+    {   /* anything held long enough has been let go of */
+        uint32_t n;
+        for (n = 0; n < 14u; n++)
+            if (host_btn_up[n] && fm1_ms >= host_btn_up[n]) {
+                host_btn_up[n] = 0;
+                fm1_in.buttons &= ~(1u << n);
+                host_rel |= 1u << n;
+            }
+    }
     while (step < script_n && script[step].t <= fm1_ms) {
         if (script[step].syx)
             host_syx(script[step].syx);
         else if (script[step].st) {
             mq[mq_w % 64u][0] = script[step].st; mq[mq_w % 64u][1] = script[step].d1; mq[mq_w % 64u][2] = script[step].d2;
             mq_w++;
-        } else if (script[step].btn >= 0)
-            host_edges |= 1u << script[step].btn;
+        } else if (script[step].btn >= 0 && script[step].btn < 14) {
+            uint32_t n = (uint32_t)script[step].btn;
+            host_edges |= 1u << n;
+            fm1_in.buttons |= 1u << n;
+            host_btn_up[n] = fm1_ms + (script[step].hold ? script[step].hold : HOST_TAP);
+        }
         else if (script[step].enc >= 0 && script[step].enc < 7)
             host_enc[script[step].enc] += script[step].encd;
         else

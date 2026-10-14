@@ -492,14 +492,13 @@ enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
  * opinions; they are saved with the octave and the rest. */
-enum { UI_ADV = 0, UI_SPAN, UI_N };
+enum { UI_SPAN = 0, UI_N };
 static uint8_t ui[UI_N];
 
 typedef struct {
     const char *name;
     const char *knob;                           /* six characters for the legend, or 0 for name */
     uint8_t where, idx, max, kind;
-    uint8_t adv;                                /* 1: only on the page when SHOW ALL is on */
 } param_t;
 
 static const param_t PG_OP[] = {
@@ -507,16 +506,16 @@ static const param_t PG_OP[] = {
     {"RATIO",  0, P_OP, 18, 36, K_RAT},         /* coarse and fine, said as the one number they mean */
     {"DETUNE", 0, P_OP, 20, 14, K_DET},
     {"MODE",   0, P_OP, 17, 1,  K_MODE},
-    {"COARSE", 0, P_OP, 18, 31, K_NUM, 1},
-    {"FINE",   0, P_OP, 19, 99, K_NUM, 1},
+    {"COARSE", 0, P_OP, 18, 31, K_NUM},         /* the two bytes RATIO says in one number */
+    {"FINE",   0, P_OP, 19, 99, K_NUM},
     {"VEL SENS", "V SENS", P_OP, 15, 7, K_NUM},
     {"AMP MOD",  "AMPMOD", P_OP, 14, 3, K_NUM},
     {"RATE SCL", "RT SCL", P_OP, 13, 7, K_NUM},
-    {"BREAK PT", "BRK PT", P_OP, 8,  99, K_BRK,   1},
-    {"L DEPTH", "L DEP", P_OP, 9,  99, K_NUM,   1},
-    {"R DEPTH", "R DEP", P_OP, 10, 99, K_NUM,   1},
-    {"L CURVE", "L CRV", P_OP, 11, 3,  K_CURVE, 1},
-    {"R CURVE", "R CRV", P_OP, 12, 3,  K_CURVE, 1},
+    {"BREAK PT", "BRK PT", P_OP, 8,  99, K_BRK},
+    {"L DEPTH", "L DEP", P_OP, 9,  99, K_NUM},
+    {"R DEPTH", "R DEP", P_OP, 10, 99, K_NUM},
+    {"L CURVE", "L CRV", P_OP, 11, 3,  K_CURVE},
+    {"R CURVE", "R CRV", P_OP, 12, 3,  K_CURVE},
 };
 /* ---- the envelope, said twice
  *
@@ -571,7 +570,6 @@ static const param_t PG_GLO[] = {
     {"P LEVEL 2", "P LVL2", P_G, 131, 99, K_NUM},
     {"P LEVEL 3", "P LVL3", P_G, 132, 99, K_NUM},
     {"P LEVEL 4", "P LVL4", P_G, 133, 99, K_NUM},
-    {"SHOW ALL", "SHOW", P_UI, UI_ADV, 1, K_ONOFF},
     {"SPECTRUM", "SPECT", P_UI, UI_SPAN, SP_NSPAN - 1u, K_SPAN},
 };
 
@@ -590,35 +588,23 @@ static const struct { const char *name; const param_t *p; uint8_t n, perop, rows
 #define HOME_NBANK 2u                           /* HOME's two screens: the diagram, and the spectrum */
 
 static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
+enum { FOC_OFF = 0, FOC_EDIT, FOC_ENV };        /* a tap of EDIT or ENV puts one operator under the knobs */
+static uint8_t focus;
+#define LONG_MS 400u                            /* longer than a tap, shorter than a wait */
+static const uint8_t FOC_BTN[2] = {BTN_EDIT, BTN_ENV};
+static const uint8_t FOC_MODE[2] = {FOC_EDIT, FOC_ENV};
+static const uint8_t FOC_PAGE[2] = {PAGE_OP, PAGE_EG};
 
-/* ---- the parameters a page is actually showing
- *
- * Five of the thirteen things the DX7 lets you say about an operator are the keyboard scaling,
- * and two more are the coarse and fine multipliers that RATIO now says in one number. None of
- * them is wrong, but all of them cost a beginner a page to wade through before reaching the ones
- * that change the sound audibly. They are marked `adv` and left off the pages until SHOW ALL, on
- * the last bank of GLOBAL, asks for them. Nothing is lost: the bytes are still edited, still
- * saved, and still sent, whether or not you can see them.
- *
- * So a page is no longer a flat array that banks index directly -- it is the visible subset of
- * one, and everything that walks a page has to walk it through here. */
+/* A page is a flat list of parameters; these two just save repeating the table lookup, and they
+ * are what every bank walker goes through. */
 static uint32_t page_n(void)
 {
-    uint32_t i, n = 0;
-    for (i = 0; i < PAGE[page].n; i++)
-        if (!PAGE[page].p[i].adv || ui[UI_ADV])
-            n++;
-    return n;
+    return PAGE[page].n;
 }
 
 static const param_t *page_at(uint32_t want)
 {
-    uint32_t i, n = 0;
-    for (i = 0; i < PAGE[page].n; i++)
-        if (!PAGE[page].p[i].adv || ui[UI_ADV])
-            if (n++ == want)
-                return &PAGE[page].p[i];
-    return 0;
+    return want < PAGE[page].n ? &PAGE[page].p[want] : 0;
 }
 
 /* ---- what a bank is
@@ -692,13 +678,19 @@ static void page_to(uint8_t p)
 /* The panel prints OP1..OP6 under the low six black keys, and the stock firmware uses them that
  * way. On the two pages whose whole subject is one operator -- OPERATOR and ENVELOPE -- so do we:
  * the key picks the operator instead of sounding, because there you are pointing at one rather
- * than playing it. On every other page they are ordinary keys. Returns the engine's operator
+ * than playing it -- and so does a tap of ENV or EDIT, which points the knobs at one operator
+ * without leaving HOME. On every other page they are ordinary keys. Returns the engine's operator
  * index (0 = OP6 .. 5 = OP1, as opsel counts) or -1 for "this is a note". */
 static const uint8_t OP_KEY[6] = {1, 3, 5, 8, 10, 13};   /* F#3 G#3 A#3 C#4 D#4 F#4 = OP1..OP6 */
+static uint32_t op_point(void)                  /* are the black keys pointing rather than playing? */
+{
+    return page == PAGE_OP || page == PAGE_EG || focus != FOC_OFF;
+}
+
 static int op_key(uint32_t k)
 {
     uint32_t i;
-    if (page != PAGE_OP && page != PAGE_EG)
+    if (!op_point())
         return -1;
     for (i = 0; i < 6u; i++)
         if (OP_KEY[i] == k)
@@ -759,8 +751,8 @@ static uint32_t putn(char *s, uint32_t i, uint32_t v, uint32_t w)   /* right-ali
  * halves between the low ones, and 1.41 because an operator at the square root of two is the
  * quickest way to hear what inharmonic means. Underneath it is still exactly those two bytes, so
  * a patch edited here is still a DX7 patch and still exports as one. A ratio this list does not
- * reach is still reachable: COARSE and FINE are on the page under SHOW ALL, and anything they are
- * set to is displayed faithfully here even when it is between two entries.
+ * reach is still reachable: COARSE and FINE are the next two rows on the page, and anything they
+ * are set to is displayed faithfully here even when it is between two entries.
  *
  * In FIXED mode the same two bytes stop being a multiple and become a frequency, which the DX7
  * reads as 10^(((coarse & 3) * 100 + fine) / 100) Hz -- four decades from 1 Hz up, in 400 steps.
@@ -829,6 +821,54 @@ static void rat_turn(uint32_t op, int32_t enc)
         *op_byte(op, 18) = RAT[x][0];
         *op_byte(op, 19) = RAT[x][1];
     }
+}
+
+/* ---- one operator under the four knobs, without leaving the screen you play on
+ *
+ * The pages are the right way to read a sound and the wrong way to shape one: the moment you are
+ * listening, a full-screen list of numbers is in the way. So ENV and EDIT answer to how long you
+ * hold them. Hold one and you get its page, as ever. Tap it and you stay on HOME -- diagram or
+ * spectrum, still playing -- and the four knobs swing round onto a single operator.
+ *
+ * Tapping EDIT gives that operator's timbre: level, ratio, detune. The fourth knob is deliberately
+ * empty and is waiting for the wave shape. Tapping ENV gives its envelope: attack, decay, sustain,
+ * release -- which is exactly four, and is the reason those four had to exist before this did.
+ *
+ * Both are the first few rows of the page the button would have opened, which is not a coincidence
+ * worth hiding: the tap is a shortcut to the top of the menu, not a second set of controls with
+ * its own opinions. The same bytes, the same knobs, the same order.
+ *
+ * While focused, the six black keys the panel prints OP1..OP6 under pick the operator instead of
+ * sounding, as they already do on those two pages, and MONO/POLY work as they do on EDIT. That
+ * makes some of the keyboard stop playing, so the title line says EDIT OP3 or ENV OP3 to tell you
+ * why. SEL steps the operator; HOME puts the keys and the knobs back. */
+/* what knob e moves while focused, or 0 for "this knob does nothing" */
+static const param_t *focus_at(uint32_t e)
+{
+    if (focus == FOC_EDIT)
+        return e < 3u ? &PG_OP[e] : 0;          /* LEVEL RATIO DETUNE, and one kept for the wave */
+    if (focus == FOC_ENV)
+        return e < 4u ? &PG_EG[e] : 0;          /* ATTACK DECAY SUSTAIN RELEASE */
+    return 0;
+}
+
+/* Move one parameter by one knob's worth, wherever the knob happened to be. The focus knobs and
+ * the knobs on a page are the same four knobs on the same bytes, so they must also be the same
+ * arithmetic -- including the two rows that write a second byte with the first. */
+static void p_turn(const param_t *p, int32_t enc)
+{
+    int32_t v;
+    if (p->kind == K_RAT) {
+        rat_turn(opsel, enc);
+        return;
+    }
+    v = (int32_t)*p_ref(p) + (p->kind == K_TIME || p->kind == K_DEC ? -enc : enc);
+    v = v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v;
+    *p_ref(p) = (uint8_t)v;
+    if (p->kind == K_DEC)                       /* the second stage of the decay goes with the first */
+        edit[p_at(p) + 1u] = (uint8_t)v;
+    if (p->kind == K_SUS)                       /* and the level it was heading for, so the two are flat */
+        edit[p_at(p) - 1u] = (uint8_t)v;
 }
 
 /* an operator's pitch written out, as a multiple of the key or as the frequency it is pinned to */
@@ -1545,11 +1585,46 @@ static void draw_eg_cells(void)
     }
 }
 
+/* The focus knobs have no row on the screen to write into, so they borrow the voice line, which is
+ * where every other "you just did something" message goes. */
+static void say_param(const param_t *p)
+{
+    uint32_t i = put(hk_say, 0, p_knob(p));
+    hk_say[i++] = ' ';
+    i = putval(hk_say, i, p, *p_ref(p));
+    hk_say[i] = 0;
+    say(hk_say);
+}
+
+/* HOME's banner, which stops being the instrument's name the moment the knobs stop being the
+ * instrument's and become one operator's. */
+static void draw_home_title(void)
+{
+    char s[32];
+    uint32_t i;
+    if (focus == FOC_OFF)
+        i = put(s, 0, APP_NAME);
+    else {
+        i = put(s, 0, focus == FOC_EDIT ? "EDIT OP" : "ENV OP");
+        i = putn(s, i, 6u - opsel, 1);
+    }
+    s[i] = 0;
+    lcd_fill(0, 18, 240, 32, C_BLACK);
+    draw_text_box(0, 18, 240, &FONT_L, s, C_ACC, 1);
+}
+
 static void draw_head(void)
 {
     char s[32];
-    uint32_t i = put(s, 0, PAGE[page].name), nb;
-    if (PAGE[page].perop) {
+    uint32_t i, nb, perop = PAGE[page].perop;
+    /* Focused, the title stops naming the screen and names what the knobs and the black keys have
+     * become -- which is the only warning you get that part of the keyboard has stopped playing. */
+    if (focus != FOC_OFF && page == PAGE_HOME) {
+        i = put(s, 0, focus == FOC_EDIT ? "EDIT" : "ENV");
+        perop = 1;
+    } else
+        i = put(s, 0, PAGE[page].name);
+    if (perop) {
         i = put(s, i, "  OP");
         i = putn(s, i, 6u - opsel, 1);
         /* a carrier is heard; a modulator is only felt. Which one an operator is depends on the
@@ -1589,7 +1664,11 @@ static void draw_legend(void)
     for (e = 0; e < 4u; e++) {
         const char *s = 0;
         char buf[8];
-        if (page == PAGE_HOME) {
+        if (focus != FOC_OFF && page == PAGE_HOME) {
+            const param_t *p = focus_at(e);     /* one operator, four of the things it is made of */
+            if (p)
+                s = p_knob(p);
+        } else if (page == PAGE_HOME) {
             uint32_t n = home_op(e);             /* four operators at a time, levels or ratios */
             if (n) {
                 uint32_t i = put(buf, 0, HSET[homeset].what == HK_LVL ? "LVL " : "RAT ");
@@ -1753,7 +1832,7 @@ static void app_main(void)
 {
     /* Only ever append to this: settings_load takes a short store and leaves the rest at default,
      * so a new field costs nothing, but moving one would hand the old bytes to the wrong name. */
-    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t adv; } set = {0, 0, 0, 0, 2, 0};
+    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv; } set = {0, 0, 0, 0, 2, 0};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
@@ -1762,6 +1841,8 @@ static void app_main(void)
     uint8_t held[27] = {0};
     uint16_t shown[4] = {0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu};
     uint8_t page_drawn = 255, bank_drawn = 255, bank_drawn2 = 255, op_drawn = 255, mono_drawn = 255;
+    uint8_t foc_drawn = 255;
+    uint32_t t_hold[2] = {0, 0}, long_fired[2] = {0, 0};   /* EDIT and ENV, and how long they are down */
     uint8_t alg_drawn = 255, alg_op_drawn = 255, mute_drawn = 255, leg_drawn = 255;
 
     bank_init();                                /* before the first load_voice: a slot may be the voice */
@@ -1770,7 +1851,6 @@ static void app_main(void)
     if (set.voice >= NVOICE) set.voice = 0;
     if (set.slot >= NUSER) set.slot = 0;
     if (set.span >= SP_NSPAN) set.span = 2;
-    ui[UI_ADV] = set.adv ? 1u : 0u;
     spspan = set.span;
     ui[UI_SPAN] = spspan;
     sp_init();
@@ -1799,7 +1879,7 @@ static void app_main(void)
                 int fn = op_key(k);
                 if (fn >= 0) {
                     opsel = (uint8_t)fn;        /* pointing at an operator, not playing one */
-                } else if (page == PAGE_OP && (k == MONO_KEY || k == POLY_KEY)) {
+                } else if (op_point() && (k == MONO_KEY || k == POLY_KEY)) {
                     set.mono = k == MONO_KEY;
                     ev_push(EV_MONO, set.mono, 0);
                     say(set.mono ? "MONO" : "POLY");
@@ -1829,13 +1909,51 @@ static void app_main(void)
         /* A page button moves to its page; pressing it again walks that page's banks of parameters,
          * so the button that got you there is also the one that shows you the rest. SEL still does
          * it too -- it is the shorter reach when you are already turning knobs. */
-        if (b & (1u << BTN_HOME)) page_to(PAGE_HOME);
-        if (b & (1u << BTN_EDIT)) page_to(PAGE_OP);
-        if (b & (1u << BTN_ENV))  page_to(PAGE_EG);
+        if (b & (1u << BTN_HOME)) {                        /* and the way back out of focus */
+            if (focus != FOC_OFF) {
+                focus = FOC_OFF;                           /* the keys and the knobs, as they were */
+                if (page != PAGE_HOME)
+                    page_to(PAGE_HOME);
+            } else
+                page_to(PAGE_HOME);
+        }
         if (b & (1u << BTN_LFO))  page_to(PAGE_LFO);
         if (b & (1u << BTN_GLO))  page_to(PAGE_GLO);
+        /* EDIT and ENV are the two buttons that mean an operator, and they are the two that answer
+         * to how long you hold them. Held past LONG_MS: the page, and pressing again walks its
+         * banks, exactly as every page button does. Released before: focus, on HOME, and pressing
+         * again steps the operator. The short action waits for the release because the long one
+         * replaces it -- there is no way to know which you meant until you let go or run out of
+         * time, and firing both would be worse than firing neither. */
+        for (k = 0; k < 2u; k++) {
+            uint32_t m = 1u << FOC_BTN[k];
+            if (b & m) {
+                t_hold[k] = fm1_ms ? fm1_ms : 1u;
+                long_fired[k] = 0;
+            }
+            if (t_hold[k] && !long_fired[k] && (fm1_in.buttons & m) &&
+                fm1_ms - t_hold[k] >= LONG_MS) {
+                long_fired[k] = 1;
+                focus = FOC_OFF;
+                page_to(FOC_PAGE[k]);
+            }
+            if (rel & m) {
+                if (!long_fired[k]) {
+                    if (focus == FOC_MODE[k] && page == PAGE_HOME)
+                        opsel = (uint8_t)((opsel + 5u) % 6u);   /* again: OP1 -> OP2 -> .. */
+                    else {
+                        focus = FOC_MODE[k];
+                        if (page != PAGE_HOME)
+                            page_to(PAGE_HOME);
+                    }
+                }
+                t_hold[k] = 0;
+            }
+        }
         if (b & (1u << BTN_SEL)) {                         /* the next four things under the knobs */
-            if (page == PAGE_HOME)
+            if (focus != FOC_OFF && page == PAGE_HOME)
+                opsel = (uint8_t)((opsel + 5u) % 6u);      /* or, focused, the next operator */
+            else if (page == PAGE_HOME)
                 homeset = (uint8_t)((homeset + 1u) % HSET_N);
             else
                 page_to(page);
@@ -1905,7 +2023,17 @@ static void app_main(void)
                 patch_publish();
             }
         }
-        if (page == PAGE_HOME) {                /* the four knobs are four operators, either screen */
+        if (page == PAGE_HOME && focus != FOC_OFF) {   /* focused: four things about one operator */
+            for (e = 0; e < 4u; e++) {
+                const param_t *p = focus_at(e);
+                if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || !p)
+                    continue;
+                p_turn(p, enc);
+                say_param(p);                   /* HOME has no rows, so the voice line says it */
+                modified = 1;
+                patch_publish();
+            }
+        } else if (page == PAGE_HOME) {         /* the four knobs are four operators, either screen */
             for (e = 0; e < 4u; e++) {
                 uint32_t n = home_op(e), op;
                 if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || !n)
@@ -1936,7 +2064,6 @@ static void app_main(void)
             if (p->where == P_UI) {                        /* a switch of the instrument, not the sound */
                 v = (int32_t)ui[p->idx] + enc;
                 ui[p->idx] = (uint8_t)(v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v);
-                set.adv = ui[UI_ADV];
                 if (ui[UI_SPAN] != spspan) {
                     spspan = ui[UI_SPAN];
                     set.span = spspan;
@@ -1978,14 +2105,14 @@ static void app_main(void)
             fm1_led_key(KEY_LED(k), lit >> k & 1u);
         {                                       /* the OP1..OP6 keys: all six glow where they work,
                                                  * and the one you are editing is lit outright */
-            int opk = page == PAGE_OP || page == PAGE_EG;
+            int opk = (int)op_point();
             for (k = 0; k < 6u; k++)
                 fm1_led_key_glow(KEY_LED(OP_KEY[k]), opk);
             if (opk)
                 fm1_led_key(KEY_LED(OP_KEY[5u - opsel]), 1);
-            fm1_led_key_glow(KEY_LED(MONO_KEY), page == PAGE_OP);
-            fm1_led_key_glow(KEY_LED(POLY_KEY), page == PAGE_OP);
-            if (page == PAGE_OP)                /* and the mode you are in is the one that is lit */
+            fm1_led_key_glow(KEY_LED(MONO_KEY), opk);
+            fm1_led_key_glow(KEY_LED(POLY_KEY), opk);
+            if (opk)                            /* and the mode you are in is the one that is lit */
                 fm1_led_key(KEY_LED(set.mono ? MONO_KEY : POLY_KEY), 1);
         }
         /* The octave buttons: lit for a shift that way, and pulsing at the end of the travel. The
@@ -2000,8 +2127,8 @@ static void app_main(void)
             fm1_led_key_glow(BTN_OCT_UP, set.oct == 2);
         }
         fm1_led_key(BTN_HOME, page == PAGE_HOME);
-        fm1_led_key(BTN_EDIT, page == PAGE_OP);
-        fm1_led_key(BTN_ENV, page == PAGE_EG);
+        fm1_led_key(BTN_EDIT, page == PAGE_OP || focus == FOC_EDIT);
+        fm1_led_key(BTN_ENV, page == PAGE_EG || focus == FOC_ENV);
         fm1_led_key(BTN_LFO, page == PAGE_LFO);
         fm1_led_key(BTN_GLO, page == PAGE_GLO);
         fm1_led_key(BTN_ARP, (opmute >> opsel) & 1u);      /* this operator is off */
@@ -2023,12 +2150,21 @@ static void app_main(void)
             for (k = 0; k < 240u; k++)
                 sp_pk[k] = 0;
             lcd_fill(0, 0, 240, 240, C_BLACK);  /* all of it: the meter is only on one page now */
-            if (page == PAGE_HOME)
-                draw_text_box(0, 18, 240, &FONT_L, APP_NAME, C_ACC, 1);
+            foc_drawn = 255;
             repaint = 1;
         }
+        if (page == PAGE_HOME) {                /* the banner, or what the knobs have become */
+            uint8_t ft = (uint8_t)(focus == FOC_OFF ? 0u : focus * 8u + opsel);
+            if (ft != foc_drawn || repaint) {
+                foc_drawn = ft;
+                draw_home_title();
+                repaint = 1;                    /* the banner's box reaches the voice line under it */
+            }
+        }
         {   /* the legend outlives a page, but not a change of mode: RATIO becomes FIXED HZ */
-            uint8_t leg = (uint8_t)(page == PAGE_OP ? (*op_byte(opsel, 17) ? 2u : 1u) :
+            uint8_t leg = (uint8_t)(focus != FOC_OFF && page == PAGE_HOME ?
+                                        20u + focus * 2u + (*op_byte(opsel, 17) ? 1u : 0u) :
+                                    page == PAGE_OP ? (*op_byte(opsel, 17) ? 2u : 1u) :
                                     page == PAGE_HOME ? 10u + homeset : 0u);
             if (leg != leg_drawn || repaint) {
                 leg_drawn = leg;

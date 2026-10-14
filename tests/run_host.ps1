@@ -64,3 +64,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'env.txt') {
     python tests\envcheck.py $out            # and ADSR against the eight bytes it writes
     if ($LASTEXITCODE) { throw 'ADSR does not match the segments underneath it' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'focus.txt') {
+    python tests\focuscheck.py $out          # and a tap of EDIT or ENV against a hold of it
+    if ($LASTEXITCODE) { throw 'a tap and a hold are not telling themselves apart' }
+}

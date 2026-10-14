@@ -57,7 +57,8 @@ so a bank fills them exactly.
 The five buttons along the top are the pages. The knobs under the screen are whatever that page shows;
 when a page has more than fits, the header says `2/4` and there are two ways to the rest: **SEL**, which is
 the shorter reach once your hands are on the knobs, or pressing that page's own button again — the button
-that got you there also walks you through it, and wraps around to the start.
+that got you there also walks you through it, and wraps around to the start. On **EDIT** and **ENV** that
+second press is a hold rather than a tap, for the reason the next section but one gives.
 
 A strip along the bottom of every screen names what the four knobs are doing, in the order they sit under
 it. On a parameter page that is the four parameters you can see anyway — but it is in the same place on
@@ -86,10 +87,10 @@ the title says what moved instead — `OP1 LVL 69`, or `OP3 x2.00` — for a sec
 | Button | Page | What is on it |
 | --- | --- | --- |
 | **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them; the knobs move four operators at a time |
-| **EDIT** | OPERATOR | level, ratio, detune, mode / velocity sensitivity, amp mod, rate scaling |
-| **ENV** | ENVELOPE | the envelope drawn to scale; attack, decay, sustain and release, then the four raw segments a rate and level at a time |
+| **EDIT** | OPERATOR | hold for the page: level, ratio, detune, mode, velocity sensitivity, amp mod, the coarse and fine bytes, the keyboard scaling — or tap it to put `LEVEL RATIO DETUNE` under the knobs without leaving HOME |
+| **ENV** | ENVELOPE | hold for the page: the envelope drawn to scale, attack, decay, sustain and release, then the four raw segments a rate and level at a time — or tap it for `ATK DEC SUS REL` without leaving HOME |
 | **LFO** | LFO | speed, delay, pitch mod, amp mod, wave, key sync, pitch mod sensitivity |
-| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope, **SHOW ALL** and **SPECTRUM** |
+| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope and **SPECTRUM** |
 
 ### Ratio, and the two bytes under it
 
@@ -110,23 +111,37 @@ instead, anywhere from 1 Hz to about 9.8 kHz. The row follows: it is called `FIX
 frequency, and the knob walks it. An operator pinned to a frequency ignores what you play, which is how
 most bells and all of the breath and click at the front of a sound are made.
 
-### Show all
+### A tap, and a hold
 
-Seven of the thirteen things the DX7 lets you say about an operator are the keyboard scaling — a break
-point, a depth and a curve either side of it — plus the coarse and fine multipliers that **RATIO** now says
-between them. None of them is wrong. All of them are a page to wade through before you reach the ones that
-change the sound audibly, and the scaling five do nothing at all until you have played in two different
-registers and noticed the difference.
+**EDIT** and **ENV** can be pressed two ways, and the only difference is how long you hold them.
 
-So they are off the page until you ask. **SHOW ALL**, alone on the last bank of GLOBAL, puts them back:
-OPERATOR grows from two banks to four, `COARSE` and `FINE` appear next to each other on the second, and the
-scaling fills the rest. The setting is remembered across a power cycle. Nothing is ever hidden from the
-engine, the bank, or a `.syx` — only from you, and only until you want it.
+**Hold** either for a moment and you get its page, which is what those buttons have always done.
+
+**Tap** one and you stay on HOME — on the diagram, on the spectrum, on the sound — but the four knobs become
+that page's first few rows for a single operator. **EDIT** gives you `LEVEL`, `RATIO` and `DETUNE`; **ENV**
+gives you `ATK`, `DEC`, `SUS` and `REL`. The fourth knob under **EDIT** is deliberately blank: it is being
+kept for the operator's waveform.
+
+These are literally the first rows of the page the button would have opened, driven by the same code that
+drives them there. A tap is a shortcut to the top of a menu, not a second set of controls to learn, and
+anything you change this way is on the page waiting for you when you hold the button instead.
+
+The operator is the one **SELECT** is on — the one with the white ring round its box in the diagram — and
+tapping the same button again steps to the next one. So do the `OP1` to `OP6` black keys. Press **HOME** to
+leave.
+
+This is the view worth living in. Four operator parameters under four knobs, a note held, and the box and the
+sidebands both moving while you turn: everything FM has to teach is in that loop, and it is much harder to
+learn it from a list of numbers on a page with the sound two button presses away.
+
+The title says when you are in it. `FM LAB` becomes `EDIT OP3` or `ENV OP3`, and it needs to, because part of
+the keyboard has stopped playing — which is the one thing about this that can take you by surprise.
 
 **SELECT** picks which operator the OPERATOR and ENVELOPE pages are showing. So do the low six black keys,
-the ones the panel prints `OP1` to `OP6` under: on those two pages they jump straight to their operator
-instead of sounding, because there you are pointing at an operator rather than playing one. All six glow
-while they mean that, and the one you are editing is lit outright. On every other page they are keys again.
+the ones the panel prints `OP1` to `OP6` under: on those two pages, and whenever a tap has the knobs, they
+jump straight to their operator instead of sounding, because there you are pointing at an operator rather
+than playing one. All six glow while they mean that, and the one you are editing is lit outright. On every
+other page they are keys again.
 
 The header names the operator and says whether it is a `CAR` or a `MOD` — whether, under the algorithm you
 are on, you hear it directly or only feel it bending something else. Change the algorithm and watch that
@@ -368,7 +383,7 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Eight more scripts go with it:
+which is the thing most worth listening to. Nine more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
@@ -377,9 +392,10 @@ tests/run_host.sh tests/bank.txt          # saving, and .syx in and out, data an
 tests/run_host.sh tests/panel.txt         # the pages and the operator keys, screens and MIDI checked
 tests/run_host.sh tests/spectrum.txt      # the analyser, against where the partials belong
 tests/run_host.sh tests/levels.txt        # the operator boxes, against the envelopes behind them
-tests/run_host.sh tests/edit.txt          # RATIO and SHOW ALL, against the bytes underneath them
+tests/run_host.sh tests/edit.txt          # RATIO, against the two bytes underneath it
 tests/run_host.sh tests/home.txt          # HOME's four knobs, against the bytes they move
 tests/run_host.sh tests/env.txt           # ADSR, against the eight raw bytes it is a view of
+tests/run_host.sh tests/focus.txt         # tap and hold, and what each one does to the knobs
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -438,9 +454,19 @@ width in pixels, so a screenshot of a page is four numbers, and the claims about
 rather than "the screen changed": one click is one entry, turning back down retraces the same entries
 exactly, both ends of the list hold against another click, and `FIXED` switches the same knob to counting
 frequency steps — coarse 31, of which the engine reads only the low two bits, has to land three decades up.
-Then the claim that matters. It drives **RATIO** to each end of its list, turns **SHOW ALL** on, and goes and
-reads `COARSE` and `FINE` directly: `x0.50` has to be 0 and 0, `x31.00` has to be 31 and 0. If **RATIO** were
+Then the claim that matters. It drives **RATIO** to each end of its list and goes and reads `COARSE` and
+`FINE` directly, two banks along: `x0.50` has to be 0 and 0, `x31.00` has to be 31 and 0. If **RATIO** were
 anything other than those two bytes, that is where it would show.
+
+`tests/focuscheck.py` tests a distinction the script can only make with a stopwatch, so the host harness had
+to learn what a button is. It used to deal in edges; now `btn 4` is a fifty-millisecond tap and `btn 4 600`
+is held down for six hundred, with the button genuinely down in between, which is what the firmware now
+needs to see. The checks are the two halves of the difference: a tap must leave the diagram on the screen
+while renaming the banner and relabelling all four knob cells, and a hold must replace the screen entirely.
+Then it proves the knobs really are the page's rows and not a copy of them — `ATK` turned to 40 has to read
+as rate 1 of 59 when you go and look at the raw bank — that two operators get different numbers, that the
+fourth **EDIT** cell is genuinely empty rather than stale, that **HOME** hands the knobs back, and, from the
+run's own MIDI log, that the `OP` keys sent nothing while a white key played and sounded normally.
 
 ## Where to go next
 

@@ -68,49 +68,47 @@ def main(stem):
         """the whole screen, for the banks that only have to differ"""
         return read(stem.with_name(stem.name + f"-{ms}.ppm"))[1]
 
-    r = {ms: bars(ms)[1] for ms in (400, 800, 1200, 1600, 2000, 2400,
-                                    2800, 3200, 3600, 4000, 4400, 4800, 8800, 10200)}
+    r = {ms: bars(ms)[1] for ms in (1100, 1500, 1900, 2300, 2700, 3100,
+                                    3500, 3900, 4300, 4700, 5100, 5500, 6100, 10900)}
 
     # One entry per click. The widths are a list index scaled to 228 pixels, so consecutive entries
     # differ by about six and the steps have to be even as well as upward.
-    up = [r[800], r[1200], r[1600]]
+    up = [r[1500], r[1900], r[2300]]
     check("the ratio steps up one entry a click", up[0] < up[1] < up[2],
-          f"{r[400]} -> {up}")
+          f"{r[1100]} -> {up}")
     check("and the steps are the same size", abs((up[1] - up[0]) - (up[2] - up[1])) <= 1,
           f"{up[1] - up[0]} then {up[2] - up[1]}")
-    check("the first click lands on the list", r[800] != r[400])
+    check("the first click lands on the list", r[1500] != r[1100])
 
     # Coming back down has to arrive at the same entries, not half a step off them.
-    check("turning back down retraces it", r[2000] == r[1200] and r[2400] == r[800],
-          f"{r[2000]} = {r[1200]}, {r[2400]} = {r[800]}")
+    check("turning back down retraces it", r[2700] == r[1900] and r[3100] == r[1500],
+          f"{r[2700]} = {r[1900]}, {r[3100]} = {r[1500]}")
 
     # x0.50 is the first entry and x31.00 the last: the bar is empty at one end and full at the
     # other, and another click at either end does nothing at all.
-    check("the bottom of the list is an empty bar", r[2800] == 0, f"{r[2800]} px")
-    check("and it stops there", r[3200] == 0)
-    check("the top of the list is a full bar", r[3600] == BAR_W, f"{r[3600]} px")
-    check("and it stops there too", r[4000] == BAR_W)
+    check("the bottom of the list is an empty bar", r[3500] == 0, f"{r[3500]} px")
+    check("and it stops there", r[3900] == 0)
+    check("the top of the list is a full bar", r[4300] == BAR_W, f"{r[4300]} px")
+    check("and it stops there too", r[4700] == BAR_W)
 
     # FIXED counts four hundred frequency steps instead of thirty-seven entries, so coarse 31 --
     # of which the engine reads only the low two bits -- lands three decades up, at 1 kHz.
-    check("FIXED reads the bytes as a frequency", r[4400] == round(BAR_W * 300 / 399),
-          f"{r[4400]} px, want {round(BAR_W * 300 / 399)}")
-    check("and the knob walks the steps", r[4800] == round(BAR_W * 350 / 399),
-          f"{r[4800]} px, want {round(BAR_W * 350 / 399)}")
+    check("FIXED reads the bytes as a frequency", r[5100] == round(BAR_W * 300 / 399),
+          f"{r[5100]} px, want {round(BAR_W * 300 / 399)}")
+    check("and the knob walks the steps", r[5500] == round(BAR_W * 350 / 399),
+          f"{r[5500]} px, want {round(BAR_W * 350 / 399)}")
 
-    # SHOW ALL: the switch is the only row on GLOBAL's last bank, and turning it on has to be
-    # visible there and then show up as two more banks on OPERATOR.
-    check("SHOW ALL changes the page it is on", full(6000) != full(6400))
-    walked = [full(6800), full(7200), full(7600), full(8000)]
-    check("OPERATOR has four banks with it on", len(set(walked)) == 4)
-    check("and the fifth press still wraps", full(8400) == full(6800))
+    # Four banks of four, all different, and the fifth press back to the first.
+    walked = [full(6100), full(7200), full(8300), full(9400)]
+    check("OPERATOR has four banks", len(set(walked)) == 4)
+    check("and the fifth press wraps", full(10500) == full(6100))
 
-    # The claim: RATIO is the COARSE and FINE bytes. Bank 2 is those two bytes, read directly.
-    b_low, b_high = bars(9200), bars(10600)
+    # The claim: RATIO is the COARSE and FINE bytes, which are the next bank along.
+    b_low, b_high = bars(7200), bars(12000)
     check("x0.50 is coarse 0 and fine 0", b_low[0] == 0 and b_low[1] == 0, f"{b_low[:2]}")
-    check("and the empty bar on bank 1 agreed", r[8800] == 0)
+    check("and the empty RATIO bar agreed", r[6100] == 0, f"{r[6100]} px")
     check("x31.00 is coarse 31 and fine 0", b_high[0] == BAR_W and b_high[1] == 0, f"{b_high[:2]}")
-    check("and the full bar on bank 1 agreed", r[10200] == BAR_W)
+    check("and the full RATIO bar agreed", r[10900] == BAR_W, f"{r[10900]} px")
 
     print(f"\n{bad} checks failed")
     return 1 if bad else 0
