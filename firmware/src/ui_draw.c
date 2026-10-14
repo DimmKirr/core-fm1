@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee UI drawing: the header, the four knob cards, the footer (steps + engine / preset / page)
  * and the frame; the panel between the cards and the footer is ui_graph.c. The layout: SURF cards and panels on
  * BG, rounded corners, no rules, colours from the theme tokens only (gfx.c T_*); THEME is the selected track's
@@ -1113,6 +1114,11 @@ static void ui_draw(void)                               /* (gfx.c: the fills wai
 }
 static void ui_draw_frame(void)
 {
+    if (boot_work.state) {
+        scrn.idle = fm1_ms;                          /* maintenance/errors never sleep or get covered */
+        if (ui.force) { boot_work_draw(); ui.force = 0; }
+        return;
+    }
     if (!scr_frame()) return;
     ui.frame++;
     if (palette_track(song.sel))                       /* THEME is the selected track's colour */

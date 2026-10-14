@@ -121,3 +121,14 @@ initial unprotected phase before the stub sector was complete. Single core to
 Standard exercised 2,041 cut points with no unprotected state. Across these six
 scenarios, 12,688 interruption positions were checked. Genuine V15 recovery-package
 validation also passed. No device was flashed or physically power-cycled.
+
+Startup-display hotfix validation on 2026-10-14: both release variants passed
+build checks and kept the pinned boot sector identical. The full host suite,
+including sound and target render-cost checks, passed again. Simulated NOR tests
+verify that the warning is flushed before the twelve first-boot bank erases,
+that completed banks are preserved after a failure, and that retry initializes
+only the nine unfinished banks in the injected partial-failure case. UI tests
+verify that working screens consume input and that errors remain visible above
+menus/dialogs, do not sleep, and require OCT+ acknowledgment. Progress and error
+renders were visually checked. Physical first-boot/display validation remains
+pending.

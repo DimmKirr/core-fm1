@@ -2,6 +2,15 @@ Melodee 1.3.5 adds a boot stub and completion marker to recover interrupted
 application updates. It builds on 1.3.4 and keeps its clock behavior: Melodee
 never writes the system PLL.
 
+The startup display hotfix brings forward the 1.4 development line's early
+screen and maintenance progress. The FM-1 shows **STARTING UP** before reading
+stored data, then **INITIALIZING PRESETS** with a progress bar when first-boot
+banks are created, or **FINISHING UPDATE** during update cleanup. The display
+says to keep power connected and wait. The watchdog is serviced between
+maintenance writes. A failed operation stays visible with **Restart to retry**;
+press **OCT+** to acknowledge and continue. Existing preset/settings formats
+and bank contents follow the same initialization rules as 1.3.4.
+
 - Before starting Melodee, the stub checks the completion marker and the
   application checksum. An incomplete application requests the retained USB MIDI
   update loader. Reconnect USB and install the same package again; matching

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE boot and main loop. Boot order: WDT first, boot-loop guard, fatal vectors,
  * guards; then LCD, input (TIMER5 IRQ, 10 kHz), audio (ALNK0 IRQ). */
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
@@ -159,18 +160,25 @@ static void fm1_main(void)
 {
     int32_t knob = 512 * 16;
     fm1__pc_out(6,0);                         /* codec held quiet before flash and splash */
+    settings_init();                           /* a readable default palette before loading flash */
+    lcd_init();                                /* maintenance must be visible before any boot writes */
+    lcd_fill(0, 0, 240, 240, T_BG);
+    draw_text_box(0, 94, 240, &AF_L, "MELODEE", T_THEME, 1);
+    draw_text_box(0, 134, 240, &AF_S, "STARTING UP", T_MID, 1);
+    lcd_sync();
     dsp_tables_init();                        /* the RAM lookup tables (FM6), before anything renders */
     persist_boot();
 #if MELODEE_OTA
-    if (flash_ok)
+    if (flash_ok && boot_work.state != 2u)
         ota_boot_cleanup();                             /* staging area left by an update */
 #endif
     settings_init();
     clock_boot();                             /* the voice budget at the clock found (never changed) */
-    lcd_init();
-    lcd_fill(0, 0, 240, 240, T_BG);
-    draw_text_box(0, 94, 240, &AF_L, "MELODEE", T_THEME, 1);
-    draw_text_box(0, 134, 240, &AF_S, "MULTI-ENGINE SYNTH", T_MID, 1);
+    if (boot_work.state != 2u) {
+        lcd_fill(0, 0, 240, 240, T_BG);
+        draw_text_box(0, 94, 240, &AF_L, "MELODEE", T_THEME, 1);
+        draw_text_box(0, 134, 240, &AF_S, "MULTI-ENGINE SYNTH", T_MID, 1);
+    }
     if (melodee_dbg.magic != DBG_MAGIC) {
         memset(&melodee_dbg, 0, sizeof melodee_dbg);
         melodee_dbg.magic = DBG_MAGIC;
@@ -215,7 +223,8 @@ static void fm1_main(void)
     glo_restore();                            /* CLK TUNE MIDI ROUT as last used, */
     project_boot();                           /* then the BOOT project or the template (theirs win) */
     fm1_delay_ms(400);
-    lcd_fill(0, 0, 240, 240, T_BG);
+    if (boot_work.state != 2u)
+        lcd_fill(0, 0, 240, 240, T_BG);
 
     for (;;) {
         uint32_t m = fm1_ms;

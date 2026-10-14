@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee UI input: LEDs, knobs and buttons, SEQ step entry, panel setup. */
 #include "ui_name.c"                                    /* NAME: naming user presets and projects */
 #include "ui_new.c"                                     /* NEW SONG: key, tempo, roles */
@@ -1621,6 +1622,12 @@ static void ui_confirm_accept(void)
 static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
+    if (boot_work.state) {
+        for (k = 0; k < NE; k++) (void)panel_enc(k);
+        panel_moved = 0;
+        boot_work_input(pressed);
+        return;
+    }
     if(ui.import_refresh){pop.on=0;brw.on=0;ui.import_refresh=0;ui.force=1;}
     if (scr_input(pressed, notes)) return;
     if (designer_on() && !name_on() && !ui.confirm && designer_input(pressed, notes)) return;

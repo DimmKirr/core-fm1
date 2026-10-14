@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Projects: four slots in NOR, each holding 32 independent pattern banks.
  * FBKK (pattern_store.c) contains the FUN20 sound/current-pattern record below.
  * Hardware retains only slot names/occupancy in RAM; full records use one
@@ -1113,6 +1114,7 @@ static void persist_boot(void)                    /* before settings_init / pane
             if (!project_used(i))
                 proj_fetch(i);
     }
+    settings_init();                               /* maintenance uses the saved palette */
     up_boot();                                     /* user presets */
 #endif
 }

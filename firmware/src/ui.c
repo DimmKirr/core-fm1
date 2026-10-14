@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE user interface.
  * Flat: SURF cards and panels on the palette's background, no rules, one type family (Rubik, three sizes), tracks
  * named by circled numerals. Four columns <-> KNOB 1..4. Rendering is lazy:
@@ -1180,3 +1181,5 @@ static void confirm_open(uint32_t kind, uint32_t trk)
 #include "sysex_library.c"                       /* staged imports and USB library exports */
 
 #include "note_tools.c"
+
+#include "ui_boot.c"                            /* visible progress before boot flash maintenance */

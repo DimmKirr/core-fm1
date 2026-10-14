@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the UI (firmware/src/ui*.c with the sound sources of hostsim.c;
  * the display and the HAL are stubs, the buttons and knobs are driven through them):
  *   SOUNDS     a sound load (PRESETS knob / page, Init sound, user preset) changes the sound only: the
@@ -134,6 +135,7 @@ static void ui_power_on(void)
     chain_defaults(&chain_config);
     pattern_init();
     memset(&ui, 0, sizeof ui);
+    memset(&boot_work, 0, sizeof boot_work);
     memset(&step_history, 0, sizeof step_history);
     memset(&sx_import,0,sizeof sx_import);memset(&bulk,0,sizeof bulk);resource_release(RES_NOTE_HISTORY);note_transaction_ptr=0;
     midi_sync_active=0;memset(&midi_clock,0,sizeof midi_clock);
@@ -4499,10 +4501,43 @@ static int test_prophet_pages(void)
     undo_swap();bad+=check("undo after native INIT restores opaque bytes",p5_patch_of(TSEL)->raw[97]==255);
     return bad;
 }
+static int test_boot_maintenance(void)
+{
+    int bad = 0;
+    ui_power_on();
+    song.playing = 0;
+    boot_work_begin("INITIALIZING PRESETS", 12u);
+    uint32_t selected = song.sel;
+    int16_t bpm = song.g[G_BPM];
+    press(B_PLAY); turn(EN_K1, 4); press(B_OCTUP);
+    bad += check("startup maintenance blocks transport, knobs and acknowledgment while writing",
+                 boot_work.state == 1u && !song.playing && song.sel == selected && song.g[G_BPM] == bpm);
+    boot_work_progress(3u);
+    boot_work_end(1);
+    ui.menu = 1; ui.confirm = CF_CLEAR_SEQ; ui.uboot = 3; ui.force = 1;
+    static uint16_t screen[240 * 240];
+    memcpy(screen, host_screen, sizeof screen);
+    ui_draw();
+    bad += check("startup failure remains above menu, dialogs and update countdown",
+                 boot_work.state == 2u && !memcmp(screen, host_screen, sizeof screen));
+    settings_screen = SCR_CODE[1]; fm1_ms += 3600000u; ui_draw();
+    bad += check("startup failure never times out or sleeps", boot_work.state == 2u && scrn.st == SCR_ON);
+    press(B_PLAY); press(B_OCTDN);
+    bad += check("startup failure consumes ordinary input until acknowledged", boot_work.state == 2u && !song.playing);
+    fm1_in.buttons = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
+    host_pressed = fm1_in.buttons; frame(); fm1_in.buttons = 0; frame();
+    bad += check("both octave buttons cannot dismiss the startup failure", boot_work.state == 2u);
+    press(B_OCTUP);
+    bad += check("OCT+ acknowledges startup failure", !boot_work.state && memcmp(screen, host_screen, sizeof screen));
+    ui_power_on();
+    return bad;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-    int bad = test_prophet_pages();
+    int bad = test_boot_maintenance();
+    bad += test_prophet_pages();
     bad += test_large_face();
     bad += test_home_notes();
     bad += test_stage();

@@ -39,6 +39,10 @@ runs Felucca.
 
 ## What's new in 1.3.5
 
+- **Visible startup work:** the screen shows STARTING UP before loading storage,
+  with a progress bar and a keep-power-connected message during first-boot
+  preset initialization or update cleanup. Errors remain visible until OCT+
+  acknowledges them; restart to retry unfinished work.
 - **Recovery after an interrupted update:** a boot stub checks the application
   before starting it. An incomplete write returns to the retained USB MIDI update
   loader, with ROM UBOOT as a fallback. Reconnect USB and install the same package
