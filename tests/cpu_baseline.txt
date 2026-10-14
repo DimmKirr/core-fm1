@@ -198,6 +198,22 @@ but it is the one thing here that would grow if the list did, and the obvious
 fix -- the list is sorted, so a binary search -- is not worth writing until the
 list is long enough to need it.
 
+The knobs on HOME
+-----------------
+image 111932 B, RAM .data+.bss 30664 B, pool 73472 B. 672 bytes over ratio, and
+16 of RAM -- the twenty-byte buffer the voice line's message is built into,
+rounded up. The meter is untouched again: nothing here is in app_audio.
+
+A knob turned on HOME does exactly what a knob turned on a parameter page does
+-- write one byte of the 156 and publish them -- plus build a short string and
+hand it to say(). That is the same work the save prompt already did a letter at
+a time. The legend is redrawn only when its key changes, which on HOME is the
+set number, so stepping SEL costs one 240x16 blit and holding a knob costs none.
+
+The span moving off KNOB1 and onto GLOBAL took the one special case out of the
+knob loop, so HOME's two screens now run the same code. That is worth more than
+the bytes it saved.
+
 What it means
 -------------
 NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better
@@ -211,3 +227,5 @@ Watch this number again after:
   - anything per-sample added to app_audio
   - DX_LG_N changed from 6 (smaller blocks cost more per sample)
   - anything that makes a knob detent do more than publish 156 bytes
+  - say() being called from somewhere that repeats (it is cheap once, and the
+    voice line redraws on every message)

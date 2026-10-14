@@ -70,14 +70,14 @@ def main(prefix):
     def peak(cols):
         return max(cols, key=lambda x: cols[x]) if cols else -1
 
-    raw = {ms: shot(ms)[1] for ms in (200, 600, 4800)}
+    raw = {ms: shot(ms)[1] for ms in (200, 600, 6400)}
     check("the second press of HOME is another screen", raw[200] != raw[600])
-    check("and a third comes back to the diagram", raw[4800] == raw[200])
+    check("and a third comes back to the diagram", raw[6400] == raw[200])
 
     quiet = columns(600, "cap")
     check("nothing playing draws no bars", not quiet, f"{len(quiet)} columns")
 
-    five, ten, back = columns(1400, "cap"), columns(2200, "cap"), columns(3000, "cap")
+    five, ten, back = columns(1400, "cap"), columns(3000, "cap"), columns(4600, "cap")
     check("a note held draws bars", len(five) > 10, f"{len(five)} columns")
 
     # The fundamental, and then the harmonics, each looked for only near where it should be: the
@@ -95,7 +95,7 @@ def main(prefix):
     check("and turning back gives the first picture again", peak(back) == peak(five),
           f"{peak(back)} against {peak(five)}")
 
-    tail, gone = columns(3600, "cap"), columns(4400, "cap")
+    tail, gone = columns(5200, "cap"), columns(6000, "cap")
     tall = max(tail.values(), default=0)
     check("letting go takes the bars down with it", tall * 3 < five[peak(five)],
           f"{tall} px against {five[peak(five)]}")
@@ -103,7 +103,7 @@ def main(prefix):
     # The mark the fundamental left behind: above nothing at all, below where the bar reached, and
     # lower again a moment later. It is a memory of the sound, and it is supposed to fade.
     fx = peak(five)
-    a, b = columns(3600, "peak"), columns(4400, "peak")
+    a, b = columns(5200, "peak"), columns(6000, "peak")
     check("the fundamental's peak outlives its bar", a.get(fx, 0) > 10,
           f"{a.get(fx, 0)} px at column {fx}, where the bar reached {five[fx]}")
     check("and it is coming down", 0 < b.get(fx, 0) < a.get(fx, 0),

@@ -8,6 +8,7 @@
 #   tests/run_host.sh tests/bank.txt        the bank, saving, and .syx in and out
 #   tests/run_host.sh tests/panel.txt       the pages, the operator keys, and what they send
 #   tests/run_host.sh tests/spectrum.txt    the analyser, against where the partials belong
+#   tests/run_host.sh tests/home.txt        the four knobs HOME puts under your fingers
 #
 # A script's output is named after it, so the runs do not overwrite each other.
 set -e
@@ -31,6 +32,7 @@ case "$script" in                                           # while the screens 
 */spectrum.txt) python3 tests/speccheck.py "$out" ;;        # the analyser, against the arithmetic
 */levels.txt) python3 tests/levelcheck.py "$out" ;;         # the operator boxes, against the envelopes
 */edit.txt)   python3 tests/editcheck.py "$out" ;;          # RATIO, against the bytes underneath it
+*/home.txt)   python3 tests/homecheck.py "$out" ;;          # HOME's knobs, against the bytes they move
 esac
 OUT="$out" python3 - <<'PY'
 import os

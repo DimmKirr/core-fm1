@@ -480,13 +480,16 @@ static void app_audio(int32_t *out, uint32_t n)
  * A page is a flat list; the knobs show four at a time and SEL steps to the next four. `op` entries
  * are an offset inside the selected operator's 21 bytes, `g` entries an index into the 156.
  * Operators are stored OP6 first, so operator n lives at (6 - n) * 21. */
+static const uint16_t SP_SPAN[5] = {1000, 2000, 5000, 10000, 20000};    /* the spectrum's top end */
+#define SP_NSPAN (sizeof SP_SPAN / sizeof SP_SPAN[0])
+
 enum { P_G = 0, P_OP = 1, P_UI = 2 };
-enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, K_TRSP };
+enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, K_TRSP, K_SPAN };
 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
  * opinions; they are saved with the octave and the rest. */
-enum { UI_ADV = 0, UI_N };
+enum { UI_ADV = 0, UI_SPAN, UI_N };
 static uint8_t ui[UI_N];
 
 typedef struct {
@@ -545,6 +548,7 @@ static const param_t PG_GLO[] = {
     {"P LEVEL 3", "P LVL3", P_G, 132, 99, K_NUM},
     {"P LEVEL 4", "P LVL4", P_G, 133, 99, K_NUM},
     {"SHOW ALL", "SHOW", P_UI, UI_ADV, 1, K_ONOFF},
+    {"SPECTRUM", "SPECT", P_UI, UI_SPAN, SP_NSPAN - 1u, K_SPAN},
 };
 
 enum { PAGE_HOME = 0, PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_GLO };
@@ -594,6 +598,33 @@ static const param_t *page_at(uint32_t want)
 }
 
 #define PAGE_NBANK ((page_n() + PAGE_ROWS - 1u) / PAGE_ROWS)
+
+/* ---- the four knobs on HOME
+ *
+ * The algorithm diagram and the spectrum are the two screens you look at while actually listening,
+ * and neither had anything under the knobs. Balancing the operators against each other is most of
+ * what making an FM sound is, so that is what they do: four operators at a time, levels or ratios.
+ * Turn one with a note held and you watch its box fill as you hear it change, which is the whole
+ * loop in one gesture.
+ *
+ * SEL steps which four -- the same thing SEL means on every other page, the next four things under
+ * the knobs -- so there is nothing new to learn, and HOME's own button goes on swapping the two
+ * screens. Four knobs and six operators do not divide, so the sets come in pairs: operators 1 to 4,
+ * then 5 and 6 with two knobs spare. The legend names every knob, so which set you are on is never
+ * something you have to carry in your head. */
+enum { HK_LVL = 0, HK_RAT };
+static const struct { uint8_t what, op0; } HSET[] = {
+    {HK_LVL, 1}, {HK_LVL, 5}, {HK_RAT, 1}, {HK_RAT, 5},
+};
+#define HSET_N (sizeof HSET / sizeof HSET[0])
+static uint8_t homeset;
+
+/* which operator knob e is on, as the panel numbers them, or 0 for "this knob does nothing" */
+static uint32_t home_op(uint32_t e)
+{
+    uint32_t n = (uint32_t)HSET[homeset].op0 + e;
+    return n <= 6u ? n : 0u;
+}
 
 /* Go to a page; pressing the button for the page you are already on walks its banks and wraps. */
 static void page_to(uint8_t p)
@@ -698,18 +729,18 @@ static uint32_t rat_x100(uint32_t c, uint32_t f)        /* the multiple, times a
     return (c ? c * 100u : 50u) * (100u + (f > 99u ? 99u : f)) / 100u;
 }
 
-static uint8_t *op_byte(uint32_t off) { return &edit[(uint32_t)opsel * 21u + off]; }
-static uint32_t rat_now(void) { return rat_x100(*op_byte(18), *op_byte(19)); }
+static uint8_t *op_byte(uint32_t op, uint32_t off) { return &edit[op * 21u + off]; }
+static uint32_t rat_now(uint32_t op) { return rat_x100(*op_byte(op, 18), *op_byte(op, 19)); }
 
 /* Where the operator sits in the list. Exact if its two bytes are an entry; otherwise the entry
  * below it, so that a turn up lands on the next one above rather than skipping it. */
-static uint32_t rat_index(uint32_t *exact)
+static uint32_t rat_index(uint32_t op, uint32_t *exact)
 {
-    uint32_t v = rat_now(), i, at = 0;
+    uint32_t v = rat_now(op), i, at = 0;
     *exact = 0;
     for (i = 0; i < RAT_N; i++) {
         uint32_t e = rat_x100(RAT[i][0], RAT[i][1]);
-        if (e == v && RAT[i][0] == *op_byte(18)) { *exact = 1; return i; }
+        if (e == v && RAT[i][0] == *op_byte(op, 18)) { *exact = 1; return i; }
         if (e <= v) at = i;
     }
     return at;
@@ -718,7 +749,7 @@ static uint32_t rat_index(uint32_t *exact)
 /* 10^(f/100) in Q12, as two tables of ten so it costs forty bytes instead of two hundred */
 static const uint16_t TEN1[10] = {4096, 5157, 6492, 8173, 10289, 12953, 16306, 20529, 25844, 32536};
 static const uint16_t TEN2[10] = {4096, 4191, 4289, 4389, 4491, 4596, 4703, 4812, 4924, 5039};
-static uint32_t fix_step(void) { return (*op_byte(18) & 3u) * 100u + (*op_byte(19) > 99u ? 99u : *op_byte(19)); }
+static uint32_t fix_step(uint32_t op) { return (*op_byte(op, 18) & 3u) * 100u + (*op_byte(op, 19) > 99u ? 99u : *op_byte(op, 19)); }
 static uint32_t fix_hz_x100(uint32_t x)         /* the frequency those steps mean, times a hundred */
 {
     uint32_t d = x / 100u, f = x % 100u, mul = 25u;
@@ -729,30 +760,55 @@ static uint32_t fix_hz_x100(uint32_t x)         /* the frequency those steps mea
                                                  * quarter of the room needed to hold it */
 }
 
+/* Turn an operator's pitch by one or more clicks, whichever of the two things it currently means.
+ * The HOME knobs drive this for an operator you are not editing, so it takes one. */
+static void rat_turn(uint32_t op, int32_t enc)
+{
+    if (*op_byte(op, 17)) {                     /* FIXED: walk the four decades in steps */
+        int32_t x = (int32_t)fix_step(op) + enc;
+        x = x < 0 ? 0 : x > 399 ? 399 : x;
+        *op_byte(op, 18) = (uint8_t)(x / 100);
+        *op_byte(op, 19) = (uint8_t)(x % 100);
+    } else {                                    /* RATIO: walk the list */
+        uint32_t exact;
+        int32_t x = (int32_t)rat_index(op, &exact);
+        /* rat_index leaves us on the entry below an off-list ratio, so turning down from there is
+         * already a step and must not take another */
+        x += exact || enc > 0 ? enc : enc + 1;
+        x = x < 0 ? 0 : x > (int32_t)RAT_N - 1 ? (int32_t)RAT_N - 1 : x;
+        *op_byte(op, 18) = RAT[x][0];
+        *op_byte(op, 19) = RAT[x][1];
+    }
+}
+
+/* an operator's pitch written out, as a multiple of the key or as the frequency it is pinned to */
+static uint32_t put_ratio(char *s, uint32_t i, uint32_t op)
+{
+    uint32_t n;
+    if (!*op_byte(op, 17)) {
+        n = rat_now(op);
+        s[i++] = 'x';
+        i = putn(s, i, n / 100u, 1);
+        s[i++] = '.';
+        s[i++] = (char)('0' + (n / 10u) % 10u);
+        return (s[i++] = (char)('0' + n % 10u)), i;
+    }
+    n = fix_hz_x100(fix_step(op));              /* fewer decimals the higher it goes, to stay in the box */
+    i = putn(s, i, n / 100u, 1);
+    if (n < 100000u) {
+        s[i++] = '.';
+        s[i++] = (char)('0' + (n / 10u) % 10u);
+        if (n < 1000u) s[i++] = (char)('0' + n % 10u);
+    }
+    return put(s, i, "HZ");
+}
+
 /* a parameter's value as the DX7 means it, not as the byte happens to be stored */
 static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
 {
     switch (p->kind) {
-    case K_RAT: {                               /* the two bytes, said as the one thing they mean */
-        uint32_t n;
-        if (!*op_byte(17)) {
-            n = rat_now();
-            s[i++] = 'x';
-            i = putn(s, i, n / 100u, 1);
-            s[i++] = '.';
-            s[i++] = (char)('0' + (n / 10u) % 10u);
-            s[i++] = (char)('0' + n % 10u);
-            return i;
-        }
-        n = fix_hz_x100(fix_step());            /* fewer decimals the higher it goes, to stay in the box */
-        i = putn(s, i, n / 100u, 1);
-        if (n < 100000u) {
-            s[i++] = '.';
-            s[i++] = (char)('0' + (n / 10u) % 10u);
-            if (n < 1000u) s[i++] = (char)('0' + n % 10u);
-        }
-        return put(s, i, "HZ");
-    }
+    case K_RAT:  return put_ratio(s, i, opsel);
+    case K_SPAN: i = putn(s, i, SP_SPAN[v < SP_NSPAN ? v : 0] / 1000u, 1); return put(s, i, "KHZ");
     case K_DET:  s[i++] = v < 7u ? '-' : '+'; return putn(s, i, v < 7u ? 7u - v : v - 7u, 1);
     case K_MODE: return put(s, i, v ? "FIXED" : "RATIO");
     case K_ONOFF: return put(s, i, v ? "ON" : "OFF");
@@ -765,6 +821,23 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
     case K_TRSP: s[i++] = v < 24u ? '-' : '+'; return putn(s, i, v < 24u ? 24u - v : v - 24u, 1);
     default: return putn(s, i, v, 1);
     }
+}
+
+/* what the voice line says when a HOME knob moves, since with no note held the boxes show nothing */
+static char hk_say[20];
+static void say_knob(uint32_t n)
+{
+    uint32_t op = 6u - n, i = put(hk_say, 0, "OP");
+    i = putn(hk_say, i, n, 1);
+    if (HSET[homeset].what == HK_LVL) {
+        i = put(hk_say, i, " LVL ");
+        i = putn(hk_say, i, *op_byte(op, 16), 1);
+    } else {
+        hk_say[i++] = ' ';
+        i = put_ratio(hk_say, i, op);
+    }
+    hk_say[i] = 0;
+    say(hk_say);
 }
 
 static void draw_voice(uint32_t vi, uint32_t y)
@@ -1102,9 +1175,7 @@ static void draw_alg_levels(void)
 #define SP_Y ALG_Y
 typedef char fmlab_spectrum_fits[(240u * SP_H <= CV_MAX) ? 1 : -1];
 
-static const uint16_t SP_SPAN[5] = {1000, 2000, 5000, 10000, 20000};
-#define SP_NSPAN (sizeof SP_SPAN / sizeof SP_SPAN[0])
-static uint8_t spspan = 2, sp_note;             /* the span on the knob, and the note to mark up */
+static uint8_t spspan = 2, sp_note;             /* the span the settings chose, and the note to mark up */
 static uint8_t sp_pk[240];                      /* a peak that falls back slowly, so a pluck reads */
 
 /* middle A is 440: one octave of equal temperament in Q8 Hz, starting at MIDI note 0 */
@@ -1322,25 +1393,26 @@ static void draw_eg_now(uint32_t seg)
  * asked for rather than read straight off the table. */
 static const char *p_name(const param_t *p)
 {
-    return (p->kind == K_RAT && *op_byte(17)) ? "FIXED HZ" : p->name;
+    return (p->kind == K_RAT && *op_byte(opsel, 17)) ? "FIXED HZ" : p->name;
 }
 static const char *p_knob(const param_t *p)
 {
-    if (p->kind == K_RAT && *op_byte(17)) return "FIX HZ";
+    if (p->kind == K_RAT && *op_byte(opsel, 17)) return "FIX HZ";
     return p->knob ? p->knob : p->name;
 }
 static uint32_t p_bar(const param_t *p, uint32_t v, uint32_t *max)
 {
     uint32_t exact;
     if (p->kind != K_RAT) { *max = p->max; return v; }
-    if (*op_byte(17)) { *max = 399u; return fix_step(); }
+    if (*op_byte(opsel, 17)) { *max = 399u; return fix_step(opsel); }
     *max = RAT_N - 1u;
-    return rat_index(&exact);
+    return rat_index(opsel, &exact);
 }
 static uint32_t p_cache(const param_t *p)       /* RATIO watches three bytes, not one */
 {
     if (p->kind == K_RAT)
-        return ((uint32_t)(*op_byte(17) != 0) << 12) | ((uint32_t)*op_byte(18) << 7) | *op_byte(19);
+        return ((uint32_t)(*op_byte(opsel, 17) != 0) << 12) |
+               ((uint32_t)*op_byte(opsel, 18) << 7) | *op_byte(opsel, 19);
     return *p_ref(p);
 }
 
@@ -1413,8 +1485,15 @@ static void draw_legend(void)
         cv_rect((int32_t)(e * 60u), 4, 1, 8, RGB(44, 44, 44));
     for (e = 0; e < 4u; e++) {
         const char *s = 0;
+        char buf[8];
         if (page == PAGE_HOME) {
-            s = (bank == 1u && e == 0u) ? "SPAN" : 0;   /* the diagram has no knobs at all */
+            uint32_t n = home_op(e);             /* four operators at a time, levels or ratios */
+            if (n) {
+                uint32_t i = put(buf, 0, HSET[homeset].what == HK_LVL ? "LVL " : "RAT ");
+                buf[i++] = (char)('0' + n);
+                buf[i] = 0;
+                s = buf;
+            }
         } else {
             uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
             const param_t *p = e < PAGE_ROWS ? page_at(pi) : 0;
@@ -1591,6 +1670,7 @@ static void app_main(void)
     if (set.span >= SP_NSPAN) set.span = 2;
     ui[UI_ADV] = set.adv ? 1u : 0u;
     spspan = set.span;
+    ui[UI_SPAN] = spspan;
     sp_init();
     set.mono = set.mono ? 1u : 0u;
     ev_push(EV_MONO, set.mono, 0);              /* the ISR owns the mode: tell it what was stored */
@@ -1652,8 +1732,12 @@ static void app_main(void)
         if (b & (1u << BTN_ENV))  page_to(PAGE_EG);
         if (b & (1u << BTN_LFO))  page_to(PAGE_LFO);
         if (b & (1u << BTN_GLO))  page_to(PAGE_GLO);
-        if (b & (1u << BTN_SEL))                           /* the next bank of parameters, or screen */
-            page_to(page);
+        if (b & (1u << BTN_SEL)) {                         /* the next four things under the knobs */
+            if (page == PAGE_HOME)
+                homeset = (uint8_t)((homeset + 1u) % HSET_N);
+            else
+                page_to(page);
+        }
         if (b & (1u << BTN_SAVE)) {                        /* press to pick a slot, press again to write */
             if (!saving) {
                 saving = 1;
@@ -1719,14 +1803,21 @@ static void app_main(void)
                 patch_publish();
             }
         }
-        if (page == PAGE_HOME && bank == 1u && (enc = fm1_enc_take(ENC_KNOB1)) != 0) {
-            int32_t s = (int32_t)spspan + enc;  /* HOME has no parameters, so KNOB1 is the span */
-            spspan = (uint8_t)(s < 0 ? 0 : s >= (int32_t)SP_NSPAN ? (int32_t)SP_NSPAN - 1 : s);
-            set.span = spspan;
-            for (k = 0; k < 240u; k++)
-                sp_pk[k] = 0;                   /* the held peaks belonged to the old axis */
-            dirty = 1;
-            t_change = fm1_ms;
+        if (page == PAGE_HOME) {                /* the four knobs are four operators, either screen */
+            for (e = 0; e < 4u; e++) {
+                uint32_t n = home_op(e), op;
+                if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || !n)
+                    continue;
+                op = 6u - n;                    /* the panel counts OP1 first, the voice OP6 */
+                if (HSET[homeset].what == HK_LVL) {
+                    int32_t v = (int32_t)*op_byte(op, 16) + enc;
+                    *op_byte(op, 16) = (uint8_t)(v < 0 ? 0 : v > 99 ? 99 : v);
+                } else
+                    rat_turn(op, enc);
+                say_knob(n);
+                modified = 1;
+                patch_publish();
+            }
         }
         for (e = 0; e < PAGE_ROWS; e++) {                  /* KNOB1..n: the parameters on screen */
             uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
@@ -1735,21 +1826,7 @@ static void app_main(void)
             if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || (p = page_at(pi)) == 0)
                 continue;
             if (p->kind == K_RAT) {
-                if (*op_byte(17)) {                        /* FIXED: walk the four decades in steps */
-                    int32_t x = (int32_t)fix_step() + enc;
-                    x = x < 0 ? 0 : x > 399 ? 399 : x;
-                    *op_byte(18) = (uint8_t)(x / 100);
-                    *op_byte(19) = (uint8_t)(x % 100);
-                } else {                                   /* RATIO: walk the list */
-                    uint32_t exact;
-                    int32_t x = (int32_t)rat_index(&exact);
-                    /* rat_index leaves us on the entry below an off-list ratio, so turning down
-                     * from there is already a step and must not take another */
-                    x += exact || enc > 0 ? enc : enc + 1;
-                    x = x < 0 ? 0 : x > (int32_t)RAT_N - 1 ? (int32_t)RAT_N - 1 : x;
-                    *op_byte(18) = RAT[x][0];
-                    *op_byte(19) = RAT[x][1];
-                }
+                rat_turn(opsel, enc);
                 modified = 1;
                 patch_publish();
                 continue;
@@ -1758,6 +1835,12 @@ static void app_main(void)
                 v = (int32_t)ui[p->idx] + enc;
                 ui[p->idx] = (uint8_t)(v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v);
                 set.adv = ui[UI_ADV];
+                if (ui[UI_SPAN] != spspan) {
+                    spspan = ui[UI_SPAN];
+                    set.span = spspan;
+                    for (k = 0; k < 240u; k++)
+                        sp_pk[k] = 0;                      /* the held peaks belonged to the old axis */
+                }
                 if (bank >= PAGE_NBANK)                    /* fewer parameters than there were banks */
                     bank = (uint8_t)(PAGE_NBANK - 1u);
                 dirty = 1;
@@ -1838,7 +1921,8 @@ static void app_main(void)
             repaint = 1;
         }
         {   /* the legend outlives a page, but not a change of mode: RATIO becomes FIXED HZ */
-            uint8_t leg = (uint8_t)(page == PAGE_OP && *op_byte(17) ? 1u : 0u);
+            uint8_t leg = (uint8_t)(page == PAGE_OP ? (*op_byte(opsel, 17) ? 2u : 1u) :
+                                    page == PAGE_HOME ? 10u + homeset : 0u);
             if (leg != leg_drawn || repaint) {
                 leg_drawn = leg;
                 draw_legend();

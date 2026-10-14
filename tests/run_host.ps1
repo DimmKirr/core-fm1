@@ -56,3 +56,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'edit.txt') {
     python tests\editcheck.py $out           # and RATIO with the bytes underneath it
     if ($LASTEXITCODE) { throw 'the ratio does not match the bytes it writes' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'home.txt') {
+    python tests\homecheck.py $out           # and the four knobs HOME puts under your fingers
+    if ($LASTEXITCODE) { throw 'the knobs on HOME are not the operators they name' }
+}

@@ -1,0 +1,48 @@
+# FM Lab -- the four knobs on HOME, and whether they really are the operators they claim to be.
+#
+#   build/host/fmlab build/host/home tests/home.txt
+#
+# HOME has no parameter rows, so there is nothing on the screen to read a knob off. The proof has
+# to come from the other end: turn a knob here, walk to the EDIT page, and look at the bar that
+# draws the byte. If the bar moved by the right amount, the knob was wired to the byte.
+
+# It boots on the diagram with the first set of knobs: LVL 1 to 4.
+200 shot
+
+# SEL steps the set. Four of them, and then it comes back.
+400 btn 3
+600 shot
+800 btn 3
+1000 shot
+1200 btn 3
+1400 shot
+1600 btn 3
+1800 shot
+
+# The analyser is the same instrument with a different picture, so it has the same four knobs.
+2000 btn 8
+2200 shot
+
+# Back to the diagram, then out to OP1's own page to see where its level starts.
+2400 btn 8
+2600 btn 6
+2700 keys 0x02
+2800 keys 0
+3000 shot
+
+# KNOB1 on HOME is OP1's level: thirty steps down, which is 69 pixels of bar.
+3200 btn 8
+3400 enc 2 -30
+3600 shot
+3800 btn 6
+4000 shot
+
+# The third set puts ratios under the same knobs. Five steps up the list, and the second bar -- the
+# one that draws the ratio -- has to be the one that moved.
+4200 btn 8
+4400 btn 3
+4600 btn 3
+4800 enc 2 5
+5000 btn 6
+5200 shot
+5600 end

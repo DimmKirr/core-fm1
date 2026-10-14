@@ -66,13 +66,30 @@ than list it (the spectrum, the envelope) it is the only label there is. Six cha
 which is why some of the names are squeezed: `RT SCL` is the rate scaling, `PMSENS` the LFO's pitch mod
 sensitivity, `P LVL1` the first level of the pitch envelope.
 
+### The knobs on HOME
+
+HOME has no parameters to list, but it is the screen you are looking at while you are actually listening, so
+the knobs are not idle there. They move four operators at once — `LVL 1` through `LVL 4` to begin with — and
+**SEL** steps which four, the same thing **SEL** means everywhere else: the next four things under the knobs.
+There are four sets, `LVL 1-4`, `LVL 5 6`, `RAT 1-4`, `RAT 5 6`, and then it comes round again. The two sets
+that run past operator six leave those knobs blank rather than pretend.
+
+This is the balancing view, and balancing the operators against each other is most of what making an FM sound
+turns out to be. A modulator's level is how hard it modulates, so sweeping `LVL 2` with a note held is the
+brightness of the sound in one gesture — and you can watch operator 2's box fill as you do it, or watch the
+sidebands spread on the spectrum. Turning a ratio from the same place is the other half: the shape of the
+sound rather than the amount of it.
+
+With a note held the boxes already tell you where you are. With nothing playing they cannot, so the line under
+the title says what moved instead — `OP1 LVL 69`, or `OP3 x2.00` — for a second and a half.
+
 | Button | Page | What is on it |
 | --- | --- | --- |
-| **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them |
+| **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them; the knobs move four operators at a time |
 | **EDIT** | OPERATOR | level, ratio, detune, mode / velocity sensitivity, amp mod, rate scaling |
 | **ENV** | ENVELOPE | the envelope drawn to scale, and one segment's rate and level at a time |
 | **LFO** | LFO | speed, delay, pitch mod, amp mod, wave, key sync, pitch mod sensitivity |
-| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope, and **SHOW ALL** |
+| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope, **SHOW ALL** and **SPECTRUM** |
 
 ### Ratio, and the two bytes under it
 
@@ -195,8 +212,9 @@ are the same thing.
 
 The axis is linear and not logarithmic, which is the point. A log axis would fit 20 Hz to 20 kHz on the screen
 at once, but it squeezes the sidebands closer together the higher they go, and the even spacing is exactly the
-structure worth seeing. The span is on **KNOB1** instead — 1, 2, 5, 10 or 20 kHz, named in the line underneath
-— so the top end is a turn away. It is remembered across a power cycle.
+structure worth seeing. The span is a setting rather than part of the sound, so it lives on **GLOBAL** as
+`SPECTRUM` — 1, 2, 5, 10 or 20 kHz, named in the line underneath the drawing — which leaves all four knobs
+here doing the same thing they do on the diagram. It is remembered across a power cycle.
 
 The ticks along the top edge are whole multiples of the note you are playing, the first one taller and
 brighter. Partials that line up with them are harmonic; partials that sit between them are not. That is the
@@ -338,7 +356,7 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Six more scripts go with it:
+which is the thing most worth listening to. Seven more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
@@ -348,6 +366,7 @@ tests/run_host.sh tests/panel.txt         # the pages and the operator keys, scr
 tests/run_host.sh tests/spectrum.txt      # the analyser, against where the partials belong
 tests/run_host.sh tests/levels.txt        # the operator boxes, against the envelopes behind them
 tests/run_host.sh tests/edit.txt          # RATIO and SHOW ALL, against the bytes underneath them
+tests/run_host.sh tests/home.txt          # HOME's four knobs, against the bytes they move
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -377,6 +396,13 @@ harmonic at 25.1 and its third at 37.7; widen the span to 10 kHz and every one o
 the distance across. That is a claim about FM, about the axis and about the transform all at once, and it is
 only true if all three are right. It also checks that the bars fall when you let go and that the held peaks
 outlive them, and that HOME really does swap between two screens and back.
+
+`tests/homecheck.py` has nothing on the screen to read, because HOME draws no parameter rows. It proves the
+wiring from the far end instead: turn KNOB1 thirty steps down on HOME, walk out to the EDIT page, and the bar
+that draws operator one's level has to be sixty-nine pixels narrower — thirty ninety-ninths of the two
+hundred and twenty-eight it spans. A vague claim that something changed would have been worth much less. It
+also reads the knob legend: four sets stepped by **SEL** and back to the first, the same four on both HOME
+screens, and the sets that run past operator six leaving those two cells genuinely empty.
 
 `tests/levelcheck.py` does the same trick for the operator boxes. The outline, the dim body of the fill and
 the bright level edge each have a colour of their own and nothing else on the diagram uses them, so counting

@@ -16,21 +16,36 @@
 800 keys 0x80
 1400 shot
 
-# The same note at 0 to 10 kHz: every partial is now half as far across the screen.
-1600 enc 2 1
-2200 shot
+# The same note at 0 to 10 kHz. The span is a setting of the instrument rather than part of the
+# sound, so it lives on GLOBAL's last bank: four presses of GLO to walk out to it, KNOB2 to widen
+# it, and two of HOME to come back -- arriving at HOME always starts at the diagram, and the second
+# press is the analyser again.
+1600 btn 7
+1700 btn 7
+1800 btn 7
+1900 btn 7
+2000 enc 3 1
+2100 btn 8
+2200 btn 8
+3000 shot
 
 # And back to 5 kHz, which has to look like it did before.
-2400 enc 2 -1
-3000 shot
+3200 btn 7
+3300 btn 7
+3400 btn 7
+3500 btn 7
+3600 enc 3 -1
+3700 btn 8
+3800 btn 8
+4600 shot
 
 # Let go and wait for the bars to fall. The held peaks take seconds longer, by design: a sound that
 # is gone in a moment still leaves its shape on the screen long enough to be read.
-3200 keys 0
-3600 shot
-4400 shot
+4800 keys 0
+5200 shot
+6000 shot
 
 # HOME once more wraps back to the diagram.
-4600 btn 8
-4800 shot
-5200 end
+6200 btn 8
+6400 shot
+6800 end
