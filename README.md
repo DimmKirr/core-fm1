@@ -221,7 +221,7 @@ or a sound page's action sheet. [Controls and saving](docs/SOUND_DESIGNER.md).
 - **SCALES stays unobscured:** changing a scale no longer opens a second picker over its list.
 - **Copy and delete patterns:** OCT+ on PATTERNS opens the current pattern's menu. Copy notes
   and motion within the track, confirm before replacing a used slot, or delete with confirmation.
-  Holding SAVE undoes the action.
+  Holding EDIT undoes the action.
 
 Projects with native synth motion require 1.0.2 or later; older firmware cannot load those events.
 Existing projects remain readable by 1.0.2. The motion pool still holds 64 events shared across tracks
@@ -409,8 +409,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   MONO / LEGATO / UNISON
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources
 - **Dry mixer:** track level, pan and synth voice spread, optional per-track FX, with output protection
-- **Quick layers:** hold GLO, SCL or EDIT for shortcuts on the keys and knobs; double-press to lock
-  a layer. Multi-level undo (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
+- **Quick layers:** hold GLO or SCL for shortcuts on the keys and knobs; double-press to lock
+  a layer. Multi-level undo (EDIT held); REC on every page; OCT+ confirms, OCT- goes back
 - **Presets:** browse by category (BASS, LEAD, PAD, KEYS, ORGAN, STRING, BRASS, WIND, PLUCK, BELL, DRUM, FX), favourites or
   RECENT, with knob acceleration; factory presets, 384 shared user slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
@@ -460,7 +460,7 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
   value. KNOB 1 controls motion playback. Hold SEQ and turn KNOB 2 to clear the selected
   lane, or KNOB 4 to remove the selected point.
   The lane’s OCT+ sheet also offers **Clear <parameter>**. Each edit or clear can be undone
-  with SAVE held. Other parameters, tracks and pattern banks are preserved; song playback
+  with EDIT held. Other parameters, tracks and pattern banks are preserved; song playback
   must be stopped before editing.
 - **Picker popups:** hold HOME and choose **PICKER POPUPS > OFF** to edit named parameters
   inline. This device setting persists across restarts; action sheets and explicit list
@@ -493,10 +493,10 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
   selected track's, as MIDI CC1; also sent to MIDI out), LEVEL, SWING, TRANSPOSE, CHORD (the chord its keys play:
   OFF, DIA3, DIA7, MAJ, MIN, DOM7, MAJ7, MIN7, SUS4, POW), ARP RATE, PATTERN (the selected track's next pattern) or OFF.
   The header shows the value
-- **Held:** GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the PATTERNS grid with
+- **Held:** GLO and SCL open their quick layers; EDIT undoes, SAVE saves the project, HOME opens the menu, SEQ the PATTERNS grid with
   the song under it, REC captures (below).
-- **Undo:** hold SAVE to undo the last sound or pattern load or Capture; hold it again to go further back (up to 8
-  levels); while SAVE is held, OCT- undoes and OCT+ redoes. On the step pages SAVE's undo
+- **Undo:** hold EDIT to undo the last sound or pattern load or Capture; hold it again to go further back (up to 8
+  levels); while EDIT is held, OCT- undoes and OCT+ redoes. On the step pages EDIT's undo
   covers the step edits first
   When editing synth steps, SCL and EDIT use the editing controls below instead.
 - **FX** opens the track's three insert pages; SELECT moves between the slots.
@@ -527,7 +527,7 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
   for no track, KEEP, DRUMS, BASS, CHORDS, LEAD, PAD), OCT+ creates it: the tracks with a role, in order (track 1
   KEEP and the rest -- to start with, or as many as your template has), your template's sounds (none saved: the
   power-on ones), a role's first sound where the template's does not fit it, every pattern empty
-- **SAVE + REC** saves the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
+- **Hold SAVE** (or **SAVE + REC**) to save the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
   the transport first; a new project opens SAVE > PROJECT on a free slot. **Autosave:** stopped and untouched for
   5 seconds (no key, button, knob or MIDI), a project that has a slot saves itself there when it changed.
   Hold **HOME** and set **AUTOSAVE** to **OFF** to disable it (default **ON**). The choice survives power-off;
@@ -535,7 +535,7 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
 - **Capture:** while the transport runs, Melodee keeps what you play on every track that is not recording. Hold
   **REC** to write the selected track's last bars into its pattern, with their timing, velocities and lengths: an
   empty pattern takes 1, 2 or 4 bars (as many as your notes span) and its LEN follows; a pattern with notes takes its
-  last LEN steps over what it holds. Hold SAVE to undo
+  last LEN steps over what it holds. Hold EDIT to undo
 
 ### Browsing sounds
 
@@ -548,7 +548,7 @@ their name (BASS, PIANO, STRINGS, ...). The chosen category is kept with the dev
 
 **KNOB 4** chooses the engine and starts it from its init sound, nothing changed and dry (INIT PROPHET, INIT TONE,
 INIT SID, FM6's INIT VOICE; DRUM its 808 kit), for designing a sound from scratch; each engine's init sound comes
-first in its list. **Init sound** in the sound's sheet (OCT+ held) and on EDIT held's black key does the same for the
+first in its list. **Init sound** in the sound's sheet (OCT+ held) does the same for the
 track's engine.
 
 Knobs accelerate: a slow turn moves one step a detent, and a few clicks are one step each however quick. Only a spin
@@ -571,7 +571,7 @@ track changes at its own loop end. Selecting the active pattern cancels a queued
 around the one playing (no song yet: the jam's). **KNOB 1–4** pick tracks 1–4's patterns; SELECT goes on to SONG.
 **OCT+** opens the selected track's pattern's sheet: **Copy to…** frames the place it goes on the track's row (the
 first empty one), any knob moves the frame, OCT+ copies there (over a pattern in use it asks first) and OCT- cancels;
-**Delete pattern** asks, then empties the pattern, its notes and automation (hold SAVE to undo).
+**Delete pattern** asks, then empties the pattern, its notes and automation (hold EDIT to undo).
 
 On **SEQ > SONG**, KNOB 1 chooses the section, KNOB 2 the track, KNOB 3 that track's pattern and
 KNOB 4 the section's repeats. **Jam to song:** from PLAY on, every loop of track 1 logs the four tracks'
@@ -614,7 +614,7 @@ The highlighted note has a bright outline; the playhead is a separate moving lin
   choose either, then turn KNOB 1. After copying, KNOB 1 moves the duplicate; OCT- finishes the move.
   Copies and moves wrap around the loop. Hold OCT+ without a range to open the pattern tools: **Quantize** snaps
   the pattern's note onsets, or only the selected range when one exists. On the Quantize row, KNOB 1 chooses
-  **1**, **0.5**, or **0.25 step**, and OCT+ applies it. Durations and velocities stay intact; SAVE held undoes it.
+  **1**, **0.5**, or **0.25 step**, and OCT+ applies it. Durations and velocities stay intact; EDIT held undoes it.
 - Tap **EDIT** to delete the highlighted pitch. Recorded deletion affects just that hit; manual
   chords retain their other pitches and ties. Deleting the final manual pitch clears its tie tail.
   Using another control while EDIT is held consumes the tap.
@@ -625,9 +625,9 @@ The highlighted note has a bright outline; the playhead is a separate moving lin
   the selected track and bank; leaving NOTES, changing track/bank or stopping recording cancels it.
   This is live recording: it starts a fresh edit history, so the eight-edit undo does not restore
   an erased pass.
-- Hold **SAVE** to undo. **EDIT/SAVE + OCT− / OCT+** undo/redo up to eight edits, restoring note data
+- Hold **EDIT** to undo. **EDIT + OCT− / OCT+** undo/redo up to eight edits, restoring note data
   and focus. A new edit clears redo. Recording, external edits, changing track, bank or loop length
-  start a fresh history. With no manual edit to undo, held SAVE retains sound/pattern-load undo.
+  start a fresh history. With no manual edit to undo, held EDIT retains sound/pattern-load undo.
   Fractional manual conversions and grouped moves/copies have one complete undo/redo snapshot.
   Starting playback releases that temporary snapshot; these transforms require stopped playback.
 

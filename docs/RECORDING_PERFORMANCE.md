@@ -15,8 +15,8 @@ finished at that boundary; their live sound continues until release. Tap REC
 again for another pass, or tap it while waiting to cancel. Notes and knob motion
 share these boundaries, with either internal or external MIDI clock and any QNT.
 
-Hold SAVE to undo the latest recording take in the selected pattern. Hold SAVE
-and tap OCT+ to redo it (SAVE + OCT- also undoes). One slot preserves the whole
+Hold EDIT to undo the latest recording take in the selected pattern. Hold EDIT
+and tap OCT+ to redo it (EDIT + OCT- also undoes). One slot preserves the whole
 pattern's notes and motion together, including overwritten events and exact
 note timing, velocity and duration. The next nonempty take replaces that slot;
 arming and cancelling without recording leaves it available. Finish or disarm

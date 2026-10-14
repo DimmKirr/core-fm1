@@ -40,13 +40,13 @@ static int whole_take(void)
         motion_store_t after_motion;motion_snapshot_track(t,&after_motion);
         /* Audio blocks used to discard edit snapshots here. */
         events_block(0);
-        if(q)go_page(GR_ROLL);else go_home();hold(B_SAVE);
+        if(q)go_page(GR_ROLL);else go_home();hold(B_EDIT);
         motion_store_t actual;motion_snapshot_track(t,&actual);
-        bad+=check("SAVE undoes a whole take: overwritten note, chord/ties, exact timing and motion",
+        bad+=check("EDIT undoes a whole take: overwritten note, chord/ties, exact timing and motion",
             !memcmp(before,recording,sizeof before)&&!memcmp(steps,t->step,sizeof steps)&&!memcmp(&motion_before,&actual,sizeof actual)&&song.playing);
         bad+=check("whole-take undo preserves another track's automation",motion_count(&trk[1])==1);
-        save_redo();motion_snapshot_track(t,&actual);
-        bad+=check("SAVE + OCT+ restores the complete finalized and quantized take",
+        edit_redo();motion_snapshot_track(t,&actual);
+        bad+=check("EDIT + OCT+ restores the complete finalized and quantized take",
             !memcmp(after,recording,sizeof after)&&!memcmp(after_steps,t->step,sizeof after_steps)&&!memcmp(&after_motion,&actual,sizeof actual));
         bad+=check("one slot cannot undo or redo past either end",recording_history(1)==0);
         seq_stop();led_pos_init();
@@ -156,15 +156,15 @@ static int capacity_and_edit_order(void)
     /* An older bulk transaction must not outrank a new motion-only take. */
     note_transaction_begin();recording[0].vel=72;recording_generation++;note_transaction_end();
     undo_take_start();motion_capture(TSEL,P_LEVEL,79);seq_advance(100);rec_set(TSEL,0);
-    hold(B_SAVE);
+    hold(B_EDIT);
     motion_store_t actual;motion_snapshot_track(TSEL,&actual);
     bad+=check("motion recording takes priority over an older bulk note undo",recording[0].vel==72&&actual.count==1&&actual.event[0].value==42);
-    save_redo();seq_stop();
+    edit_redo();seq_stop();
     /* A later manual motion edit undoes first; the take can then be undone. */
     mo_edit_begin();motion_set_event(TSEL,0,P_LEVEL,90);load_end(TSEL);
-    go_home();hold(B_SAVE);motion_snapshot_track(TSEL,&actual);
+    go_home();hold(B_EDIT);motion_snapshot_track(TSEL,&actual);
     bad+=check("a newer manual motion edit undoes before the recording",actual.event[0].value==79);
-    hold(B_SAVE);motion_snapshot_track(TSEL,&actual);
+    hold(B_EDIT);motion_snapshot_track(TSEL,&actual);
     bad+=check("recording undo remains available after undoing the newer edit",actual.event[0].value==42);
     led_pos_init();return bad;
 }
