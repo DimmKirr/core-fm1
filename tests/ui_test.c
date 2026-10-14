@@ -13,7 +13,7 @@
  *   REC        a tap on every screen arms/disarms the selected track; PLAY starts recording, without navigation.
  *              Long REC never clears. On STEP, armed and playing: keys do not write the
  *              cursor step. With the ARP on, the arp's notes are recorded, not the keys.
- *   MIDI IN    GLO > SYSTEM ROUT: CH1-4 / SEL, note-offs follow their note-ons.
+ *   MIDI IN    GLO > SYSTEM ROUT: four-channel ranges / SEL, note-offs follow their note-ons.
  *   SAVE       refused while playing ("STOP TO SAVE"); a used slot asks OVERWRITE? (OCT+ / OCT-).
  *   ACTIONS    OCT- / OCT+ Esc / Enter off Stage, on release, never both together; the sheets (USER, PROJECT:
  *              a slot's; the pattern's: Clear pattern, TOOLS gone); the OCT LEDs (OCT- lit, OCT+ blinks).
@@ -553,8 +553,8 @@ static int test_midi(void)
     song.sel = 2;
     midi_hint = 0;
     midi_event(0x90, 0, 60, 100); midi_event(0x90, 10, 61, 100);
-    bad += check("ROUT CH1-4 (default): channel 1 -> part 1, channel 11 -> selected, channel 10 -> the DRUM track 4",
-                 song.g[G_ROUTE] == 0 && mn_get(0, 60) == 1u && mn_get(10, 61) == 3u && midi_track(9) == &trk[3]);
+    bad += check("ROUT CH1-4 (default): channel 1 -> part 1, channels 11 and 10 ignored",
+                 song.g[G_ROUTE] == 0 && mn_get(0, 60) == 1u && !mn_get(10, 61) && !midi_track(9));
     bad += check("a note into another track tells the UI", midi_hint == 1u);
     frame(); bad += check("MIDI IN -> T1 shown", msg_is("MIDI IN -> T1"));
     song.g[G_ROUTE] = 1;
@@ -622,6 +622,8 @@ static int test_midi(void)
         const char *u;
         param_format(d, 1, v, &u);
         bad += check("GLO > SYSTEM K3: ROUT CH1-4 / SEL", str_eq(pg->title, "SYSTEM") && vp == &song.g[G_ROUTE] && str_eq(v, "SEL"));
+        param_format(d, 4, v, &u);
+        bad += check("GLO > SYSTEM K3: all four ranges exposed", d->max == 4 && str_eq(v, "13-16"));
         pg=&PAGES[page_first(FAM_GLO)];d=page_desc(pg,1,&vp);
         bad+=check("GLO > GLOBAL K2: device shared BUDGET",d && str_eq(d->label,"BUDGET") && vp==&settings_budget && pg->id[1]==G_BUDGET);
     }
@@ -896,7 +898,7 @@ static int test_track_count(void)
     trk[2].engine = trk[2].eng_req;
     trk_note_on(&trk[2], 60, 100);
     bad += check("  a track not in use plays nothing", trk_quiet(&trk[2]));
-    bad += check("  MIDI channel 2 (ROUT CH1-4): the selected track, as channels past the tracks", midi_track(1) == TSEL &&
+    bad += check("  MIDI channel 2 (ROUT CH1-4): ignored when track 2 is not in use", !midi_track(1) &&
                  midi_track(0) == &trk[0]);
     hold(B_OCTUP);
     bad += check("Stage: OCT+ held: its sheet, Add track (T2) and Remove track (-) at its foot", pop.on == POP_SHEET &&
@@ -2324,10 +2326,13 @@ static int test_popups(void)
         ch = settings_drumch;
         turn(EN_K2, 1);
         ok = !pop.on && settings_drumch == ch + 1;
-        turn(EN_K1, 1); turn(EN_K3, 1);
+        turn(EN_K1, 1);
         ok &= !pop.on;
+        turn(EN_K3, 1);
+        ok &= pop.on == POP_PICK;
+        pop_close();
         set_engine_of(TSEL, ENGI_FM6); go_title("ALGO"); frame(); turn(EN_K1, 1);
-        bad += check("POPUPS: number lists (DRUM channel, FM6 ALG) step inline like MIDI and ROUT: no picker", ok && !pop.on);
+        bad += check("POPUPS: DRUM, MIDI and FM6 ALG step inline; five ROUT choices use a picker", ok && !pop.on);
     }
     {   /* list pages (ui_list.c): KNOB 2 the row, KNOB 1 its value, OCT+ its list (SCL's Scale: SCALES), OCT- Stage */
         ui_power_on(); go_title("VOICE"); frame();
@@ -3296,16 +3301,16 @@ static int test_boot_template(void)
     {   /* the settings keep BOOT and the kept GLO values; the template follows them in the record */
         persist_t p = {0};
         p.magic = PERSIST_MAGIC; p.panel = panel;
-        song.g[G_TUNE] = 7; song.g[G_ROUTE] = 1;
+        song.g[G_TUNE] = 7; song.g[G_ROUTE] = 4;
         song.playing = 0;
         glo_poll();
-        ok = settings_glo[1] == 7 && settings_glo[3] == 1;
+        ok = settings_glo[1] == 7 && settings_glo[3] == 4;
         settings_export(&p);
         settings_boot = 0; memset(settings_glo, 0, sizeof settings_glo); song.g[G_TUNE] = 0; song.g[G_ROUTE] = 0;
         ok &= settings_import(&p, sizeof p) == 1 && settings_boot == 2u && settings_glo[1] == 7;
         glo_restore();
         bad += check("BOOT and CLK TUNE MIDI ROUT kept with the settings, restored at power-on", ok &&
-                     song.g[G_TUNE] == 7 && song.g[G_ROUTE] == 1);
+                     song.g[G_TUNE] == 7 && song.g[G_ROUTE] == 4);
     }
     settings_boot = 0;
     memset(&tmpl, 0, sizeof tmpl);
@@ -4557,7 +4562,7 @@ static int test_home_notes(void)
     midi_event(0x90, 1, 64, 100); midi_event(0x80, 1, 64, 0);
     bad += check("each track keeps its own last notes (Stage shows the selected one's)",
                  live_last[0][1] == (1u << 28) && live_last[1][2] == (1u << 0) && !live_last[1][1]);
-    ui_power_on();
+    ui_power_on(); song.g[G_ROUTE] = 1;   /* Multiple channels share the selected track in SEL. */
     midi_event(0x90, 0, 60, 100);
     midi_event(0x90, 10, 60, 100);
     midi_event(0x80, 0, 60, 0);

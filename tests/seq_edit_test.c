@@ -144,7 +144,7 @@ static int test_midi_entry(void)
     hold(B_SAVE);
     bad += check("previous same-frame MIDI entry undoes independently", !step_on(&t->step[3]) && ui.cursor == 3);
 
-    t = edit_setup();
+    t = edit_setup(); song.g[G_ROUTE] = 1;   /* SEL allows overlapping channels on one track. */
     midi_note_event(0, 60, 100); midi_note_event(4, 60, 100); frame();
     midi_note_event(0, 60, 0); frame();
     bad += check("overlapping channels with the same pitch keep entry held", ui.entry_open && ui.cursor == 0 && step_midi_held == 1);

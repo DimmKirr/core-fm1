@@ -438,9 +438,12 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   revision along with the channel count. No driver needed
 - **System clock:** Melodee runs at 360 MHz, the clock the FM-1's boot loader sets, and never changes it. The
   OVERCLOCK menu of 1.3.x is gone: on some FM-1s its clock change left the device in UBOOT
-- **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4 (those in use), channel 10 the first DRUM track (GLO >
-  SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
-  and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
+- **MIDI:** USB and TRS MIDI in; GLO > SYSTEM **ROUT** selects **CH1-4**, **CH5-8**, **CH9-12** or **CH13-16**.
+  The panel abbreviates these as **1-4**, **5-8**, **9-12**, **13-16**. Only that range plays tracks 1–4
+  (those in use), in order; other channels are ignored. **SEL** receives all
+  channels on the selected track. **DRUM** (10 by default, any channel or OFF) redirects its channel to the
+  first DRUM track only within the chosen range; without a DRUM track, normal routing applies.
+  The keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
   GLO > SYSTEM KNOB 1 shows the USB or the TRS input's status (RX while it receives; both always play)
   Local PLAY uses the internal tempo until the selected input sends Start, Continue or Stop. Clock
   pulses alone do not take over. Changing the clock source clears this transport selection.
