@@ -29,6 +29,9 @@ Release candidate: **[Melodee 1.4.0-rc.3](https://github.com/keremimo/melodee/re
 It adds track management, a HOME chord view, assignable SELECT, motion editing and
 audio performance improvements. The stable installer remains on 1.3.4.
 
+Next candidate: **Melodee 1.4.0-rc.4** ([release notes](docs/RELEASE_1.4.0-rc.4.md)),
+prepared on `next`; not yet published.
+
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
 follows Felucca 1.0's design. Melodee is not affiliated with or endorsed by Hügelton Instruments;
