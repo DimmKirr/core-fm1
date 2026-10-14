@@ -56,6 +56,13 @@ static void hk_scrim(int32_t x0, int32_t y0, int32_t x1, int32_t y1)   /* the he
         if (pend[i].x0 < x1 && x0 < pend[i].x1 && pend[i].y0 < y1 && y0 < pend[i].y1)
             pend[i].flags |= 64u;
 }
+static void hk_cover(int32_t x0, int32_t y0, int32_t x1, int32_t y1)   /* a toast: the screen's texts under it, covered */
+{
+    uint32_t i;
+    for (i = 0; i < nscr; i++)
+        if (scr[i].x0 < x1 && x0 < scr[i].x1 && scr[i].y0 < y1 && y0 < scr[i].y1)
+            scr[i].flags |= 16u | 64u;
+}
 static void hk_cell(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
     if (ncells < 64u) {
@@ -75,6 +82,7 @@ static void hk_whole(uint32_t x, uint32_t y, uint32_t r0, uint32_t fill);
 #define GFX_HOOK_BEGIN() (npend = ncells = 0)
 #define GFX_HOOK_CELL(x0, y0, x1, y1) hk_cell(x0, y0, x1, y1)
 #define GFX_HOOK_SCRIM(x0, y0, x1, y1) hk_scrim(x0, y0, x1, y1)
+#define GFX_HOOK_COVER(x0, y0, x1, y1) hk_cover(x0, y0, x1, y1)
 #define GFX_HOOK_PIXELS(n) (px_visited += (n))
 #define UI_FILL_HOOK(x, y, w, h) hk_fill(x, y, w, h)
 static void fm6_hook(uint32_t kind, uint32_t a, uint32_t b);

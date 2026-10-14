@@ -175,7 +175,19 @@ static void view_wheel(const uint32_t *on, const uint8_t *of, int faded)
         str_cpy(b + str_len(b), t, sizeof b - str_len(b));
         if (b[str_len(N_NOTE[key]) + 1u] >= 'A' && b[str_len(N_NOTE[key]) + 1u] <= 'Z')
             b[str_len(N_NOTE[key]) + 1u] = (char)(b[str_len(N_NOTE[key]) + 1u] + 32);
-        cv_free_text(st_mid_x(VW_CX, TY_TX, b, 2 * VW_R - 4), ty_y(VW_CY, TY_TX), TY_TX, b, T_MID, T_BG, 2 * VW_R - 4);
+        {   /* (in the ring: the text face, the label face, then on two lines: nothing cut) */
+            const aafont_t *f = ty_fit(TY_TX, b, 2 * VW_R - 4);
+            if (text_w(f, b) <= 2 * VW_R - 4) {
+                cv_text_c(VW_CX, ty_y(VW_CY, f), f, b, T_MID, T_BG);
+            } else {
+                char l[TL_MAX][32];
+                uint32_t n = text_lines(b, l, 3u, 2 * VW_R - 4, TY_LB), i;
+                for (i = 0; i < n; i++)
+                    cv_free_text(st_mid_x(VW_CX, TY_LB, l[i], 2 * VW_R - 4),
+                                 ty_y(VW_CY - 9 * ((int32_t)n - 1) + 18 * (int32_t)i, TY_LB), TY_LB, l[i], T_MID, T_BG,
+                                 2 * VW_R - 4);
+            }
+        }
     }
     cv_scroll = 0;
     if (stage.out)                                      /* (the knobs over its top: the rows under them only) */

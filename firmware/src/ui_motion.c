@@ -6,7 +6,7 @@
  * sheet (Play, Clear <lane>, Clear all motion), KNOB 3 the step, KNOB 4 its value;
  * SEQ + KNOB 2/4 clears the lane/point. OCT- Stage. Included by ui_draw.c */
 #define MO_MAX 8                                        /* lanes (parameters) at most */
-#define MO_Y0 22                                        /* the lanes: 60 px each, 3 shown, from y 22 */
+#define MO_Y0 Y_LABEL                                   /* the lanes: 60 px each, 3 shown, from y 32 to the sound bar */
 #define MO_H 60
 #define MO_VIS 3
 static struct { uint8_t lane, first, step, edit; uint32_t sig; } mo;
@@ -221,23 +221,15 @@ static void motion_knob(uint32_t k, int32_t s)
 }
 
 /* ----------------------------------------------------------- drawing --- */
-/* one panel, a lane every 60 px (a faint line between): its name at the left (the lane picked: the track's colour), the
- * value step by step over x 52..230, the playhead across them all; motion off: the lines dim */
-static void mo_label(uint32_t id, char *b)              /* "CUTOFF" (too wide: the knob's own, "RES") */
+/* a lane every 60 px (large type): its name over it (the lane picked: tinted, the name and the line in the track's colour,
+ * the step picked and its value at the right), the value step by step over x 12..228, the playhead across them all;
+ * motion off: the lines dim */
+static void mo_label(uint32_t id, char *b)              /* "CUTOFF" */
 {
     uint32_t i;
     mo_name(id, b, 16);
     for (i = 0; b[i]; i++)
         if (b[i] >= 'a' && b[i] <= 'z') b[i] = (char)(b[i] - 32);
-    if (text_w(&AF_X, b) <= 40)
-        return;
-    if ((id&256u) && motion_native_tag(TSEL) == MO_TAG_CZ) {   /* "DCW1" */
-        mo_cz_name((id&255u) - MO_NATIVE, b, 16, 1);
-        for (i = 0; b[i]; i++)
-            if (b[i] >= 'a' && b[i] <= 'z') b[i] = (char)(b[i] - 32);
-    } else {
-        str_cpy(b, mo_desc(id)->label, 16);
-    }
 }
 static void motion_draw(void)
 {
@@ -267,20 +259,20 @@ static void motion_draw(void)
     mo.sig = sig;
     for (r = 0; r < MO_VIS; r++) {
         uint32_t l = mo.first + r;
-        int32_t top = (int32_t)r * MO_H;
+        int32_t top = (int32_t)r * MO_H, x0 = 12, x1 = 228;
+        int sel = l < n && l == mo.lane;
+        uint16_t bg = sel ? ux_mix(T_BG, T_THEME, 18) : T_BG;
         cv_begin(240, MO_H, T_BG);
-        cv_oy = -top;
-        cv_rrect(4, 0, 232, MO_VIS * MO_H, 6, T_PANEL, T_BG);
-        cv_oy = 0;
-        if (r)
-            cv_rect(10, 0, 220, 1, T_LINE);
+        if (sel)
+            cv_rrect(BOX_X, 1, BOX_W, MO_H - 2, 8, bg, T_BG);
+        else if (r && l < n && mo.lane + 1u != l)
+            cv_rect(12, 0, 216, 1, T_LINE);
         if (!n && r == 1u)
-            cv_text_c(120, 24, &AF_S, "No motion", T_MID, T_PANEL);
+            cv_text_c(120, ty_y(MO_H / 2, TY_TX), TY_TX, "No motion", T_MID, T_BG);
         if (l < n) {
             const param_desc_t *d = mo_desc(ids[l]);
-            int32_t lo, hi, span, x0 = 52, x1 = 230, gy0 = 10, gh = 44, py = -1;
-            int sel = l == mo.lane;
-            uint16_t lc = !on ? T_DIM : sel ? T_THEME : ux_mix(T_PANEL, T_THEME, 60);
+            int32_t lo, hi, span, gy0 = 24, gh = 30, py = -1, lx = 130;
+            uint16_t lc = !on ? T_DIM : sel ? T_THEME : ux_mix(T_BG, T_THEME, 60);
             int16_t v = mo_base(ids[l]), w = v;
             char b[16];
             lo = hi = clamp(v, d->min, d->max);         /* (the lane scaled to what it moves through, 16 at least) */
@@ -295,9 +287,20 @@ static void motion_draw(void)
             }
             span = hi - lo;
             for (s = 4; s < len; s += 4)                /* (the beats, faint) */
-                cv_rect(x0 + (int32_t)s * (x1 - x0) / (int32_t)len, 4, 1, MO_H - 8, ux_mix(T_PANEL, T_LINE, 50));
+                cv_rect(x0 + (int32_t)s * (x1 - x0) / (int32_t)len, gy0, 1, gh, ux_mix(bg, T_LINE, 50));
+            if (sel) {                                  /* (the step picked, its value) */
+                char vb[16], sb[12];
+                const char *unit;
+                int16_t sv = mo_base(ids[l]);
+                for (s = 0; s <= mo.step; s++) mo_value(ids[l], s, &sv);
+                param_format(d, sv, vb, &unit);
+                lx = cv_text_r(228, ty_y(13, TY_LB), TY_LB, vb, T_THEME, bg);
+                str_cpy(sb, "Step ", sizeof sb);
+                fmt_int(sb + 5, mo.step + 1u);
+                lx = cv_text_r(lx - 8, ty_y(13, TY_LB), TY_LB, sb, T_MID, bg);
+            }
             mo_label(ids[l], b);
-            cv_text_on(10, MO_H / 2 - 6, &AF_X, b, !on ? T_DIM : sel ? T_THEME : T_MID, T_PANEL);
+            cv_free_text(12, ty_y(13, TY_LB), TY_LB, b, !on ? T_DIM : sel ? T_THEME : T_MID, bg, lx - 8 - 12);
             for (s = 0; s < len; s++) {                 /* the value held step by step */
                 int32_t xa = x0 + (int32_t)s * (x1 - x0) / (int32_t)len, xb = x0 + (int32_t)(s + 1u) * (x1 - x0) / (int32_t)len;
                 int32_t y;
@@ -308,35 +311,19 @@ static void motion_draw(void)
                 cv_rect(xa, y, xb - xa, 2, lc);
                 py = y;
             }
+            if (mo.edit && sel)
+                cv_rect(x0 + (int32_t)mo.step * (x1 - x0) / (int32_t)len, gy0 - 2, 1, gh + 4, T_ACCENT);
         }
-        if (mo.edit && l < n && l == mo.lane) {
-            int32_t x = 52 + (int32_t)mo.step * (230 - 52) / (int32_t)len;
-            cv_rect(x, 4, 1, MO_H - 8, T_ACCENT);
-        }
-        if (ph < len && n) {                            /* the playhead, across the lanes */
-            int32_t x = 52 + (int32_t)ph * (230 - 52) / (int32_t)len;
-            cv_rect(x, r ? 0 : 6, 2, MO_H - (r ? 0 : 6) - (r + 1u == MO_VIS ? 6 : 0), T_TEXT);
+        if (ph < len && n && l < n) {                   /* the playhead, across the lanes */
+            int32_t x = x0 + (int32_t)ph * (x1 - x0) / (int32_t)len;
+            cv_rect(x, 22, 2, MO_H - 26, T_TEXT);
         }
         if (n > MO_VIS) {                               /* where the lanes are */
             int32_t sp = MO_VIS * MO_H, th = sp * MO_VIS / (int32_t)n, ty = (sp - th) * mo.first / (int32_t)(n - MO_VIS) - top;
-            cv_rect(237, 0, 2, MO_H, T_LINE);
+            cv_rect(238, 0, 2, MO_H, T_LINE);
             if (ty < MO_H && ty + th > 0)
-                cv_rect(237, ty, 2, th, T_THEME);
+                cv_rect(238, ty, 2, th, T_THEME);
         }
         cv_blit(0, (uint32_t)(MO_Y0 + top));
     }
-    cv_begin(240, PV_SOUND_Y - (MO_Y0 + MO_VIS * MO_H), T_BG);
-    if (n) {
-        char b[24], vbuf[16];
-        const char *unit;
-        uint32_t id = ids[mo.lane];
-        int16_t v = mo_base(id);
-        for (s = 0; s <= mo.step; s++) mo_value(id, s, &v);
-        str_cpy(b, "K3 Step ", sizeof b); fmt_int(b + 8, mo.step + 1u);
-        cv_text_on(8, 3, &AF_X, b, T_MID, T_BG);
-        param_format(mo_desc(id), v, vbuf, &unit);
-        str_cpy(b, "K4 ", sizeof b); str_cpy(b + 3, vbuf, sizeof b - 3u);
-        cv_text_r(232, 3, &AF_X, b, T_ACCENT, T_BG);
-    }
-    cv_blit(0, MO_Y0 + MO_VIS * MO_H);
 }

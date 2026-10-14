@@ -501,17 +501,21 @@ static void layer_glo(void)
         lcell(LC_X(e), LM_Y, LM_H, n, ICON_MUTE, trk_icon(e, 0), 0, trk[e].p[P_MUTE] ? LS_MUTE : LS_OFF, 0);
     }
 }
-static void layer_scl(void)                             /* KNOB 2's scales, 4 x 4, the one now selected */
+static void layer_scl(void)                             /* KNOB 2's scales as a list (their names in full), four
+                                                         * around the one now selected (filled) */
 {
-    uint32_t i, sc = (uint32_t)TSEL->p[P_SCALE], base = sc / 16u * 16u;
-    for (i = 0; i < 16u && base + i <= (uint32_t)TP[P_SCALE].max; i++) {
-        int32_t x = 3 + 59 * (int32_t)(i % 4u), y = 2 + LY_ROW * (int32_t)(i / 4u);
-        uint16_t ink, fill = lc_fill(base + i == sc ? LS_SEL : LS_OFF, &ink);
-        char b[16];
-        menu_words(b, TP[P_SCALE].names[base + i], sizeof b);
-        cv_rrect(x, y, 57, LY_ROW - 2, 6, fill, T_SURF);
-        cv_free_text(x + 28 - (text_w(TY_LB, b) < 53 ? text_w(TY_LB, b) : 53) / 2, ty_y(y + 11, TY_LB), TY_LB, b, ink, fill,
-                     53);
+    uint32_t i, sc = (uint32_t)TSEL->p[P_SCALE], max = (uint32_t)TP[P_SCALE].max, first;
+    first = sc > 1u ? sc - 1u : 0u;
+    if (max >= 3u && first > max - 3u)
+        first = max - 3u;
+    for (i = first; i < first + 4u && i <= max; i++) {
+        int32_t y = 3 + 30 * (int32_t)(i - first);
+        uint16_t ink, fill = lc_fill(i == sc ? LS_SEL : LS_OFF, &ink);
+        const char *t = SCALE_TITLE[i];
+        const aafont_t *f = ty_fit(TY_TX, t, 200);
+        if (i == sc)
+            cv_rrect(8, y, 224, 28, 8, fill, T_SURF);
+        cv_free_text(18, ty_y(y + 14, f), f, t, i == sc ? ink : T_SEC, i == sc ? fill : T_SURF, 200);
     }
 }
 /* the white keys' sections (an operator's: on the black keys), and the black keys' operators */

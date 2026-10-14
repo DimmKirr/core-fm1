@@ -58,6 +58,10 @@ static uint32_t ty_pixel(void);
 #ifndef GFX_HOOK_SCRIM
 #define GFX_HOOK_SCRIM(x0, y0, x1, y1) ((void)0)   /* a scrim (cv_scrim): the canvas's texts under it covered on purpose */
 #endif
+#ifndef GFX_HOOK_COVER
+#define GFX_HOOK_COVER(x0, y0, x1, y1) ((void)0)   /* a card over the screen (the toast): the texts under it covered on
+                                                     * purpose */
+#endif
 #ifndef GFX_HOOK_CELL
 #define GFX_HOOK_CELL(x0, y0, x1, y1) ((void)0)    /* a cell, card, row or button (cv_rrect): a box touching it lies inside it */
 #endif

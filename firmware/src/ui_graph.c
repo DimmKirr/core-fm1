@@ -805,7 +805,8 @@ static void list_row(int32_t y, int sel, const char *tag, uint16_t tc, const cha
         cv_rrect(6, y, 228, 28, 6, T_THEME, T_SURF);
     int32_t nx = cv_text_on(14, ty_y(y + 14, TY_TX), TY_TX, tag, sel ? T_INK : tc, bg) + 10;
     if (nx < 64) nx = 64;
-    cv_free_text(nx, ty_y(y + 14, TY_TX), TY_TX, name, sel ? T_INK : nc, bg, x1 - nx);
+    cv_free_text(nx, ty_y(y + 14, ty_fit(TY_TX, name, x1 - nx)), ty_fit(TY_TX, name, x1 - nx), name, sel ? T_INK : nc, bg,
+                 x1 - nx);
 }
 /* an empty list: a title and a hint, centred */
 static void note_line(int32_t y, const char *s, uint16_t fg)   /* centred S; "[K2] ADD PATTERN": a key hint */

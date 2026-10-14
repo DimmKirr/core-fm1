@@ -283,7 +283,8 @@ static void draw_head(void)
     } else if (msg) {                                   /* a message, or the layer's name (may hold a keycap) */
         cv_free_hint(x + 6, ty_y(H_HEAD / 2, TY_TX), ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - x - 6);
     } else {
-        int32_t cw = text_w(TY_TX, chip) + 4;           /* (where you are: plain words in the track's colour) */
+        int32_t cw = text_w(TY_TX, chip) + 4;           /* (where you are: plain words in the track's colour;
+                                                         * PATTERNS plain, the grid is in colour) */
         if (song.octave) {                              /* the octave shift, signed, in an outlined pill ("+2") */
             int32_t w;
             b[0] = song.octave > 0 ? '+' : '-';
@@ -294,10 +295,11 @@ static void draw_head(void)
             cv_text_c(x + 2 + w / 2, ty_y(H_HEAD / 2, TY_LB), TY_LB, b, T_TEXT, T_BG);
             x += w + 8;
         }
-        if (chain.running) {                            /* the song's row */
+        if (chain.running) {                            /* the song's row (where there is room) */
             str_cpy(b, "ROW ", 8);
             fmt_int(b + 4, (int32_t)chain.row + 1);
-            x = cv_text_on(x + 2, ty_y(H_HEAD / 2, TY_LB), TY_LB, b, T_MID, T_BG) + 6;
+            if (x + 2 + text_w(TY_LB, b) + 6 <= 236 - cw - (low ? 22 : 0) - 6)
+                x = cv_text_on(x + 2, ty_y(H_HEAD / 2, TY_LB), TY_LB, b, T_MID, T_BG) + 6;
         }
         if (!ui.home) {                                 /* a page: where it is in its family */
             head_pages(x + 6, 236 - cw - (low ? 22 : 0));
@@ -312,12 +314,8 @@ static void draw_head(void)
         }
         if (low)                                        /* the battery, only when it runs low */
             cv_icon_mid(236 - cw - 20, H_HEAD / 2, 16, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
-        if (!ui.home && cur_page()->graph == GR_PATGRID) {   /* PATTERNS: its name plain (the grid is in colour);
-                                                              * Copy to: what goes where, in the theme's colour */
-            cv_text_r(236, ty_y(H_HEAD / 2, TY_LB), TY_LB, ptc_on() ? chip : "patterns", ptc_on() ? T_THEME : T_MID, T_BG);
-        } else {
-            cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX, chip, T_THEME, T_BG);
-        }
+        cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX, chip,
+                  !ui.home && cur_page()->graph == GR_PATGRID && !ptc_on() ? T_MID : T_THEME, T_BG);
     }
     cv_blit(0, Y_HEAD);
 }
@@ -421,7 +419,7 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
     int hot = c == ui.hot_col && (ui.hot_t || pv_hero_on()), named = fmt_named, strip, snap;
     uint8_t sig;
     uint16_t lc = vc == T_DIM ? T_DIM : card_tc[c & 3u] ? card_tc[c & 3u] : T_THEME, cbg = T_BG;
-    int32_t x, uw, room = COL_W - 2;
+    int32_t x, uw, room = COL_W;                        /* (the 3 px between cells keep values apart) */
     const aafont_t *vf = TY_TX, *lf = TY_LB;
     uint32_t n, kn;
     int32_t kid;
@@ -595,15 +593,18 @@ static int midi_rx_recent(uint32_t trs)
     return seen[trs & 1u] && fm1_ms - at[trs & 1u] < 250u;
 }
 
+/* the foot (large type, one row of 28 px under the old pages: NOTES on a drum track, DRUM HIT, CZ TOOLS, the
+ * actions): what OCT+ / OCT- do (keycaps and their words); recording notes: EDIT held erases; else the sound (its
+ * track's numeral and name, as pv_sound_bar) and, on a grid, its page ("1/2"; ACCENT held: "Accent") */
 static void draw_foot(void)
 {
-    char s[48], pn[16], ti[20];
+    char pn[16], b[16];
     const track_t *t = TSEL;
     uint32_t sig;
     const page_t *pg = cur_page();
     const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
     const char *ename = e->name;
-    int32_t x;
+    int roll = !ui.home && pg->graph == GR_ROLL && !grid_on();
     sound_name(t, pn);
     if (browse_pending()) {                            /* browsing: the sound the list shows, not yet loaded */
         uint32_t k, src = browse_shown(&k);
@@ -612,130 +613,52 @@ static void draw_foot(void)
         e = ENGINES[src_engine(src, k)];
         ename = e->name;
     }
-    if (ui.home) {
-        str_cpy(ti, "HOME", sizeof ti);
-    } else {                                           /* page title + number in its family: "ENV DEST 2/2" */
-        uint32_t i, n = 0, k = 0;
-        const char *pt = pg->scope == SC_ENGINE ? e->page_title[pg->id[0] != P_E0] : 0;   /* EDIT: the engine's */
-        for (i = 0; i < NPAGES; i++)
-            if (PAGES[i].fam == pg->fam && page_visible(i)) {
-                n++;
-                if (i == ui.page)
-                    k = n;
-            }
-        str_cpy(ti, pt ? pt : grid_on() && pg->scope!=SC_DRUMHIT ? "GRID" : pg->title, 12);
-        if (pg->scope == SC_FMOP) {                    /* FM6's operator pages: "OP3 FREQ" (PRESETS picks it) */
-            ti[0] = 'O'; ti[1] = 'P'; ti[2] = (char)('1' + fm6_opsel % 6u); ti[3] = ' ';
-            str_cpy(ti + 4, pg->title, 9);
-        }
-        if (n > 1) {
-            str_cpy(ti + str_len(ti), " ", 4);
-            fmt_int(ti + str_len(ti), (int32_t)k);
-            str_cpy(ti + str_len(ti), "/", 4);
-            fmt_int(ti + str_len(ti), (int32_t)n);
-        }
-        if (pg->graph == GR_ROLL && !drum_track(t)) {  /* the piano roll: its tinted rows' scale ("C MIN") */
-            str_cpy(ti, N_NOTE[(uint32_t)t->p[P_ROOT] % 12u], 4);
-            str_cpy(ti + str_len(ti), " ", 4);
-            str_cpy(ti + str_len(ti), N_SCALE[clamp(t->p[P_SCALE], 0, (int32_t)(sizeof N_SCALE / sizeof N_SCALE[0]) - 1)], 8);
-        }
+    b[0] = 0;
+    if (grid_on()) {                                   /* (the grid's page) */
+        uint32_t len = (uint32_t)t->p[P_SLEN];
+        fmt_int(b, (int32_t)ui.bank + 1);
+        str_cpy(b + str_len(b), "/", 4);
+        fmt_int(b + str_len(b), (int32_t)((len + 15u) / 16u));
+        if (black_held(GK_ACC))
+            str_cpy(b, "Accent", sizeof b);
     }
-    str_cpy(s, ename, sizeof s);
-    s[str_len(s) + 1u] = 0;
-    s[str_len(s)] = (char)('1' + song.sel);
-    str_cpy(s + str_len(s), pn, 16);
-    str_cpy(s + str_len(s), ti, sizeof ti);
-    {   /* step markers: the playhead only when it is in the shown bank, the cursor only in SEQ */
-        uint32_t ph = song.playing && t->seq_idx / 16u == ui.bank ? t->seq_idx : 0xFFu;
-        sig = str_hash(0x9E3779B9u, s) + ph * 97u + (song.seq_mode ? ui.cursor : 0xFFu) * 3001u + steps_hash(t) +
-              (ui.home ? 0u : page_icon(pg)) * 7121u +
-              ui.bank * 7u + (uint32_t)t->p[P_SLEN] * 13u;
-    }
+    sig = str_hash(str_hash(str_hash(0x9E3779B9u + song.sel * 7u, ename), pn), b) + ux.gen * 977u + ux.pal * 31u;
     if (act_cols()) {                                  /* the hint, and whether OCT+ would act */
         char ha[16], hb[16];
         foot_hint(ha, hb);
         sig += str_hash(str_hash(act_ready() ? 7u : 3u, ha), hb);
     }
-    if (grid_on())
-        sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
-    if (pg->graph == GR_ROLL) sig += (uint32_t)seq_erase_active(t) * 8191u + (uint32_t)live_rec_sel() * 113u + recording_generation * 7919u + ui.note_pick * 40503u + ui.note_zoom * 937u + ui.step_mods * 613u + bulk.on * 521u + ui.note_move * 197u + ui.note_copy * 317u;
+    if (roll)
+        sig += (uint32_t)seq_erase_active(t) * 8191u + (uint32_t)live_rec_sel() * 113u + ui.note_pick * 40503u +
+               (uint32_t)(notes_selected(t) < RECORD_MAX) * 937u + bulk.on * 521u + ui.note_move * 197u + ui.note_copy * 317u;
     if (!ui.force && sig == ui.foot_sig)
         return;
     ui.foot_sig = sig;
     cv_begin(240, H_FOOT, T_BG);
-    if (act_cols()) {                                 /* row 1: the OCT+ / OCT- hint in place of the steps */
+    if (act_cols()) {                                  /* what OCT+ / OCT- do: keycaps and their words */
         char ha[16], hb[16];
-        khint_t kh[3];
-        foot_hint(ha, hb);                            /* "OCT+ LOAD", "OCT- BACK": keycaps and their words */
+        khint_t kh[2];
+        foot_hint(ha, hb);                             /* ("OCT+ LOAD", "OCT- BACK") */
         kh[0] = (khint_t){KC_OCTUP, ha + 5};
         kh[1] = (khint_t){KC_OCTDN, hb + 5};
-        cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
-    } else if (pg->graph == GR_ROLL && !ui.home && !grid_on()) {
-        char detail[24];
-        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : ui.note_copy?"Copying..":bulk.on||ui.note_move?"Moving..":"K1 NOTE  PRE ZOOM", sizeof detail);
-        cv_text_on(8, 2, &AF_S, detail, T_THEME, T_BG);
-        fmt_int(detail, (int32_t)notes_span());
-        str_cpy(detail + str_len(detail), " ST", 4);
-        cv_text_r(232, 2, &AF_S, detail, T_MID, T_BG);
-    } else if (grid_on()) {                           /* row 1: the page, and what the keys do */
-        char b[16];
-        uint32_t len = (uint32_t)t->p[P_SLEN];
-        str_cpy(b, "PAGE ", sizeof b);
-        fmt_int(b + 5, (int32_t)ui.bank + 1);
-        str_cpy(b + str_len(b), "/", 4);
-        fmt_int(b + str_len(b), (int32_t)((len + 15u) / 16u));
-        cv_text(8, 2, &AF_S, b, T_THEME);
-        if (black_held(GK_ACC))
-            cv_text_r(232, 2, &AF_S, "ACCENT", T_ACCENT, T_BG);
-        else if(pg->scope==SC_DRUMHIT)
-            cv_text_r(232,2,&AF_S,"K1 HIT / KEYS STEP",T_MID,T_BG);
-        else
-            cv_key_hint(232 - kh_w(KC_KEYS, "STEPS"), 2, KC_KEYS, "STEPS", 1, T_BG);   /* the keys are the steps */
-    } else {
-        uint32_t i;
-        for (i = 0; i < 16u; i++) {                   /* row 1: the cursor's bank, 16 dots in 4 groups */
-            uint32_t si = ui.bank * 16u + i;
-            int32_t sx = 10 + (int32_t)i * 13 + (int32_t)(i / 4u) * 4;
-            const step_t *st = &seq_steps(t)[si];
-            if (si >= (uint32_t)t->p[P_SLEN])
-                continue;
-            if (step_on(st))                          /* a note: a dot (accented: the accent) */
-                cv_rrect(sx + 1, 2, 7, 7, 3, (st->flags & SF_ACCENT) ? T_ACCENT : T_THEME, T_BG);
-            else if (st->time == ST_TIE)              /* a tie: a dash from the note before */
-                cv_rrect(sx - 2, 4, 11, 3, 1, T_MID, T_BG);
-            else                                      /* empty: a small dot */
-                cv_rrect(sx + 3, 4, 3, 3, 1, T_RAISE, T_BG);
-            if (song.seq_mode && si == ui.cursor)
-                cv_rrect(sx + 2, 12, 5, 3, 1, T_ACCENT, T_BG);   /* the step edited */
-            else if (song.playing && si == t->seq_idx)
-                cv_rrect(sx + 2, 12, 5, 3, 1, T_TEXT, T_BG);     /* the step sounding */
-        }
-    }
-    if (!ui.home && pg->graph == GR_ROLL && live_rec_sel()) {
-        cv_key_hint(8, 19, KC_EDIT, seq_erase_active(t) ? "RELEASE TO STOP" : "HOLD TO ERASE", 1, T_BG);
-        cv_blit(0, Y_FOOT);
-        return;
-    }
-    if (!ui.home && pg->graph == GR_ROLL && !grid_on()) {
+        cv_key_row(8, 232, (H_FOOT - KC_PH) / 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
+    } else if (roll && live_rec_sel()) {
+        cv_key_hint(8, (H_FOOT - KC_PH) / 2, KC_EDIT, seq_erase_active(t) ? "RELEASE TO STOP" : "HOLD TO ERASE", 1, T_BG);
+    } else if (roll) {
         uint32_t start = notes_manual_start(t);
         int selected = notes_selected(t) < RECORD_MAX || (start < NSTEP && t->step[start].n);
-        int moving=bulk.on||ui.note_move||ui.note_copy;
-        khint_t hints[2] = {{selected||moving ? KC_OCTUP : KC_KEYS, selected||moving ? "NOTE MENU" : "ADD"}, {moving?KC_OCTDN:KC_EDIT, moving?"DONE":"DELETE"}};
-        cv_key_row(8, 232, 19, hints, 2, 3u, T_BG);
-        cv_blit(0, Y_FOOT);
-        return;
-    }
-    cv_icon_mid(6, 25, 16, trk_icon(song.sel, 1), T_THEME, T_BG);   /* row 2: the track's numeral, engine icon + */
-    x = 26;                                           /* name, sound, page */
-    if (MELODEE_ICONS)
-        x += cv_icon_on(x, 20, 12, engine_icon(ename), T_MID, T_BG) + 5;
-    x = cv_text_fit(x, 19, &AF_S, ename, T_THEME, T_BG, 80);
-    {   /* the page title at the right, its icon before it (MIXER, SONG, MOTION) */
-        uint32_t pi = ui.home ? ICON_NONE : page_icon(pg);
-        int32_t tx = 232 - text_w(&AF_S, ti) - (pi != ICON_NONE ? 16 : 0);
-        cv_free_text(x + 10, 19, &AF_S, pn, T_TEXT, T_BG, tx - 12 - (x + 10));
-        if (pi != ICON_NONE) cv_icon_on(tx, 20, 12, pi, T_MID, T_BG);
-        cv_text_r(232, 19, &AF_S, ti, T_MID, T_BG);
+        int moving = bulk.on || ui.note_move || ui.note_copy;
+        khint_t hints[2] = {{selected || moving ? KC_OCTUP : KC_KEYS, selected || moving ? "NOTE MENU" : "ADD"},
+                            {moving ? KC_OCTDN : KC_EDIT, moving ? "DONE" : "DELETE"}};
+        cv_key_row(8, 232, (H_FOOT - KC_PH) / 2, hints, 2, 3u, T_BG);
+    } else {
+        int32_t bw = b[0] ? text_w(TY_TX, b) + 12 : 0;
+        char d[2] = {(char)('1' + song.sel % NTRK), 0};
+        cv_rrect(4, H_FOOT / 2 - 11, 22, 22, 6, T_THEME, T_BG);   /* (as pv_sound_bar, the page at the right) */
+        cv_text_c(15, ty_y(H_FOOT / 2, TY_LB), TY_LB, d, T_INK, T_THEME);
+        cv_free_text(34, ty_y(H_FOOT / 2, TY_TX), TY_TX, pn[0] ? pn : ename, T_SEC, T_BG, 236 - bw - 34);
+        if (bw)
+            cv_text_r(236, ty_y(H_FOOT / 2, TY_TX), TY_TX, b, black_held(GK_ACC) ? T_ACCENT : T_THEME, T_BG);
     }
     cv_blit(0, Y_FOOT);
 }
@@ -756,12 +679,17 @@ static void engine_columns(void)                        /* EDIT held: KNOB 1 the
     draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
 }
+#define TL_MAX 4u
+static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f);
 #include "ui_stage.c"                                   /* Stage (HOME) */
 #include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
 #include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
+static int own_screen(void);
 static void draw_columns(void)
 {
+    if (own_screen())                                   /* (the browser, PATTERNS, SONG, SCALES: no cards) */
+        return;
     if(cur_page()->scope==SC_DRUM){
         char v[12];uint32_t sound=ui.drum_sound%drum_sound_count(TSEL);const int8_t *c=drum_patch[song.sel].c[sound];
         draw_column(0,"DRUM",drum_sound_name(TSEL,sound),"",VAL(0u),-1,ICON_AUTO);
@@ -794,16 +722,6 @@ static void draw_columns(void)
         draw_column(1, "PAN", val, unit, VAL(1u), RATIO(&TP[P_PAN], t->p[P_PAN]), param_icon(&TP[P_PAN], t->p[P_PAN]));
         draw_column(2, "", "", "", T_DIM, -1, ICON_NONE);
         draw_column(3, "MUTE", t->p[P_MUTE] ? "ON" : "OFF", "", t->p[P_MUTE] ? T_ACCENT : VAL(3u), -1, ICON_AUTO);
-        return;
-    }
-    if (cur_page()->graph == GR_SCALE_PICKER) {
-        uint32_t scale = (uint32_t)clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u);
-        draw_column(0, "FAMILY", SCALE_FAMILY_SHORT[ui.scale_family], "", VAL(0u), -1, ICON_X_FOLDER);
-        draw_column(1, "SCALE", N_SCALE[scale], "", VAL(1u), -1, ICON_NONE);
-        param_format(&TP[P_ROOT], TSEL->p[P_ROOT], val, &unit);
-        draw_column(2, "ROOT", val, unit, VAL(2u), -1, ICON_AUTO);
-        param_format(&TP[P_QUANT], TSEL->p[P_QUANT], val, &unit);
-        draw_column(3, "QNT", val, unit, VAL(3u), -1, ICON_AUTO);
         return;
     }
 #if MELODEE_SLICE
@@ -1135,7 +1053,6 @@ static void text_two_lines(const char *s, char *a, char *b, uint32_t n, int32_t 
 }
 /* s wrapped into at most m lines of w px in face f (at spaces; a word wider than the line: at the last character that
  * fits), each line up to 31 characters; the number of lines */
-#define TL_MAX 4u
 static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f)
 {
     uint32_t k = 0;
@@ -1169,16 +1086,27 @@ static void draw_confirm(void)
 {
     char a[24], b[32], q[TL_MAX][32], d[TL_MAX][32];
     const aafont_t *tf = TY_TX, *lf = TY_LB;
-    uint32_t nq, nd, i;
-    int32_t top, h, y0;
+    uint32_t nq, nd, i, nc = 0, k;
+    int32_t top, h, y0, sh, cut[2 * TL_MAX + 2];
     confirm_text(a, b);
     confirm_words(a);
     nq = text_lines(a, q, 3u, DLG_W - 20, tf);
     nd = b[0] ? text_lines(b, d, 3u, DLG_W - 20, lf) : 0u;
     h = 34 + (int32_t)nq * 24 + (nd ? 6 + (int32_t)nd * 20 : 0) + 14 + 34 + 12;
     y0 = H_HEAD + (240 - H_HEAD - h) / 2;
-    for (top = 0; top < h; top += (int32_t)(CV_MAX / DLG_W)) {   /* (in slices: a canvas holds 132 rows of it) */
-        int32_t sh = h - top < (int32_t)(CV_MAX / DLG_W) ? h - top : (int32_t)(CV_MAX / DLG_W), y = 34;
+    for (i = 0; i < nq; i++)                            /* (where a slice may end: between lines, over the buttons) */
+        cut[nc++] = 34 + (int32_t)i * 24;
+    for (i = 0; i < nd; i++)
+        cut[nc++] = 34 + (int32_t)nq * 24 + 6 + (int32_t)i * 20;
+    cut[nc++] = h - 48;
+    cut[nc++] = h;
+    for (top = 0; top < h; top += sh) {                 /* (in slices: a canvas holds 132 rows of it) */
+        int32_t y = 34;
+        for (k = 0, sh = 0; k < nc; k++)
+            if (cut[k] > top && cut[k] - top <= (int32_t)(CV_MAX / DLG_W))
+                sh = cut[k] - top;
+        if (!sh)
+            sh = h - top < (int32_t)(CV_MAX / DLG_W) ? h - top : (int32_t)(CV_MAX / DLG_W);
         cv_begin(DLG_W, (uint32_t)sh, T_BG);
         cv_oy = -top;
         cv_rrect(0, 0, DLG_W, h, 12, T_LINE, T_BG);
@@ -1286,6 +1214,7 @@ static void draw_toast(void)
     cv_rrect(1, 1, BOX_W - 2, h - 2, 7, T_SURF, T_LINE);
     for (i = 0; i < n; i++)
         cv_free_hint(10, 5 + (int32_t)i * 24, l[i], T_TEXT, T_SURF, BOX_W - 20);
+    GFX_HOOK_COVER(BOX_X, H_HEAD + 2, BOX_X + BOX_W, H_HEAD + 2 + h);
     cv_blit(BOX_X, H_HEAD + 2);
     toast_shown = 1;
 }
