@@ -22,7 +22,8 @@
 #define ST_KNOB_MS 1500u                                /* the knobs stay this long after the last turn */
 #define ST_DROP 4u                                      /* .. and drop in over this many frames */
 #define ST_AREA_W 232                                   /* (MIXER's strips: x 4 .. 236) */
-#define ST_GRID 30                                      /* a row's 4 x 4 steps: 30 x 30 at its right */
+#define ST_PMIN 5                                       /* the steps' smallest dot pitch (px) */
+#define ST_PMAX 12                                      /* .. and the largest */
 
 static int32_t st_row_h(void)
 {
@@ -342,26 +343,60 @@ static void stage_two_lines(const char *s, char *a, char *b, int32_t w, const aa
     str_cpy(a, s, cut + 1u);
     str_cpy(b, s + cut + (s[cut] == ' '), 16);
 }
-/* the bar playing (page) of track t: 4 x 4 dots in ST_GRID px at (x, y), or (row) 16 in a row from x, w px wide, centred
- * on row y: hits in the track's colour, a tie half of it, the rest in line, the playhead larger in text */
-static void stage_steps(const track_t *t, uint32_t page, uint32_t ph, uint16_t tc, uint16_t bg, int32_t x, int32_t y,
-                        int row, int32_t w)
+/* every step of track t's pattern in a place w x h, a bar (16 steps) a block: a line of 16, two rows of 8 or four of 4
+ * (the steps of a beat together, a little apart from the next beat's), the blocks in rows and columns; of these the
+ * shape that gives the largest dots (pitch ST_PMIN .. ST_PMAX). The dots as an LED matrix: a hit in the track's colour,
+ * a tie half of it, a rest faintly, the step playing in text */
+typedef struct { int8_t r, c, br, bc, p; int16_t w, h; } st_lay_t;
+static int32_t st_bgap(int32_t p) { return p / 3; }                     /* (between two beats in a row) */
+static int32_t st_gap(int32_t p) { return p / 2 + 2; }                  /* (between two bars side by side) */
+static int32_t st_vgap(int32_t r, int32_t p) { return r == 1 ? (p / 3 > 2 ? p / 3 : 2) : st_gap(p); }   /* (.. one under
+                                                                         * the other: lines close, as one pattern) */
+static uint32_t st_bars(const track_t *t) { return ((uint32_t)clamp(t->p[P_SLEN], 1, NSTEP) + 15u) / 16u; }
+static int st_fit(st_lay_t *l, uint32_t nb, int32_t r, int32_t c, int32_t p, int32_t w, int32_t h)   /* shape r x c at
+                                                                                               * pitch p in w x h */
 {
-    uint32_t i, len = (uint32_t)t->p[P_SLEN];
-    for (i = 0; i < 16u && page * 16u + i < len; i++) {
-        uint32_t si = page * 16u + i;
-        const step_t *st = &seq_steps(t)[si % NSTEP];
-        uint16_t c = si == ph ? T_TEXT : step_on(st) ? tc : st->time == ST_TIE ? ux_mix(bg, tc, 40) : T_LINE;
-        int32_t px, py, d = row ? (w >= 200 ? 9 : 7) : 6;
-        if (row) {
-            int32_t gap = w / 16;
-            px = x + (int32_t)i * (w - 3 * gap / 2) / 16 + (int32_t)(i / 4u) * gap / 8 + gap / 2;
-            py = y;
-        } else {
-            px = x + 4 + (int32_t)(i % 4u) * 7;
-            py = y + 4 + (int32_t)(i / 4u) * 7;
+    int32_t br;
+    for (br = 1; br <= (int32_t)nb; br++) {
+        int32_t bc = ((int32_t)nb + br - 1) / br, bw = c * p + (c / 4 - 1) * st_bgap(p);
+        int32_t tw = bc * bw + (bc - 1) * st_gap(p), th = br * r * p + (br - 1) * st_vgap(r, p);
+        if (tw <= w && th <= h) {
+            l->r = (int8_t)r, l->c = (int8_t)c, l->br = (int8_t)br, l->bc = (int8_t)bc, l->p = (int8_t)p;
+            l->w = (int16_t)tw, l->h = (int16_t)th;
+            return 1;
         }
-        cv_disc(px, py, si == ph ? d + 2 : d, c, 0);
+    }
+    return 0;
+}
+static st_lay_t st_layout(uint32_t nb, int32_t w, int32_t h)   /* the largest dots; lines of 16 if they come close */
+{
+    static const int8_t SH[3][2] = {{1, 16}, {2, 8}, {4, 4}};
+    st_lay_t l = {4, 4, 1, (int8_t)nb, ST_PMIN, 0, 0}, line = l;
+    int32_t p, k, lp = 0;
+    for (p = ST_PMAX; p >= ST_PMIN && !lp; p--)
+        lp = st_fit(&line, nb, 1, 16, p, w, h) ? p : 0;
+    for (p = ST_PMAX; p >= ST_PMIN; p--)
+        for (k = 0; k < 3; k++)
+            if (st_fit(&l, nb, SH[k][0], SH[k][1], p, w, h))
+                return lp && lp >= p - 2 ? line : l;
+    if (lp)
+        return line;
+    l.w = (int16_t)(nb * 4u * ST_PMIN + (nb - 1u) * (uint32_t)st_gap(ST_PMIN));   /* (none fits: the smallest blocks) */
+    l.h = 4 * ST_PMIN;
+    return l;
+}
+static void stage_steps(const track_t *t, uint32_t ph, uint16_t tc, uint16_t bg, int32_t x, int32_t y, const st_lay_t *l)
+{
+    uint32_t i, len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
+    int32_t p = l->p, d = p <= 6 ? p - 1 : p - (p / 4 > 2 ? p / 4 : 2);   /* (the dots: 4 px at a pitch of 5, 9 at 12) */
+    int32_t bw = l->c * p + (l->c / 4 - 1) * st_bgap(p), bh = l->r * p;
+    for (i = 0; i < len; i++) {
+        const step_t *st = &seq_steps(t)[i];
+        uint32_t b = i / 16u, j = i % 16u, col = j % (uint32_t)l->c, row = j / (uint32_t)l->c;
+        uint16_t c = i == ph ? T_TEXT : step_on(st) ? tc : st->time == ST_TIE ? ux_mix(bg, tc, 55) : ux_mix(bg, tc, 22);
+        int32_t px = x + (int32_t)(b % (uint32_t)l->bc) * (bw + st_gap(p)) + (int32_t)col * p + (int32_t)(col / 4u) * st_bgap(p);
+        int32_t py = y + (int32_t)(b / (uint32_t)l->bc) * (bh + st_vgap(l->r, p)) + (int32_t)row * p;
+        cv_disc(px + p / 2, py + p / 2, d, c, 0);
     }
 }
 static void stage_row(uint32_t k)
@@ -369,16 +404,20 @@ static void stage_row(uint32_t k)
     static const char *const AM[7] = {"ARP", "ARP UP", "ARP DOWN", "ARP UP-DOWN", "ARP RANDOM", "ARP ORDER", "REPEAT"};
     const track_t *t = &trk[k];
     uint32_t sel = k == song.sel, mute = t->p[P_MUTE] != 0u, arm = (song.rec >> k) & 1u, len = (uint32_t)t->p[P_SLEN];
-    uint32_t page = song.playing && t->seq_idx < len ? t->seq_idx / 16u : 0u, ph = song.playing ? t->seq_idx : 0xFFFFu;
+    uint32_t ph = song.playing && t->seq_idx < len ? t->seq_idx : 0xFFFFu, nb = st_bars(t);
     uint32_t next = t->pattern_next < NPAT ? t->pattern_next + 1u : 0u, sig, src, kk, cat, g;
     uint32_t n = trk_n(), wide = n == 1u, idle = wide && stage_seq_idle(k);
     int pending = sel && browse_pending();
-    int32_t h = st_row_h(), y = st_row_y(k), top, cs = h >= 80 ? 34 : 26, tx = 6 + cs + 10, gx = BOX_W - 6 - ST_GRID;
-    int32_t steps_row = h >= 80;                        /* (one, two tracks: the steps in a row under the words) */
+    int32_t h = st_row_h(), y = st_row_y(k), top, cs = h >= 80 ? 34 : 26, tx = 6 + cs + 10, room = BOX_W - 6 - tx;
+    st_lay_t lay = {4, 4, 1, 1, ST_PMIN, 0, 0};
+    int32_t steps_row = h >= 80, showrole = 1;          /* (one, two tracks: the role under the name; three, four: beside it,
+                                                         * at the right) */
     uint16_t tc = mute ? T_DIM : T_TRK(k), bg = ux_mix(T_BG, tc, sel ? 24 : 11);   /* (the track's tint) */
     const aafont_t *lf = TY_LB, *nf = h >= 80 ? TY_VL : TY_TX;
-    char nm[24], line[48], more[48], ml[TL_MAX][32], d[3] = {(char)('1' + k), 0, 0};
+    char nm[24], line[48], more[48], ml[TL_MAX][32], d[3] = {(char)('1' + k), 0, 0}, role[16];
+    char pt[3] = {'P', (char)('1' + t->pattern % NPAT), 0}, pn[3] = {'P', (char)('0' + next), 0};
     uint32_t nx = 0, i;
+    int32_t pw = text_w(lf, pt) + 8, pills = idle ? 0 : pw + (next ? pw + 4 : 0);   /* (the pattern, the next one) */
     if (pending) {                                      /* browsing: the sound the list shows, not yet loaded */
         char tag[6];
         src = browse_shown(&kk);
@@ -400,11 +439,23 @@ static void stage_row(uint32_t k)
     if (wide)
         sig += (uint32_t)t->p[P_AMODE] * 3001u + (uint32_t)t->p[P_AHOLD] * 37u + (uint32_t)t->p[P_CHRD] * 641u +
                (uint32_t)t->p[P_QUANT] * 1291u + (uint32_t)t->p[P_ROOT] * 17u + (uint32_t)t->p[P_SCALE] * 4099u;
-    g = steps_hash(t) + page * 613u + ph * 104729u;
+    g = steps_hash(t) + len * 613u + ph * 104729u;
     char l1[24], l2[24];
     l1[0] = l2[0] = 0;
-    if (!wide && nf == TY_VL && text_w(nf, nm) > (steps_row ? BOX_W - 6 : gx - 8) - tx)
-        nf = TY_TX;                                     /* (two tracks: a long name whole at 20 px, not cut at 28) */
+    if (!wide && nf == TY_VL && (text_w(nf, nm) > BOX_W - 6 - tx || nb > 2u))
+        nf = TY_TX;                                     /* (two tracks: a long name, or many bars: 20 px, not 28) */
+    for (i = 0; line[i] && line[i] != ' ' && i + 1u < sizeof role; i++)
+        role[i] = line[i];
+    role[i] = 0;
+    if (!steps_row) {                                   /* (three, four tracks: the name, the role and the pattern at the
+                                                         * right of its line (the role where the name leaves room), the
+                                                         * steps across under them) */
+        room = BOX_W - 6 - tx - 8 - pills - text_w(lf, role) - 8;
+        if (text_w(TY_TX, nm) > room)
+            showrole = 0, room = BOX_W - 6 - tx - 6 - pills;
+        nf = ty_fit(TY_TX, nm, room);
+        lay = st_layout(nb, BOX_W - 6 - tx, h - 6 - TY_TX->cap - 5);
+    }
     if (wide) {                                         /* one track: the sound as large as it fits, on two lines if need be */
         int32_t room = BOX_W - tx - 8;
         if (text_w(TY_HR, nm) <= room && text_has(TY_HR, nm)) {
@@ -426,23 +477,30 @@ static void stage_row(uint32_t k)
             nx = text_lines(more + 2, ml, 2u, BOX_W - 6 - tx, lf);
     }
     /* the block, centred by its capitals: the name (its first capital to its last baseline), 6 px, the role's pills (16),
-     * what plays besides (18 a line), then the steps (18) */
-    int32_t ncap = nf->cap + (l2[0] ? nf->h - 4 : 0), blk = ncap + 6 + 16 + 18 * (int32_t)nx + (steps_row && !idle ? 18 : 0);
-    int32_t T = (h - blk) / 2, by = T - (nf->asc - nf->cap), pcy = T + ncap + 6 + 8;
+     * what plays besides (18 a line), then (one, two tracks) 6 px and the steps, a line a bar, sp apart */
+    int32_t ncap = nf->cap + (l2[0] ? nf->h - 4 : 0), blk = ncap + 6 + 16 + 18 * (int32_t)nx, hs = 0;
+    if (steps_row && !idle) {                           /* (one, two tracks: under the words, across) */
+        lay = st_layout(nb, BOX_W - 6 - tx, h - 12 - blk - 6);
+        hs = lay.h;
+        blk += 6 + hs;
+    }
+    if (!steps_row)                                     /* (the name's line, 5 px or more, the steps) */
+        blk = TY_TX->cap + (lay.h > h - 6 - TY_TX->cap - 7 ? 5 : 7) + lay.h;
+    int32_t T = (h - blk) / 2, by = T - (nf->asc - nf->cap), pcy = T + ncap + 6 + 8, sy = pcy + 8 + 18 * (int32_t)nx + 6;
+    int32_t ny = steps_row && !idle ? (6 + hs) / 2 : 0;   /* (the numeral: on the words' middle) */
+    if (!steps_row) {
+        pcy = T + TY_TX->cap / 2;                       /* (the name's line: its capitals' middle) */
+        by = ty_y(pcy, nf);
+        sy = T + blk - lay.h;
+    }
     if (stage.out)                                      /* (the knobs and the hero over the rows: nothing to draw) */
         return;
     if (!ui.force && sig == stage.col[k]) {
         if (g != stage.grid[k] && !idle) {              /* the steps or the playhead: the steps only */
             stage.grid[k] = g;
-            if (steps_row) {
-                cv_begin(BOX_W - tx - 6, 14, bg);
-                stage_steps(t, page, ph, tc, bg, 0, 7, 1, BOX_W - tx - 6);
-                cv_blit((uint32_t)(BOX_X + tx), (uint32_t)(y + pcy + 18 + 18 * (int32_t)nx - 7));
-            } else {
-                cv_begin(ST_GRID, ST_GRID, bg);
-                stage_steps(t, page, ph, tc, bg, 0, 0, 0, 0);
-                cv_blit((uint32_t)(BOX_X + gx), (uint32_t)(y + (h - ST_GRID) / 2));
-            }
+            cv_begin((uint32_t)lay.w, (uint32_t)lay.h, bg);
+            stage_steps(t, ph, tc, bg, 0, 0, &lay);
+            cv_blit((uint32_t)(BOX_X + tx), (uint32_t)(y + sy));
         }
         return;
     }
@@ -458,30 +516,25 @@ static void stage_row(uint32_t k)
         } else {
             cv_rrect(0, 0, BOX_W, h, 8, bg, T_BG);
         }
-        cv_rrect(6, h / 2 - cs / 2 - (steps_row && !idle ? 9 : 0), cs, cs, 7, tc, bg);   /* the numeral */
-        cv_text_c(6 + cs / 2, ty_y(h / 2 - (steps_row && !idle ? 9 : 0), cs > 30 ? TY_VL : TY_TX), cs > 30 ? TY_VL : TY_TX,
-                  d, T_INK, tc);
+        cv_rrect(6, h / 2 - cs / 2 - ny, cs, cs, 7, tc, bg);   /* the numeral */
+        cv_text_c(6 + cs / 2, ty_y(h / 2 - ny, cs > 30 ? TY_VL : TY_TX), cs > 30 ? TY_VL : TY_TX, d, T_INK, tc);
         if (arm)                                        /* armed: a REC dot on its corner */
-            cv_disc(6 + cs - 2, h / 2 - cs / 2 - (steps_row && !idle ? 9 : 0) + 2, 9, T_REC, 0);
-        cv_free_text(tx, by, nf, nm, pending ? T_ACCENT : mute ? T_DIM : T_TEXT, bg, (steps_row ? BOX_W - 6 : gx - 8) - tx);
+            cv_disc(6 + cs - 2, h / 2 - cs / 2 - ny + 2, 9, T_REC, 0);
+        cv_free_text(tx, by, nf, nm, pending ? T_ACCENT : mute ? T_DIM : T_TEXT, bg, room);
         if (l2[0])
             cv_free_text(tx, by + nf->h - 4, nf, l2, pending ? T_ACCENT : mute ? T_DIM : T_TEXT, bg, BOX_W - 6 - tx);
         {   /* the role, then the pattern (a pill in the track's colour), the next one waiting for the bar dashed */
-            int32_t lx = tx, cy = pcy, ly = ty_y(cy, lf), re = (steps_row ? BOX_W - 6 : gx - 8);
-            char role[16], pt[3] = {'P', (char)('1' + t->pattern % NPAT), 0}, pn[3] = {'P', (char)('0' + next), 0};
-            uint32_t m;
-            for (m = 0; line[m] && line[m] != ' ' && m + 1u < sizeof role; m++)
-                role[m] = line[m];
-            role[m] = 0;
-            lx = cv_text_on(lx, ly, lf, role, tc, bg) + 8;
+            int32_t lx = steps_row ? tx : BOX_W - 6 - pills - (showrole ? text_w(lf, role) + 8 : 0), cy = pcy,
+                    ly = ty_y(cy, lf), re = BOX_W - 6;
+            if (showrole)
+                lx = cv_text_on(lx, ly, lf, role, tc, bg) + 8;
             if (!idle) {
-                int32_t pw = text_w(lf, pt) + 10;
                 cv_rrect(lx, cy - 8, pw, 16, 4, tc, bg);
-                cv_text_on(lx + 5, ly, lf, pt, T_INK, tc);
+                cv_text_on(lx + 4, ly, lf, pt, T_INK, tc);
                 lx += pw + 4;
                 if (next) {
                     cv_dashed(lx, cy - 8, pw, 16, 4, tc);
-                    cv_text_on(lx + 5, ly, lf, pn, tc, bg);
+                    cv_text_on(lx + 4, ly, lf, pn, tc, bg);
                     lx += pw + 4;
                 }
             }
@@ -490,10 +543,7 @@ static void stage_row(uint32_t k)
             (void)lx;
         }
         if (!idle) {
-            if (steps_row)
-                stage_steps(t, page, ph, tc, bg, tx, pcy + 8 + 10 + 18 * (int32_t)nx, 1, BOX_W - tx - 6);
-            else
-                stage_steps(t, page, ph, tc, bg, gx, (h - ST_GRID) / 2, 0, 0);
+            stage_steps(t, ph, tc, bg, tx, sy, &lay);
         }
         cv_oy = 0;
         cv_blit(BOX_X, (uint32_t)(y + top));

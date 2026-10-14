@@ -233,7 +233,10 @@ turning: its value in the track's colour and a bar); the picture at y 84, 124 ta
 - Knob and curve pages: the strip on top, the picture under it, and while a knob turns (1.5 s) its value in the hero
   face over the picture (a scrim calms the picture; a curve gets a halo instead).
 - Stage, lists, Settings, the browser, sheets: rows across the screen, 32 px tall and 34 apart, the picked row tinted
-  in the track's colour. Stage's rows are the tracks, each in its colour.
+  in the track's colour. Stage's rows are the tracks, each in its colour, with every step of the pattern as dots
+  (an LED matrix in the track's colour: a bar a line of 16 in four beats, lines stacked; `ui_stage.c` st_layout picks
+  the largest dots that fit: under the name across the row, three or four tracks with the role and pattern at the
+  name's right).
 
 Rules, from the reviews: screens stay calm (no boxes or rings around cells, no tabs, no hint rows); nothing is ever
 cut or ellipsised (labels have short forms, `ui_draw.c` CELL_SHORT, the hero says the word in full; dialogs and toasts

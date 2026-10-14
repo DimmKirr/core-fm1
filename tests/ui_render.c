@@ -480,6 +480,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_VIEW, S_VIEW_LETGO, S_VIEW_NOTE, S_VIEW_EMPTY, S_VIEW_KNOBS, S_VIEW_SLASH, S_MENU_HOME_SEL, S_HOME_SEL_MOD, S_HOME_SEL_CHORD,
        S_HOME_SEL_LEVEL,
        S_MIXER_T1, S_MIXER_T2, S_MIXER_T3, S_PATGRID_T2, S_SONG_T2, S_GLO_T2, S_NEW_ROLES_T1,
+       S_STAGE_LONG, S_STAGE_T3_LONG, S_STAGE_T2_LONG, S_STAGE_T1_LONG,
        S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG,
        S_REF_ENV, S_REF_LFO, S_REF_EDIT_OSC, S_REF_MIXER, S_REF_NOTES, S_REF_SETTINGS, S_REF_DIALOG,
        S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_PICKER_MODE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
@@ -509,6 +510,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "view", "view_letgo", "view_note", "view_empty", "view_knobs", "view_slash", "menu_home_select", "home_select_mod", "home_select_chord",
     "home_select_level",
     "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "new_roles_1track",
+    "stage_long", "stage_3tracks_long", "stage_2tracks_long", "stage_1track_long",
     "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_separate", "fx_sends", "fx_bus1", "fx_bus2", "fx_bus3", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
@@ -1048,6 +1050,23 @@ static void setup(int s)
         }
         if (s == S_STAGE_T1_KNOBS) { ui.hot_col = 0; ui.hot_t = 30; stage_out(); }
         break;
+    /* patterns longer than a bar (Stage: every bar's steps): four tracks 16 / 32 / 48 / 64 steps, three 32 / 64 / 16, two
+     * 32 / 64, one 64 (each bar the first one's, every other a step later) */
+    case S_STAGE_LONG: case S_STAGE_T3_LONG: case S_STAGE_T2_LONG: case S_STAGE_T1_LONG: {
+        static const uint8_t LEN[4][4] = {{16, 32, 48, 64}, {32, 64, 16, 16}, {32, 64, 16, 16}, {64, 16, 16, 16}};
+        uint32_t v = s - S_STAGE_LONG, k, i;
+        song.ntrk = (uint8_t)(4u - v);
+        go_home();
+        for (k = 0; k < song.ntrk; k++) {
+            track_t *t = &trk[k];
+            if (k == 0u && v) demo_pat16(t, DEMO_ACID);
+            t->p[P_SLEN] = LEN[v][k];
+            for (i = 16; i < NSTEP; i++)
+                t->step[i] = t->step[(i + (i / 16u) % 2u) % 16u];
+            t->seq_idx = (uint32_t)(LEN[v][k] - 11u);
+        }
+        break;
+    }
     case S_STAGE_T1_SYNTH:                               /* one track, no pattern at all (a synth): no pill, no steps */
     case S_STAGE_T1_SYNTH_ARP:
         song.ntrk = 1; song.sel = 0; song.playing = 0; eng(ENGI_PROPHET); pattern_init(); track_defaults_steps(&trk[0]);
