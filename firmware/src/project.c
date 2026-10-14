@@ -51,7 +51,7 @@ typedef struct {
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
     uint16_t user[NTRK];                    /* shared slot + 1; sound remains embedded independently */
     uint32_t sum;
-} project_t;
+} __attribute__((may_alias)) project_t;
 /* The four formerly reserved runtime bytes keep Prophet user-slot origins.
  * Zero means factory/unknown; otherwise the value is slot + 1. */
 static uint8_t *proj_p5_origin(project_t *p,uint32_t track)
@@ -389,7 +389,15 @@ static void proj_legacy_perc(track_t *t)
     t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;
 }
 
-static project_t proj_scratch __attribute__((section(".pool")));              /* decoded main-loop work, never audio ISR */
+#ifdef CV_WORK_BYTES
+/* Used synchronously by the main loop, outside drawing. Slot names are
+ * cached in proj_meta; drawing never decodes a project into its own canvas.
+ * may_alias on project_t covers the canvas's other typed view. */
+_Static_assert(sizeof(project_t) <= CV_WORK_BYTES, "decoded project fits canvas scratch");
+#define proj_scratch (*(project_t *)cv_work())
+#else
+static project_t proj_scratch __attribute__((section(".pool"))); /* standalone host fixtures */
+#endif
 static char proj_name[PROJ_NAME_LEN + 1u]    /* the name of the music as it is now (loaded, saved, the editor's */
     __attribute__((section(".pool")));       /* runtime restore); "" = none. A save takes it unless one is given */
 #define PROJ_NO_SLOT 0xFFu
