@@ -95,7 +95,7 @@
 #include "ui_draw.c"
 #include "ui_menu.c"
 #include "ui_input.c"
-#include "ui_layer.c"              /* the quick layers (GLO SCL EDIT held) */
+#include "ui_layer.c"              /* the quick layers (GLO SCL held) */
 
 /* --------------------------------------------- storage, update, editor --- */
 #if MELODEE_FLASH

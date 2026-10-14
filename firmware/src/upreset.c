@@ -572,7 +572,7 @@ static int up_load_to(uint32_t k,uint32_t tr)
         return 1;
     rec = *up_rec(k);
     up_values(r, v);
-    load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
+    load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for EDIT held = undo) */
     panic_req |= (uint8_t)(1u << tr);
     {
         fm1_irq_off();                                  /* the audio ISR must not see half a sound */
