@@ -233,7 +233,7 @@ int main(void)
     bad+=check("unfinished archive conversion blocks writes to its source bank",native_put(ENGI_PROPHET,288,(uint8_t *)&old_bank.patch[0])==2);
     up_boot();bad+=check("finalizing old archive preserves all 26 source programs",!up_migration_error&&up_count()==26u);
     reset();uint8_t unknown[3816];memset(unknown,0,sizeof unknown);up_rec_t future;memset(&future,0,sizeof future);future.used=UP_USED;future.ver=99;memcpy(future.name,"FUTURE",6);memset(future.note,0x6a,sizeof future.note);memset(future.flags,0x59,sizeof future.flags);
-    uint32_t magic=UP_BANK_MAGIC;uint16_t record_size=238,records=16;memcpy(unknown,&magic,4);memcpy(unknown+4,&record_size,2);memcpy(unknown+6,&records,2);memcpy(unknown+8,&future,sizeof future);st_save(OBJ_UPRESET0,unknown,sizeof unknown);up_boot();
+    uint32_t magic=UP_BANK_MAGIC;uint16_t record_size=238,records=16;memcpy(unknown,&magic,4);memcpy(unknown+4,&record_size,2);memcpy(unknown+6,&records,2);memcpy(unknown+8,&future,sizeof future);st_save(OBJ_UPRESET0,unknown,sizeof unknown);up_cache_reset();
     uint8_t original[3816];bad+=check("unknown legacy records retain all phrase/opaque bytes",up_old_bank(0)&&st_load(OBJ_UPRESET0,original,sizeof original)==sizeof original&&!memcmp(original,unknown,sizeof original));
     set_engine_of(TSEL,ENGI_CZ);preset_old_allow(1);fail_after=1;int failed=up_store(0,"REPLACE");fail_after=-1;preset_old_allow(0);
     bad+=check("failed confirmed whole-bank replacement retains opaque source",failed==2&&up_old_bank(0)&&st_load(OBJ_UPRESET0,original,sizeof original)==sizeof original&&!memcmp(original,unknown,sizeof original));

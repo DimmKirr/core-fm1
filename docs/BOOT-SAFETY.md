@@ -85,6 +85,25 @@ its tagged shared workload-budget preference; cleanup defaults it to the
 standard budget. A settings-repair error also prevents preset migration from
 replacing its failure screen.
 
+## Preset reset policy from 1.3.6
+
+Startup resets unsupported preset banks to empty defaults and clears unreadable
+entries in otherwise readable banks. Compatible records survive; recognized
+legacy Melodee banks still convert normally, including FM6 sidecars and Prophet
+spill records. This deliberately discards unsupported preset contents. Backup
+before updating if another firmware may need them. Projects keep OLD FORMAT
+protection, and live writes remain guarded until boot or explicit replacement.
+
+Each repair is displayed before its A/B write. Failure retains the prior
+committed copy and stops further migration with a visible error. Restart retries
+unfinished repairs; successful repairs do not repeat. Migration may then perform
+its normal writes for the remaining recognized legacy banks.
+
+Validation: the target build and full host suite pass, including reset/cut/retry
+checks, preservation of good entries in partially readable legacy banks, multiple
+FM6 sidecars across shared-cache reuse, and the existing 384-slot conversions.
+Physical device validation remains pending.
+
 ## Limits and verification
 
 The first installation of the stub, a stub change, or a directory/SDK layout change

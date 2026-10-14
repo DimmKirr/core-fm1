@@ -39,6 +39,13 @@ runs Felucca.
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
 
+## What's new in 1.3.6
+
+- **Reset unsupported preset data at startup:** unreadable banks become empty
+  defaults, while readable banks keep their compatible entries. This discards
+  unsupported preset data. Projects keep their OLD FORMAT protection. The
+  development line still converts recognized legacy Melodee presets normally.
+
 ## What's new in 1.3.5
 
 - **Visible startup and update recovery:** maintenance is displayed before flash
