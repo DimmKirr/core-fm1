@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Bounded fault handling and wrap-safe deadlines without waiting in real time,
  * and the worker's defence against CPU1 misreads (keremimo/melodee#17). */
 #include <assert.h>

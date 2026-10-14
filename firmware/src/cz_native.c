@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Copyright (c) Devin Acker
  * Modifications Copyright (c) 2026 Kerem Kilic (Ellic Studio)
  * License: LICENSES/BSD-3-Clause-uPD933.txt

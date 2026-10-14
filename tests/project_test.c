@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the project record (firmware/src/project.c, -DPROJ_HOST part): today's FUN16 round trip (the
  * parameters, the engines, the steps, the song chain, the name, the FM6 patches), damaged and out-of-range ones
  * refused or bounded, and records of the formats before FUN16 refused (1.2 rewrote them; archives restore there).

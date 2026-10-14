@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Nightly publishing preserves releases/editor, removes retired channels and rejects mismatched builds."""
 import hashlib
 import json

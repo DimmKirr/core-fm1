@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* One UAC1 duplex function: stereo playback, selectable capture; PCM16/24 at 44.1 kHz.
  * This template has four tracks; ua_cfg_build patches capture to stereo by default.
  * IF2 control groups IF3 playback and IF4 recording into one "Melodee" device.

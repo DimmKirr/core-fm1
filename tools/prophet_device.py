@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Prototype-only device measurements and read-only musical backups.
 
 Requires mido/python-rtmidi; --usb also uses sounddevice/numpy. This tool

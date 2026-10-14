@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 #include "src/build_options.h"
 /* The boot stub at 0x02000120 validates the committed body before entering
  * here at 0x02001000. It saved the SPL's STATUS; keep those original values. */

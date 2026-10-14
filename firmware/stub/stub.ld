@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Copyright (C) 2026 ChoralRoot FM-1 contributors (a fork of Felucca) */
 /* The boot stub (docs/BOOT-SAFETY.md): app.bin's first 0xEE0 bytes, flash 0x4120..0x4FFF, executed in
  * place. Code and constants only: nothing may land in RAM (tools/build.py fails on any other section with a size).

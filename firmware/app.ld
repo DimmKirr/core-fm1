@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE memory map.
  * Code + constants execute in place from XIP (body offset 0 = 0x02001000; boot stub at 0x02000120).
  * 0x01C00000..0x01C07F00 holds .ram_text (code that must run while the flash

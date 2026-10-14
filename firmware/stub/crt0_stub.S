@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Copyright (C) 2026 ChoralRoot FM-1 contributors (a fork of Felucca); the entry is Felucca's crt0.S
  * (Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments) */
 /* The boot stub's entry (docs/BOOT-SAFETY.md). The SPL maps app.bin at XIP 0x02000120 and jumps to its

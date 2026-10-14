@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The FM6 side of the parity test (tests/fm6_parity.sh): renders a score (tests/fm6_score.h) on
  * track 1 through track_render, as the firmware does, and writes what the voices sum to before
  * FM6's output stage (Q24, 1 << 24 = a unit sine; Dexed's audiobuf before its clip), one int64 a

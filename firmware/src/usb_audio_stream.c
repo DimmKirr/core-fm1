@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* UAC1 stereo playback and selectable stereo master / four-track capture.
  * Callers serialize USB service and each short audio block. Capture precedes
  * computer playback, so DAW monitoring cannot feed itself through capture.

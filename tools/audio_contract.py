@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Generate/check the explicit four-track voice reservations (no device access)."""
 import argparse,json,itertools
 from pathlib import Path

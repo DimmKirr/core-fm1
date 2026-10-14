@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Text spacing against the font itself: the generated glyph tables (build/gen/ui_fonts.h), placed as
 src/gfx.c cv_text places them (tests/text_ref_test.c pins cv_text to that rule), against a 16 x supersampled,
 unhinted rendering of the same instanced weight, every glyph at its exact fractional pen from shaping the

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Real LCD/canvas code against a DMA that remains busy until explicitly
  * waited on. It checks source bytes at completion, catching early reuse. */
 #include <stdint.h>

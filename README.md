@@ -876,7 +876,7 @@ You can leave a tip with [ko-fi](https://ko-fi.com/keremimo).
 - Based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com)
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
   Felucca itself; the PHASE engine's waveforms (a C port of the oscillator of
-  [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the synthesized 808; the [Fukiai](https://github.com/hugelton/Fukiai) icon
+  [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the [Fukiai](https://github.com/hugelton/Fukiai) icon
   font of the web editor ([MIT](LICENSES/MIT-Fukiai.txt))
 - Font: [Rubik](https://github.com/googlefonts/rubik) by The Rubik Project Authors, [SIL OFL 1.1](LICENSES/OFL-Rubik.txt);
   the panel diagram: [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors, [SIL OFL 1.1](LICENSES/OFL-InterTight.txt)
@@ -901,7 +901,7 @@ ported DSP keep their own licences ([LICENSES/](LICENSES/)); details in [LICENSI
 "Felucca" and "Hügelton Instruments" are names of Hügelton Instruments. M-VAVE and FM-1 are
 trademarks of their respective owners. Melodee is not affiliated with or endorsed by any of them.
 
-Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments\
-Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+Melodee code and modifications: Copyright (C) 2026 Kerem Kilic (Ellic Studio)\
+Retained Felucca portions: Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 
 See [Recording and performance controls](docs/RECORDING_PERFORMANCE.md) for count-in, metronome, drum levels, temporary knob edits, additive chords and MIDI parameter control.

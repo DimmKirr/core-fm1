@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Command 80: operation, slot low/high, arguments. Replies echo operation,
  * slot low/high, rc. All slots are absolute positions in the shared library. */
 #define ED_LIBRARY 80u

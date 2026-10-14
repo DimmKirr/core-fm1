@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* CZ-1's knobs (the SC_CZ1 pages, cz_edit.h), through cz_ed_put as the device writes them, rendered:
  *   ALL WORK   on a tone that uses every part of the CZ (1+2', both lines' own values, detune, vibrato,
  *              eight-step envelopes), each panel value at its minimum and maximum changes the sound; the one

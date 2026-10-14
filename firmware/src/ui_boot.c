@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Shared, synchronous progress for boot maintenance. No timer IRQ, audio or
  * normal UI loop is needed: flush the warning before any flash write begins.
  * Errors remain on screen until acknowledged; callers retain their write guards. */

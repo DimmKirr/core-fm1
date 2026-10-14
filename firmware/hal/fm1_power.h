@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* FM-1 supply rails and clock tree, read only, for MELODEE_CORE1_TEST builds
  * (editor command 79). Melodee never changes a rail: they stay where the boot
  * loader sets them (BUILDING.md, "Units whose CPU1 misreads SRAM").

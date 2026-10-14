@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The tracks in use (song.ntrk, core.h trk_n): one to start with, up to NTRK, always from track 1. Stage's sheet adds
  * one (track_add: the next place, its power-on sound, every pattern empty; selected, the browser open on it) or
  * removes the selected one (track_remove: stopped, after its question): the tracks after it move down a place with

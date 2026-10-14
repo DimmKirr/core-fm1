@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Resident profile admission, with online caps and serial host rendering. */
 #define MELODEE_RAM_AUDIO 1
 #define MELODEE_DUAL_CORE 1

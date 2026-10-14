@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM6 engine test (src/eng_fm6.c, src/fm6_core.c) on the Mac, through hostsim.c as regress.c. Renders track 1
  * alone (track_render: no FX, no master). Sample-for-sample agreement with Dexed is tests/fm6_parity.sh's; this
  * test checks FM6 against the DX7 and the engine around it:

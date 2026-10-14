@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Measure fixed voices on all 1296 ordered engine assignments. Creates no backups.
 
 Requires the existing original-backup and opt-in AUDIO_PROFILE/AUDIO_BENCH

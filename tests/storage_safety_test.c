@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Real UI and NOR paths: unsupported data stays intact until a confirmed replacement. */
 #define PERSISTENCE_TEST_NO_MAIN
 #include "persistence_test.c"

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Exercise the real keyboard, recording, arp and MIDI-out paths on the host.
  * Build with the same generated headers and flags as hostsim.c. */
 #include <assert.h>

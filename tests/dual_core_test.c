@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Run the real FM6/Prophet pairing on a concurrent host worker, compare the complete
  * mixer to serial output. Controls and lifecycle stay on the producer. */
 #include <stdlib.h>

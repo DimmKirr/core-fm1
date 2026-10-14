@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Exercise the real HAL initialization and column scan against MMIO storage.
  * This verifies register ownership, routing, blanking and duty selection; it
  * cannot establish the electrical PWM waveform or visible device behavior. */

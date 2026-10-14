@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Final device corner cases, using existing state artifacts only. No backups."""
 import argparse,contextlib,itertools,json,time
 from pathlib import Path

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Single producer (CPU0 audio ISR), single consumer (CPU1). One outstanding
  * job. Completion publishes the result AND returns ownership of voice state.
  * CPU0 must join before events, engine changes, post processing or flash IO.

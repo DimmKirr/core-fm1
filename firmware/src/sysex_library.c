@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Incoming dumps retain their native names and bytes until the player chooses
  * a destination. The receive ISR never writes flash or changes a track. */
 static struct {

@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* DRUM's KIT 808 (eng_drum.c): an analog kit modelled on the TR-808's voice circuits. A lane plays one circuit at a
  * time (dr8_t, in each lane): the instrument of the note struck, from the 808's own
  * General MIDI map (DR_GM: three toms and three congas, maracas, claves, cowbell, cymbal), else the 808's nearest to

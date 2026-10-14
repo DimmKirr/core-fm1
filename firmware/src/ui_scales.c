@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* SCL > SCALES as a screen of its own (docs/design: mock/r6_pages SCALES): the track and the page in a chip, the scales
  * in the family; the families down the left (KNOB 1), the family's scales down the right (KNOB 2; the one picked a card:
  * its name larger, its notes and period, a star when a favourite), where they are as a scrollbar; under them the

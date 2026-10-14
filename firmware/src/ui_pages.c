@@ -1,4 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The pages the proposal did not draw, in the redesign's language (docs/design: mock/r5_pages, ref/env, lfo, ..):
  * no footer; the header names the page and shows where it is in its family (dots); the sound being edited at the
  * foot; the four knobs as the page needs them, the knob just turned lifted in the track's colour; each page's own

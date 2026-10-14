@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Prophet prototype: native patches and five (experimental dual-core: eight) voices, with two provisional
  * filter characters. Stored engine ID 19 is independent of legacy ANALOG.
  * MELODEE_PROPHET_PROTOTYPE additionally aliases ID 0 for measurement rigs. */

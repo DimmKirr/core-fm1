@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Final original-project comparison and a musical recording. No new backups."""
 import argparse,contextlib,json,time
 from pathlib import Path

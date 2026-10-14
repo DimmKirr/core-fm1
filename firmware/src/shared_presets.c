@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Shared-slot adapters and conversion of the immediately preceding formats.
  * Only the main loop accesses banks. Audio keeps independent track patches. */
 static int up_favorite(uint32_t k)

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* USB0 full-speed isochronous service, included by usb.c after the SIE helpers.
  * The AC79 usb_phy.h defines bit 14 as ISOCHRONOUS in TX/RX CSR. As in the
  * SDK and the MIDI endpoints, MaxP is written as 0xFF and TX bit 13 (direction)

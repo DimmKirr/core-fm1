@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+// Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+// Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 //
 // Node checks of the web pages' JS (no browser, no hardware). Run from the repo root:
 //   node web/test_web.mjs

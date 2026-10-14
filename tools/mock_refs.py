@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """The redesign's reference screens: docs/design/ref/<screen>.svg (240 x 240, one per mockup screen, dumped from the
 proposal's mockups in docs/design/mock/) -> docs/design/ref/<screen>.png at the device's pixels, in the bundled Rubik.
 

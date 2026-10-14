@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* SID (src/eng_sid.c) against the chip as reSID documents it: the noise register, waveforms, ring modulation, hard
  * sync, the R-2R DACs of both revisions, the envelope generator cycle for cycle (rates, the exponential counter,
  * sustain, the zero freeze, the ADSR delay), the 16-bit frequency register, the cutoff curves and resonance laws,

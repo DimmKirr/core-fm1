@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Editor protocol: the FM6 patches (EDITOR_PROTOCOL.md "FM6 patches", cmds 68..71). A patch travels as the
  * 128-byte packed record (every byte 7-bit: no pack7). Targets: 0 a track's own patch (index 0..3), 1 the patch bank
  * (retired in 1.0.3: GET / PUT / ERASE answer rc 3, "no bank"; LIST counts 0 bank slots), 2 a factory patch

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Native panel descriptors. Editing one field leaves all opaque bytes intact. */
 static const char *const P5_FILTER_NAMES[]={"SSI","CURTIS"};
 static const char *const P5_TRACK_NAMES[]={"OFF","HALF","FULL"};

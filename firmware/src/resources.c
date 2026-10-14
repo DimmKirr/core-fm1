@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Bounded audio working-memory arena. Only the audio owner (or boot/host
  * setup before audio starts) mutates it. Fixed handles, no heap,
  * relocation, or searches proportional to the number of voices/samples.

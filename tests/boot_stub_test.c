@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Copyright (C) 2026 ChoralRoot FM-1 contributors (a fork of Felucca) */
 /* Host test of the boot stub's decision (firmware/stub/stub_core.h; the device part is stub.c, the loader's
  * interruption model is tests/ldr_test.c): the CRC-32 against a bit-by-bit reference, the marker (good, bad magic,

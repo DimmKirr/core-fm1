@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* One shared 384-slot library. Engine-native payloads and ordinary sound
  * parameters share the same slot identity. Flash uses 18 compact records per
  * A/B object; obsolete phrase bytes stay in the legacy wire format only.

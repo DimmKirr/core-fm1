@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Real UI/mixer/storage integration plus deterministic DSP stress. */
 #include <assert.h>
 #define UI_TEST_NO_MAIN 1

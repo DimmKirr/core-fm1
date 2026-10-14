@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The sound designer (docs/SOUND_DESIGNER.md): a sound-only transaction over the native editors, which stay the
  * authority for every control. START is NEW SONG's key screen (rings over a large panel, the keys under it), FEATURES
  * a list page (KNOB 2 the row, KNOB 1 its value), the shaping stages the sound pages themselves: the stages as the

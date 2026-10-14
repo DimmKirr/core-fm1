@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee menu (HOME held): COLOR, HOLD (the layer threshold), LIGHTS (the keys' and buttons'
  * glow: ui_input.c ui_leds), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (IN+OUT, IN, OUT or OFF; usb.c ua_off_set),
  * USB INPUT (stereo master or four track stems; usb.c ua_tracks_set),
@@ -59,7 +60,7 @@ static const menu_credit_t MENU_CREDITS[] = {
     {"", MC_TEXT},
     {"H\xFCgelton Instruments / OWN WORK", MC_TITLE},
     {"Leo Kuroshita", MC_TEXT},
-    {"CrispyZebra (PHASE waveforms), synthesized 808: GPL-3.0", MC_TEXT},
+    {"CrispyZebra (PHASE waveforms): GPL-3.0", MC_TEXT},
     {"https://github.com/hugelton", MC_URL},
     {"", MC_TEXT},
     {"KLATTSCH / VOICE REFERENCE", MC_TITLE},

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* SAVE > PRESETS, the sound browser, a screen of its own drawn to the redesign's mockup (docs/design: concept_screens
  * 2, ref/browser): two columns. At the top the track and the list in its colour, the list's length (a message in its
  * place while there is one). Left, LIST (KNOB 1): ALL, the favourites, RECENT and the categories, the one shown lifted

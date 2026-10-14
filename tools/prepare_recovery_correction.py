@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Prepare/verify replacement recovery assets without replacing release firmware."""
 import argparse
 from datetime import datetime, timezone

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Copyright (C) 2026 ChoralRoot FM-1 contributors (a fork of Felucca)
 """The package builder's side of the boot stub (tools/fm1pkg_make.py, docs/BOOT-SAFETY.md), without a
 firmware build: two apps with the same stub and different bodies give a byte-identical sector 0x4000 (the directory

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Register-model tests establish ownership, row isolation and bounded failure;
  * actual accelerator arithmetic/latency still needs an FM-1 measurement. */
 #include <stdint.h>

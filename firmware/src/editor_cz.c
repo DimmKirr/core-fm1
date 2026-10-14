@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Full native Casio tone over the editor transport, nibble-packed, low first.
  * 75 GET / 76 PUT. target 0: track; target 1: ordinary user preset slot.
  * Native slots use UP_VER_CZ, so their existing A/B store is atomic. */

@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The SYS clock, read only. Melodee never writes the PLL: it runs at the clock the boot loader (SPL) sets.
  * Live FM-1 readings in PR #27 (@johnskiller, with @charlesvestal's register reads) identify PLL2_CON1 (0x119AC) as
  * the SYS VCO multiplier: FBDS = multiplier - 2. The SPL's 268 means 24 MHz / 12 * 270 = 540 MHz, with CLK_CON2

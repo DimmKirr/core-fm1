@@ -1,5 +1,6 @@
 #include "recording_preferences.h"
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Shared PER5 layout: each feature updates only its own fields, preserving
  * the other feature's saved preferences when either is built independently.
  * Only PER5 is read (1.2; older records are protected until replacement). Its ext block:

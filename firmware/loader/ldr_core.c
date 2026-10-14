@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Copyright (C) 2026 ChoralRoot FM-1 contributors
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Write ordering adapted from ChoralRoot FM-1 contributors (v0.16). */
 /* Melodee update loader, the portable part (step 2 of the M-UPGRADE update
  * protocol).

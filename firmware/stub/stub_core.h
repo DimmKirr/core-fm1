@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Copyright (C) 2026 ChoralRoot FM-1 contributors (a fork of Felucca) */
 /* The boot stub's decision, portable (docs/BOOT-SAFETY.md): the device part is stub.c, the host tests are
  * tests/boot_stub_test.c and the loader's interruption model in tests/ldr_test.c. No data, no libcalls, no division.

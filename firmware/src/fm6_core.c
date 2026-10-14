@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM6 core: six-operator FM that renders DX7 voices with native fp32 signal arithmetic.
  *
  * The synthesis is Dexed's (Pascal Gauthier; on MSFA by Raph Levien, Google), restated in C: ENGINE (the FM6

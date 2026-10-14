@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
+ * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Copyright (C) 2026 ChoralRoot FM-1 contributors (a fork of Felucca); the register sequences are Felucca's
  * (Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments), copied from firmware/hal */
 /* The boot stub, device side (docs/BOOT-SAFETY.md; the decision is stub_core.h). The SPL enters

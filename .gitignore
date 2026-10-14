@@ -6,3 +6,4 @@ fm1-recovery-backups/
 
 .nightly-deps/
 .nightly-pages/
+!/AGENTS.md

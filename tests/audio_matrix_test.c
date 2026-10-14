@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Ordered six-category matrix, real concurrent worker and real mixer.
  * Each assignment includes steady held voices, controls, release/retrigger,
  * spread and shared Chorus. Host elapsed time is not a device deadline. */

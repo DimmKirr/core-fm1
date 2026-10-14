@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Publish a verified release candidate beside an existing site's stable and nightly builds."""
 import argparse
 import hashlib

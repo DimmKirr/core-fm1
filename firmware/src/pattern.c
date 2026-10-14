@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Eight independent banks per track. The current bank stays in track.step for
  * the established editor/recording paths; switching commits it and loads one
  * bounded 64-step copy. No flash work runs in the audio interrupt. */

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* I2S output (ALNK0 -> external codec) and the
  * audio ISR: per half buffer, blocks of CTL samples: mix_block (mix.c: events ->
  * each synth part -> dist -> level / pan -> sends -> buses -> master) -> 24-bit stereo. */

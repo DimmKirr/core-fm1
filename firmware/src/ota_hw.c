@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The firmware side of ota.c (MELODEE_OTA): clock and watchdog, erases and writes only inside the
  * OTA area, the progress screen, the commit (record into RAM, core reset). The host test
  * (ota_test.c) provides its own. */

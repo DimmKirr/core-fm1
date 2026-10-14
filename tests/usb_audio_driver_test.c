@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Exercise the production endpoint driver with a minimal indexed-SIE model.
  * This tests lifecycle and packet ownership, not the physical USB controller. */
 #include <assert.h>

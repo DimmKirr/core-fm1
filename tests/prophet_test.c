@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Prototype DSP and exact native wire round trips. Pass real .syx libraries
  * as arguments; downloaded factory data stays outside the source repository. */
 #define MELODEE_PROPHET_PROTOTYPE 1

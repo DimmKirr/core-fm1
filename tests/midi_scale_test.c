@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* MIDI IN through the scale layouts (seq.c midi_map, midi_control.c midi_play): WHITE and ALL map incoming notes as the
  * keys, MPC plays MPC Bank H pads (MIDI 20..35) as scale degrees from DEG, kits and slices keep their own map; a mapped
  * note's note-off ends exactly what it started; SCL, QNT and DEG are shared by every part (ui.c scale_share). */

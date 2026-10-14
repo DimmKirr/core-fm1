@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Previous current-format Prophet banks remain valid conversion/archive inputs.
  * Factory stars keep their existing settings row. User stars live in records. */
 #define P5_USER_SLOTS UP_SLOTS

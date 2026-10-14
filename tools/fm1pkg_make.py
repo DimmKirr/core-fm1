@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Copyright (C) 2026 ChoralRoot FM-1 contributors
 # Marker and CRC compensation adapted from ChoralRoot FM-1 contributors (v0.16).
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Build a complete FM-1 update package (.fwsc) from scratch, with no vendor
 material in it:
 

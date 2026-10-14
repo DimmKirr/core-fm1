@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* EDIT held during live sequence recording erases the selected bank at audio
  * step boundaries. The UI publishes a scoped request; physical release, track
  * changes, disarm and transport stop disable it without waiting for a UI frame. */

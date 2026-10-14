@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Decode retained-ram.bin: the 512 bytes of .noinit at 0x01C7C000 that fm1-recover saves from a unit in UBOOT.
 
   tools/fm1_retained_ram.py retained-ram.bin [more.bin ...]

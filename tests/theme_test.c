@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* The palettes and the real canvas/text renderer (src/gfx.c): NIGHT DAY CONTRAST with each track's colour as THEME,
  * the test-only GRAY stays gray in every token and blend, every palette's text contrast, the alpha blend, the ramp
  * cache (palette and track), the fonts' metrics (Rubik) and the ellipsis.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """The FM-1 controls diagram of the README (1200 px wide, the style of the 1.0 feature sheet: dark
 rounded cards, white Inter Tight text, Fukiai line icons): a photo of the panel with every control
 labelled by its Melodee function in small cards, leader lines ending in a dot on the control, and

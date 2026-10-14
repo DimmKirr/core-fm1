@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Original performance events through real recording, panel, playback and storage paths. */
 #define RECORDING_NO_MAIN 1
 #include "recording_test.c"

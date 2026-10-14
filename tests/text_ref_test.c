@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The firmware's text (src/gfx.c cv_text) against the reference text path of the UI-redesign prototype that
  * drew the UI design screens (its aa_text / aa_blit4 / ramp_make,
  * restated below): pen in 1/16 px accumulated over the string, pair kerning (now class tables), no extra tracking,

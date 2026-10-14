@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* HOME's second page (HOME tapped on Stage; HOME there again: Stage): what plays as a picture, the chord in the middle. A wheel of the
  * twelve notes in fifths (C at the top), the song's key on it (its notes marked, its root larger): the notes sounding
  * on the tracks in use lit in their track's colour, joined into the chord's shape, the chord's root ringed; in the

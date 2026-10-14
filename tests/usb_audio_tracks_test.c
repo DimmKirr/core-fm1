@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Real render path (mix.c mix_part -> track_capture -> usb_audio_stream.c ua_audio): Melodee's four input channels are
  * the four tracks, each isolated, after DIST, the SLICER and LEVEL, independent of the monitor's pan, sends and
  * MASTER; a silent block clears its channel. */

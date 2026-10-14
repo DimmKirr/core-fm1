@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 // Stand-in for the MTS-ESP client (a Dexed submodule): no MTS-ESP master in the parity test.
 #pragma once
 struct MTSClient;
