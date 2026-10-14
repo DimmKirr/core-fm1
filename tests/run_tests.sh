@@ -31,7 +31,7 @@
 #                   every frame of the rolling digits (lint, MONO), their filmstrips in build/ui_slot.
 # UI (tests/ui_test.c): the UI sources against stub display / buttons / knobs: sound loads keep the steps and
 #                   the track's ARP / SCL / SLICER, the SEQ > PATTERNS loader and its REPLACE? dialog, the
-#                   one-step undo of both (SAVE held), REC on TRACKS / SEQ / ARP, STEP and ARP while recording,
+#                   one-step undo of both (EDIT held), REC on TRACKS / SEQ / ARP, STEP and ARP while recording,
 #                   MIDI IN ROUT, saves refused while playing and the OVERWRITE? dialog, MUTE on TRACKS KNOB 1,
 #                   the DRUM grid (keys, knobs, LEDs, pages, live recording into it, BEAT from PATTERNS).
 # Audio / persistence / editor: the real C paths against simulated DMA and NOR flash: bounded overload
@@ -46,7 +46,7 @@
 # LEGACY FX (tests/no_effects_test.c): legacy values/automation do not process audio or allocate,
 #                   old notes survive, retired MIDI sends are inert, FX opens only the new knob page.
 # MOD / SPREAD (tests/mod_spread_test.c): the matrix's S&H / SLEW sources and DEPTH destination, SPREAD's sides.
-# LAYERS / SCREEN (tests/layer_screen_test.c): GLO/SCL/EDIT double-tapped layers, SCREEN OFF, LFO 2.
+# LAYERS / SCREEN (tests/layer_screen_test.c): GLO/SCL double-tapped layers, SCREEN OFF, LFO 2.
 # INPUT (tests/input_test.c): the key / button debounce of hal/fm1_input.h against the TIMER5 scan and bouncing
 #                   contacts: a press within 2 scans (<= 2.3 ms), one note per bouncy press, no early or hanging
 #                   release, stray samples ignored, fast repeats, the encoders' detents.

@@ -380,7 +380,7 @@ static void qsave_poll(void)
 /* REC held: Capture. What the selected track played in its last bars while it was not recording (seq.c cap_ev) into
  * its pattern, as recorded notes (timing, velocity and length as played): an empty pattern takes 1, 2 or 4 bars (16, 32
  * or 64 steps), as many as the notes span, its LEN set to it; a pattern with notes the last LEN steps, over them. The
- * bars end at the bar playing when a note in it was played, else at its start. SAVE held undoes it */
+ * bars end at the bar playing when a note in it was played, else at its start. EDIT held undoes it */
 static void capture_take(void)
 {
     track_t *t = TSEL;
@@ -1068,7 +1068,7 @@ static uint32_t oct_taps(uint32_t pressed, int here)
  * writes what it sounds, as live recording does: POLY its chord, MONO the chord's root */
 static int step_page(void) { return !ui.home && (cur_page()->scope == SC_STEP || cur_page()->scope==SC_DRUMHIT); }   /* SEQ > NOTES, DRUM HIT */
 /* ENV / SCL / EDIT held on STEP: their note gestures (SELECT resizes, moves; EDIT + OCT-/+ undoes, redoes; EDIT tapped
- * deletes), armed and playing too. EDIT's quick layer: off the synth STEP */
+ * deletes), armed and playing too. EDIT held alone undoes instead of deleting. */
 static int step_modifier_context(void)
 {
     return step_page() && (!drum_track(TSEL) || !grid_on() || (cur_page()->graph == GR_ROLL && live_rec_sel())) &&
@@ -1086,6 +1086,7 @@ static uint32_t step_modifier_mask(void)                /* (EDIT: NOTES only) */
 static void step_edit_combo(void)
 {
     ui.step_used |= (uint16_t)(ui.step_mods & (1u << panel.btn[B_EDIT]));
+    if (ui.edit_t0) ui.edit_t0 |= 2u;
 }
 
 static void step_length_edit(int32_t delta)
@@ -1342,7 +1343,7 @@ static void seq_entry(uint32_t pressed)
     seq_midi_events(1);
 }
 
-/* HOME / REC / SAVE: tap on release, hold 0.7 s fires once. t0 = press time | 1,
+/* HOME / REC / SAVE / EDIT: tap on release, hold 0.7 s fires once. t0 = press time | 1,
  * bit 1 = fired (or swallowed: then the release is no tap either) */
 enum { BT_NONE, BT_TAP, BT_HOLD };
 static uint32_t btn_hold(uint32_t *t0, uint32_t label, uint32_t now, int hold_ok)
@@ -1642,7 +1643,8 @@ static void ui_input(void)
     uint32_t home = btn_hold(&ui.home_t0, B_HOME, now, 1);
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && !ui.confirm && !name_on());   /* held: MIXER */
     uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
-    uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
+    uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);
+    uint32_t edit = btn_hold(&ui.edit_t0, B_EDIT, now, !ui.menu && !ui.confirm && !name_on() && !new_on() && !ui.ly);
     uint32_t octup = btn_hold(&ui.oct_t0, B_OCTUP, now, page_sheet() != 0u);   /* held: the page's sheet */
     uint32_t oct;
     if (octup == BT_HOLD) {
@@ -1661,12 +1663,29 @@ static void ui_input(void)
     uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
     seq_erase_update(pressed);
+    if (ui.erase_gesture || ui.ly || ui.menu || ui.confirm || name_on() || new_on()) {
+        if (ui.edit_t0) ui.edit_t0 |= 2u;
+        edit = BT_NONE;
+    }
     if (step_modifier_context()) {
         ui.step_mods |= (uint16_t)(pressed & step_modifier_mask());
         uint32_t ed = 1u << panel.btn[B_EDIT];
         if ((ui.step_mods & ed) && ((pressed & ~ed) || notes || step_midi_r != step_midi_w)) step_edit_combo();
     } else {
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
+    }
+    uint32_t ed = 1u << panel.btn[B_EDIT], octmask = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
+    uint32_t edit_oct = !ui.ly && !ui.menu && !ui.confirm && !name_on() && !new_on() && (fm1_in.buttons & ed) &&
+        (pressed & (ed | octmask)) ? fm1_in.buttons & octmask : 0u;
+    if (edit_oct) {
+        uint32_t dir = ((edit_oct >> panel.btn[B_OCTDN]) & 1u) | (((edit_oct >> panel.btn[B_OCTUP]) & 1u) << 1);
+        step_edit_combo();
+        edit = BT_NONE;
+        ui.oct_t0 |= 2u;
+        oct_deferred = 0;
+        ui.step_oct_used |= (uint8_t)dir;
+        oct_eat |= (uint8_t)dir;
+        oct &= ~dir;
     }
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     layer_arm(pressed, now);
@@ -1693,7 +1712,7 @@ static void ui_input(void)
     if (lay) {                                          /* a layer's button held: keys, knobs and buttons are combos */
         combo |= (pressed & ~ly_bit(ui.ly)) != 0u;
         notes = 0;                                      /* (the keys are the layer's, not the grid's or a step's) */
-        if (pressed & (1u << panel.btn[B_SAVE]))       /* no UNDO, no page */
+        if (pressed & (1u << panel.btn[B_SAVE]))       /* no save, no page */
             ui.save_t0 |= 2u;
         if (pressed & (1u << panel.btn[B_HOME]))       /* no menu, no HOME */
             ui.home_t0 |= 2u;
@@ -1774,12 +1793,26 @@ static void ui_input(void)
         new_input(oct, home == BT_TAP);
         return;
     }
-    if (save == BT_HOLD && chain_busy())
-        ui_message("STOP TO UNDO");
-    else if (save == BT_HOLD && !(step_page() && step_history_apply(0)))   /* SEQ > STEP: its last edit first, */
-        undo_swap();                                                       /* else the last sound / pattern load */
-    else if (save == BT_TAP && !ui.confirm)             /* SAVE acts on release (a hold is the undo) */
+    if (save == BT_HOLD && !ui.confirm) {
+        qsave_chord();
+        qsave_poll();
+    } else if (save == BT_TAP && !ui.confirm)
         open_family(FAM_SAVE);
+    if (!ui.confirm && !lay && (edit == BT_HOLD || edit_oct)) {
+        uint32_t dir = ((edit_oct >> panel.btn[B_OCTDN]) & 1u) | (((edit_oct >> panel.btn[B_OCTUP]) & 1u) << 1);
+        step_edit_combo();
+        step_history_end();
+        if (chain_busy()) ui_message("STOP TO UNDO");
+        else if (dir == 3u) ui_message("USE ONE OCT BUTTON");
+        else if (edit_oct) {
+            if (step_page()) {
+                if (!step_history_apply(dir == 2u)) ui_message(dir == 2u ? "NOTHING TO REDO" : "NOTHING TO UNDO");
+            } else undo_step(dir == 2u);
+        } else if (!(step_page() && step_history_apply(0))) undo_swap();
+    } else if (edit == BT_TAP && !(ui.step_mods & ed) && !ui.confirm &&
+               pop.on != POP_SHEET && pop.on != POP_LIST) {
+        page_tap(B_EDIT);
+    }
     if (ui.confirm) {                                   /* OCT- cancels, OCT+ does it; nothing else reacts */
         if (oct & 2u) {
             ui_confirm_accept();
@@ -1869,6 +1902,8 @@ static void ui_input(void)
         case B_OCTDN:
         case B_OCTUP: {
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]), bit = b == B_OCTUP ? 2u : 1u;
+            if (edit_oct & (1u << id))
+                break;
             if (pop.on == POP_PICK) {                   /* a picker: either closes it (ui_popup.c) */
                 pop_close();
                 oct_eat |= (uint8_t)bit;
@@ -1877,27 +1912,6 @@ static void ui_input(void)
             if (act_cols() || layer_set_open() || list_on())   /* action, list pages: enter / back (below); SET layers:
                                                                  * OCT- */
                 break;
-            if (step_page() && ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u)) {   /* SAVE held: undo further / redo */
-                ui.save_t0 |= 2u;                       /* (no page, no other undo when SAVE is let go) */
-                ui.oct_t0 |= 2u;                        /* (OCT+: no tap, no sheet) */
-                ui.step_oct_used |= (uint8_t)bit;
-                oct_eat |= (uint8_t)bit;                /* (its release: no Esc / Enter) */
-                if (chain_busy())
-                    ui_message("STOP TO UNDO");
-                else if (!step_history_apply(b == B_OCTUP))
-                    ui_message(b == B_OCTUP ? "NOTHING TO REDO" : "NOTHING TO UNDO");
-                break;
-            }
-            if ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u) {   /* SAVE held elsewhere: OCT- undoes a load further, */
-                ui.save_t0 |= 2u;                       /* OCT+ redoes (no page, no undo when SAVE is let go) */
-                ui.oct_t0 |= 2u;
-                oct_eat |= (uint8_t)bit;
-                if (chain_busy())
-                    ui_message("STOP TO UNDO");
-                else
-                    undo_step(b == B_OCTUP);
-                break;
-            }
             if (!ui.home && cur_page()->graph == GR_BROWSE) {   /* the browser: OCT- back, OCT+ keep (ui_browser.c) */
                 browser_key(b == B_OCTUP);
                 oct_eat |= (uint8_t)bit;
@@ -2048,20 +2062,6 @@ static void ui_input(void)
         page_knob(k, s);
     }
     if (step_modifier_context()) {
-        uint32_t ed = 1u << panel.btn[B_EDIT], octmask = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
-        uint32_t combo_oct = (ui.step_mods & ed) ? fm1_in.buttons & octmask : 0;
-        if (combo_oct && ((pressed & octmask) || (pressed & ed))) {   /* EDIT + OCT-: undo, OCT+: redo */
-            uint32_t dir = ((combo_oct >> panel.btn[B_OCTDN]) & 1u) | (((combo_oct >> panel.btn[B_OCTUP]) & 1u) << 1);
-            ui.step_used |= (uint16_t)ed;
-            ui.step_oct_used |= (uint8_t)dir;
-            oct_eat |= (uint8_t)dir;                   /* (their release: no Esc / Enter) */
-            if (chain_busy()) ui_message("STOP TO UNDO");
-            else if (dir == 3u) ui_message("USE ONE OCT BUTTON");
-            else {
-                step_history_end();                    /* include an edit received in this same frame */
-                if (!step_history_apply(dir == 2u)) ui_message(dir == 2u ? "NOTHING TO REDO" : "NOTHING TO UNDO");
-            }
-        }
         seq_entry_finish();                             /* final SELECT detent precedes key release */
         uint32_t released = ui.step_mods & ~fm1_in.buttons;
         for (k = 0; k < 14u; k++) if ((released >> k) & 1u) {

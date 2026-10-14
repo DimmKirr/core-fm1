@@ -119,7 +119,7 @@ static struct {
     recorded_note_t note_identity; /* retain focus when unrelated event storage changes */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
     uint8_t step_move;           /* a held SELECT modifier gesture: one edit until the modifier is released */
-    uint8_t step_oct_used;       /* OCT buttons consumed by SAVE undo or redo */
+    uint8_t step_oct_used;       /* OCT buttons consumed by EDIT undo or redo */
     uint16_t step_mods, step_used; /* STEP's ENV/SCL buttons awaiting release, and the gestures consumed */
     uint8_t lane;                /* SEQ > STEP on a DRUM track (the grid): the lane the keys and KNOB 3 / 4 edit */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
@@ -138,7 +138,8 @@ static struct {
     uint8_t act;                 /* action pages: the column whose action OCT+ does, + 1; 0 = none (act_col) */
     uint32_t rec_t0;             /* REC press time (transport only) */
     uint32_t seq_t0;             /* SEQ held: direct SONG entry */
-    uint32_t save_t0;            /* SAVE press time (btn_hold: held = UNDO) */
+    uint32_t save_t0;            /* SAVE press time (btn_hold: held = project quick save) */
+    uint32_t edit_t0;            /* EDIT press time (btn_hold: held = UNDO) */
     uint32_t oct_t0;             /* OCT+ press time (btn_hold: held = the page's sheet, ui_popup.c) */
     uint8_t confirm;             /* the OCT- / OCT+ dialog: CF_*, 0 = none */
     uint8_t confirm_trk;         /* the track it clears, the slot it overwrites */
@@ -195,7 +196,7 @@ static uint32_t drum_hit_selected(void);
 static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.page]; }
 
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
-enum { LAYER_NONE, LAYER_RESERVED, LAYER_GLO, LAYER_SCL, LAYER_EDIT, LAYER_N };
+enum { LAYER_NONE, LAYER_RESERVED, LAYER_GLO, LAYER_SCL, LAYER_N };
 static void draw_layer(void);
 static const char *layer_head(void);
 static uint32_t layer_leds(void);
@@ -584,8 +585,8 @@ static int seq_is_empty(const track_t *t)
 
 /* UNDO of loads. A sound load (a factory or user preset, an engine jump, TOOLS INIT, the editor's PRESET / G_ENGSEL /
  * UP_LOAD) changes the sound only; a Capture changes the steps and the pattern
- * parameters only. Each first copies the track as it was into a level; SAVE held swaps back what the latest level's
- * loads changed (held again: the level before, SAVE + OCT+ redoes), so steps recorded after a sound load, or a sound
+ * parameters only. Each first copies the track as it was into a level; EDIT held swaps back what the latest level's
+ * loads changed (held again: the level before, EDIT + OCT+ redoes), so steps recorded after a sound load, or a sound
  * edited after a pattern load, stay as they are. Loads in a row on one track with nothing changed in between (the
  * PRESETS knob through the list, one pattern after the other, an editor audition) keep the copy from before the first,
  * so the undo goes back past the whole browse. Eight levels fit in ordinary SRAM,
@@ -761,7 +762,7 @@ static void load_extend(track_t *t)
 static int param_kept(uint32_t i);
 static int note_clear_history(int redo);
 
-/* SAVE held (redo 0) / SAVE + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
+/* EDIT held (redo 0) / EDIT + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
  * redo is the same swap. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_step(int redo)
@@ -957,7 +958,7 @@ static uint32_t preset_init(uint32_t e)
     }
     return 0;
 }
-/* Init sound (the sound's sheet, EDIT held's black key, the browser's ENGINE knob): the engine's INIT, the steps
+/* Init sound (the sound's sheet, the browser's ENGINE knob): the engine's INIT, the steps
  * stay */
 static void sound_init_of(track_t *t, uint32_t ei) { engine_load_of(t, ei, preset_init(ei)); }
 
@@ -1017,7 +1018,7 @@ static void preset_go(uint32_t n)                    /* load list index n into t
     preset_hinted();
 }
 
-/* the EDIT layer's KNOB 2 (ui_layer.c): the selected track's engine only: its factory presets, then the used user presets
+/* The selected track's engine only: its factory presets, then the used user presets
  * made with it (slot order). List index of the current sound; *total the length */
 static uint32_t eng_list_pos(uint32_t *total)
 {
@@ -1167,7 +1168,7 @@ static int act_ready(void)
 #include "seq_edit.c"                             /* SEQ > STEP: a note's length, its move, its deletion */
 #include "seq_notes.c"                            /* NOTES: select original hits without snapping them */
 static int note_tools_history(int redo);
-#include "seq_undo.c"                             /* .. and the eight edits SAVE held undoes */
+#include "seq_undo.c"                             /* .. and the eight edits EDIT held undoes */
 
 static void confirm_open(uint32_t kind, uint32_t trk)
 {

@@ -552,7 +552,7 @@ static int project_save_as(uint32_t slot, const char *name)
 }
 static int project_save(uint32_t slot) { return project_save_as(slot, 0); }
 
-/* SAVE + REC (ui_input.c, stopped): the music back to the slot it was loaded from or last saved to, at once ("SAVED
+/* Hold SAVE or SAVE + REC (ui_input.c, stopped): the music back to the slot it was loaded from or last saved to, at once ("SAVED
  * B"); a new one (the template, the power-on sounds) has none yet: PROJECT opens on a free slot, SAVE picked */
 static uint32_t project_free_slot(void);
 static void project_quick_save(void)

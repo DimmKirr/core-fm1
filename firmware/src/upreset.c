@@ -520,7 +520,7 @@ static int up_load(uint32_t k)
         return 1;
     rec = *up_rec(k);
     up_values(r, v);
-    load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
+    load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for EDIT held = undo) */
     panic_req |= (uint8_t)(1u << song.sel);
     {
         fm1_irq_off();                                  /* the audio ISR must not see half a sound */
