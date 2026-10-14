@@ -183,8 +183,8 @@ def run(d,categories,voices,variant,seconds,fixed):
 def usb_streams(path,format='int16'):
     import sounddevice as sd
     devices=sd.query_devices()
-    inp=next(i for i,d in enumerate(devices) if d['name']=='Melodee In')
-    out=next(i for i,d in enumerate(devices) if d['name']=='Melodee Out')
+    inp=next(i for i,d in enumerate(devices) if d['name'] in ('Melodee', 'Melodee In') and d['max_input_channels'] > 0)
+    out=next(i for i,d in enumerate(devices) if d['name'] in ('Melodee', 'Melodee Out') and d['max_output_channels'] >= 2)
     channels=min(2,devices[inp]['max_input_channels']);statuses=[]
     with wave.open(str(path),'wb') as wav:
         wav.setnchannels(channels);wav.setsampwidth(2 if format=='int16' else 3);wav.setframerate(44100)

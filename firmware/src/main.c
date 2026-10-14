@@ -241,7 +241,7 @@ static void fm1_main(void)
         fm1_wdt_feed();
         usb_retry(fm1_ms);
 #if MELODEE_USB_AUDIO
-        if (ua_off_apply(fm1_ms)) {                     /* the menu switched Melodee Out / In: the host re-reads */
+        if (ua_off_apply(fm1_ms)) {                     /* USB direction or capture mode changed: the host re-reads */
             settings_save();                            /* while off the bus: no USB deadline missed */
             ui_say("USB ", "RECONNECTING");
         }

@@ -397,14 +397,18 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   breathing waiting. The keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up
   while its note sounds, MIDI in too, and the idle buttons glow; REC breathes while armed and waiting for the pattern start, PLAY while
   counting in; the HOME-held menu's LIGHTS sets the level (OFF: only what is pressed, engaged or selectable)
-- **USB:** class-compliant MIDI in and out; **Melodee Out** plays the computer through the FM-1,
-  **Melodee In** defaults to a stereo copy of the synth master, including track effects, shared effects,
+- **USB:** class-compliant MIDI in and out; one **Melodee** audio device handles playback and recording.
+  Playback plays the computer through the FM-1; recording defaults to a stereo copy of the synth master,
+  including track effects, shared effects,
   pan, master level and output protection. The HOME-held menu's **USB INPUT** selects **STEREO** or
   **4 TRACKS** (four isolated mono stems, after track effects/level, before shared effects and master).
   Stereo skips stem collection and halves capture transfer/packing work; no extra effects pass or resampling.
-  Computer playback and the monitor click stay out of recordings. Both support 16/24-bit audio at 44.1 kHz;
-  each device can be disabled with **USB AUDIO**. Changing USB options reconnects automatically; reselect the
-  input in your DAW if needed. No driver needed
+  Computer playback and the monitor click stay out of recordings. Both support 16/24-bit audio at 44.1 kHz.
+  The computer or phone's standard USB volume and mute controls adjust playback, with smooth level changes.
+  The synth master and recorded channels keep their levels; the FM-1's MASTER still sets playback's overall limit.
+  Each direction can be disabled with **USB AUDIO**. Changing USB options reconnects automatically; reselect the
+  input in your DAW if needed. Switching between stereo and four-track modes changes the USB layout
+  revision along with the channel count. No driver needed
 - **System clock:** Melodee runs at 360 MHz, the clock the FM-1's boot loader sets, and never changes it. The
   OVERCLOCK menu of 1.3.x is gone: on some FM-1s its clock change left the device in UBOOT
 - **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4 (those in use), channel 10 the first DRUM track (GLO >
