@@ -268,8 +268,7 @@ static void draw_head(void)
     } else if (msg) {                                   /* a message, or the layer's name (may hold a keycap) */
         cv_free_hint(x + 6, ty_y(H_HEAD / 2, TY_TX), ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - x - 6);
     } else {
-        int32_t cw = text_w(TY_LB, chip) + 16;
-        if (cw < (ui.home ? 96 : 56)) cw = ui.home ? 96 : 56;   /* (a page: its name's, the dots beside it) */
+        int32_t cw = text_w(TY_TX, chip) + 4;           /* (where you are: plain words in the track's colour) */
         if (song.octave) {                              /* the octave shift, signed, in an outlined pill ("+2") */
             int32_t w;
             b[0] = song.octave > 0 ? '+' : '-';
@@ -286,7 +285,7 @@ static void draw_head(void)
             x = cv_text_on(x + 2, ty_y(H_HEAD / 2, TY_LB), TY_LB, b, T_MID, T_BG) + 6;
         }
         if (!ui.home) {                                 /* a page: where it is in its family */
-            head_pages(x + 6, 236 - cw - (low ? 22 : 0) - (page_sheet() ? 20 : 0));
+            head_pages(x + 6, 236 - cw - (low ? 22 : 0));
         } else {                                        /* HOME: its two pages (Stage, the chord view) */
             uint32_t i;
             for (i = 0, x += 6; i < 2u; i++) {
@@ -297,15 +296,11 @@ static void draw_head(void)
         }
         if (low)                                        /* the battery, only when it runs low */
             cv_icon_mid(236 - cw - 20, H_HEAD / 2, 16, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
-        if (page_sheet())                               /* the page has a sheet (OCT+ held) */
-            cv_text_r(236 - cw - 6 - (low ? 22 : 0), ty_y(H_HEAD / 2, TY_TX), TY_TX, "\x85", T_MID, T_BG);
         if (!ui.home && cur_page()->graph == GR_PATGRID) {   /* PATTERNS: its name plain (the grid is in colour);
                                                               * Copy to: what goes where, in the theme's colour */
             cv_text_r(236, ty_y(H_HEAD / 2, TY_LB), TY_LB, ptc_on() ? chip : "patterns", ptc_on() ? T_THEME : T_MID, T_BG);
         } else {
-            cv_rrect(236 - cw, 3, cw, 24, 6, T_THEME, T_BG);
-            cv_text_fit(236 - cw + 8 + (cw - 16 - text_w(TY_LB, chip) > 0 ? (cw - 16 - text_w(TY_LB, chip)) / 2 : 0),
-                        ty_y(H_HEAD / 2, TY_LB), TY_LB, chip, T_INK, T_THEME, cw - 12);
+            cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX, chip, T_THEME, T_BG);
         }
     }
     cv_blit(0, Y_HEAD);
@@ -385,7 +380,7 @@ static const struct { const char *k, *s; } CELL_SHORT[] = {
     {"DETUNE", "DTUNE"}, {"CUTOFF", "CUT"}, {"UNISON", "UNI"}, {"FREQ A", "FRQ A"}, {"FREQ B", "FRQ B"},
     {"AT LFO", "ATLFO"}, {"AT FLT", "ATFLT"}, {"FILTER", "FILT"}, {"FINE B", "FINEB"}, {"GLMOD", "GLMD"},
     {"SECTION", "SECT"}, {"LENGTH", "LEN"}, {"REPEAT", "REP"}, {"JITTER", "JITT"}, {"VIBRATO", "VIB"},
-    {"TEMPO", "BPM"}, {"SNAPPY", "SNAP"}, {"SEND 1", "SND 1"}, {"SEND 2", "SND 2"}, {"SEND 3", "SND 3"}};
+    {"TEMPO", "BPM"}, {"SNAPPY", "SNAP"}, {"SEND 1", "FX 1"}, {"SEND 2", "FX 2"}, {"SEND 3", "FX 3"}};
 static const char *cell_label(const char *label, int32_t room)
 {
     uint32_t i;
@@ -402,7 +397,7 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
     char key[48], label[12], val[16], unit[8];
     int hot = c == ui.hot_col && (ui.hot_t || pv_hero_on()), named = fmt_named, strip, snap;
     uint8_t sig;
-    uint16_t lc = vc == T_DIM ? T_DIM : card_tc[c & 3u] ? card_tc[c & 3u] : T_THEME, cbg = hot ? ux_mix(T_SURF, T_THEME, 22) : T_SURF;
+    uint16_t lc = vc == T_DIM ? T_DIM : card_tc[c & 3u] ? card_tc[c & 3u] : T_THEME, cbg = T_BG;
     int32_t x, uw, room = COL_W - 2;
     const aafont_t *vf = TY_TX, *lf = TY_LB;
     uint32_t n, kn;
@@ -474,12 +469,10 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
         return;
     }
     roll_bg = cbg;
+    if (hot && vc != T_DIM)                             /* the knob turning: its value in the track's colour */
+        vc = lc;
     if (strip) {                                        /* rolling: the value strip only */
         cv_begin(COL_W, ROLL_H, cbg);
-        if (hot) {                                      /* (the hot card's outline crosses the strip) */
-            cv_rect(0, 0, 1, ROLL_H, T_THEME);
-            cv_rect(COL_W - 1, 0, 1, ROLL_H, T_THEME);
-        }
         cv_oy = -ROLL_Y;
     } else {
         char ov[16];                                    /* the value drawn before (in the cache key) */
@@ -491,12 +484,8 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
             ui.roll[c].from[0] = 0;
         str_cpy(ui.col[c], key, sizeof ui.col[c]);
         cv_begin(COL_W, COL_H, T_BG);
-        if (hot) {                                      /* the knob just turned: tinted, outlined */
-            cv_rrect(0, 0, COL_W, COL_H, 6, T_THEME, T_BG);
-            cv_rrect(1, 1, COL_W - 2, COL_H - 2, 5, cbg, T_THEME);
-        } else {
-            cv_rrect(0, 0, COL_W, COL_H, 6, T_SURF, T_BG);
-        }
+        if (hot)                                        /* (and a bar under it) */
+            cv_rrect(COL_W / 2 - 14, COL_H - 4, 28, 3, 1, lc, T_BG);
     }
     if (label[0] || val[0]) {
         /* the label: capitals in the track's colour, centred, rows 3..21; the value under it (the text face, rolling),
@@ -522,11 +511,6 @@ static void draw_column(uint32_t c, const char *label0, const char *val0, const 
             x = cv_text_fit(vx, ROLL_Y + TY_TX->asc - vf->asc, vf, val, vc, cbg, room - uw);
         if (unit[0])                                    /* the unit on the value's baseline */
             cv_text_on(x + 2, ROLL_Y + TY_TX->asc - lf->asc, lf, unit, T_MID, cbg);
-        if (!strip && ratio >= 0) {
-            int32_t gw = COL_W - 16, fx = ratio * gw / 1000;
-            cv_rrect(8, 44, gw, 3, 1, T_LINE, cbg);
-            cv_rrect(8, 44, fx < 3 ? 3 : fx, 3, 1, vc == T_DIM ? T_DIM : T_THEME, T_LINE);
-        }
     }
     cv_oy = 0;
     if (stage_drop_rows && !strip)                      /* (rows r0 .. under the header: Y_LABEL - r0 wraps, + r0 back) */

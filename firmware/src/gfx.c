@@ -808,34 +808,27 @@ static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t
 
 /* the same from a glyph's Huffman-coded bit stream (tools/gen_aa_font.py huff_pack): canonical codes, MSB
  * first; hc = the number of codes of each length 1..15, then the symbols in code order, each a value and
- * its repeat count ((count - 1) << 4 | value: runs of zeros and 15s). Codes of up to 8 bits come from a
- * 256-entry table made once per font in RAM (symbol | length << 8; 0 = a longer code: bit by bit). The
- * stream is read in order, so rows outside the clip are decoded and dropped; a run spans rows */
-#define HC_FONTS 6                       /* the coded faces: M, L, LB, TX, VL, HR (gen_aa_font.py HUFF) */
-static struct { const uint8_t *hc; uint16_t lut[256]; } hc_tab[HC_FONTS] __attribute__((section(".pool")));   /* (zeroed) */
-static const uint16_t *hc_lut(const uint8_t *hc)
+ * its repeat count ((count - 1) << 4 | value: runs of zeros and 15s). Codes of up to HC_LUT_BITS bits come from a
+ * small table the text's draw builds on its stack for the string (hc_lut: symbol | length << 8; 0 = a longer code:
+ * bit by bit), so no font keeps anything in RAM. The stream is read in order, so rows outside the clip are decoded
+ * and dropped; a run spans rows */
+#define HC_LUT_BITS 6u
+static void hc_lut(const uint8_t *hc, uint16_t *lut)
 {
-    uint32_t k, len, code = 0, sym = 15, i;
-    for (k = 0; k < HC_FONTS - 1u && hc_tab[k].hc && hc_tab[k].hc != hc; k++)
-        ;
-    if (hc_tab[k].hc != hc) {                        /* (more fonts than slots: the last slot is rebuilt) */
-        hc_tab[k].hc = hc;
-        for (i = 0; i < 256u; i++)
-            hc_tab[k].lut[i] = 0;
-        for (len = 1; len <= 8u; len++, code <<= 1)
-            for (i = 0; i < hc[len - 1u]; i++, code++, sym++) {
-                uint32_t a = code << (8u - len), n = 1u << (8u - len);
-                while (n--)
-                    hc_tab[k].lut[a + n] = (uint16_t)(hc[sym] | len << 8);
-            }
-    }
-    return hc_tab[k].lut;
+    uint32_t i, len, code = 0, sym = 15;
+    for (i = 0; i < (1u << HC_LUT_BITS); i++)
+        lut[i] = 0;
+    for (len = 1; len <= HC_LUT_BITS; len++, code <<= 1)
+        for (i = 0; i < hc[len - 1u]; i++, code++, sym++) {
+            uint32_t a = code << (HC_LUT_BITS - len), n = 1u << (HC_LUT_BITS - len);
+            while (n--)
+                lut[a + n] = (uint16_t)(hc[sym] | len << 8);
+        }
 }
 
 static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint8_t *hc,
-                        const uint16_t *rv)
+                        const uint16_t *lut, const uint16_t *rv)
 {
-    const uint16_t *lut = hc_lut(hc);
     uint32_t gy, v = 0, run = 0, acc = 0, nb = 0;
     y += cv_oy;
     for (gy = 0; gy < h; gy++) {
@@ -850,7 +843,7 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
                     acc = acc << 8 | *d++;
                     nb += 8;
                 }
-                e = lut[(acc >> (nb - 8u)) & 255u];
+                e = lut[(acc >> (nb - HC_LUT_BITS)) & ((1u << HC_LUT_BITS) - 1u)];
                 if (e) {
                     nb -= e >> 8;
                     s = e & 255u;
@@ -999,6 +992,9 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
     int32_t pen = 0, err = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
     const int32_t step = 16 >> f->psh;
     uint32_t prev = 0;
+    uint16_t lut[1u << HC_LUT_BITS];                 /* (a coded face: its codes' table, for this string only) */
+    if (f->hc)
+        hc_lut(f->hc, lut);
     cv_over_fg = fg;                                 /* (cv_over: blended over the canvas, bg unused) */
     for (; *s; s++) {
         uint32_t c = fold(f, (uint8_t)*s);
@@ -1036,7 +1032,7 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
         if (g->bw) {
             int32_t gx = x + (pos >> 4) + g->bx, gy = y + g->by;
             if (f->hc)
-                cv_alpha_hc(gx, gy, g->bw, g->bh, f->data + g->off, f->hc, rv);
+                cv_alpha_hc(gx, gy, g->bw, g->bh, f->data + g->off, f->hc, lut, rv);
             else
                 cv_alpha(gx, gy, g->bw, g->bh, f->data + g->off, rv);
             if (gx < x0) x0 = gx;
