@@ -39,6 +39,15 @@ runs Felucca.
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
 
+## What's new in 1.3.5
+
+- **Visible startup and update recovery:** maintenance is displayed before flash
+  writes; a boot stub detects incomplete updates and requests the retained loader.
+- **Safe first-boot settings:** foreign or invalid records reset once to sane
+  defaults, including stereo USB audio. Compatible Melodee preferences survive.
+- **Project compatibility:** unknown layouts and engine IDs cannot load at boot.
+  Incompatible projects remain recoverable as OLD FORMAT.
+
 ## What's new in 1.3.4
 
 - **No clock changes at all:** the OVERCLOCK menu and its 320 MHz option are gone. Melodee

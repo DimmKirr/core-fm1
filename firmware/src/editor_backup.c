@@ -207,7 +207,7 @@ static uint32_t ed_bk_commit_inner(void)
         settings_old_accept();
         panel_init(); settings_init(); palette_set(settings.palette);
 #if MELODEE_FLASH
-        persist_saved = ed_bk_set.p; persist_pending = 0;
+        persist_saved = ed_bk_set.p; persist_pending = persist_repair = 0;
 #endif
     }
     sync_reload = 1; ui.force = 1;

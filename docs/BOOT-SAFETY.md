@@ -64,6 +64,27 @@ Damaged or foreign staging is erased. Presets, projects, samples and settings
 outside the update windows are untouched. The stub reserves 32 bytes at RAM
 `0x01C7C000`; application retained state begins at `0x01C7C020`.
 
+## First-boot data compatibility
+
+The 1.3.5 storage safeguards also apply on the development line. Before USB
+starts or a BOOT project/template loads, the complete settings envelope must
+match Melodee's layout. Foreign or invalid settings replace retained RAM with
+sane defaults and commit once through the A/B save, with visible progress and
+retry after failure. A fork's longer PER5 object cannot be truncated into our
+USB/global preferences. Validated settings receive an MDS version marker in
+unused bytes of the retired DIGITAL favorites row, retaining the PER5 layout.
+Compatible legacy settings and supported templates survive; unknown future
+markers and recognizable but unreadable templates stay protected for backup.
+Legacy layout compatibility does not prove which firmware last ran.
+
+Projects and templates require known layout, parameter count, selection and
+engine IDs. Unknown engines cannot wrap into existing ones. Rejected projects
+remain OLD FORMAT and cannot auto-load or be automatically overwritten.
+Settings cleanup does not format musical data. The development line retains
+its tagged shared workload-budget preference; cleanup defaults it to the
+standard budget. A settings-repair error also prevents preset migration from
+replacing its failure screen.
+
 ## Limits and verification
 
 The first installation of the stub, a stub change, or a directory/SDK layout change

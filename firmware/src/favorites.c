@@ -13,6 +13,7 @@
  *          31 the quick layers seen (ui_layer.c), 25 HOME SELECT (ui.c HOME_SELECT); free: 24 bits 1..7, 30 bits 6..7
  *   row 0 bytes 2..27 hold all 201 Prophet factory stars, tagged in bytes 28..31;
  *         bytes 0..1 held retired ANALOG's stars.
+ *   row 1 bytes 28..31 mark validated Melodee settings (MDS + version 1).
  * Rows 1 (DIGITAL, retired), 4 (SAMPLE) and 13 (SLICE, built with MELODEE_SLICE) may hold Felucca 1.0's stars; 6, 7, 9 are LEGACY_EXTRAS' engines. Native FM6 slots: row 12 bits 24..87. */
 typedef struct {
     uint8_t factory[16][32]; /* engine 0..15, preset 0..255 */

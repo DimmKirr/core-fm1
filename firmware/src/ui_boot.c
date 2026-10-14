@@ -44,6 +44,9 @@ static void boot_work_draw(void)
                       boot_work.state ? "Please wait. Do not switch off." : "Starting up...", T_MID, 1);
     }
     lcd_sync();                                 /* physically visible before erases/programs */
+#ifdef FM1_IRQ_TARGET
+    fm1_wdt_feed();
+#endif
 }
 static void boot_work_begin(const char *title, uint32_t total, uint32_t presets)
 {

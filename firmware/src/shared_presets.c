@@ -211,6 +211,7 @@ failed:
 }
 static void shared_boot(void)
 {
+    if (boot_work.state == 2u && !boot_work.presets) return; /* preserve a settings-repair error; preset errors retry */
     if(!flash_ok)return;
     if(shared_wipe_pending()){(void)shared_wipe();return;}
     uint32_t total=0,done_banks=0;
