@@ -1237,15 +1237,14 @@ function editorTabs() {
     `editor: ${tabs.length} tabs, one panel each (${tabs.join(" ")})`);
   ok(/localStorage\.setItem\(TAB_KEY/.test(html) && /try \{ localStorage/.test(html) && /history\.replaceState\([^)]*"#" \+ name\)/.test(html)
     && /addEventListener\("hashchange"/.test(html), "editor: last tab in localStorage (try/catch) and in the URL hash");
-  /* every string key in both languages */
+  /* every string key used in the UI is present */
   const tb = html.slice(html.indexOf("const TEXT = {"), html.indexOf("\n};", html.indexOf("const TEXT = {")) + 2);
   const TEXT = vm.runInNewContext(tb.replace("const TEXT =", "(") + ")");
-  const ja = new Set(Object.keys(TEXT.ja)), en = new Set(Object.keys(TEXT.en));
+  const keys = new Set(Object.keys(TEXT));
   const used = new Set([...html.matchAll(/data-t="(\w+)"|\bt\("(\w+)"\)|sayK\("(\w+)"|hint = "(\w+)"/g)].map((x) => x[1] || x[2] || x[3] || x[4]));
   for (const k of ["needDevice", "smpNone", "bankConnect", "bankNone", "selectedTrack", "selectTrack", "notesHelp", "live", "polling"]) used.add(k);
-  const miss = [...used].filter((k) => !ja.has(k) || !en.has(k));
-  const odd = [...ja].filter((k) => !en.has(k)).concat([...en].filter((k) => !ja.has(k)));
-  ok(!miss.length && !odd.length, `editor: every string in ja and en (${used.size} used${miss.length ? ", missing " + miss : ""}${odd.length ? ", one language only " + odd : ""})`);
+  const miss = [...used].filter((k) => !keys.has(k));
+  ok(!miss.length, `editor: every string key present (${used.size} used${miss.length ? ", missing " + miss : ""})`);
   /* the page script parses (the browser's view of it) */
   const script = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
   let err = null;
@@ -1458,7 +1457,7 @@ async function patternProtocol() {
 async function stockRestore() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc",single:"test-1core.fwsc"}}));
+    .replace("/*META*/{}", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc",single:"test-1core.fwsc"}}));
   async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false} = {}) {
     const calls = [], elements = new Map();
     const element = (id) => {
@@ -1533,7 +1532,7 @@ async function stockRestore() {
 async function installerBuilds() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",
+    .replace("/*META*/{}", JSON.stringify({version:"1.0.2",product:"FM-1_91002",
       pkg:{dual:"melodee-1.0.2.fwsc",single:"melodee-1.0.2-1core.fwsc"},
       rc:{version:"1.4.0-rc.1",product:"FM-1_91040",commit:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         pkg:{dual:"melodee-1.4.0-rc.1.fwsc",single:"melodee-1.4.0-rc.1-1core.fwsc"}},
@@ -1599,7 +1598,7 @@ async function installerBuilds() {
 }
 async function installerBuildRaces() {
   const script = readFileSync(join(HERE, "index_pkg.html"), "utf8").match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual",single:"single"}}));
+    .replace("/*META*/{}", JSON.stringify({version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual",single:"single"}}));
   const elements = new Map(), pending = new Map(); let installDone, installed;
   const element = id => {
     if (!elements.has(id)) elements.set(id, {checked:id === "build-dual",disabled:false,textContent:"",listeners:{}, options:[],

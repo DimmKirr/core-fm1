@@ -12,6 +12,7 @@
   firmware/melodee-*-rc.*.fwsc      published release candidate (rc.json; publish_rc.py), kept as published
   webapp/installer/index.html       index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
   webapp/editor/index.html          editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
+  webapp/manual/                    web/manual/ (the current manual: HTML and screenshots)
   src/                              not touched
 
   web/make_site.py build/melodee-X.Y.fwsc build/melodee-X.Y-1core.fwsc X.Y OUT_DIR
@@ -19,6 +20,9 @@
 The packages must be ones made by tools/fm1pkg_make.py (Melodee's own loader, no vendor files), from one
 release: their identity (FM-1_9xx, FM-1_9xxx from 0.10, FM-1_9xxxx for X.Y.Z) is read from them and must be
 the same; the device must report it after the install.
+
+Manual screenshots are generated into web/manual/ and are not stored in git. Publish
+jobs and web/quick-host.sh run tools/manual_shots.py first — see BUILDING.md "Local site".
 """
 import json
 import re
@@ -31,6 +35,7 @@ BLOCKS, BLK, KEEP = 20, 0x30, 0x2F
 
 
 def strip_module(src):
+    """drop ES module import/export so the script can be inlined into index_pkg.html"""
     src = re.sub(r"^export\s+", "", src, flags=re.M)
     return re.sub(r"^import .*?;\n", "", src, flags=re.M)
 
@@ -148,12 +153,12 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
                     "pkg": {"dual": "../../firmware/" + name, "single": "../../firmware/" + name1}}
     releases = release_history(out, release_meta)
     meta = json.dumps({**release_meta, "nightly": nightly_meta, "rc": rc_meta, "releases": releases})
-    for mark in ("/*LIB*/", "/*META*/"):
+    for mark in ("/*LIB*/", "/*META*/{}"):
         if html.count(mark) != 1:
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
-    html = html.replace("/*LIB*/", lib).replace("/*META*/", meta)
-    inst, ed, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "firmware"
-    for d in (inst, ed, fw):
+    html = html.replace("/*LIB*/", lib).replace("/*META*/{}", meta)
+    inst, ed, man, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "webapp" / "manual", out / "firmware"
+    for d in (inst, ed, man, fw):
         d.mkdir(parents=True, exist_ok=True)
     keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-1core.fwsc"}
     keep.update(file[3] for file in rc_files.values())
@@ -193,6 +198,19 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
         shutil.copy(HERE.parent / doc, fw / doc)
     if not installer_only:
         shutil.copy(HERE / "editor.html", ed / "index.html")
+    man_src = HERE / "manual"
+    if not (man_src / "index.html").is_file():
+        raise SystemExit(f"{man_src}/index.html is missing")
+    retired = re.compile(r"^v\d+(?:\.\d+)*(?:-rc\.\d+)?$")
+    for old in list(man.iterdir()):              # drop versioned manuals left by an older publish
+        if old.name == "versions.json" or (old.is_dir() and retired.match(old.name)):
+            if old.is_dir():
+                shutil.rmtree(old)
+            else:
+                old.unlink()
+    for p in man_src.iterdir():
+        if p.is_file():
+            shutil.copy(p, man / p.name)
     for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
         if not installer_only and (HERE / f).exists():
             shutil.copy(HERE / f, ed / f)

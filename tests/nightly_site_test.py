@@ -170,5 +170,28 @@ class NightlySite(unittest.TestCase):
                 self.assertEqual((site / "firmware/melodee-nightly-1core.fwsc").read_bytes(), slow.read_bytes())
 
 
+    def test_manual_publish_drops_older_versions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dual = package(root / "release.fwsc", "FM-1_91010", 1)
+            single = package(root / "single.fwsc", "FM-1_91010", 2)
+            site = root / "site"
+            main(dual, single, "1.1.0", site)
+            manual = site / "webapp/manual"
+            text = (manual / "index.html").read_text()
+            self.assertIn("<h1>Manual</h1>", text)
+            self.assertNotIn('id="manual-ver"', text)
+            self.assertFalse((manual / "versions.json").exists())
+            self.assertFalse(any(p.is_dir() and p.name.startswith("v") for p in manual.iterdir()))
+            retired = manual / "v1.0.0"
+            retired.mkdir()
+            (retired / "index.html").write_text("old")
+            (manual / "versions.json").write_text("[]\n")
+            main(dual, single, "1.1.0", site)
+            self.assertFalse(retired.exists())
+            self.assertFalse((manual / "versions.json").exists())
+            self.assertIn("<h1>Manual</h1>", (manual / "index.html").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
