@@ -286,7 +286,8 @@ static void draw_head(void)
         }
         if (!ui.home) {                                 /* a page: where it is in its family */
             head_pages(x + 6, 236 - cw - (low ? 22 : 0));
-        } else {                                        /* HOME: its two pages (Stage, the chord view) */
+        } else if (x + 6 + 28 <= 236 - cw - (low ? 22 : 0) - 6) {   /* HOME: its two pages (Stage, the chord view),
+                                                                   * where there is room */
             uint32_t i;
             for (i = 0, x += 6; i < 2u; i++) {
                 int32_t w = i == ui.home_pg ? 16 : 6;
@@ -312,6 +313,13 @@ static void view_frame(void);                           /* ui_view.c */
 static void draw_frame(int stage)
 {
     uint32_t i;
+    if (stage) {                                        /* Stage, HOME's second page: their parts cover what they draw */
+        if (ui.home_pg)
+            view_frame();
+        else
+            stage_frame();
+        return;
+    }
     lcd_fill(0, H_HEAD, 240, Y_LABEL - H_HEAD, T_BG);
     lcd_fill(0, Y_SEP_END, 240, Y_GRAPH - Y_SEP_END, T_BG);
     if (stage && ui.home_pg)
