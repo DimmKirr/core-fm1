@@ -223,6 +223,9 @@ static uint8_t seq_erase_seen[NTRK];
 static volatile uint16_t seq_erase_button;
 static int seq_erase_active(const track_t *t);
 static int rec_on(const track_t *t) { return (((song.rec & ~song.rec_wait) >> trk_index(t)) & 1u) && song.playing && !chain.running; }
+static void recording_undo_capture(track_t *t);
+static void recording_undo_clear(void);
+static void seq_release(track_t *t);
 
 #include "motion.c"
 
@@ -323,6 +326,7 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
 }
 
 #include "recording.c"
+#include "recording_undo.c"
 
 /* Capture: every note played (keys, MIDI, a chord's notes) while the transport runs and its track is not recording,
  * with its place: the steps the track has entered since PLAY (cap_step) and the 1/256 of the step, as recording.c
@@ -609,6 +613,7 @@ static void rec_set(track_t *t, uint32_t on)
         song.rec &= (uint8_t)~bit;
         song.rec_wait &= (uint8_t)~bit;
         song.rec_pass &= (uint8_t)~bit;
+        recording_undo_finish(t);
     }
 }
 
@@ -921,6 +926,7 @@ static void seq_stop(void)
         if (trk[i].rh_n)
             rec_finish(&trk[i]);
         if ((takes >> i) & 1u) recording_quantize(&trk[i]);
+        recording_undo_finish(&trk[i]);
         seq_release(&trk[i]);
         trk[i].rh_n = 0;                           /* a recorded note held over the stop: as far as it got */
     }

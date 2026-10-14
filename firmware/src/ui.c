@@ -778,12 +778,26 @@ static void load_extend(track_t *t)
 
 static int param_kept(uint32_t i);
 static int note_clear_history(int redo);
+static int recording_history(int redo)
+{
+    uint32_t f=motion_guard();
+    int result=recording_undo_apply(redo);
+    motion_unguard(f);
+    if(!result)return 0;
+    if(result==1){
+        ui.note_pick=0;ui.note_generation=recording_generation;
+        ui.hot_t=0;ui.force=1;
+        ui_message(redo?"REDO RECORDING":"UNDO RECORDING");
+    }else ui_message(result==2?"FINISH RECORDING":"UNDO MEMORY FULL");
+    return 1;
+}
 
 /* SAVE held (redo 0) / SAVE + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
  * redo is the same swap. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
 static void undo_step(int redo)
 {
+    if(recording_history(redo))return;
     if(note_clear_history(redo))return;
     track_t *t;
     undo_t *u;

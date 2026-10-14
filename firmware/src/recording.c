@@ -101,6 +101,7 @@ static void recording_unlink(uint32_t i)
 }
 static void recording_reset(void)
 {
+    recording_undo_clear();
     memset(recording, 0, sizeof recording);
     memset(recording_run, 0, sizeof recording_run);
     memset(recording_flags, 0, sizeof recording_flags);
@@ -207,6 +208,7 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
         else if (free == RECORD_MAX && (!r->vel || (!recording_present(r) && !recording_run[i].left && !(recording_flags[i] & 1u)))) free = i;
     }
     if (free == RECORD_MAX) { recording_full = 1; return 0; }
+    recording_undo_capture(t);
     if (recording_run[free].left) recording_end(&trk[(recording[free].owner & 31u) / NPAT], free);
     recording_unlink(free);
     recorded_note_t *r = &recording[free];

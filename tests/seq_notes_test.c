@@ -70,8 +70,10 @@ static int deletion_history(void)
     step_history_apply(0);frame();step_history_apply(0);frame();
     press(B_EDIT);
     bad+=check("a new one-hit deletion drops the old redo branch",!step_history_apply(1));
+    recorded_note_t before_take[RECORD_MAX];memcpy(before_take,recording,sizeof before_take);
     song.rec=1;seq_start();seq_advance(0);seq_advance(180);input_on(t,60,120);seq_advance(60);input_off(t,60);seq_stop();song.rec=0;
-    frame();bad+=check("slot reuse by recording invalidates deletion undo",!step_history_apply(0)&&recording[0].vel==120);
+    frame();bad+=check("slot reuse by recording undoes the take instead of stale deletions",step_history_apply(0)&&!memcmp(before_take,recording,sizeof before_take));
+    bad+=check("redo restores the new take in its reused slot",step_history_apply(1)&&recording[0].vel==120);
     return bad;
 }
 
@@ -85,7 +87,7 @@ static int loop_drums_and_playback(void)
                   notes_selected(t)==0&&recording_view(t,&recording[0])==0);
     press(B_EDIT);bad+=check("late-loop deletion clears its step-zero overview",!recording[0].vel&&!step_on(&t->step[0]));
     hold(B_SAVE);bad+=check("late-loop undo restores the event and overview",!memcmp(&saved,&recording[0],sizeof saved)&&step_on(&t->step[0]));
-    cursor_set(1);frame();press(B_EDIT);bad+=check("empty interval deletion leaves neighbouring notes alone",!memcmp(&saved,&recording[0],sizeof saved)&&!step_history_apply(0));
+    cursor_set(1);frame();press(B_EDIT);bad+=check("empty interval deletion leaves neighbouring notes and manual history alone",!memcmp(&saved,&recording[0],sizeof saved)&&!step_history.pending&&!step_history.pos);
     turn(EN_PRESET,100);bad+=check("zoom clamps at one step",ui.note_zoom==4);
     turn(EN_PRESET,-100);bad+=check("zoom clamps at sixteen steps",ui.note_zoom==0);
 

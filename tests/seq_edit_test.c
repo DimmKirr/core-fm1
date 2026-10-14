@@ -202,7 +202,7 @@ static int test_record_timing(void)
     cursor_set(10); frame(); midi_note_event(0, 60, 100); frame();
     bad += check("late live MIDI rounds to the upcoming step and STEP follows playback", t->step[6].note[0] == 60 && !step_on(&t->step[5]) && !step_on(&t->step[10]) && ui.cursor == 5);
     history_key(B_OCTDN);
-    bad += check("manual undo cannot restore stale steps during live recording", t->step[6].note[0] == 60 && msg_is("NOTHING TO UNDO"));
+    bad += check("undo cannot restore stale steps or interrupt an active take", t->step[6].note[0] == 60 && msg_is("FINISH RECORDING"));
     t = edit_setup(); song.playing = 1; song.rec = 1; t->seq_pos = 0x7FFFFFFFu; t->seq_idx = 15;
     rec_note(t, 60, 100);
     bad += check("Start and note in one block record step zero with retrigger guard", t->step[0].note[0] == 60 && !step_on(&t->step[15]) && t->rskip_n == 1 && t->rskip_idx == 0);

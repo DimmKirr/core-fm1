@@ -2173,6 +2173,7 @@ static void ui_input(void)
     seq_erase_update(0);
     autosave_poll(pressed || bank_notes || fm1_in.buttons || fm1_in.notes || ui.hot_t);
     if (recording_full) { recording_full = 0; ui_message("RECORDING FULL"); }
+    if (recording_undo_lost) { recording_undo_lost = 0; ui_message("NO RECORD UNDO MEMORY"); }
     step_history_end();                                 /* (seq_undo.c: this frame's STEP edit) */
     ui_notices();
 }

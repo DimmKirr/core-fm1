@@ -258,6 +258,7 @@ static int motion_set_event(track_t *t, uint32_t step, uint32_t id, int16_t valu
     for (i = 0; i < motion.count; i++)
         if (motion_pattern[i] == t->pattern && motion.event[i].place == (k << 6 | step) && motion.event[i].param == id && motion_native_event(id,motion.event[i].value)==motion_native_event(id,value)) break;
     if (i == MOTION_MAX) { motion_full = 1; motion_unguard(f); return 2; }
+    if(rec_on(t)&&(i==motion.count||motion.event[i].value!=value||!motion_enabled(t)))recording_undo_capture(t);
     if (t->pattern) motion.rsv[0] = 1;
     motion_pattern[i] = t->pattern;
     motion.event[i].place = (uint8_t)(k << 6 | step);

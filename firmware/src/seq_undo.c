@@ -137,7 +137,7 @@ static int step_history_apply(int redo)
     step_history_finish();                       /* a gesture still held is an edit too */
     if (!step_history_context() || (redo ? step_history.pos + 1u >= step_history.count : !step_history.pos)) {
         fm1_irq_on();
-        return 0;
+        return recording_history(redo);
     }
     uint32_t change = redo ? (step_history.head + step_history.pos + 1u) % (STEP_HISTORY + 1u) : step_history_index();
     if (step_history.state[change].has_removed) {
