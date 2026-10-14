@@ -1003,13 +1003,71 @@ static int test_home_view(void)
                  of[45] == 0u && ((on[1] >> (60 - 32)) & 1u) && of[60] == 1u && of[69] == 1u);
     frame(); frame();
     bad += check("  drawn (a frame each way)", view.wheel && view.keys);
-    for (k = 0; k < NTRK; k++) for (uint32_t i = 0; i < NVOICE; i++) trk[k].v[i].gate = 0;
+    input_off(&trk[0], 45);
+    input_off(TSEL, 60); input_off(TSEL, 64); input_off(TSEL, 69);
     view_notes(on, of, &faded);
     bad += check("  let go: the last ones, faded", faded && ((on[1] >> (60 - 32)) & 1u));
     before = TSEL->p[ENGINES[TSEL->eng_req]->knob[0]];
     turn(EN_K1, 3);
     bad += check("  KNOB 1: the sound's, as on Stage", ui.home_pg == 1u &&
                  (TSEL->eng_req == ENGI_PROPHET || TSEL->eng_req == ENGI_CZ || TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != before));
+    ui_power_on();
+    return bad;
+}
+
+/* Releasing a chord one note per display frame must retain the complete voicing after the last release. New
+ * notes replace it, including a smaller voicing made only of pitches from the previous chord. */
+static int test_home_view_release(void)
+{
+    static const uint8_t ORDER[6][3] = {{60, 64, 67}, {60, 67, 64}, {64, 60, 67},
+                                        {64, 67, 60}, {67, 60, 64}, {67, 64, 60}};
+    uint32_t on[4], k, i;
+    uint8_t of[128];
+    int bad = 0, faded;
+    for (k = 0; k < 6u; k++) {
+        ui_power_on(); song.ntrk = 1; song.sel = 0;
+        memset(&view, 0, sizeof view);
+        TSEL->p[P_VOICE] = V_POLY;
+        input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); input_on(TSEL, 67, 100);
+        view_notes(on, of, &faded);
+        for (i = 0; i < 3u; i++) {
+            input_off(TSEL, ORDER[k][i]);
+            view_notes(on, of, &faded);
+            if (i < 2u)
+                bad += check("wheel still follows sounding notes during release", !faded &&
+                             !(on[ORDER[k][i] >> 5] & (1u << (ORDER[k][i] & 31u))));
+        }
+        bad += check("wheel retains full C major after staggered release (every order)", faded &&
+                     on[0] == 0 && on[1] == (1u << 28) && on[2] == 9u && on[3] == 0 &&
+                     of[60] == 0 && of[64] == 0 && of[67] == 0);
+        input_on(TSEL, 60, 100); input_on(TSEL, 67, 100);
+        view_notes(on, of, &faded);
+        input_off(TSEL, 60); view_notes(on, of, &faded);
+        input_off(TSEL, 67); view_notes(on, of, &faded);
+        bad += check("  a new smaller voicing replaces the retained chord", faded && on[1] == (1u << 28) && on[2] == 8u);
+        input_on(TSEL, 60, 100); view_notes(on, of, &faded);
+        input_off(TSEL, 60); view_notes(on, of, &faded);
+        bad += check("  a new single note replaces the retained voicing", faded && on[1] == (1u << 28) && on[2] == 0);
+    }
+    ui_power_on(); song.ntrk = 1; song.sel = 0;
+    memset(&view, 0, sizeof view);
+    input_on(TSEL, 60, 100); view_notes(on, of, &faded);
+    input_on(TSEL, 64, 100); view_notes(on, of, &faded);
+    input_on(TSEL, 67, 100); view_notes(on, of, &faded);
+    input_off(TSEL, 64); view_notes(on, of, &faded);
+    input_on(TSEL, 65, 100); view_notes(on, of, &faded);
+    input_off(TSEL, 65); view_notes(on, of, &faded);
+    input_off(TSEL, 67); view_notes(on, of, &faded);
+    input_off(TSEL, 60); view_notes(on, of, &faded);
+    bad += check("wheel retains the new voicing when a chord changes with notes still held", faded &&
+                 on[1] == (1u << 28) && on[2] == 10u);
+    ui_power_on(); song.ntrk = 2; song.sel = 1;
+    memset(&view, 0, sizeof view);
+    input_on(&trk[0], 60, 100); input_on(TSEL, 60, 100);
+    view_notes(on, of, &faded);
+    input_off(TSEL, 60); view_notes(on, of, &faded);
+    input_off(&trk[0], 60); view_notes(on, of, &faded);
+    bad += check("wheel retains the latest track colour when the pitch stays the same", faded && of[60] == 0);
     ui_power_on();
     return bad;
 }
@@ -4887,6 +4945,7 @@ int main(void)
     bad += test_tracks();
     bad += test_track_count();
     bad += test_home_view();
+    bad += test_home_view_release();
     bad += test_home_select();
     bad += test_grid();
     bad += test_screen();

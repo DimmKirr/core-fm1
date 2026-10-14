@@ -1094,7 +1094,11 @@ static void setup(int s)
         if (s == S_VIEW_LETGO) {
             uint32_t on[4]; uint8_t of[128]; int f;
             view_notes(on, of, &f);                      /* (seen sounding once) */
-            input_off(&trk[0], 45); input_off(TSEL, 60); input_off(TSEL, 64); input_off(TSEL, 67); input_off(TSEL, 69);
+            input_off(TSEL, 60); view_notes(on, of, &f);
+            input_off(TSEL, 64); view_notes(on, of, &f);
+            input_off(TSEL, 67); view_notes(on, of, &f);
+            input_off(TSEL, 69); view_notes(on, of, &f);
+            input_off(&trk[0], 45);
             for (k = 0; k < NTRK; k++) for (uint32_t i = 0; i < NVOICE; i++) trk[k].v[i].gate = 0;
         }
         break;

@@ -26,7 +26,8 @@
 static struct {
     uint32_t wheel, keys, pulse[NTRK];                  /* what each part drew */
     uint8_t lvl[NTRK];                                  /* the pulses' levels (they fall ~2 dB a frame) */
-    uint32_t last[4];                                   /* the notes sounding last (let go: shown faded) */
+    uint32_t sounding[4];                               /* the previous snapshot (additions start a new voicing) */
+    uint32_t last[4];                                   /* the last voicing before releases (let go: shown faded) */
     uint8_t of[128];                                    /* .. each one's track */
 } view;
 
@@ -41,7 +42,7 @@ static int32_t vw_y(uint32_t k, int32_t r) { return VW_CY - r * VW_SIN[(k + 3u) 
  * selected one's first): 1 = some; none: the last ones (*faded 1) */
 static int view_notes(uint32_t *on, uint8_t *of, int *faded)
 {
-    uint32_t k, i, n = 0;
+    uint32_t k, i, n = 0, added = 0;
     memset(on, 0, 16);
     fm1_irq_off();                                      /* (one coherent ISR snapshot) */
     for (k = 0; k < trk_n(); k++) {                     /* (the selected one last: its colour wins) */
@@ -58,11 +59,15 @@ static int view_notes(uint32_t *on, uint8_t *of, int *faded)
         }
     }
     fm1_irq_on();
+    for (i = 0; i < 4u; i++)
+        added |= on[i] & ~view.sounding[i];
+    memcpy(view.sounding, on, sizeof view.sounding);
     *faded = !n;
-    if (n) {
+    /* Releases alone must not replace a chord with its last note. */
+    if (added || (n && !memcmp(on, view.last, sizeof view.last))) { /* same voicing: refresh its track colours too */
         memcpy(view.last, on, sizeof view.last);
         memcpy(view.of, of, sizeof view.of);
-    } else {
+    } else if (!n) {
         memcpy(on, view.last, sizeof view.last);
         memcpy(of, view.of, sizeof view.of);
     }
