@@ -40,6 +40,14 @@ Colours: background `#17141F`, panel `#1D1926`, surface `#221E2C`, raised `#2620
 `#1A1722`, line `#2E2939`, text `#F3EEF8`, mid `#9A93A8`, dim `#5A5468`, secondary names `#C9C2D6`. Tracks: coral
 `#FF7A5C`, amber `#FFC145`, mint `#46D9B0`, lilac `#9D8CFF`. On a filled track colour: background-coloured text.
 
+Knob shades (`gfx.c` T_KNOB, `tools/gen_ui_palettes.py` SHADES): a track's pages are not one colour. Each knob has a
+shade of the track's colour, the track's own for knob 1, then turned round the OKLCH hue circle (+32, -32, +64
+degrees). A knob's label, its value while it turns, the hero and the curve segment it moves take it (ENV: attack,
+decay, sustain, release; FM6 EG: R1..R4; LFO: the wave WAVE's, the reach FADE's). Rows in turn take the four (lists,
+Settings, mod slots), as do drum lanes, a pattern's beats, ARP's octaves and the roll's notes (by octave); the browser
+gives each engine one and the scale picker each family. Palettes: NIGHT, DAY, CONTRAST, SUNSET, OCEAN, NEON, CANDY,
+LO-FI (muted: dusty rose, mustard, sage, faded denim on warm charcoal), each with its own four track colours; every track colour and shade passes the generator's contrast checks.
+
 Type (the mockups'; on the device since 2026-10-14 the large type below sets every size and position): Rubik labels
 8.5-9 px / 500, capitals, in the track's colour; names 10 px (selected: 500); header 11 px / 500;
 values 15 px / 500 with 9 px units in mid; the chord root 30 px / 500, its quality 17 px / 500, the notes 11 px / 500.

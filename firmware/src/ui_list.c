@@ -204,12 +204,12 @@ static void list_scale_pic(int32_t y, int32_t h)
 
 /* a row (large type, C: the lists, the menu, the slots, the sheets) at canvas row y: its name at the left and its value
  * at the right (the text face, capitals on the row's middle; a value ON / OFF a badge), "more" (a list behind it) a
- * ">" after the value; the row picked tinted in the track's colour, its name in text and its value in the track's
- * colour, the others' names secondary and values mid (vc T_DIM: dim). Returns the value's left edge */
-static int32_t row_draw(int32_t y, const char *lb, const char *v, uint16_t vc, int on, int more)
+ * ">" after the value. Row k of a list has a colour (T_KNOB(k), the four in turn): its value in it; the row picked
+ * tinted in it, its name in text; the others' names secondary (vc T_DIM: dim). Returns the value's left edge */
+static int32_t row_draw(int32_t y, const char *lb, const char *v, uint16_t vc, int on, int more, uint32_t k)
 {
     const aafont_t *tf = TY_TX, *vf = tf, *nf = tf;
-    uint16_t bg = on ? ux_mix(T_BG, T_THEME, 18) : T_BG;
+    uint16_t hc = T_KNOB(k), bg = on ? ux_mix(T_BG, hc, 18) : T_BG;
     int32_t cy = y + LIST_RH / 2, xr = more ? 218 : 228, vx = xr, vw, room = xr - 12 - 8;
     if (v[0] && binary_value(v) < 0 && text_w(tf, lb) + text_w(tf, v) > room)
         vf = TY_LB;                                     /* (both do not fit: the value smaller, then the name) */
@@ -225,10 +225,10 @@ static int32_t row_draw(int32_t y, const char *lb, const char *v, uint16_t vc, i
         vw = text_w(vf, v);
         if (vw > 150) vw = 150;
         vx = xr - vw;
-        cv_free_text(vx, ty_y(cy, vf), vf, v, vc == T_DIM ? T_DIM : on ? T_THEME : T_MID, bg, 150);
+        cv_free_text(vx, ty_y(cy, vf), vf, v, vc == T_DIM ? T_DIM : on ? hc : ux_mix(T_BG, hc, 80), bg, 150);
     }
     if (more)
-        cv_text_on(222, ty_y(cy, tf), tf, ">", on ? T_THEME : T_DIM, bg);
+        cv_text_on(222, ty_y(cy, tf), tf, ">", on ? hc : T_DIM, bg);
     nf = nf == tf ? ty_fit(tf, lb, vx - 8 - 12) : nf;
     cv_free_text(12, ty_y(cy, nf), nf, lb, on ? T_TEXT : T_SEC, bg, vx - 8 - 12);
     return vx;
@@ -252,7 +252,7 @@ static void list_rows(uint32_t n, uint32_t row, uint32_t first, uint32_t vis,
                 continue;
             {
                 int more = cap(r, lb, v, &vc);
-                row_draw(y, lb, v, vc, r == row, more);
+                row_draw(y, lb, v, vc, r == row, more, r);
             }
         }
         if (n > vis) {

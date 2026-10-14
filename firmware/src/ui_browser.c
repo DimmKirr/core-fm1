@@ -90,23 +90,25 @@ static void browser_list(uint32_t cur, uint32_t total)
                 int32_t n = (int32_t)at + r, y = r < 0 ? (r + 2) * BR_ROW : 2 * BR_ROW + BR_CARD + (r - 1) * BR_ROW;
                 if (n < 0 || n >= (int32_t)total)
                     continue;
+                uint16_t hc;                            /* (each engine its shade of the track's colour) */
                 src = preset_at((uint32_t)n, &k);
+                hc = T_KNOB(eng_rank(src_engine(src, k)));
                 entry_label(src, k, tag, nm);
                 if (src == ENGI_PROPHET)                /* (the Prophet's own name, whole) */
                     str_cpy(nm, eng_preset(ENGINES[ENGI_PROPHET], k)->name, sizeof nm);
                 if (!r) {                               /* the card: the name, its engine, its star */
-                    uint16_t bg = out ? T_SURF : ux_mix(T_BG, T_THEME, 18);
+                    uint16_t bg = out ? T_SURF : ux_mix(T_BG, hc, 18);
                     uint32_t e = src_engine(src, k);
                     y = 2 * BR_ROW;
                     cv_rrect(BOX_X, y, BOX_W, BR_CARD - 2, 8, bg, T_BG);
                     cv_free_text(12, ty_y(y + 18, ty_fit(tf, nm[0] ? nm : tag, 196)), ty_fit(tf, nm[0] ? nm : tag, 196),
                                  nm[0] ? nm : tag, out ? T_MID : T_TEXT, bg, 196);
-                    cv_text_on(12, ty_y(y + 42, lf), lf, ENGINES[eng_idx(e)]->name, out ? T_MID : T_THEME, bg);
-                    cv_icon_mid(212, y + 42, 16, fav ? ICON_X_STAR : ICON_X_STAR_O, fav ? T_THEME : T_DIM, bg);
+                    cv_text_on(12, ty_y(y + 42, lf), lf, ENGINES[eng_idx(e)]->name, out ? T_MID : hc, bg);
+                    cv_icon_mid(212, y + 42, 16, fav ? ICON_X_STAR : ICON_X_STAR_O, fav ? hc : T_DIM, bg);
                     continue;
                 }
                 cv_free_text(12, ty_y(y + BR_ROW / 2 - 1, ty_fit(tf, nm[0] ? nm : tag, 220)), ty_fit(tf, nm[0] ? nm : tag, 220),
-                             nm[0] ? nm : tag, r == -1 || r == 1 ? T_SEC : T_DIM, T_BG, 220);
+                             nm[0] ? nm : tag, ux_mix(T_BG, hc, r == -1 || r == 1 ? 78 : 45), T_BG, 220);
             }
             cv_rect(238, 0, 2, h, T_LINE);              /* the place */
             {

@@ -556,7 +556,7 @@ static void designer_start_draw(void)
         else if(k==1u){if(st<2u)str_cpy(b,st?"Init":"This sound",sizeof b);else{menu_words(b,DS_GOAL[ds.goal],16);str_cpy(b+str_len(b)," from Init",12);}}
         else str_cpy(b,ds.expert?"All":"Main",sizeof b);
         cv_begin(240,LIST_ROW,T_BG);
-        row_draw(0,LB[k],b,T_TEXT,ui.hot_t && ui.hot_col==k,0);
+        row_draw(0,LB[k],b,T_TEXT,ui.hot_t && ui.hot_col==k,0,k);
         cv_blit(0,(uint32_t)(LIST_Y0+(int32_t)k*LIST_ROW));
     }
     if(text_w(f,ENGINES[ds.eng]->name)>220 || !text_has(f,ENGINES[ds.eng]->name))f=TY_VL;

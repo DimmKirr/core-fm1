@@ -19,7 +19,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 static uint32_t ty_pixel(void) { return 0; }            /* (ui.c: Settings > FONT; Rubik here) */
 
 #define SHEET_W 960u
-#define SHEET_H (((NPALETTES + 3u) / 4u) * 124u)
+#define SHEET_H (((UI_PAL_ENTRIES + 3u) / 4u) * 124u)   /* (every palette, GRAY too) */
 static uint16_t sheet[SHEET_W * SHEET_H];
 static unsigned channel(uint16_t c, unsigned n)
 { return n == 0 ? c >> 11 : n == 1 ? (c >> 5) & 63 : c & 31; }
@@ -46,8 +46,11 @@ int main(int argc, char **argv)
     static const uint8_t pd[] = {0x08, 0xf0};
     const aafont_t probe = {1, 1, 'A', 'A', 0, 0, pg, pd, 0, 0, 0};
     double worst = 100;
-    assert(NPALETTES == 3u && !strcmp(UI_PALETTES[0].name, "NIGHT") && !strcmp(UI_PALETTES[1].name, "DAY") &&
-           !strcmp(UI_PALETTES[2].name, "CONTRAST") && !strcmp(UI_PALETTES[UI_GRAY_INDEX].name, "GRAY"));
+    assert(NPALETTES == 8u && !strcmp(UI_PALETTES[0].name, "NIGHT") && !strcmp(UI_PALETTES[1].name, "DAY") &&
+           !strcmp(UI_PALETTES[2].name, "CONTRAST") && !strcmp(UI_PALETTES[3].name, "SUNSET") &&
+           !strcmp(UI_PALETTES[4].name, "OCEAN") && !strcmp(UI_PALETTES[5].name, "NEON") &&
+           !strcmp(UI_PALETTES[6].name, "CANDY") && !strcmp(UI_PALETTES[7].name, "LO-FI") &&
+           !strcmp(UI_PALETTES[UI_GRAY_INDEX].name, "GRAY"));
     for (unsigned pt = 0; pt < UI_PAL_ENTRIES * 4u; pt++) {
         unsigned p = pt / 4u, t = pt % 4u;
         uint16_t *tok = &ux.bg;
@@ -62,7 +65,10 @@ int main(int argc, char **argv)
             {T_TEXT, T_BG, 12.0}, {T_TEXT, T_SURF, 9.0}, {T_MID, T_BG, 5.0}, {T_MID, T_SURF, 4.0},
             {T_THEME, T_BG, 4.5}, {T_THEME, T_SURF, 4.5}, {T_ACCENT, T_BG, 4.5}, {T_ACCENT, T_SURF, 4.5},
             {T_INK, T_SEL, 4.5}, {T_INK, T_THEME, 4.5}, {T_DIM, T_BG, 2.2}, {T_LINE, T_BG, 1.25}, {T_REC, T_BG, 3.0},
-            {T_INK, T_KEY, 4.5}, {T_KEY, T_BG, 3.0}, {T_KEY, T_SURF, 2.5}, {T_INK, T_DIM, 1.8}, {T_INK, T_ACCENT, 4.5}};
+            {T_INK, T_KEY, 4.5}, {T_KEY, T_BG, 3.0}, {T_KEY, T_SURF, 2.5}, {T_INK, T_DIM, 1.8}, {T_INK, T_ACCENT, 4.5},
+            {T_KNOB(0), T_BG, 4.5}, {T_KNOB(1), T_BG, 4.5}, {T_KNOB(2), T_BG, 4.5}, {T_KNOB(3), T_BG, 4.5},
+            {T_KNOB(0), T_SURF, 4.5}, {T_KNOB(1), T_SURF, 4.5}, {T_KNOB(2), T_SURF, 4.5}, {T_KNOB(3), T_SURF, 4.5}};
+        assert(T_KNOB(0) == T_THEME);                          /* (knob 1's colour: the track's own) */
         double min = 100;
         for (unsigned i = 0; i < sizeof c / sizeof c[0]; i++) {
             double r = contrast(c[i].fg, c[i].bg);
@@ -73,7 +79,7 @@ int main(int argc, char **argv)
         if (min < worst) worst = min;
         printf("%-8s T%u text %.1f:1, labels %.1f:1, track %.1f:1, selection %.1f:1\n", UI_PALETTES[p].name, t + 1,
                contrast(T_TEXT, T_BG), contrast(T_MID, T_BG), contrast(T_THEME, T_BG), contrast(T_INK, T_SEL));
-        assert((p == 1u) == ux.light);                         /* DAY is the light one */
+        assert((p == 1u || p == 6u) == ux.light);              /* DAY and CANDY are the light ones */
         assert(T_REC == (p == UI_GRAY_INDEX ? T_ACCENT : ux.light ? UI_REC_LIGHT : UI_REC_DARK));
         /* the blend: transparent, solid and an edge between the two, on two backgrounds */
         for (unsigned b = 0; b < 2; b++) {

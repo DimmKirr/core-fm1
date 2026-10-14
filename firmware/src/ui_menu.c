@@ -284,23 +284,19 @@ static void draw_menu(void)
                 b[2] = (char)('0' + HOLD_MS[settings_hold % 4u] / 100u);
                 value = b;
             }
-            if (i == MI_COLOR) {                        /* the palettes as swatches, the one chosen outlined */
+            if (i == MI_COLOR) {                        /* the palette's four track colours as swatches */
                 uint32_t k;
                 int32_t x;
-                uint16_t bg = sel ? ux_mix(T_BG, T_THEME, 18) : T_BG;
+                uint16_t bg = sel ? ux_mix(T_BG, T_KNOB(i), 18) : T_BG;
                 menu_words(v, UI_PALETTES[settings.palette % NPALETTES].name, sizeof v);
-                x = row_draw(y, w, v, T_TEXT, sel, 0) - 10 - 16 * (int32_t)NPALETTES;
-                for (k = 0; k < NPALETTES; k++) {
-                    int on = k == settings.palette % NPALETTES;
-                    cv_rrect(x + 16 * (int32_t)k, y + MENU_RH / 2 - 7, 14, 14, 3, on ? T_THEME : T_MID, bg);
-                    cv_rrect(x + 16 * (int32_t)k + 2, y + MENU_RH / 2 - 5, 10, 10, 2,   /* (GRAY, the tests': greys) */
-                             ux.mono ? ux_mix(T_BG, T_TEXT, 40 * k) : UI_PALETTES[k].bg, on ? T_THEME : T_MID);
-                }
+                x = row_draw(y, w, v, T_TEXT, sel, 0, i) - 10 - 16 * 4;
+                for (k = 0; k < 4u; k++)
+                    cv_rrect(x + 16 * (int32_t)k + 2, y + MENU_RH / 2 - 5, 10, 10, 3, T_TRK(k), bg);
             } else {
                 v[0] = 0;
                 if (value)
                     menu_words(v, value, sizeof v);
-                row_draw(y, w, v, T_TEXT, sel, 0);
+                row_draw(y, w, v, T_TEXT, sel, 0, i);
             }
         }
         {   /* where the rows are in the list: a bar at the right edge */

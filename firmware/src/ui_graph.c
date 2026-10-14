@@ -237,10 +237,13 @@ static void notes_follow(const track_t *t)
     proll.lo = (uint8_t)(snap ? target : proll.lo + (d / 3 ? d / 3 : d > 0 ? 1 : d < 0 ? -1 : 0));
     proll.moving = proll.lo != target; proll.trk = song.sel; proll.frame = ui.frame; proll.init = 1;
 }
+#define PR_OCT_C(n) T_KNOB((uint32_t)(n) / 12u)        /* a note in the roll: its octave's colour (as ARP's blocks) */
 static void notes_bar(const track_t *t, uint32_t i, uint32_t period, uint32_t a, uint32_t b, uint16_t c, int selected)
 {
     recorded_note_t snapshot = recording_snapshot(i);
     const recorded_note_t *r = &snapshot;
+    if (c == T_THEME)
+        c = PR_OCT_C(r->note);
     uint32_t loop = recording_loop(t, period), at = recording_raw_on(t, r, period);
     uint64_t gate = (uint64_t)r->duration * (1u << (r->owner >> 5)) * period / RECORD_UNIT;
     if (!gate) gate = 1;
@@ -307,8 +310,9 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
             int selected = (bulk.on&&bulk_has(source)) || (chosen >= RECORD_MAX && source == selected_start && (j == notes_manual_slot(st) || (st->n > 1u && ui.hot_t && (ui.hot_col == 2u || ui.hot_col == 3u))));
             /* (a note tied on: no gap at its column's end, one bar) */
             int32_t lead = source == si ? 2 : 0, cont = si + 1u < end && pr_src(t, si + 1u, step_pattern_len(t)) == source;
-            if (y < PR_Y0 || y >= bottom) { cv_rect(x + 1, y < PR_Y0 ? PR_Y0 : bottom - 1, xe - x - 1, 1, c); continue; }
-            cv_rect(x + lead, y + 1, xe - x - lead - (cont ? 0 : 1), PR_RH - 2, selected ? T_ACCENT : c);
+            uint16_t nc = c == T_THEME ? PR_OCT_C(st->note[j]) : c;
+            if (y < PR_Y0 || y >= bottom) { cv_rect(x + 1, y < PR_Y0 ? PR_Y0 : bottom - 1, xe - x - 1, 1, nc); continue; }
+            cv_rect(x + lead, y + 1, xe - x - lead - (cont ? 0 : 1), PR_RH - 2, selected ? T_ACCENT : nc);
             if (selected) cv_frame(x + (source == si ? 1 : 0), y, xe - x - (source == si ? 2 : 0), PR_RH, T_TEXT);
             uint32_t next = (si + 1u) % step_pattern_len(t);
             const step_t *ns = &seq_steps(t)[next];
