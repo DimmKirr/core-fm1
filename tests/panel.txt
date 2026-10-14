@@ -7,8 +7,8 @@
 # which have to differ when the bank moves on and come back around when it wraps.
 0 btn 8
 
-# OPERATOR has thirteen parameters four at a time, so four banks. Press EDIT five times: the first
-# arrives at the page, the next three walk it, and the fifth is back where it started.
+# OPERATOR shows seven parameters four at a time until SHOW ALL asks for the rest, so two banks.
+# Press EDIT five times: the first arrives at the page, and the rest walk it there and back.
 200 btn 6
 400 shot
 600 btn 6

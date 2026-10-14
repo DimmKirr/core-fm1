@@ -87,7 +87,8 @@ def main(prefix):
     s = {ms: screen(ms) for ms in (400, 800, 1200, 1600, 2000, 2400, 2800, 3200, 3800, 4400)}
 
     walked = [s[400], s[800], s[1200], s[1600]]
-    check("OPERATOR has four banks, all different", len(set(walked)) == 4)
+    check("OPERATOR has two banks until SHOW ALL",
+          len(set(walked)) == 2 and walked[2] == walked[0] and walked[3] == walked[1])
     check("the fifth press wrapped to the first", s[2000] == s[400])
     check("ENVELOPE walked a bank of its own", s[2400] != s[2800])
     check("ENVELOPE is not OPERATOR", s[2400] != s[400])

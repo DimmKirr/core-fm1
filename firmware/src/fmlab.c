@@ -480,28 +480,37 @@ static void app_audio(int32_t *out, uint32_t n)
  * A page is a flat list; the knobs show four at a time and SEL steps to the next four. `op` entries
  * are an offset inside the selected operator's 21 bytes, `g` entries an index into the 156.
  * Operators are stored OP6 first, so operator n lives at (6 - n) * 21. */
-enum { P_G = 0, P_OP = 1 };
-enum { K_NUM = 0, K_RATIO, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, K_TRSP };
+enum { P_G = 0, P_OP = 1, P_UI = 2 };
+enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, K_TRSP };
+
+/* The handful of switches that belong to the instrument and not to the sound. They sit in their
+ * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
+ * opinions; they are saved with the octave and the rest. */
+enum { UI_ADV = 0, UI_N };
+static uint8_t ui[UI_N];
+
 typedef struct {
     const char *name;
     const char *knob;                           /* six characters for the legend, or 0 for name */
     uint8_t where, idx, max, kind;
+    uint8_t adv;                                /* 1: only on the page when SHOW ALL is on */
 } param_t;
 
 static const param_t PG_OP[] = {
     {"LEVEL",  0, P_OP, 16, 99, K_NUM},         /* how loud -- or, on a modulator, how much it modulates */
-    {"COARSE", 0, P_OP, 18, 31, K_RATIO},
-    {"FINE",   0, P_OP, 19, 99, K_NUM},
+    {"RATIO",  0, P_OP, 18, 36, K_RAT},         /* coarse and fine, said as the one number they mean */
     {"DETUNE", 0, P_OP, 20, 14, K_DET},
     {"MODE",   0, P_OP, 17, 1,  K_MODE},
+    {"COARSE", 0, P_OP, 18, 31, K_NUM, 1},
+    {"FINE",   0, P_OP, 19, 99, K_NUM, 1},
     {"VEL SENS", "V SENS", P_OP, 15, 7, K_NUM},
     {"AMP MOD",  "AMPMOD", P_OP, 14, 3, K_NUM},
     {"RATE SCL", "RT SCL", P_OP, 13, 7, K_NUM},
-    {"BREAK PT", "BRK PT", P_OP, 8,  99, K_BRK},
-    {"L DEPTH", "L DEP", P_OP, 9,  99, K_NUM},
-    {"R DEPTH", "R DEP", P_OP, 10, 99, K_NUM},
-    {"L CURVE", "L CRV", P_OP, 11, 3,  K_CURVE},
-    {"R CURVE", "R CRV", P_OP, 12, 3,  K_CURVE},
+    {"BREAK PT", "BRK PT", P_OP, 8,  99, K_BRK,   1},
+    {"L DEPTH", "L DEP", P_OP, 9,  99, K_NUM,   1},
+    {"R DEPTH", "R DEP", P_OP, 10, 99, K_NUM,   1},
+    {"L CURVE", "L CRV", P_OP, 11, 3,  K_CURVE, 1},
+    {"R CURVE", "R CRV", P_OP, 12, 3,  K_CURVE, 1},
 };
 static const param_t PG_EG[] = {                /* a rate and the level it is heading for, paired */
     {"RATE 1",  0, P_OP, 0, 99, K_NUM},
@@ -535,6 +544,7 @@ static const param_t PG_GLO[] = {
     {"P LEVEL 2", "P LVL2", P_G, 131, 99, K_NUM},
     {"P LEVEL 3", "P LVL3", P_G, 132, 99, K_NUM},
     {"P LEVEL 4", "P LVL4", P_G, 133, 99, K_NUM},
+    {"SHOW ALL", "SHOW", P_UI, UI_ADV, 1, K_ONOFF},
 };
 
 enum { PAGE_HOME = 0, PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_GLO };
@@ -549,10 +559,41 @@ static const struct { const char *name; const param_t *p; uint8_t n, perop, rows
     {"GLOBAL",    PG_GLO, sizeof PG_GLO / sizeof PG_GLO[0], 0, 4, 56},
 };
 #define PAGE_ROWS ((uint32_t)PAGE[page].rows)
-#define PAGE_NBANK (((uint32_t)PAGE[page].n + PAGE_ROWS - 1u) / PAGE_ROWS)
 #define HOME_NBANK 2u                           /* HOME's two screens: the diagram, and the spectrum */
 
 static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
+
+/* ---- the parameters a page is actually showing
+ *
+ * Five of the thirteen things the DX7 lets you say about an operator are the keyboard scaling,
+ * and two more are the coarse and fine multipliers that RATIO now says in one number. None of
+ * them is wrong, but all of them cost a beginner a page to wade through before reaching the ones
+ * that change the sound audibly. They are marked `adv` and left off the pages until SHOW ALL, on
+ * the last bank of GLOBAL, asks for them. Nothing is lost: the bytes are still edited, still
+ * saved, and still sent, whether or not you can see them.
+ *
+ * So a page is no longer a flat array that banks index directly -- it is the visible subset of
+ * one, and everything that walks a page has to walk it through here. */
+static uint32_t page_n(void)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < PAGE[page].n; i++)
+        if (!PAGE[page].p[i].adv || ui[UI_ADV])
+            n++;
+    return n;
+}
+
+static const param_t *page_at(uint32_t want)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < PAGE[page].n; i++)
+        if (!PAGE[page].p[i].adv || ui[UI_ADV])
+            if (n++ == want)
+                return &PAGE[page].p[i];
+    return 0;
+}
+
+#define PAGE_NBANK ((page_n() + PAGE_ROWS - 1u) / PAGE_ROWS)
 
 /* Go to a page; pressing the button for the page you are already on walks its banks and wraps. */
 static void page_to(uint8_t p)
@@ -562,7 +603,7 @@ static void page_to(uint8_t p)
         bank = 0;
     } else if (page == PAGE_HOME) {
         bank = (uint8_t)((bank + 1u) % HOME_NBANK);
-    } else if (PAGE[page].n) {
+    } else if (page_n()) {
         bank = (uint8_t)((bank + 1u) % PAGE_NBANK);
     }
 }
@@ -600,6 +641,12 @@ static uint32_t p_at(const param_t *p)          /* where this parameter lives in
     return p->where == P_OP ? (uint32_t)opsel * 21u + p->idx : p->idx;
 }
 
+/* the byte a parameter is, wherever it lives */
+static uint8_t *p_ref(const param_t *p)
+{
+    return p->where == P_UI ? &ui[p->idx] : &edit[p_at(p)];
+}
+
 static const char *const WAVE[] = {"TRIANGLE", "SAW DOWN", "SAW UP", "SQUARE", "SINE", "SAMP/HOLD"};
 static const char *const CURVE[] = {"-LIN", "-EXP", "+EXP", "+LIN"};
 static const char NOTE_NAME[12][3] = {"C ", "C#", "D ", "D#", "E ", "F ", "F#", "G ", "G#", "A ", "A#", "B "};
@@ -620,14 +667,92 @@ static uint32_t putn(char *s, uint32_t i, uint32_t v, uint32_t w)   /* right-ali
     return i;
 }
 
+/* ---- one number where the DX7 has two
+ *
+ * An operator's pitch is set by a coarse multiplier and a fine one that stretches it: the note you
+ * played, times coarse, times (1 + fine/100). The pair is hard to read. COARSE 2 FINE 0 and
+ * COARSE 1 FINE 99 are a semitone apart and look nothing alike, and the thing you actually want to
+ * say -- "twice the key", "three times the key" -- is spread across two rows.
+ *
+ * RATIO says it in one: a list of the whole multiples that make a harmonic, blending sound, the
+ * halves between the low ones, and 1.41 because an operator at the square root of two is the
+ * quickest way to hear what inharmonic means. Underneath it is still exactly those two bytes, so
+ * a patch edited here is still a DX7 patch and still exports as one. A ratio this list does not
+ * reach is still reachable: COARSE and FINE are on the page under SHOW ALL, and anything they are
+ * set to is displayed faithfully here even when it is between two entries.
+ *
+ * In FIXED mode the same two bytes stop being a multiple and become a frequency, which the DX7
+ * reads as 10^(((coarse & 3) * 100 + fine) / 100) Hz -- four decades from 1 Hz up, in 400 steps.
+ * The row follows: it says the frequency and the knob walks those steps, because showing "x2.00"
+ * for an operator pinned at 100 Hz would be a plain lie. */
+static const uint8_t RAT[][2] = {               /* coarse, fine */
+    {0, 0}, {0, 50}, {1, 0}, {1, 41}, {1, 50}, {2, 0}, {2, 25}, {3, 0}, {2, 75}, {4, 0},
+    {5, 0}, {6, 0}, {7, 0}, {8, 0}, {9, 0}, {10, 0}, {11, 0}, {12, 0}, {13, 0}, {14, 0},
+    {15, 0}, {16, 0}, {17, 0}, {18, 0}, {19, 0}, {20, 0}, {21, 0}, {22, 0}, {23, 0}, {24, 0},
+    {25, 0}, {26, 0}, {27, 0}, {28, 0}, {29, 0}, {30, 0}, {31, 0},
+};
+#define RAT_N (sizeof RAT / sizeof RAT[0])
+
+static uint32_t rat_x100(uint32_t c, uint32_t f)        /* the multiple, times a hundred */
+{
+    return (c ? c * 100u : 50u) * (100u + (f > 99u ? 99u : f)) / 100u;
+}
+
+static uint8_t *op_byte(uint32_t off) { return &edit[(uint32_t)opsel * 21u + off]; }
+static uint32_t rat_now(void) { return rat_x100(*op_byte(18), *op_byte(19)); }
+
+/* Where the operator sits in the list. Exact if its two bytes are an entry; otherwise the entry
+ * below it, so that a turn up lands on the next one above rather than skipping it. */
+static uint32_t rat_index(uint32_t *exact)
+{
+    uint32_t v = rat_now(), i, at = 0;
+    *exact = 0;
+    for (i = 0; i < RAT_N; i++) {
+        uint32_t e = rat_x100(RAT[i][0], RAT[i][1]);
+        if (e == v && RAT[i][0] == *op_byte(18)) { *exact = 1; return i; }
+        if (e <= v) at = i;
+    }
+    return at;
+}
+
+/* 10^(f/100) in Q12, as two tables of ten so it costs forty bytes instead of two hundred */
+static const uint16_t TEN1[10] = {4096, 5157, 6492, 8173, 10289, 12953, 16306, 20529, 25844, 32536};
+static const uint16_t TEN2[10] = {4096, 4191, 4289, 4389, 4491, 4596, 4703, 4812, 4924, 5039};
+static uint32_t fix_step(void) { return (*op_byte(18) & 3u) * 100u + (*op_byte(19) > 99u ? 99u : *op_byte(19)); }
+static uint32_t fix_hz_x100(uint32_t x)         /* the frequency those steps mean, times a hundred */
+{
+    uint32_t d = x / 100u, f = x % 100u, mul = 25u;
+    uint32_t q12 = ((uint32_t)TEN1[f / 10u] * TEN2[f % 10u]) >> 12;     /* 10^(f/100), Q12 */
+    while (d--) mul *= 10u;                     /* the decade goes in before the shift, or the top
+                                                 * one would round away its last digit */
+    return (q12 * mul) >> 10;                   /* 25 and 10 rather than 100 and 12: same value, a
+                                                 * quarter of the room needed to hold it */
+}
+
 /* a parameter's value as the DX7 means it, not as the byte happens to be stored */
 static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
 {
     switch (p->kind) {
-    case K_RATIO:                               /* coarse 0 is half speed, then 1, 2, 3 ... */
-        s[i++] = 'x';
-        if (!v) return put(s, i, "0.5");
-        return putn(s, i, v, 1);
+    case K_RAT: {                               /* the two bytes, said as the one thing they mean */
+        uint32_t n;
+        if (!*op_byte(17)) {
+            n = rat_now();
+            s[i++] = 'x';
+            i = putn(s, i, n / 100u, 1);
+            s[i++] = '.';
+            s[i++] = (char)('0' + (n / 10u) % 10u);
+            s[i++] = (char)('0' + n % 10u);
+            return i;
+        }
+        n = fix_hz_x100(fix_step());            /* fewer decimals the higher it goes, to stay in the box */
+        i = putn(s, i, n / 100u, 1);
+        if (n < 100000u) {
+            s[i++] = '.';
+            s[i++] = (char)('0' + (n / 10u) % 10u);
+            if (n < 1000u) s[i++] = (char)('0' + n % 10u);
+        }
+        return put(s, i, "HZ");
+    }
     case K_DET:  s[i++] = v < 7u ? '-' : '+'; return putn(s, i, v < 7u ? 7u - v : v - 7u, 1);
     case K_MODE: return put(s, i, v ? "FIXED" : "RATIO");
     case K_ONOFF: return put(s, i, v ? "ON" : "OFF");
@@ -1192,6 +1317,33 @@ static void draw_eg_now(uint32_t seg)
         draw_eg(&scratch, 0, seg);
 }
 
+/* ---- RATIO is two rows in one, and changes its name with the mode. So the name, the short name
+ * under the knob, the bar under the value and the question "has this row changed?" all have to be
+ * asked for rather than read straight off the table. */
+static const char *p_name(const param_t *p)
+{
+    return (p->kind == K_RAT && *op_byte(17)) ? "FIXED HZ" : p->name;
+}
+static const char *p_knob(const param_t *p)
+{
+    if (p->kind == K_RAT && *op_byte(17)) return "FIX HZ";
+    return p->knob ? p->knob : p->name;
+}
+static uint32_t p_bar(const param_t *p, uint32_t v, uint32_t *max)
+{
+    uint32_t exact;
+    if (p->kind != K_RAT) { *max = p->max; return v; }
+    if (*op_byte(17)) { *max = 399u; return fix_step(); }
+    *max = RAT_N - 1u;
+    return rat_index(&exact);
+}
+static uint32_t p_cache(const param_t *p)       /* RATIO watches three bytes, not one */
+{
+    if (p->kind == K_RAT)
+        return ((uint32_t)(*op_byte(17) != 0) << 12) | ((uint32_t)*op_byte(18) << 7) | *op_byte(19);
+    return *p_ref(p);
+}
+
 /* One parameter row: name on the left, value on the right, and a bar underneath so the amount is
  * visible at a glance. The knob that moves it is KNOB1..4, top to bottom. */
 static void draw_row(uint32_t slot, const param_t *p, uint32_t v)
@@ -1200,7 +1352,8 @@ static void draw_row(uint32_t slot, const param_t *p, uint32_t v)
     uint32_t y = PAGE[page].y0 + slot * 32u, i;
     cv_begin(240, 30, C_BLACK);
     if (p) {
-        uint32_t w = p->max ? (uint32_t)(228u * v) / p->max : 0u;
+        uint32_t max, n = p_bar(p, v, &max);
+        uint32_t w = max ? (228u * n) / max : 0u;
         cv_rect(6, 24, 228, 4, RGB(45, 45, 45));
         if (w) cv_rect(6, 24, (int32_t)w, 4, C_ACC);
     }
@@ -1209,7 +1362,7 @@ static void draw_row(uint32_t slot, const param_t *p, uint32_t v)
         draw_text_box(0, y, 240, &FONT_S, "", C_OFF, 1);
         return;
     }
-    i = put(s, 0, p->name);
+    i = put(s, 0, p_name(p));
     s[i] = 0;
     draw_text_box(8, y, 150, &FONT_S, s, C_LBL, 0);
     i = putval(s, 0, p, v);
@@ -1264,8 +1417,9 @@ static void draw_legend(void)
             s = (bank == 1u && e == 0u) ? "SPAN" : 0;   /* the diagram has no knobs at all */
         } else {
             uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
-            if (e < PAGE_ROWS && pi < PAGE[page].n)
-                s = PAGE[page].p[pi].knob ? PAGE[page].p[pi].knob : PAGE[page].p[pi].name;
+            const param_t *p = e < PAGE_ROWS ? page_at(pi) : 0;
+            if (p)
+                s = p_knob(p);
         }
         if (s) {
             uint32_t w = text_w(&FONT_S, s), pad = w + 6u < 60u ? (60u - w) / 2u : 3u;
@@ -1418,15 +1572,16 @@ static void app_main(void)
 {
     /* Only ever append to this: settings_load takes a short store and leaves the rest at default,
      * so a new field costs nothing, but moving one would hand the old bytes to the wrong name. */
-    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; } set = {0, 0, 0, 0, 2};
+    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t adv; } set = {0, 0, 0, 0, 2, 0};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
     uint32_t nv_drawn = ~0u, cpu_drawn = ~0u, pk_drawn = ~0u, vkey_drawn = ~0u;
     int32_t oct_drawn = 99;
-    uint8_t held[27] = {0}, shown[4] = {255, 255, 255, 255};
+    uint8_t held[27] = {0};
+    uint16_t shown[4] = {0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu};
     uint8_t page_drawn = 255, bank_drawn = 255, bank_drawn2 = 255, op_drawn = 255, mono_drawn = 255;
-    uint8_t alg_drawn = 255, alg_op_drawn = 255, mute_drawn = 255;
+    uint8_t alg_drawn = 255, alg_op_drawn = 255, mute_drawn = 255, leg_drawn = 255;
 
     bank_init();                                /* before the first load_voice: a slot may be the voice */
     settings_load(&set, sizeof set);
@@ -1434,6 +1589,7 @@ static void app_main(void)
     if (set.voice >= NVOICE) set.voice = 0;
     if (set.slot >= NUSER) set.slot = 0;
     if (set.span >= SP_NSPAN) set.span = 2;
+    ui[UI_ADV] = set.adv ? 1u : 0u;
     spspan = set.span;
     sp_init();
     set.mono = set.mono ? 1u : 0u;
@@ -1576,11 +1732,41 @@ static void app_main(void)
             uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
             const param_t *p;
             int32_t v;
-            if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || pi >= PAGE[page].n)
+            if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || (p = page_at(pi)) == 0)
                 continue;
-            p = &PAGE[page].p[pi];
-            v = (int32_t)edit[p_at(p)] + enc;
-            edit[p_at(p)] = (uint8_t)(v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v);
+            if (p->kind == K_RAT) {
+                if (*op_byte(17)) {                        /* FIXED: walk the four decades in steps */
+                    int32_t x = (int32_t)fix_step() + enc;
+                    x = x < 0 ? 0 : x > 399 ? 399 : x;
+                    *op_byte(18) = (uint8_t)(x / 100);
+                    *op_byte(19) = (uint8_t)(x % 100);
+                } else {                                   /* RATIO: walk the list */
+                    uint32_t exact;
+                    int32_t x = (int32_t)rat_index(&exact);
+                    /* rat_index leaves us on the entry below an off-list ratio, so turning down
+                     * from there is already a step and must not take another */
+                    x += exact || enc > 0 ? enc : enc + 1;
+                    x = x < 0 ? 0 : x > (int32_t)RAT_N - 1 ? (int32_t)RAT_N - 1 : x;
+                    *op_byte(18) = RAT[x][0];
+                    *op_byte(19) = RAT[x][1];
+                }
+                modified = 1;
+                patch_publish();
+                continue;
+            }
+            if (p->where == P_UI) {                        /* a switch of the instrument, not the sound */
+                v = (int32_t)ui[p->idx] + enc;
+                ui[p->idx] = (uint8_t)(v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v);
+                set.adv = ui[UI_ADV];
+                if (bank >= PAGE_NBANK)                    /* fewer parameters than there were banks */
+                    bank = (uint8_t)(PAGE_NBANK - 1u);
+                dirty = 1;
+                t_change = fm1_ms;
+                repaint = 1;
+                continue;
+            }
+            v = (int32_t)*p_ref(p) + enc;
+            *p_ref(p) = (uint8_t)(v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v);
             modified = 1;
             patch_publish();
         }
@@ -1647,16 +1833,22 @@ static void app_main(void)
             for (k = 0; k < 240u; k++)
                 sp_pk[k] = 0;
             lcd_fill(0, 0, 240, 240, C_BLACK);  /* all of it: the meter is only on one page now */
-            draw_legend();
             if (page == PAGE_HOME)
                 draw_text_box(0, 18, 240, &FONT_L, APP_NAME, C_ACC, 1);
             repaint = 1;
+        }
+        {   /* the legend outlives a page, but not a change of mode: RATIO becomes FIXED HZ */
+            uint8_t leg = (uint8_t)(page == PAGE_OP && *op_byte(17) ? 1u : 0u);
+            if (leg != leg_drawn || repaint) {
+                leg_drawn = leg;
+                draw_legend();
+            }
         }
         if (page != PAGE_HOME && (bank != bank_drawn || opsel != op_drawn || opmute != mute_drawn || repaint)) {
             bank_drawn = bank;
             op_drawn = opsel;
             draw_head();
-            shown[0] = shown[1] = shown[2] = shown[3] = 255;
+            shown[0] = shown[1] = shown[2] = shown[3] = 0xFFFFu;
             eg_dirty = 1;
         }
         {                                       /* the voice line: the name, or what it is asking / saying */
@@ -1683,11 +1875,11 @@ static void app_main(void)
         } else {
             for (e = 0; e < PAGE_ROWS; e++) {
                 uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
-                const param_t *p = pi < PAGE[page].n ? &PAGE[page].p[pi] : 0;
-                uint8_t v = p ? edit[p_at(p)] : (uint8_t)254u;   /* 254 marks "this row is empty" */
+                const param_t *p = page_at(pi);
+                uint16_t v = p ? (uint16_t)p_cache(p) : (uint16_t)0xFFFEu;  /* FFFE: this row is empty */
                 if (shown[e] != v) {
                     shown[e] = v;
-                    draw_row(e, p, p ? v : 0u);
+                    draw_row(e, p, p ? *p_ref(p) : 0u);
                     eg_dirty = 1;
                 }
             }

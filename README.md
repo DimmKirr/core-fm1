@@ -63,25 +63,57 @@ A strip along the bottom of every screen names what the four knobs are doing, in
 it. On a parameter page that is the four parameters you can see anyway — but it is in the same place on
 every page, so the habit of glancing there always pays off, and on the pages that draw something rather
 than list it (the spectrum, the envelope) it is the only label there is. Six characters is all a knob gets,
-which is why some of the names are squeezed: `BRK PT` is the break point, `PMSENS` the LFO's pitch mod
+which is why some of the names are squeezed: `RT SCL` is the rate scaling, `PMSENS` the LFO's pitch mod
 sensitivity, `P LVL1` the first level of the pitch envelope.
 
 | Button | Page | What is on it |
 | --- | --- | --- |
 | **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them |
-| **EDIT** | OPERATOR | level, coarse, fine, detune / mode, velocity sensitivity, amp mod, rate scaling / break point, both depths, both curves |
+| **EDIT** | OPERATOR | level, ratio, detune, mode / velocity sensitivity, amp mod, rate scaling |
 | **ENV** | ENVELOPE | the envelope drawn to scale, and one segment's rate and level at a time |
 | **LFO** | LFO | speed, delay, pitch mod, amp mod, wave, key sync, pitch mod sensitivity |
-| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, and the pitch envelope |
+| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope, and **SHOW ALL** |
+
+### Ratio, and the two bytes under it
+
+The DX7 sets an operator's pitch with two numbers: a coarse multiplier, and a fine one that stretches it by
+up to another ninety-nine per cent. Between them they can say nearly anything, and they are miserable to
+read — `COARSE 2 FINE 0` and `COARSE 1 FINE 99` are a semitone apart and look nothing alike, and the thing
+you actually want to say, *twice the key*, is spread across two rows.
+
+**RATIO** says it in one number. It steps a list: the whole multiples up to 31, which are the harmonics and
+the reason FM can sound like an instrument rather than a clang; the halves between the low ones; and 1.41,
+which is in there because an operator at the square root of two is the quickest way to hear what
+*inharmonic* means. Nothing is stored differently — it is those same two bytes, so a sound edited here is
+still a DX7 voice and still exports as one, and a ratio the list does not reach is still shown faithfully
+if a patch arrives using it.
+
+Switch **MODE** to `FIXED` and the same two bytes stop being a multiple of the key and become a frequency
+instead, anywhere from 1 Hz to about 9.8 kHz. The row follows: it is called `FIXED HZ`, it says the
+frequency, and the knob walks it. An operator pinned to a frequency ignores what you play, which is how
+most bells and all of the breath and click at the front of a sound are made.
+
+### Show all
+
+Seven of the thirteen things the DX7 lets you say about an operator are the keyboard scaling — a break
+point, a depth and a curve either side of it — plus the coarse and fine multipliers that **RATIO** now says
+between them. None of them is wrong. All of them are a page to wade through before you reach the ones that
+change the sound audibly, and the scaling five do nothing at all until you have played in two different
+registers and noticed the difference.
+
+So they are off the page until you ask. **SHOW ALL**, alone on the last bank of GLOBAL, puts them back:
+OPERATOR grows from two banks to four, `COARSE` and `FINE` appear next to each other on the second, and the
+scaling fills the rest. The setting is remembered across a power cycle. Nothing is ever hidden from the
+engine, the bank, or a `.syx` — only from you, and only until you want it.
 
 **SELECT** picks which operator the OPERATOR and ENVELOPE pages are showing. So do the low six black keys,
 the ones the panel prints `OP1` to `OP6` under: on those two pages they jump straight to their operator
 instead of sounding, because there you are pointing at an operator rather than playing one. All six glow
 while they mean that, and the one you are editing is lit outright. On every other page they are keys again.
 
-The header names the operator and says
-whether it is a `CAR` or a `MOD` — whether, under the algorithm you are on, you hear it directly or only feel
-it bending something else. Change the algorithm and watch that word change; that is most of what FM is.
+The header names the operator and says whether it is a `CAR` or a `MOD` — whether, under the algorithm you
+are on, you hear it directly or only feel it bending something else. Change the algorithm and watch that
+word change; that is most of what FM is.
 
 **ALGORITHM** is on its own knob and works from any page, so you can hold a note, keep your eyes on an
 operator's envelope, and move it through all 32.
@@ -168,7 +200,7 @@ structure worth seeing. The span is on **KNOB1** instead — 1, 2, 5, 10 or 20 k
 
 The ticks along the top edge are whole multiples of the note you are playing, the first one taller and
 brighter. Partials that line up with them are harmonic; partials that sit between them are not. That is the
-difference between a **COARSE** of 2 and a **COARSE** of 2 with a little **DETUNE**, or between a ratio of 3
+difference between a **RATIO** of 2 and a **RATIO** of 2 with a little **DETUNE**, or between a ratio of 3
 and a ratio of 3.5, and it is far easier to see than to hear. The ticks along the floor are the kilohertz, and
 the two faint lines across the middle are 24 and 48 dB down from full scale — the bottom of the screen is 72.
 The lilac marks are a peak that falls back slowly, so a plucked sound leaves its shape behind long enough
@@ -185,9 +217,8 @@ are nothing like four equal segments. The graph is stepped with the engine's own
 are the real times and the heights are the real levels — in dB, which is how the levels are specified.
 
 **SEL** — or **ENV** again — walks the four segments, and the knobs give you that segment's rate and its
-level together, which is
-the pair that means something. The segment you are on is picked out in colour, and the white dot is where the
-envelope of the selected operator has actually got to in the note you are holding.
+level together, which is the pair that means something. The segment you are on is picked out in colour, and
+the white dot is where the envelope of the selected operator has actually got to in the note you are holding.
 
 The voice name shows a `*` while you have changed anything. To throw an edit away, turn **PRESETS** off the
 voice and back onto it — it is reloaded from the bank.
@@ -307,7 +338,7 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Five more scripts go with it:
+which is the thing most worth listening to. Six more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
@@ -316,6 +347,7 @@ tests/run_host.sh tests/bank.txt          # saving, and .syx in and out, data an
 tests/run_host.sh tests/panel.txt         # the pages and the operator keys, screens and MIDI checked
 tests/run_host.sh tests/spectrum.txt      # the analyser, against where the partials belong
 tests/run_host.sh tests/levels.txt        # the operator boxes, against the envelopes behind them
+tests/run_host.sh tests/edit.txt          # RATIO and SHOW ALL, against the bytes underneath them
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -333,7 +365,7 @@ has to leave no trace of the letters that were typed. `tests/mksyx.py` generates
 and the matching note off, including one held across a page change. The screens it compares byte for byte,
 all 240 rows of them — the CPU meter would drift with the machine, but it lives on **GLOBAL** now and this
 test never goes there, so even the knob legend along the bottom is compared: walking a page's banks has to
-give four different screens and then the first one back, and arriving at a page from elsewhere has to start
+give two different screens and then the first one back, and arriving at a page from elsewhere has to start
 it over. Mono it checks by ear, so to speak — a chord in mono has to be a third of the same chord in poly, a
 slurred note has to come in at what is left of the one before it rather than at a fresh attack, and letting
 go of the newer of two held keys has to fall back to the older one instead of to silence.
@@ -353,6 +385,15 @@ shot; let go and every box has to empty while staying drawn, which is also the p
 outline now rather than a solid block. It checks that the feedback operator keeps its warm colour and its
 loop, and that six boxes side by side under algorithm 32 stay six separate boxes of equal width — the live
 redraw patches one box at a time, and that is what would break first if a patch grew.
+
+`tests/editcheck.py` reads a number off every parameter row. The bar under a value is its amount drawn as a
+width in pixels, so a screenshot of a page is four numbers, and the claims about **RATIO** can be arithmetic
+rather than "the screen changed": one click is one entry, turning back down retraces the same entries
+exactly, both ends of the list hold against another click, and `FIXED` switches the same knob to counting
+frequency steps — coarse 31, of which the engine reads only the low two bits, has to land three decades up.
+Then the claim that matters. It drives **RATIO** to each end of its list, turns **SHOW ALL** on, and goes and
+reads `COARSE` and `FINE` directly: `x0.50` has to be 0 and 0, `x31.00` has to be 31 and 0. If **RATIO** were
+anything other than those two bytes, that is where it would show.
 
 ## Where to go next
 

@@ -171,6 +171,33 @@ The width is clamped to the column pitch, so a box can never blit over its
 neighbour however tight the algorithm packs them. Algorithm 32, six carriers
 abreast, is the worst case and tests/levels.txt holds it there.
 
+Ratio, and the parameters that are hidden
+-----------------------------------------
+image 111260 B, RAM .data+.bss 30648 B, pool 73472 B. 1552 bytes over the
+operator boxes, no RAM. The meter is untouched: none of this is in app_audio.
+
+Most of those bytes are the ratio list, the two decade tables and the string
+work to print "x4.50" and "3162HZ" without floating point. Forty of them are
+the decade tables, which are two tables of ten rather than one of a hundred --
+10^(f/100) factored as 10^(f/10) x 10^(f%10/100), both in Q12. That costs one
+extra multiply and one rounding, worth 0.015 % against an exact table, and
+saves 160 bytes.
+
+Two things here are per-frame rather than per-edit and so worth watching. A
+page is no longer an array that a bank indexes: page_at() walks the table
+skipping what SHOW ALL is hiding, and it is called four times a frame to decide
+what to draw and once more per knob that moved. The table is thirteen entries
+long, so the walk is bounded at thirteen comparisons -- call it two hundred a
+second, against the 520 000 pixels a second the spectrum moves. It does not
+register.
+
+The other is rat_index(), which finds where an operator sits in the list by
+walking all thirty-seven entries and doing a multiply and a divide at each. It
+runs once per frame for the bar under RATIO, and once per click. Also nothing,
+but it is the one thing here that would grow if the list did, and the obvious
+fix -- the list is sorted, so a binary search -- is not worth writing until the
+list is long enough to need it.
+
 What it means
 -------------
 NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better

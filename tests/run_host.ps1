@@ -52,3 +52,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'levels.txt') {
     python tests\levelcheck.py $out          # and the operator boxes with the envelopes
     if ($LASTEXITCODE) { throw 'the operator boxes do not follow the sound' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'edit.txt') {
+    python tests\editcheck.py $out           # and RATIO with the bytes underneath it
+    if ($LASTEXITCODE) { throw 'the ratio does not match the bytes it writes' }
+}
