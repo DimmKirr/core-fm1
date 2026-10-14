@@ -484,56 +484,57 @@ enum { P_G = 0, P_OP = 1 };
 enum { K_NUM = 0, K_RATIO, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, K_TRSP };
 typedef struct {
     const char *name;
+    const char *knob;                           /* six characters for the legend, or 0 for name */
     uint8_t where, idx, max, kind;
 } param_t;
 
 static const param_t PG_OP[] = {
-    {"LEVEL",  P_OP, 16, 99, K_NUM},            /* how loud -- or, on a modulator, how much it modulates */
-    {"COARSE", P_OP, 18, 31, K_RATIO},
-    {"FINE",   P_OP, 19, 99, K_NUM},
-    {"DETUNE", P_OP, 20, 14, K_DET},
-    {"MODE",   P_OP, 17, 1,  K_MODE},
-    {"VEL SENS", P_OP, 15, 7, K_NUM},
-    {"AMP MOD",  P_OP, 14, 3, K_NUM},
-    {"RATE SCL", P_OP, 13, 7, K_NUM},
-    {"BREAK PT", P_OP, 8,  99, K_BRK},
-    {"L DEPTH", P_OP, 9,  99, K_NUM},
-    {"R DEPTH", P_OP, 10, 99, K_NUM},
-    {"L CURVE", P_OP, 11, 3,  K_CURVE},
-    {"R CURVE", P_OP, 12, 3,  K_CURVE},
+    {"LEVEL",  0, P_OP, 16, 99, K_NUM},         /* how loud -- or, on a modulator, how much it modulates */
+    {"COARSE", 0, P_OP, 18, 31, K_RATIO},
+    {"FINE",   0, P_OP, 19, 99, K_NUM},
+    {"DETUNE", 0, P_OP, 20, 14, K_DET},
+    {"MODE",   0, P_OP, 17, 1,  K_MODE},
+    {"VEL SENS", "V SENS", P_OP, 15, 7, K_NUM},
+    {"AMP MOD",  "AMPMOD", P_OP, 14, 3, K_NUM},
+    {"RATE SCL", "RT SCL", P_OP, 13, 7, K_NUM},
+    {"BREAK PT", "BRK PT", P_OP, 8,  99, K_BRK},
+    {"L DEPTH", "L DEP", P_OP, 9,  99, K_NUM},
+    {"R DEPTH", "R DEP", P_OP, 10, 99, K_NUM},
+    {"L CURVE", "L CRV", P_OP, 11, 3,  K_CURVE},
+    {"R CURVE", "R CRV", P_OP, 12, 3,  K_CURVE},
 };
 static const param_t PG_EG[] = {                /* a rate and the level it is heading for, paired */
-    {"RATE 1",  P_OP, 0, 99, K_NUM},
-    {"LEVEL 1", P_OP, 4, 99, K_NUM},
-    {"RATE 2",  P_OP, 1, 99, K_NUM},
-    {"LEVEL 2", P_OP, 5, 99, K_NUM},
-    {"RATE 3",  P_OP, 2, 99, K_NUM},
-    {"LEVEL 3", P_OP, 6, 99, K_NUM},            /* where it sits while the key is held */
-    {"RATE 4",  P_OP, 3, 99, K_NUM},
-    {"LEVEL 4", P_OP, 7, 99, K_NUM},            /* where it goes when you let go */
+    {"RATE 1",  0, P_OP, 0, 99, K_NUM},
+    {"LEVEL 1", "LVL 1", P_OP, 4, 99, K_NUM},
+    {"RATE 2",  0, P_OP, 1, 99, K_NUM},
+    {"LEVEL 2", "LVL 2", P_OP, 5, 99, K_NUM},
+    {"RATE 3",  0, P_OP, 2, 99, K_NUM},
+    {"LEVEL 3", "LVL 3", P_OP, 6, 99, K_NUM},         /* where it sits while the key is held */
+    {"RATE 4",  0, P_OP, 3, 99, K_NUM},
+    {"LEVEL 4", "LVL 4", P_OP, 7, 99, K_NUM},         /* where it goes when you let go */
 };
 static const param_t PG_LFO[] = {
-    {"SPEED",   P_G, 137, 99, K_NUM},
-    {"DELAY",   P_G, 138, 99, K_NUM},
-    {"PITCH MOD", P_G, 139, 99, K_NUM},
-    {"AMP MOD", P_G, 140, 99, K_NUM},
-    {"WAVE",    P_G, 142, 5,  K_WAVE},
-    {"KEY SYNC", P_G, 141, 1, K_ONOFF},
-    {"P M SENS", P_G, 143, 7, K_NUM},
+    {"SPEED",   0, P_G, 137, 99, K_NUM},
+    {"DELAY",   0, P_G, 138, 99, K_NUM},
+    {"PITCH MOD", "P MOD", P_G, 139, 99, K_NUM},
+    {"AMP MOD", "AMPMOD", P_G, 140, 99, K_NUM},
+    {"WAVE",    0, P_G, 142, 5,  K_WAVE},
+    {"KEY SYNC", "K SYNC", P_G, 141, 1, K_ONOFF},
+    {"P M SENS", "PMSENS", P_G, 143, 7, K_NUM},
 };
 static const param_t PG_GLO[] = {
-    {"ALGORITHM", P_G, 134, 31, K_ALG},
-    {"FEEDBACK",  P_G, 135, 7,  K_NUM},
-    {"OSC SYNC",  P_G, 136, 1,  K_ONOFF},
-    {"TRANSPOSE", P_G, 144, 48, K_TRSP},
-    {"P RATE 1", P_G, 126, 99, K_NUM},
-    {"P RATE 2", P_G, 127, 99, K_NUM},
-    {"P RATE 3", P_G, 128, 99, K_NUM},
-    {"P RATE 4", P_G, 129, 99, K_NUM},
-    {"P LEVEL 1", P_G, 130, 99, K_NUM},
-    {"P LEVEL 2", P_G, 131, 99, K_NUM},
-    {"P LEVEL 3", P_G, 132, 99, K_NUM},
-    {"P LEVEL 4", P_G, 133, 99, K_NUM},
+    {"ALGORITHM", "ALGO", P_G, 134, 31, K_ALG},
+    {"FEEDBACK",  "FEEDBK", P_G, 135, 7,  K_NUM},
+    {"OSC SYNC",  "O SYNC", P_G, 136, 1,  K_ONOFF},
+    {"TRANSPOSE", "TRANSP", P_G, 144, 48, K_TRSP},
+    {"P RATE 1", "PRATE1", P_G, 126, 99, K_NUM},
+    {"P RATE 2", "PRATE2", P_G, 127, 99, K_NUM},
+    {"P RATE 3", "PRATE3", P_G, 128, 99, K_NUM},
+    {"P RATE 4", "PRATE4", P_G, 129, 99, K_NUM},
+    {"P LEVEL 1", "P LVL1", P_G, 130, 99, K_NUM},
+    {"P LEVEL 2", "P LVL2", P_G, 131, 99, K_NUM},
+    {"P LEVEL 3", "P LVL3", P_G, 132, 99, K_NUM},
+    {"P LEVEL 4", "P LVL4", P_G, 133, 99, K_NUM},
 };
 
 enum { PAGE_HOME = 0, PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_GLO };
@@ -1016,27 +1017,26 @@ static void draw_spectrum(void)
         if (sp_pk[c] > h)
             cv_rect((int32_t)c, (int32_t)(SP_H - sp_pk[c]), 1, 1, C_ACC);
     }
-    cv_blit(0, SP_Y);
-}
-
-/* the line under it: the note the markers belong to, and how far across the screen reaches */
-static void draw_spectrum_foot(void)
-{
-    char s[32];
-    uint32_t i = 0, span = SP_SPAN[spspan];
-    if (v_lit) {
-        uint32_t n = sp_note;
-        i = put(s, i, NOTE_NAME[n % 12u]);
-        if (i && s[i - 1u] == ' ')
-            i--;
-        i = putn(s, i, n / 12u >= 1u ? n / 12u - 1u : 0u, 1);   /* middle C is C4 */
-        i = put(s, i, "   ");
+    /* The two things you have to know to read it, written on it: the note the ruler belongs to,
+     * and how far across the screen reaches. */
+    {
+        char s[16];
+        uint32_t i = 0;
+        if (v_lit) {
+            i = put(s, 0, NOTE_NAME[sp_note % 12u]);
+            if (i && s[i - 1u] == ' ')
+                i--;
+            i = putn(s, i, sp_note / 12u >= 1u ? sp_note / 12u - 1u : 0u, 1);   /* middle C is C4 */
+            s[i] = 0;
+            cv_text(3, 14, &FONT_S, s, RGB(120, 100, 160));
+        }
+        i = put(s, 0, "0-");
+        i = putn(s, i, span / 1000u, 1);
+        i = put(s, i, "K");
+        s[i] = 0;
+        cv_text((int32_t)(237u - text_w(&FONT_S, s)), 14, &FONT_S, s, RGB(80, 80, 80));
     }
-    i = put(s, i, "0-");
-    i = putn(s, i, span / 1000u, 1);
-    i = put(s, i, " KHZ");
-    s[i] = 0;
-    draw_text_box(0, SP_Y + SP_H + 6u, 240, &FONT_S, s, C_OFF, 1);
+    cv_blit(0, SP_Y);
 }
 
 /* ---- the envelope, drawn by stepping it the way the engine does
@@ -1225,6 +1225,40 @@ static void draw_head(void)
     draw_text_box(0, 24, 240, &FONT_S, s, C_ACC, 1);
 }
 
+/* ---- what the four knobs do, under the four knobs
+ *
+ * The knobs are a row of four under the screen; the parameters they move are a column of four on
+ * it. Everyone works that mapping out in a second or two and then works it out again every time
+ * they come back to the instrument. This strip says it instead: four cells, left to right, in the
+ * order your hand finds them. On the pages that already name each parameter beside its value it
+ * is saying the same thing twice, which is the price of its being in the same place on every
+ * screen -- somewhere you can glance without first deciding whether it is worth glancing at. */
+#define LEGEND_Y 208u
+#define STATUS_Y 224u
+
+static void draw_legend(void)
+{
+    uint32_t e;
+    cv_begin(240, 16, C_BLACK);
+    for (e = 1u; e < 4u; e++)   /* without these, two seven-letter names run into one word */
+        cv_rect((int32_t)(e * 60u), 4, 1, 8, RGB(44, 44, 44));
+    for (e = 0; e < 4u; e++) {
+        const char *s = 0;
+        if (page == PAGE_HOME) {
+            s = (bank == 1u && e == 0u) ? "SPAN" : 0;   /* the diagram has no knobs at all */
+        } else {
+            uint32_t pi = (uint32_t)bank * PAGE_ROWS + e;
+            if (e < PAGE_ROWS && pi < PAGE[page].n)
+                s = PAGE[page].p[pi].knob ? PAGE[page].p[pi].knob : PAGE[page].p[pi].name;
+        }
+        if (s) {
+            uint32_t w = text_w(&FONT_S, s), pad = w + 6u < 60u ? (60u - w) / 2u : 3u;
+            cv_text((int32_t)(e * 60u + pad), 0, &FONT_S, s, C_OFF);
+        }
+    }
+    cv_blit(0, LEGEND_Y);
+}
+
 static void draw_status(int32_t oct, uint32_t nv, uint32_t cpu, uint32_t pk)
 {
     char s[32];
@@ -1244,7 +1278,7 @@ static void draw_status(int32_t oct, uint32_t nv, uint32_t cpu, uint32_t pk)
     i = putn(s, i, pk > 999u ? 999u : pk, 3);
     s[i++] = '%';
     s[i] = 0;
-    draw_text_box(0, 212, 240, &FONT_S, s, pk > 85u ? RGB(255, 110, 110) : C_OFF, 1);
+    draw_text_box(0, STATUS_Y, 240, &FONT_S, s, pk > 85u ? RGB(255, 110, 110) : C_OFF, 1);
 }
 
 /* ---- the main loop */
@@ -1370,7 +1404,6 @@ static void app_main(void)
      * so a new field costs nothing, but moving one would hand the old bytes to the wrong name. */
     struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; } set = {0, 0, 0, 0, 2};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
-    uint32_t foot_drawn = ~0u;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
     uint32_t nv_drawn = ~0u, cpu_drawn = ~0u, pk_drawn = ~0u, vkey_drawn = ~0u;
@@ -1593,12 +1626,12 @@ static void app_main(void)
             bank_drawn2 = bank;
             bank_drawn = op_drawn = 255;
             alg_drawn = alg_op_drawn = 255;
-            foot_drawn = 0xFFFFFFFFu;
             eg_dirty = 1;
             repaint_meter = 1;
             for (k = 0; k < 240u; k++)
                 sp_pk[k] = 0;
             lcd_fill(0, 0, 240, 240, C_BLACK);  /* all of it: the meter is only on one page now */
+            draw_legend();
             if (page == PAGE_HOME)
                 draw_text_box(0, 18, 240, &FONT_L, APP_NAME, C_ACC, 1);
             repaint = 1;
@@ -1651,10 +1684,8 @@ static void app_main(void)
                 if (bank == 0u) {
                     draw_alg_levels();
                 } else {
-                    uint32_t foot = (uint32_t)spspan | (v_lit ? 0x100u | (uint32_t)sp_note << 9 : 0u);
                     sp_run();
                     draw_spectrum();
-                    if (foot != foot_drawn) { foot_drawn = foot; draw_spectrum_foot(); }
                 }
             } else if (page == PAGE_EG) {
                 uint32_t snd = v_lit ? 1u : 0u; /* when it goes quiet, one last pass clears the marker */

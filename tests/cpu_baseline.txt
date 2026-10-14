@@ -140,6 +140,21 @@ To measure anything that you cannot watch the meter during, press FX to clear PK
 do the thing, then go to GLOBAL and read it: PK holds until it is cleared, and
 GLOBAL is the only page the meter is on now.
 
+The knob legend
+---------------
+image 109668 B, RAM .data+.bss 30648 B, pool 73472 B. 28 bytes of image over the
+spectrum build, no RAM at all: the names are const strings in the four parameter
+tables and the strip is one 240x16 canvas blit.
+
+It is drawn once, from the same block that clears the screen on a page or bank
+change, because that is exactly when its contents change -- not on the 60 ms tick.
+So it costs nothing while you are playing. The audio ISR cannot see it either
+way; the meter read the same 26 % / PK 33 % after it as before.
+
+Six characters is the width of a cell (FONT_S advances 8, cells are 60 wide, and
+3 px of margin either side of the rules at x 60 / 120 / 180). The param_t `knob`
+field holds the short name, or 0 to use the long one when it already fits.
+
 What it means
 -------------
 NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better

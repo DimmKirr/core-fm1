@@ -59,6 +59,13 @@ when a page has more than fits, the header says `2/4` and there are two ways to 
 the shorter reach once your hands are on the knobs, or pressing that page's own button again — the button
 that got you there also walks you through it, and wraps around to the start.
 
+A strip along the bottom of every screen names what the four knobs are doing, in the order they sit under
+it. On a parameter page that is the four parameters you can see anyway — but it is in the same place on
+every page, so the habit of glancing there always pays off, and on the pages that draw something rather
+than list it (the spectrum, the envelope) it is the only label there is. Six characters is all a knob gets,
+which is why some of the names are squeezed: `BRK PT` is the break point, `PMSENS` the LFO's pitch mod
+sensitivity, `P LVL1` the first level of the pitch envelope.
+
 | Button | Page | What is on it |
 | --- | --- | --- |
 | **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them |
@@ -242,10 +249,11 @@ No patches are shipped with FM Lab. The test bank in `tests/mksyx.py` is generat
 
 ## The meter
 
-**GLOBAL**'s bottom line reads `OCT+0  VOX3  CPU 26% PK 33%`: the octave, how many voices sound, how much of
-the audio ISR's budget the smoothed load is, and the worst single block since you last pressed **FX**. The ISR
-has 5804 µs to render 256 frames; over 100 % and it cannot keep up, at which point FM Lab drops its quietest
-voice rather than glitch. It is there because the whole point is to see the cost of what you are doing.
+**GLOBAL**'s very bottom line, below the knob legend, reads `OCT+0  VOX3  CPU 26% PK 33%`: the octave, how
+many voices sound, how much of the audio ISR's budget the smoothed load is, and the worst single block since
+you last pressed **FX**. The ISR has 5804 µs to render 256 frames; over 100 % and it cannot keep up, at
+which point FM Lab drops its quietest voice rather than glitch. It is there because the whole point is to
+see the cost of what you are doing.
 
 It lives on **GLOBAL** alone, so that it is out of the way while you are playing and programming. `PK` holds
 until you clear it, so to measure something you cannot watch at the same time — the spectrum screen, say —

@@ -12,7 +12,8 @@ import struct
 import sys
 from pathlib import Path
 
-STATUS_Y = 212                      # draw_status() puts the meter here; above it is the page
+CROP_H = 240                        # the whole screen: the drifting CPU meter is on GLOBAL only now,
+                                    # and nothing here goes there, so the knob legend gets compared too
 bad = 0
 
 
@@ -55,12 +56,13 @@ def main(prefix):
           len(on) == len(off) and sorted(a[1] for a in on) == sorted(b[1] for b in off))
 
     def screen(ms):
-        """The screen above the status line, read out of the PPM the run wrote.
+        """The screen, read out of the PPM the run wrote.
 
-        The bottom line carries the CPU meter and its running peak, which drift with whatever the
-        machine happened to be doing; comparing it would make this test depend on the computer.
-        Every claim here is about the page, so the page is what is compared. (This runs before the
-        PPMs are turned into PNGs, so there is only the one format to read.)
+        The CPU meter and its running peak drift with whatever the machine happened to be doing, so
+        a screen carrying them could not be compared at all; it lives on GLOBAL now, and nothing
+        here goes to GLOBAL, so the whole screen is fair game -- including the strip along the
+        bottom naming what the four knobs do, which has to walk with the banks like everything
+        else. (This runs before the PPMs are turned into PNGs, so there is only the one format.)
         """
         f = p.with_name(p.name + f"-{ms}.ppm")
         if not f.exists():
@@ -80,7 +82,7 @@ def main(prefix):
             if fields == 1:
                 w = int(b[start:i])
             fields += 1
-        return b[i + 1:i + 1 + w * STATUS_Y * 3]
+        return b[i + 1:i + 1 + w * CROP_H * 3]
 
     s = {ms: screen(ms) for ms in (400, 800, 1200, 1600, 2000, 2400, 2800, 3200, 3800, 4400)}
 
