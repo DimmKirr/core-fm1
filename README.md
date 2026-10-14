@@ -22,7 +22,7 @@ FM Lab is built on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), whose 
 [dxsloop](https://github.com/zvenson/dxsloop), which is Sven Trogus's integer port of
 [Dexed](https://github.com/asb2m10/dexed) / Google's `music-synthesizer-for-android`.
 
-<p align="center"><img src="docs/screen.png" width="240" alt="FM Lab drawing algorithm 16: operator 1 filled at the bottom as the only carrier, fed by operators 2, 3 and 5, with 4 above 3 and 6 above 5 carrying the feedback"> <img src="docs/envelope.png" width="240" alt="FM Lab drawing an envelope to scale, with the second segment picked out and its rate and level on the two knobs below"></p>
+<p align="center"><img src="docs/screen.png" width="240" alt="FM Lab drawing algorithm 16 with a note held: operator 1 at the bottom as the only carrier, fed by operators 2, 3 and 5, with 4 above 3 and 6 above 5 carrying the feedback, and every box part filled to show how loud that operator is at this instant"> <img src="docs/envelope.png" width="240" alt="FM Lab drawing an envelope to scale, with the second segment picked out and its rate and level on the two knobs below"></p>
 
 > **Status: runs on the FM-1.** Measured on the device: 8 voices of six operators cost about 26 % of the audio
 > ISR's budget, and editing while eight notes sound costs nothing on top of that. See
@@ -134,15 +134,21 @@ park a factory voice on one side and your edit of it on the other.
 
 ## The three drawings
 
-**HOME draws the algorithm.** Filled boxes are carriers — the operators you hear. Outlined boxes are
-modulators, which you only hear through whatever they are bending. The orange box and the loop beside it is
-the one carrying feedback. The white outline is the operator **SELECT** has picked, so you can see where the
-thing you are editing sits before you edit it. An operator that is switched off is struck through in red, and
-its wires fade out with it.
+**HOME draws the algorithm.** Every operator is a box, and every box fills from the left with how loud that
+operator is *right now* — read straight out of the running voice, the same number the engine is about to
+multiply by. The body of the fill is dim and the level itself is a bright edge riding on top of it, so two
+operators a little apart are easy to tell apart. The orange box and the loop beside it is the one carrying
+feedback. The white outline is the operator **SELECT** has picked, so you can see where the thing you are
+editing sits before you edit it. An operator that is switched off is struck through in red, and its wires
+fade out with it.
 
-Each box brightens with how hard that operator is actually working, read straight out of the running voice.
-Hold a note and watch a modulator fade while its carrier holds: that is the envelope you cannot hear doing
-the thing you *can* hear.
+Hold one note and watch. The modulators empty out while the carrier is still half full, and that gap is
+the whole reason an FM sound gets duller as it decays rather than just quieter. It is the envelope you
+cannot hear, doing the thing you *can* hear. Nothing else on the instrument shows you that.
+
+Which boxes are carriers is left to the wires: a carrier is one with a line running down to the output bar
+along the bottom. The fill is worth more than the shading it replaced, because routing is a thing you can
+read off the diagram at leisure and level is a thing that is gone in a second.
 
 **HOME again draws the spectrum.** This is the one screen here purely to teach, and it is worth the stare.
 
@@ -309,6 +315,7 @@ tests/run_host.sh tests/operators.txt     # the operator switches and the A/B co
 tests/run_host.sh tests/bank.txt          # saving, and .syx in and out, data and sound checked
 tests/run_host.sh tests/panel.txt         # the pages and the operator keys, screens and MIDI checked
 tests/run_host.sh tests/spectrum.txt      # the analyser, against where the partials belong
+tests/run_host.sh tests/levels.txt        # the operator boxes, against the envelopes behind them
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -324,9 +331,10 @@ has to leave no trace of the letters that were typed. `tests/mksyx.py` generates
 `tests/panelcheck.py` checks the panel without looking at it. A black key that picks an operator has to send
 *nothing* — the run's own MIDI log is the evidence — while a key that is still a key has to send a note on
 and the matching note off, including one held across a page change. The screens it compares byte for byte,
-above the status line (the CPU meter below it drifts with the machine): walking a page's banks has to give
-four different screens and then the first one back, and arriving at a page from elsewhere has to start it
-over. Mono it checks by ear, so to speak — a chord in mono has to be a third of the same chord in poly, a
+all 240 rows of them — the CPU meter would drift with the machine, but it lives on **GLOBAL** now and this
+test never goes there, so even the knob legend along the bottom is compared: walking a page's banks has to
+give four different screens and then the first one back, and arriving at a page from elsewhere has to start
+it over. Mono it checks by ear, so to speak — a chord in mono has to be a third of the same chord in poly, a
 slurred note has to come in at what is left of the one before it rather than at a fresh attack, and letting
 go of the newer of two held keys has to fall back to the older one instead of to silence.
 
@@ -337,6 +345,14 @@ harmonic at 25.1 and its third at 37.7; widen the span to 10 kHz and every one o
 the distance across. That is a claim about FM, about the axis and about the transform all at once, and it is
 only true if all three are right. It also checks that the bars fall when you let go and that the held peaks
 outlive them, and that HOME really does swap between two screens and back.
+
+`tests/levelcheck.py` does the same trick for the operator boxes. The outline, the dim body of the fill and
+the bright level edge each have a colour of their own and nothing else on the diagram uses them, so counting
+pixels is enough to say what every box is doing. Hold a plucked note and the fill has to fall, shot after
+shot; let go and every box has to empty while staying drawn, which is also the proof that a carrier is an
+outline now rather than a solid block. It checks that the feedback operator keeps its warm colour and its
+loop, and that six boxes side by side under algorithm 32 stay six separate boxes of equal width — the live
+redraw patches one box at a time, and that is what would break first if a patch grew.
 
 ## Where to go next
 

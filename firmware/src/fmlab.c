@@ -854,26 +854,44 @@ static uint32_t op_now(uint32_t op)
     return l >= 4080 ? 255u : (uint32_t)l * 255u / 4080u;
 }
 
-static uint16_t op_shade(uint32_t op, uint32_t lev)
+/* The operator's colour at brightness t (0..255). Warm if it is in the feedback loop, so the one
+ * operator that is modulating itself stands out from the ones that are not. */
+static uint16_t op_hue(uint32_t op, uint32_t t)
 {
-    uint32_t t = 40u + lev * 215u / 255u;       /* never black: an idle operator is still there */
     if (!(a_fb >> op & 1u))
-        return RGB((t * 180u) / 255u, (t * 140u) / 255u, t);
-    return RGB(t, (t * 150u) / 255u, (t * 90u) / 255u);   /* feedback: warmer, so it stands out */
+        return RGB((t * 150u) / 255u, (t * 120u) / 255u, t);
+    return RGB(t, (t * 150u) / 255u, (t * 90u) / 255u);
 }
 
-static void alg_box(int32_t x, int32_t y, uint32_t op, int carrier, int sel)
+/* Every operator is the same shape: an outline that is always there, filling from the left with
+ * how loud that operator is right now. Carriers used to be drawn solid and modulators hollow, but
+ * the diagram already says which is which -- a carrier is the one with a wire down to the output
+ * bus -- so the fill is free to mean something you cannot otherwise see. Watch a four-operator
+ * stack and the modulators empty out before the carrier does, which is why the timbre moves. */
+static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
 {
     uint32_t off = (opmute >> op) & 1u;
-    uint16_t c = off ? RGB(70, 70, 70) : op_shade(op, op_now(op));
+    uint32_t lev = off ? 0u : op_now(op);
+    int32_t w = (a_bw - 2) * (int32_t)lev / 255;
+    uint16_t frame = off ? RGB(70, 70, 70) : op_hue(op, 105u);
     char s[2];
-    if (carrier) {                              /* filled: you hear this one */
-        cv_rect(x, y, a_bw, a_bh, c);
-    } else {
-        cv_rect(x, y, a_bw, 2, c);
-        cv_rect(x, y + a_bh - 2, a_bw, 2, c);
-        cv_rect(x, y, 2, a_bh, c);
-        cv_rect(x + a_bw - 2, y, 2, a_bh, c);
+
+    cv_rect(x, y, a_bw, 1, frame);
+    cv_rect(x, y + a_bh - 1, a_bw, 1, frame);
+    cv_rect(x, y, 1, a_bh, frame);
+    cv_rect(x + a_bw - 1, y, 1, a_bh, frame);
+    /* The body of the fill is kept dim and the level itself drawn as a bright edge on top of it.
+     * That leaves the number legible wherever the edge happens to be, and it is easier to read a
+     * line than the end of a block when you are trying to see two operators differ by a little. */
+    if (w > 0) {
+        cv_rect(x + 1, y + 1, w, a_bh - 2, op_hue(op, 140u));
+        cv_rect(x + w - 1, y + 1, 2, a_bh - 2, op_hue(op, 255u));
+    }
+    if (a_fb >> op & 1u) {                      /* the feedback loop, round the right-hand side */
+        uint16_t fc = off ? RGB(60, 45, 35) : RGB(200, 150, 90);
+        cv_line(x + a_bw, y + 3, x + a_bw + 4, y + 3, fc);
+        cv_line(x + a_bw + 4, y + 3, x + a_bw + 4, y + a_bh - 3, fc);
+        cv_line(x + a_bw + 4, y + a_bh - 3, x + a_bw, y + a_bh - 3, fc);
     }
     if (sel) {                                  /* the operator the OP and ENV pages are editing */
         cv_rect(x - 3, y - 3, a_bw + 6, 1, C_WHITE);
@@ -884,7 +902,7 @@ static void alg_box(int32_t x, int32_t y, uint32_t op, int carrier, int sel)
     s[0] = (char)('0' + (6u - op));
     s[1] = 0;
     if (a_bh >= 14)
-        cv_text(x + (a_bw - 5) / 2, y + (a_bh - 13) / 2, &FONT_S, s, carrier ? C_BLACK : c);
+        cv_text(x + (a_bw - 5) / 2, y + (a_bh - 13) / 2, &FONT_S, s, off ? RGB(110, 110, 110) : C_WHITE);
     if (off)                                    /* struck through: switched off */
         cv_line(x + 1, y + a_bh - 2, x + a_bw - 2, y + 1, RGB(190, 85, 85));
 }
@@ -908,13 +926,6 @@ static void draw_alg(void)
             cv_line(a_bx(k) + a_bw / 2, ty + 3, cx, ty + 3, wc);
         }
         if (m) cv_line(cx, ty + 3, cx, ty, C_OFF);
-        if (a_fb >> op & 1u) {                  /* the feedback loop, round the right-hand side */
-            int32_t x = a_bx(op) + a_bw, y = a_by(op);
-            uint16_t fc = (opmute >> op & 1u) ? RGB(60, 45, 35) : RGB(200, 150, 90);
-            cv_line(x, y + 3, x + 4, y + 3, fc);
-            cv_line(x + 4, y + 3, x + 4, y + a_bh - 3, fc);
-            cv_line(x + 4, y + a_bh - 3, x, y + a_bh - 3, fc);
-        }
     }
     for (op = 0; op < 6u; op++)                 /* a carrier reaches the output: show where it goes */
         if (cs >> op & 1u)
@@ -925,19 +936,24 @@ static void draw_alg(void)
      * the line that says so rather than leaving you wondering what broke. */
     cv_rect(a_x0, a_ybase + 3, a_dx * (int32_t)a_ncol, 2, (cs & ~(uint32_t)opmute) ? C_OFF : RGB(130, 50, 50));
     for (op = 0; op < 6u; op++)
-        alg_box(a_bx(op), a_by(op), op, (cs >> op & 1u) != 0, op == opsel);
+        alg_box(a_bx(op), a_by(op), op, op == opsel);
     cv_blit(0, ALG_Y);
 }
 
 /* Only the boxes, for the live levels: redrawing the whole diagram several times a second would
- * cost more of the CPU budget than the thing it is drawing. */
+ * cost more of the CPU budget than the thing it is drawing. The patch is wide enough for the
+ * selection ring on the left and the feedback bracket on the right, both of which alg_box draws,
+ * and is clamped so a box against the right-hand edge cannot blit off the screen. */
 static void draw_alg_levels(void)
 {
-    uint32_t op, cs = carriers(edit[134]);
+    uint32_t op;
     for (op = 0; op < 6u; op++) {
-        int32_t x = a_bx(op) - 3, y = a_by(op) - 3;
-        cv_begin((uint32_t)(a_bw + 6), (uint32_t)(a_bh + 6), C_BLACK);
-        alg_box(3, 3, op, (cs >> op & 1u) != 0, op == opsel);
+        int32_t x = a_bx(op) - 3, y = a_by(op) - 3, w = a_bw + 13;
+        if (w > a_dx + 3) w = a_dx + 3;         /* never reach into the next column's box */
+        if (x < 0) x = 0;
+        if (x + w > 240) w = 240 - x;
+        cv_begin((uint32_t)w, (uint32_t)(a_bh + 6), C_BLACK);
+        alg_box(a_bx(op) - x, 3, op, op == opsel);
         cv_blit((uint32_t)x, (uint32_t)(ALG_Y + y));
     }
 }

@@ -155,6 +155,22 @@ Six characters is the width of a cell (FONT_S advances 8, cells are 60 wide, and
 3 px of margin either side of the rules at x 60 / 120 / 180). The param_t `knob`
 field holds the short name, or 0 to use the long one when it already fits.
 
+The operator boxes
+------------------
+image 109708 B, RAM .data+.bss 30648 B, pool 73472 B. 40 bytes over the knob
+legend, no RAM. 26 % / PK 32 % on the hardware, which is the same as before it
+within the noise of reading the meter twice.
+
+The boxes already redrew every 60 ms to brighten with level, so filling them
+instead costs nothing new in the main loop. The patch each box blits grew from
+(bw + 6) x (bh + 6) to (bw + 13) x (bh + 6) so that the feedback bracket is
+inside it -- about 10 KB of pixels a second across all six, against the 520 KB
+a second the spectrum screen moves. It is the cheapest of the three drawings.
+
+The width is clamped to the column pitch, so a box can never blit over its
+neighbour however tight the algorithm packs them. Algorithm 32, six carriers
+abreast, is the worst case and tests/levels.txt holds it there.
+
 What it means
 -------------
 NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better

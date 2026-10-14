@@ -1,0 +1,38 @@
+# FM Lab -- the operator boxes on HOME, filling with how loud each operator is.
+#
+#   build/host/fmlab build/host/levels tests/levels.txt
+#
+# The claim the drawing makes is that you can watch an envelope move. So: pick an algorithm with a
+# deep stack and a pair beside it, hold a note, and take the picture several times on the way down.
+# A modulator and a carrier with different envelopes have to come apart, or the picture is lying.
+
+# A plucked voice, so there is a decay to watch rather than a flat hold. The preset comes first:
+# loading one brings its own algorithm with it, and would undo the choice below.
+0 enc 6 12
+
+# Algorithm 1: 6>5>4>3 on one side, 2>1 on the other, feedback on OP6.
+100 enc 1 -31
+
+300 keys 0x80
+450 shot
+900 shot
+1700 shot
+
+# Let go, and let it die away properly: the boxes have to empty, not freeze where they were.
+2400 keys 0
+3400 shot
+
+# The selected operator switched off: struck through, and contributing nothing.
+3600 btn 10
+3800 keys 0x80
+4000 shot
+4200 keys 0
+4400 btn 10
+
+# Algorithm 32 is six carriers side by side -- the tightest the boxes ever pack, and the case where
+# one box's live redraw could reach into the next one.
+4600 enc 1 31
+4800 keys 0x80
+5000 shot
+5200 keys 0
+5600 end

@@ -48,3 +48,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'spectrum.txt') {
     python tests\speccheck.py $out           # and the analyser with the arithmetic
     if ($LASTEXITCODE) { throw 'the spectrum is not where it should be' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'levels.txt') {
+    python tests\levelcheck.py $out          # and the operator boxes with the envelopes
+    if ($LASTEXITCODE) { throw 'the operator boxes do not follow the sound' }
+}

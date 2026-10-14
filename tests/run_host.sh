@@ -29,6 +29,7 @@ cat "$out".log
 case "$script" in                                           # while the screens are still PPMs
 */panel.txt) python3 tests/panelcheck.py "$out" ;;          # the pages and the keys that are not keys
 */spectrum.txt) python3 tests/speccheck.py "$out" ;;        # the analyser, against the arithmetic
+*/levels.txt) python3 tests/levelcheck.py "$out" ;;         # the operator boxes, against the envelopes
 esac
 OUT="$out" python3 - <<'PY'
 import os
