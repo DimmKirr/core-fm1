@@ -4953,46 +4953,146 @@ static int test_boot_maintenance(void)
     bad+=check("update cleanup errors do not offer a preset wipe",boot_work.state==2u && !boot_work.presets);
     press(B_OCTUP);ui_power_on();return bad;
 }
-/* HOME's light (ui_glow.c): a note lights the screen's edges (the margins, the floor, the top behind the header), gone
- * once it fades; Settings > STAGE EFFECTS OFF (HOME held) keeps them dark; the setting survives export and restore */
-static int edges_lit(void)
+/* SEQ held: the black keys 1..4 pick the tracks; a white key hit twice arms REC (as REC's tap), held alone 1 s its
+ * dialog: the key again deletes the pattern, another white key copies it there, OCT- leaves it; GLO + SELECT: the
+ * menu's GLO SELECT on any page; an armed track's row: its red border's level */
+static void seq_hold_key(uint32_t k, uint32_t ms)  /* key k held ms (SEQ as it is), then let go */
 {
-    uint32_t i, n = 0;
-    uint16_t bg = swap16(T_BG);
-    for (i = 0; i < 240u; i++)
-        n += host_screen[i * 240u] != bg || host_screen[i * 240u + 239u] != bg || host_screen[239u * 240u + i] != bg ||
-             host_screen[i] != bg;
-    return n != 0u;
+    key_down(k);
+    frames(ms);
+    key_up(k);
+    frame();
 }
-static int test_stage_light(void)
+static int test_seq_keys(void)
 {
     int bad = 0;
-    persist_t stored = {0};
+    uint32_t w2 = key_at(0, 1), w3 = key_at(0, 2), w4 = key_at(0, 3), i;
     ui_power_on();
+    song.ntrk = 3;
     stop_transport();
-    PREF_BITS &= (uint8_t)~PREF_GLOW_OFF;
-    go_home(); ui.force = 1; frame(); frame();
-    bad += check("STAGE LIGHT: nothing played, the edges dark", !edges_lit());
-    input_on(TSEL, 60, 120); frame(); frame(); frame();
-    bad += check("  a note: the edges lit", edges_lit());
-    input_off(TSEL, 60); frames(3000);
-    bad += check("  let go, three seconds on: dark again", !edges_lit());
-    hold(B_HOME); ui.menu_sel = MI_GLOW; press(B_OCTUP);
-    bad += check("  HOME held, STAGE EFFECTS, OCT+: OFF", (PREF_BITS & PREF_GLOW_OFF) != 0u);
-    hold(B_HOME);
-    go_home(); ui.force = 1; frame(); frame();
-    input_on(TSEL, 60, 120); frame(); frame(); frame();
-    bad += check("  OFF: a note lights nothing", ui.home && !edges_lit());
-    input_off(TSEL, 60); frames(500);
-    settings_export(&stored);
-    PREF_BITS &= (uint8_t)~PREF_GLOW_OFF;
-    settings_import(&stored, sizeof stored);
-    bad += check("  OFF survives settings export and restore", (PREF_BITS & PREF_GLOW_OFF) != 0u);
-    PREF_BITS &= (uint8_t)~PREF_GLOW_OFF;
+    go_home(); frame();
+    btn_down(B_SEQ); frame();
+    tap_key(key_at(1, 1));
+    bad += check("SEQ held, black key 2: track 2, Stage stays", song.sel == 1u && ui.home);
+    tap_key(key_at(1, 3));
+    bad += check("  black key 4 (a track not in use): nothing", song.sel == 1u);
+    tap_key(key_at(1, 0));
+    bad += check("  black key 1: track 1", song.sel == 0u);
+    ui_leds();                                      /* (a map of the test's own, as test_key_lights) */
+    for (i = 0; i < 41u; i++)
+        led_pos[i] = (uint8_t)((i % FM1_NCOL) << 3 | (1u + i / FM1_NCOL));
+    song.rec = 4u;
+    ui_leds();
+    bad += check("  the track keys lit: track 1 bright, 2 dim, 3 (armed) breathing, 4 dark",
+                 key_light(14u + key_at(1, 0)) == 2u && plane_led(1, 14u + key_at(1, 1)) &&
+                 plane_led(2, 14u + key_at(1, 2)) && !plane_led(1, 14u + key_at(1, 3)) && !key_light(14u + key_at(1, 3)));
+    led_pos_init();
+    my_steps(TSEL); pattern_switch(TSEL, 2); my_steps(TSEL); pattern_switch(TSEL, 0);
+    song.rec = 0;
+    tap_key(w2);
+    bad += check("  white key 2 tapped: pattern 2, REC as it was", TSEL->pattern == 1u && !song.rec);
+    tap_key(w2);
+    bad += check("  .. hit again at once: REC armed, still pattern 2", (song.rec & 1u) && TSEL->pattern == 1u);
+    fm1_ms += 400u;
+    tap_key(w2);
+    fm1_ms += 400u;
+    tap_key(w2);
+    bad += check("  two slow taps: REC as it was", (song.rec & 1u) != 0u);
+    tap_key(w2);
+    bad += check("  .. hit twice again: REC off (REC's tap)", !song.rec);
+    fm1_ms += 400u;
+    key_down(w3);
+    frames(1100u);
+    bad += check("  white key 3 held 1 s: its dialog, the keys silent, nothing switched",
+                 ui.confirm == CF_PAT_KEY && ui.pat_dlg == 2u && song.grid == 2u && TSEL->pattern == 1u);
+    key_up(w3);
+    frame();
+    tap_key(key_at(1, 2));
+    bad += check("  .. a black key: nothing (track 1 still)", ui.confirm == CF_PAT_KEY && song.sel == 0u);
+    press(B_OCTDN);
+    bad += check("  .. OCT-: gone, pattern 3 as it was", !ui.confirm && pattern_used(0, 2) && song.grid != 2u);
+    seq_hold_key(w3, 1100u);
+    tap_key(w3);
+    bad += check("  .. its key again: pattern 3 deleted (not the one playing)", !ui.confirm && !pattern_used(0, 2) &&
+                 msg_is("PATTERN DELETED") && TSEL->pattern == 1u);
+    seq_hold_key(key_at(0, 0), 1100u);
+    tap_key(w4);
+    bad += check("  white key 1 held, then key 4: pattern 1 copied to 4", !ui.confirm && pattern_used(0, 3) &&
+                 msg_is("PATTERN COPIED"));
+    my_steps(TSEL);
+    seq_hold_key(w2, 1100u);
+    press(B_OCTUP);
+    bad += check("  the one playing (2): OCT+ deletes it as PATTERNS does", !ui.confirm && seq_is_empty(TSEL) &&
+                 msg_is("PATTERN DELETED"));
+    seq_hold_key(w3, 1100u);
+    tap_key(w3);
+    bad += check("  an empty one: NOTHING TO DELETE", !ui.confirm && msg_is("NOTHING TO DELETE"));
+    key_down(key_at(0, 0));
+    frames(300u);
+    key_down(key_at(0, 4));
+    frames(1100u);
+    key_up(key_at(0, 4));
+    key_up(key_at(0, 0));
+    frame();
+    bad += check("  key 1 held, key 5 pressed at once: the quick copy, no dialog", !ui.confirm && pattern_used(0, 4));
+    btn_up(B_SEQ);
+    frame();
+    {   /* GLO + SELECT */
+        uint32_t pg;
+        int16_t v;
+        ui_power_on();
+        glo_select_set(0);
+        go_title("ENV"); frame();                  /* (the Prophet's own ENV page) */
+        pg = ui.page;
+        v = song.g[G_BPM];
+        btn_down(B_GLO); frame();
+        turn(EN_SELECT, 2);
+        btn_up(B_GLO); frame();
+        bad += check("GLO + SELECT on a page: BPM by default, no page turn, no GLO tap", song.g[G_BPM] > v &&
+                     !ui.home && ui.page == pg);
+        glo_select_set(HS_SWING);
+        v = song.g[G_SWING];
+        btn_down(B_GLO); frame();
+        turn(EN_SELECT, 3);
+        btn_up(B_GLO); frame();
+        bad += check("  GLO SELECT SWING: the swing, said in the header", song.g[G_SWING] > v && ui.page == pg &&
+                     !memcmp(ui.msg, "SWING ", 6));
+        v = song.g[G_SWING];
+        turn(EN_SELECT, 1);
+        bad += check("  SELECT alone: the page's own (SWING as it was)", song.g[G_SWING] == v);
+        GLO_SELECT = 1u;                            /* (a CZ-1 star in bit 0) */
+        glo_select_set(HS_MOD);
+        bad += check("  stored beside the CZ-1 star", (GLO_SELECT & 1u) && glo_select() == HS_MOD);
+        GLO_SELECT = 31u;
+        bad += check("  an unknown stored value: BPM", glo_select() == HS_BPM);
+        {
+            persist_t ps;
+            memset(&ps, 0, sizeof ps);
+            GLO_SELECT = 0;
+            glo_select_set(HS_LEVEL);
+            settings_export(&ps);
+            GLO_SELECT = 0;
+            settings_import(&ps, (int)sizeof ps);
+            bad += check("  kept with the settings", glo_select() == HS_LEVEL);
+        }
+        GLO_SELECT = 0;
+        hold(B_HOME);
+        for (i = 0; i < MI_COUNT && ui.menu_sel != MI_GLO_SEL; i++)
+            turn(EN_PRESET, 1);
+        press(B_OCTUP);
+        bad += check("  Settings > GLO SELECT: OCT+ steps it (BPM -> MOD WHEEL)", ui.menu && glo_select() == HS_MOD);
+        GLO_SELECT = 0;
+    }
+    ui_power_on();
+    song.ntrk = 2;
+    song.rec = 2u;
+    stop_transport();
+    bad += check("an armed track's row: its border lit (stopped: breathing), the other none",
+                 stage_rec_lv(1) && !stage_rec_lv(0));
+    song.rec = 0;
     ui_power_on();
     return bad;
 }
-
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -5001,7 +5101,6 @@ int main(void)
     bad += test_large_face();
     bad += test_home_notes();
     bad += test_stage();
-    bad += test_stage_light();
     bad += test_capture();
     bad += test_undo_levels();
     bad += test_new_song();
@@ -5017,6 +5116,7 @@ int main(void)
     bad += test_home_view();
     bad += test_home_view_release();
     bad += test_home_select();
+    bad += test_seq_keys();
     bad += test_grid();
     bad += test_screen();
     bad += test_favorites();

@@ -8,21 +8,18 @@
  * 4 x 4 steps at the right (one, two tracks: 16 in a row under the words); each row tinted in its track's colour, the
  * selected one more and outlined in it; the pattern a pill in it. No level (MIXER has it). Under them the band (rows 210 .. 239): the notes the selected track played and
  * their chord over its waveform, faint (a DRUM track: its lanes, lit as they hit). The first turn of a knob drops the
- * track's four knobs (its engine's, stage_page) in as the pages' strip (ST_DROP frames) and the knob turning comes
- * up as the hero over what it shapes (a filter's response, an envelope, the waveform), as on a page; ST_KNOB_MS
- * after the last turn they go and the rows are whole again. Behind it all, what the tracks play lights the screen from
- * its edges (ui_glow.c): seen in the margins, between the rows and in the band.
+ * track's four knobs (its engine's, stage_page) in as the pages' strip (ST_DROP frames) and under them what the knob
+ * turning shapes (a filter's response, an envelope, the waveform), nothing over it; ST_KNOB_MS after the last turn they
+ * go and the rows are whole again. An armed track's row has a soft red border (stage_rec_paint): breathing while it
+ * waits, a flash on each beat while it records.
  * Each part remembers what it drew: a row redraws when its sound, pattern or steps change, the playhead its steps
  * alone; the band follows the scope every other frame, drawn last (the SPI, 12 MHz, sends it while the next frame is
  * worked out: a blit right after it would wait for it, lcd_window).
  */
 #define ST_ROW_Y 32                                     /* the rows: 32 .. 205, 2 px apart */
 #define ST_ROWS_H 174
-#define ST_BAND_Y 210                                   /* the band: rows 210 .. 239, x 2 .. 237 (the margins: the
-                                                         * light's, ui_glow.c) */
+#define ST_BAND_Y 210                                   /* the band: rows 210 .. 239 */
 #define ST_BAND_H 30
-#define ST_BAND_X BOX_X
-#define ST_BAND_W BOX_W
 #define ST_KNOB_MS 1500u                                /* the knobs stay this long after the last turn */
 #define ST_DROP 4u                                      /* .. and drop in over this many frames */
 #define ST_AREA_W 232                                   /* (MIXER's strips: x 4 .. 236) */
@@ -68,11 +65,8 @@ static struct {
     uint8_t out, drop;                                  /* the knobs out; frames still dropping */
 } stage;
 
-static uint8_t st_bx;                                   /* drawing the band: its canvas's x on the screen (else 0) */
 static void view_reset(void);                           /* ui_view.c */
-static void hero_touch(void);                           /* ui_pages.c: the hero, as on a page */
-static void pv_hero(int32_t x0, int32_t pw, int corner);
-static void stage_knob_touch(void) { stage.knob_ms = fm1_ms | 1u; hero_touch(); }   /* (ui_input.c: a knob on Stage) */
+static void stage_knob_touch(void) { stage.knob_ms = fm1_ms | 1u; }   /* (ui_input.c: a knob on Stage) */
 static int stage_knobs_out(void) { return stage.knob_ms && fm1_ms - (stage.knob_ms & ~1u) < ST_KNOB_MS; }
 
 /* ------------------------------------------------------- the knobs --- */
@@ -133,7 +127,7 @@ static void stage_wave(uint16_t c, int32_t top, int32_t h)
         uint32_t k = trig + (uint32_t)x;
         int32_t v = ((int32_t)snap[k - 1u] + 2 * snap[k] + snap[k + 1u]) / 4;
         int32_t y = cy - v * (h / 2 - 4) * 16 / peak;
-        cv_vspan_aa(8 + x - st_bx, x ? py : y, y, c);
+        cv_vspan_aa(8 + x, x ? py : y, y, c);
         py = y;
     }
 }
@@ -148,9 +142,8 @@ static int stage_notes(int32_t x1, int32_t cy)
     char b[48];
     const char *q;
     uint16_t c, cn;
-    int32_t x = 10 - st_bx;
+    int32_t x = 10;
     const aafont_t *tf = TY_TX, *lf = TY_LB;
-    x1 -= st_bx;
     fm1_irq_off();                                      /* one coherent ISR snapshot, nothing drawn meanwhile */
     for (i = 0; i < 4u; i++) {
         bits[i] = live_last[k][i];
@@ -190,9 +183,9 @@ static void stage_hits(void)
 {
     uint32_t l;
     const aafont_t *lf = TY_LB;
-    cv_over = glow.lit;                                 /* (over the light, if any) */
+    cv_over = 0;
     for (l = 0; l < NLANE; l++) {
-        int32_t xc = 4 + 29 * (int32_t)l + 14 - st_bx;
+        int32_t xc = 4 + 29 * (int32_t)l + 14;
         int lit = stage.hit_t[l] != 0u;
         cv_text_c(xc, ty_y(ST_BAND_H / 2 - 2, lf), lf, drum_lane_abbr(TSEL, l), lit ? T_THEME : T_DIM, T_BG);
         if (lit)
@@ -200,7 +193,7 @@ static void stage_hits(void)
     }
 }
 
-/* While the knobs are out, the hero's picture: what the one turning shapes (a filter's response: cutoff, resonance,
+/* While the knobs are out, the picture under them: what the one turning shapes (a filter's response: cutoff, resonance,
  * the Prophet's envelope amount too; an envelope: its attack .. release); 0 = the waveform */
 enum { SP_NONE, SP_FILTER, SP_ENV };
 static uint32_t stage_picture(int32_t *v)
@@ -259,9 +252,16 @@ static void stage_filter(int32_t cut, int32_t res, uint16_t c, int32_t top, int3
     }
 }
 
-static void stage_panel_hits(const uint8_t *f)          /* every frame: the DRUM lanes hit since the last one (glow_poll) */
+static void stage_panel_hits(void)                      /* every frame: the DRUM lanes hit since the last one */
 {
-    uint32_t sel = song.sel % NTRK, l;
+    uint8_t f[NTRK];
+    uint32_t k, sel = song.sel % NTRK, l;
+    fm1_irq_off();
+    for (k = 0; k < NTRK; k++) {
+        f[k] = drum_flash[k];
+        drum_flash[k] = 0;
+    }
+    fm1_irq_on();
     if (stage.hit_trk != sel + 1u) {
         stage.hit_trk = (uint8_t)(sel + 1u);
         memset(stage.hit_t, 0, sizeof stage.hit_t);
@@ -274,9 +274,7 @@ static void stage_band(void)
 {
     uint32_t sel = song.sel % NTRK, drum = (uint32_t)drum_track(TSEL), i;
     int held = 0;
-    cv_begin(ST_BAND_W, ST_BAND_H, T_BG);
-    glow_paint_ends(ST_BAND_X, ST_BAND_Y);              /* (the light from the floor, behind; the sides' is the margins') */
-    st_bx = ST_BAND_X;
+    cv_begin(240, ST_BAND_H, T_BG);
     if (!drum) {
         fm1_irq_off();
         for (i = 0; i < 4u; i++) held |= live_held[sel][i] != 0u;
@@ -291,12 +289,11 @@ static void stage_band(void)
     }
     cv_over = 0;
     (void)held;
-    st_bx = 0;
-    cv_blit(ST_BAND_X, ST_BAND_Y);
+    cv_blit(0, ST_BAND_Y);
 }
 
-/* the knobs out: under their strip, what the knob turning shapes, its value as the hero (ui_pages.c pv_hero) */
-static void stage_hero(void)
+/* the knobs out: under their strip, what the knob turning shapes (its value: the strip) */
+static void stage_shape(void)
 {
     int32_t pv[4];
     uint32_t pic = stage_picture(pv);
@@ -308,12 +305,6 @@ static void stage_hero(void)
         graph_adsr_v(pv[0], pv[1], pv[2], pv[3], 8, H_GRAPH - 8, ux_mix(T_BG, T_THEME, 70));
     else
         stage_wave(ux_mix(T_BG, T_THEME, 70), 8, H_GRAPH - 16);
-    {
-        uint16_t panel = ux.panel;                      /* (the hero's band: the background's colour) */
-        ux.panel = ux.bg;
-        pv_hero(BOX_X, BOX_W, 0);
-        ux.panel = panel;
-    }
     cv_blit(0, Y_GRAPH);
 }
 
@@ -401,11 +392,64 @@ static void stage_steps(const track_t *t, uint32_t ph, uint16_t tc, uint16_t bg,
         cv_disc(px + p / 2, py + p / 2, d, c, 0);
     }
 }
+/* An armed track's row: its edge lit in REC's red, soft: faded in from the row's rounded edge, squared, over ST_RB px
+ * (the Stage light's edge fade, ui_glow.c glow_paint_at until 1.4.0-rc.4). Its level: 0 not armed; breathing while it
+ * waits (stopped, waiting for the loop: the REC LED's grammar); a flash on each beat, fading over it, while it records */
+#define ST_RB 7                                         /* the border's reach into a row (one track's card: 10) */
+static uint32_t stage_rec_lv(uint32_t k)
+{
+    static const uint8_t BR[8] = {8, 7, 5, 3, 2, 3, 5, 7}, BT[4] = {8, 5, 3, 2};
+    uint32_t b = seq_beat_samples();
+    if (!((song.rec >> k) & 1u))
+        return 0;
+    if ((((song.rec & ~song.rec_wait) >> k) & 1u) && song.playing && !seq_counting() && !chain.running && b)
+        return BT[(beat_pos * 4u / b) & 3u];
+    return BR[(fm1_ms / 125u) & 7u];
+}
+/* .. painted over the canvas as it is (the row's tint, before its words): the canvas's corner at (ox, oy) in the row
+ * (w x h, corners of radius r), its rows from -cv_oy (a slice). Level lv: 3 lv of 32 of the way to red at the edge */
+static void stage_rec_paint(int32_t ox, int32_t oy, int32_t w, int32_t h, int32_t r, uint32_t lv)
+{
+    int32_t rb = h >= 80 ? 10 : ST_RB, x, y;
+    uint8_t f[10];
+    if (!lv)
+        return;
+    for (x = 0; x < rb; x++)
+        f[x] = (uint8_t)((uint32_t)((rb - x) * (rb - x)) * 3u * lv / (uint32_t)(rb * rb));
+    for (y = 0; y < (int32_t)cv_h; y++) {
+        int32_t Y = oy + y - cv_oy, dy = Y < h - 1 - Y ? Y : h - 1 - Y;
+        uint16_t *row = cv_px + (uint32_t)y * cv_w;
+        if (dy < 0)
+            continue;
+        for (x = 0; x < (int32_t)cv_w; x++) {
+            int32_t X = ox + x, dx = X < w - 1 - X ? X : w - 1 - X, d = dx < dy ? dx : dy;
+            if (dx < 0)
+                continue;
+            if (d >= rb) {                              /* (the middle, out of reach: on to the right edge's) */
+                if (X < w / 2 && w - rb - ox > x)
+                    x = w - rb - ox - 1;
+                continue;
+            }
+            if (dx < r && dy < r) {                     /* (a corner: from its arc; outside it, the background) */
+                int32_t q = (r - dx) * (r - dx) + (r - dy) * (r - dy), s = 0;
+                while ((s + 1) * (s + 1) <= q)
+                    s++;
+                if (s > r)
+                    continue;
+                d = r - s;
+            }
+            if (f[d])
+                row[x] = swap16(mix565(swap16(row[x]), T_REC, f[d]));
+        }
+    }
+}
+
 static void stage_row(uint32_t k)
 {
     static const char *const AM[7] = {"ARP", "ARP UP", "ARP DOWN", "ARP UP-DOWN", "ARP RANDOM", "ARP ORDER", "REPEAT"};
     const track_t *t = &trk[k];
     uint32_t sel = k == song.sel, mute = t->p[P_MUTE] != 0u, arm = (song.rec >> k) & 1u, len = (uint32_t)t->p[P_SLEN];
+    uint32_t lv = stage_rec_lv(k);
     uint32_t ph = song.playing && t->seq_idx < len ? t->seq_idx : 0xFFFFu, nb = st_bars(t);
     uint32_t next = t->pattern_next < NPAT ? t->pattern_next + 1u : 0u, sig, src, kk, cat, g;
     uint32_t n = trk_n(), wide = n == 1u, idle = wide && stage_seq_idle(k);
@@ -437,7 +481,8 @@ static void stage_row(uint32_t k)
                 sizeof line);
     }
     sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + (uint32_t)pending * 16u + stage.out * 32u, nm), line) +
-          next * 131u + t->pattern * 7919u + len * 13u + ux.gen * 977u + ux.pal * 31u + n * 7u + (uint32_t)h * 211u + idle * 3u;
+          next * 131u + t->pattern * 7919u + len * 13u + ux.gen * 977u + ux.pal * 31u + n * 7u + (uint32_t)h * 211u + idle * 3u +
+          lv * 50021u;
     if (wide)
         sig += (uint32_t)t->p[P_AMODE] * 3001u + (uint32_t)t->p[P_AHOLD] * 37u + (uint32_t)t->p[P_CHRD] * 641u +
                (uint32_t)t->p[P_QUANT] * 1291u + (uint32_t)t->p[P_ROOT] * 17u + (uint32_t)t->p[P_SCALE] * 4099u;
@@ -495,12 +540,13 @@ static void stage_row(uint32_t k)
         by = ty_y(pcy, nf);
         sy = T + blk - lay.h;
     }
-    if (stage.out)                                      /* (the knobs and the hero over the rows: nothing to draw) */
+    if (stage.out)                                      /* (the knobs and their picture over the rows: nothing to draw) */
         return;
     if (!ui.force && sig == stage.col[k]) {
         if (g != stage.grid[k] && !idle) {              /* the steps or the playhead: the steps only */
             stage.grid[k] = g;
             cv_begin((uint32_t)lay.w, (uint32_t)lay.h, bg);
+            stage_rec_paint(tx, sy, BOX_W, h, 8, lv);   /* (the border where they reach it) */
             stage_steps(t, ph, tc, bg, 0, 0, &lay);
             cv_blit((uint32_t)(BOX_X + tx), (uint32_t)(y + sy));
         }
@@ -518,6 +564,7 @@ static void stage_row(uint32_t k)
         } else {
             cv_rrect(0, 0, BOX_W, h, 8, bg, T_BG);
         }
+        stage_rec_paint(0, 0, BOX_W, h, 8, lv);         /* armed: the red border */
         cv_rrect(6, h / 2 - cs / 2 - ny, cs, cs, 7, tc, bg);   /* the numeral */
         cv_text_c(6 + cs / 2, ty_y(h / 2 - ny, cs > 30 ? TY_VL : TY_TX), cs > 30 ? TY_VL : TY_TX, d, T_INK, tc);
         if (arm)                                        /* armed: a REC dot on its corner */
@@ -553,7 +600,7 @@ static void stage_row(uint32_t k)
 }
 
 /* the knobs: out while one turns (and ST_KNOB_MS after), dropping in over ST_DROP frames (each its cells' bottom rows,
- * more each frame); the hero under them; gone at once, the rows whole again */
+ * more each frame); their picture under them; gone at once, the rows whole again */
 static void stage_knobs(void)
 {
     int out = stage_knobs_out();
@@ -563,9 +610,8 @@ static void stage_knobs(void)
         lcd_fill(0, Y_LABEL, 240, Y_GRAPH - Y_LABEL, T_BG);   /* (the rows under the strip go at once) */
     } else if (!out && stage.out) {
         stage.out = 0;
-        memset(stage.col, 0, sizeof stage.col);         /* (the rows back, HOME's second page whole, the light) */
+        memset(stage.col, 0, sizeof stage.col);         /* (the rows back, HOME's second page whole) */
         view_reset();
-        glow.drawn = 0;
         memset(ui.col, 0, sizeof ui.col);
         lcd_fill(0, Y_LABEL, 240, ST_BAND_Y - Y_LABEL, T_BG);
         return;
@@ -591,46 +637,19 @@ static void stage_knobs(void)
 static void stage_frame(void)
 {
     lcd_fill(0, H_HEAD, 240, 240u - H_HEAD, T_BG);
-    glow.drawn = 0;
 }
 
-/* the light (ui_glow.c) in the margins (the header's top to the floor) and the gaps between the rows (the header and
- * the band paint the top's and the floor's); the knobs out: only where they and the hero leave the background (the
- * light dark then) */
-static void stage_glow(void)
-{
-    uint32_t n = trk_n(), k, s;
-    int32_t h = st_row_h(), end = st_row_y(n - 1u) + h;
-    for (s = 0; s < 2u; s++) {                          /* (the left margin, the right) */
-        int32_t x = s ? BOX_X + BOX_W : 0, w = s ? 240 - BOX_X - BOX_W : BOX_X;
-        glow_strip(x, 0, w, stage.out ? Y_GRAPH : 240);
-        if (stage.out)
-            glow_strip(x, Y_GRAPH + H_GRAPH, w, 240 - Y_GRAPH - H_GRAPH);
-    }
-    glow_strip(BOX_X, H_HEAD, BOX_W, ST_ROW_Y - H_HEAD);
-    if (stage.out) {
-        glow_strip(BOX_X, Y_GRAPH + H_GRAPH, BOX_W, ST_BAND_Y - Y_GRAPH - H_GRAPH);
-        return;
-    }
-    for (k = 0; k + 1u < n; k++)
-        glow_strip(BOX_X, st_row_y(k) + h, BOX_W, 2);
-    glow_strip(BOX_X, end, BOX_W, ST_BAND_Y - end);
-}
-
-/* every frame the knobs; every other frame (the scope's) the rows (or, the knobs out, the hero), the light where it
- * changed (worked out before the header: home_light), then the band last */
+/* every frame the knobs; every other frame (the scope's) the rows (or, the knobs out, their picture), then the band
+ * last */
 static void stage_draw(void)
 {
     uint32_t k;
+    stage_panel_hits();
     stage_knobs();
     if (!ui.force && (ui.frame & 1u))
         return;
     if (stage.out && !ui.home_pg)
-        stage_hero();
-    if (glow.sig != glow.drawn) {
-        stage_glow();
-        glow.drawn = glow.sig;
-    }
+        stage_shape();
     for (k = 0; k < trk_n(); k++)
         stage_row(k);
     stage_band();

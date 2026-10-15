@@ -57,8 +57,9 @@ static void name_close(void)
         ui.force = 1;
     nm.kind = NK_NONE; ui.name_active = 0;
 }
-/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads song.grid) */
-static uint32_t keys_mode(void) { return name_on() ? 2u : designer_on() ? 0u : (uint32_t)grid_on(); }
+/* the keys: 2 = NAME's and SEQ's pattern dialog's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads
+ * song.grid) */
+static uint32_t keys_mode(void) { return name_on() || ui.confirm == CF_PAT_KEY ? 2u : designer_on() ? 0u : (uint32_t)grid_on(); }
 
 static const char *nm_group(uint32_t p)                /* white key place p's characters */
 {

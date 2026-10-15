@@ -987,7 +987,6 @@ static void graph_scope(uint16_t c, int32_t top, int32_t h)
 }
 
 /* Each arrangement row selects one bank per track. graph_y, graph_h: the panel's place (ui_pages.c: under its rings) */
-static void (*graph_over)(void);                        /* drawn over the panel last (ui_pages.c: the hero), 0 none */
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -1058,7 +1057,5 @@ static void draw_graph(void)
         }
     }
     cv_oy = 0;
-    if (graph_over)
-        graph_over();
     cv_blit(0, (uint32_t)graph_y);
 }

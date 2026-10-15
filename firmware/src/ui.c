@@ -76,12 +76,12 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "favorites.c"
 /* MENU settings in favorites.factory[15][30]: bit 0 retired, bit 1 KNOB ACCEL OFF, bits 2..4 retired (OVERCLOCK until
- * 1.3.4 / 1.4: left as saved, never read), bit 5 PICKER OFF, bit 6 FONT PIXEL, bit 7 STAGE EFFECTS OFF. */
+ * 1.3.4 / 1.4: left as saved, never read), bit 5 PICKER OFF, bit 6 FONT PIXEL, bit 7 retired
+ * (STAGE EFFECTS OFF in 1.4.0-rc.4: left as saved, never read). */
 #define PREF_BITS (favorites.factory[15][30])
 #define PREF_ACCEL_OFF 2u
 #define PREF_PICK_OFF 32u
 #define PREF_PIXEL 64u                         /* Settings > FONT: PIXEL (else RUBIK) */
-#define PREF_GLOW_OFF 128u                     /* Settings > STAGE EFFECTS: OFF (HOME's light, ui_glow.c) */
 #define TY_PIXEL ty_pixel()
 static uint32_t ty_pixel(void) { return (PREF_BITS & PREF_PIXEL) != 0u; }   /* (gfx.c TY_*: the type's roles) */
 /* HOME SELECT (the menu): what SELECT turns on HOME, kept in favorites.factory[15][25] (0, any other: BPM) */
@@ -90,6 +90,11 @@ static const char *const HS_NAME[HS_N] = {"BPM", "MOD WHEEL", "LEVEL", "SWING", 
                                           "OFF"};
 #define HOME_SELECT (favorites.factory[15][25])
 static uint32_t home_select(void) { return HOME_SELECT < HS_N ? HOME_SELECT : HS_BPM; }
+/* GLO SELECT (the menu): what SELECT turns with GLO held, on any page (the same choices), kept in bits 1..4 of
+ * favorites.factory[15][24] (bit 0: a CZ-1 star; 0, any other: BPM) */
+#define GLO_SELECT (favorites.factory[15][24])
+static uint32_t glo_select(void) { return ((GLO_SELECT >> 1) & 15u) < HS_N ? (GLO_SELECT >> 1) & 15u : HS_BPM; }
+static void glo_select_set(uint32_t v) { GLO_SELECT = (uint8_t)((GLO_SELECT & ~0x1Eu) | (v & 15u) << 1); }
 
 static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */
 
@@ -97,8 +102,8 @@ static uint8_t sync_reload;                  /* engine / preset / project / user
 #define VAL(c) ((void)(c), T_TEXT)   /* a value (the knob just turned: its card tinted and outlined, ui_draw.c) */
 #define RATIO(d, v) ((d)->max > (d)->min ? ((int32_t)(v) - (d)->min) * 1000 / ((d)->max - (d)->min) : -1)
 /* layout (docs/design/README.md "Large type"): the header 0..29; a page's four knobs as a strip of cells 32..79 (57 px
- * at x 2 + 60 c: a knob's label over its value), the panel 84..207 (the page's picture, the graphs; the value turning
- * as the hero over it), the sound bar 212..239; BG between them. Stage, lists, slots: full-width rows of their own */
+ * at x 2 + 60 c: a knob's label over its value), the panel 84..207 (the page's picture, the graphs), the sound bar
+ * 212..239; BG between them. Stage, lists, slots: full-width rows of their own */
 #define Y_HEAD 0
 #define H_HEAD 30
 #define Y_LABEL 32                    /* the strip (the knobs' cells) */
@@ -122,6 +127,8 @@ static struct {
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
     uint8_t pat_key, pat_copy, pat_track;          /* SEQ + white-key bank gesture */
+    uint8_t pat_tap, pat_dlg;                      /* .. the key last tapped (+1), the one held to its dialog */
+    uint32_t pat_ms, pat_tap_ms;                   /* .. when it went down, when the tapped one was let go */
     uint8_t ptc_on, ptc_trk, ptc_src, ptc_dst;     /* PATTERNS' Copy to: track ptc_trk's pattern src to dst
                                                     * (ui_patterns.c) */
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
@@ -205,9 +212,9 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
        CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE,
-       CF_DEL_TRACK };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern
-                                      * over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to over a
-                                      * pattern in use */
+       CF_DEL_TRACK, CF_PAT_KEY };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a
+                                      * pattern over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to
+                                      * over a pattern in use; SEQ + a white key held: its pattern (ui_input.c) */
 
 static const page_t *page_over;   /* a quick layer's own four knobs (ui_layer.c), while it edits or draws them */
 static uint32_t drum_hit_selected(void);

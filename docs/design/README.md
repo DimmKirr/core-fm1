@@ -42,7 +42,7 @@ Colours: background `#17141F`, panel `#1D1926`, surface `#221E2C`, raised `#2620
 
 Knob shades (`gfx.c` T_KNOB, `tools/gen_ui_palettes.py` SHADES): a track's pages are not one colour. Each knob has a
 shade of the track's colour, the track's own for knob 1, then turned round the OKLCH hue circle (+32, -32, +64
-degrees). A knob's label, its value while it turns, the hero and the curve segment it moves take it (ENV: attack,
+degrees). A knob's label, its value while it turns and the curve segment it moves take it (ENV: attack,
 decay, sustain, release; FM6 EG: R1..R4; LFO: the wave WAVE's, the reach FADE's). Rows in turn take the four (lists,
 Settings, mod slots), as do drum lanes, a pattern's beats, ARP's octaves and the roll's notes (by octave); the browser
 gives each engine one and the scale picker each family. Palettes: NIGHT, DAY, CONTRAST, SUNSET, OCEAN, NEON, CANDY,
@@ -230,7 +230,7 @@ a role has the same line height and baseline in both, so a layout holds in eithe
 | `TY_LB` | labels, units, tags, chips, keycaps | 16 px | 2 x (letters and figures 4 wide) |
 | `TY_TX` | names, rows, the header, text | 20 px | 2 x |
 | `TY_VL` | values | 28 px | 3 x |
-| `TY_HR` | the hero: the knob turning, the chord, big names | 48 px | 5 x |
+| `TY_HR` | the hero: the chord, big names | 48 px | 5 x |
 
 `ty_y(cy, f)` centres a face's capitals on a row; `ty_fit(f, s, w)` drops to the label face before anything is cut.
 
@@ -238,8 +238,8 @@ The grid: header rows 0 .. 29; the knob strip at y 32, four cells 57 x 48 at x 2
 turning: its value in the track's colour and a bar); the picture at y 84, 124 tall; the sound bar or the keys at y 212,
 28 tall. Two layouts (Kerem: "your mix"):
 
-- Knob and curve pages: the strip on top, the picture under it, and while a knob turns (1.5 s) its value in the hero
-  face over the picture (a scrim calms the picture; a curve gets a halo instead).
+- Knob and curve pages: the strip on top, the picture under it; a knob turning shows in its cell alone, nothing over
+  the picture (Kerem 2026-10-15: the large value over it hid what it shapes).
 - Stage, lists, Settings, the browser, sheets: rows across the screen, 32 px tall and 34 apart, the picked row tinted
   in the track's colour. Stage's rows are the tracks, each in its colour, with every step of the pattern as dots
   (an LED matrix in the track's colour: a bar a line of 16 in four beats, lines stacked; `ui_stage.c` st_layout picks
@@ -247,7 +247,7 @@ turning: its value in the track's colour and a bar); the picture at y 84, 124 ta
   name's right).
 
 Rules, from the reviews: screens stay calm (no boxes or rings around cells, no tabs, no hint rows); nothing is ever
-cut or ellipsised (labels have short forms, `ui_draw.c` CELL_SHORT, the hero says the word in full; dialogs and toasts
+cut or ellipsised (labels have short forms, `ui_draw.c` CELL_SHORT; dialogs and toasts
 wrap); Stage is multicolour. `tests/ui_render.c` lints every screen in both faces: overlaps, texts past their canvas
 or cell, ellipsised labels; it must report none.
 
@@ -255,41 +255,3 @@ Storage: the four Rubik faces are 4-bit alpha kept in four steps (0, 5, 10, 15) 
 table for all of them (at 28 px, scaled per face); with the pixel face 31.4 KB in all. Glyphs stay in flash: no
 decode table lives in RAM (`gfx.c` builds a 64-entry one on the stack per string).
 
-
-## HOME's light (2026-10-14)
-
-What each track plays lights the screen from its edges, in the track's colour, behind everything on it (Kerem: "the
-effects start from the edges of the screen and behind all the boxes"). How the light moves is the kind of sound (the
-browser's category, `browse.c`):
-
-| Category | The light |
-|---|---|
-| BASS | swells from the floor, up the lower half of the sides |
-| LEAD | streaks from the floor's middle round the corners, up the sides and along the top |
-| PAD | breathes: a slow wave up the sides while held |
-| PLUCK | a ripple out from its row, both ways |
-| KEYS | a block a note of the chord, stacked up the sides |
-| DRUM | by lane: the kick from the floor, snare and clap all round (paler), hats high and along the top, toms and the rest mid-way |
-| FX | sparks along the edges |
-| ORGAN | a steady glow while held |
-| STRING | a slow swell, brighter higher up |
-| BRASS | rises from the floor as high as the note has swelled |
-| WIND | bands drifting up while held |
-| BELL | two rings out from its row, the second paler |
-| anything else | one soft glow |
-
-Settings (HOME held) > STAGE EFFECTS turns it off (ON by default; favorites.factory[15][30] bit 7, ui.c
-PREF_GLOW_OFF): the light stays dark, nothing is painted or sent for it.
-
-Where it shows: all round the screen, the header included (Kerem: without it the light looked cut off). On Stage the
-2 px margins from the top to the floor, the gaps between the rows, the band (from the floor only) and the header's top
-rows (from the top only; its canvas is x 2 .. 237, so the margins beside it carry the sides' light); on the wheel page
-the margins beside the header, then 6 px at the sides (beside the pulses and the keys) and under the keys.
-`ui_glow.c` works the light out every frame on HOME before the header is drawn (`ui_view.c` home_light) as a path round
-the floor, the sides and the top (2 px a step, on `ui_draw_frame`'s stack; ~89 B of state); whatever background is
-drawn takes its part of it by its distance from each edge. The strips redraw on drawn frames where the light changed,
-the header only for the top's light, on drawn frames. Nothing lit or nothing changed: nothing sent. The knobs out:
-dark. LCD cost while a busy song plays (tests/ui_render.c audit, "light"): ~5.2 k px a frame on Stage and ~3.6 k on
-the wheel page over the same frames without it; a drawn frame at most ~11 k px (~14 ms of the SPI, inside the 32 ms
-between drawn frames). The band, the header and the wheel page's keys sit inside the side strips, so the light from
-the sides never makes them send whole.

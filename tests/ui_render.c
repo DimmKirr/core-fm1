@@ -49,13 +49,6 @@ static void hk_text(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const char *
     strncpy(pend[npend].s, s, 27);
     npend++;
 }
-static void hk_scrim(int32_t x0, int32_t y0, int32_t x1, int32_t y1)   /* the hero's scrim: what is under it, covered */
-{
-    uint32_t i;
-    for (i = 0; i < npend; i++)
-        if (pend[i].x0 < x1 && x0 < pend[i].x1 && pend[i].y0 < y1 && y0 < pend[i].y1)
-            pend[i].flags |= 64u;
-}
 static void hk_cover(int32_t x0, int32_t y0, int32_t x1, int32_t y1)   /* a toast: the screen's texts under it, covered */
 {
     uint32_t i;
@@ -81,7 +74,6 @@ static void hk_whole(uint32_t x, uint32_t y, uint32_t r0, uint32_t fill);
 #define GFX_HOOK_WHOLE(x, y, r0, fill) hk_whole(x, y, r0, fill)
 #define GFX_HOOK_BEGIN() (npend = ncells = 0)
 #define GFX_HOOK_CELL(x0, y0, x1, y1) hk_cell(x0, y0, x1, y1)
-#define GFX_HOOK_SCRIM(x0, y0, x1, y1) hk_scrim(x0, y0, x1, y1)
 #define GFX_HOOK_COVER(x0, y0, x1, y1) hk_cover(x0, y0, x1, y1)
 #define GFX_HOOK_PIXELS(n) (px_visited += (n))
 #define UI_FILL_HOOK(x, y, w, h) hk_fill(x, y, w, h)
@@ -258,7 +250,7 @@ static void contain(int32_t x, int32_t y)
     for (i = 0; i < npend; i++) {
         const rbox_t *b = &pend[i];
         int32_t best = 1 << 30, gap = 99;
-        if (b->flags & 64u)                     /* (over or under the hero's scrim: drawn over the picture on purpose) */
+        if (b->flags & 64u)                     /* (under a toast: covered on purpose) */
             continue;
         for (c = 0; c < ncells && !(b->flags & 4u); c++) {   /* (texts only: an icon's box is its whole cell) */
             const int16_t *r = cells[c];
@@ -478,7 +470,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_PATGRID, S_PATGRID_STOPPED, S_PATGRID_SHEET, S_PATGRID_COPY, S_PATGRID_REPLACE, S_PATGRID_DELETE, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES,
        S_STAGE_T1, S_STAGE_T1_ARP, S_STAGE_T1_KNOBS, S_STAGE_T1_SYNTH, S_STAGE_T1_SYNTH_ARP, S_STAGE_T2, S_STAGE_T3, S_SHEET_STAGE, S_CONFIRM_TRACK,
        S_VIEW, S_VIEW_LETGO, S_VIEW_NOTE, S_VIEW_EMPTY, S_VIEW_KNOBS, S_VIEW_SLASH, S_MENU_HOME_SEL, S_HOME_SEL_MOD, S_HOME_SEL_CHORD,
-       S_HOME_SEL_LEVEL,
+       S_HOME_SEL_LEVEL, S_PAT_DIALOG, S_STAGE_T1_REC,
        S_MIXER_T1, S_MIXER_T2, S_MIXER_T3, S_PATGRID_T2, S_SONG_T2, S_GLO_T2, S_NEW_ROLES_T1,
        S_STAGE_LONG, S_STAGE_T3_LONG, S_STAGE_T2_LONG, S_STAGE_T1_LONG,
        S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG,
@@ -486,7 +478,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_PICKER_MODE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
        S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_REF_SHEET_NOTE, S_REF_SHEET_HIT, S_REF_MOTION,
        S_REF_SHEET_MOTION, S_REF_MOD, S_REF_PICKER_MOD, S_REF_ARP, S_REF_PATTERN,
-       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_SEND, S_FX_SEPARATE, S_FX_SENDS, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_BOOT_MIGRATION, S_BOOT_UPDATE, S_BOOT_ERROR, S_BOOT_COMPLETE, S_BOOT_WIPE_CONFIRM, S_BOOT_WIPING, S_BOOT_UPDATE_ERROR, S_STAGE_LIGHT, S_VIEW_LIGHT, S_COUNT };
+       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_SEND, S_FX_SEPARATE, S_FX_SENDS, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_BOOT_MIGRATION, S_BOOT_UPDATE, S_BOOT_ERROR, S_BOOT_COMPLETE, S_BOOT_WIPE_CONFIRM, S_BOOT_WIPING, S_BOOT_UPDATE_ERROR, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -507,10 +499,10 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "patterns", "patterns_stopped", "patterns_sheet", "patterns_copy", "patterns_replace", "patterns_delete", "project_new", "new_key", "new_roles",
     "stage_1track", "stage_1track_arp", "stage_1track_knobs", "stage_1track_synth", "stage_1track_synth_arp", "stage_2tracks", "stage_3tracks", "sheet_stage", "confirm_track",
     "view", "view_letgo", "view_note", "view_empty", "view_knobs", "view_slash", "menu_home_select", "home_select_mod", "home_select_chord",
-    "home_select_level",
+    "home_select_level", "pattern_key_dialog", "stage_1track_rec",
     "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "new_roles_1track",
     "stage_long", "stage_3tracks_long", "stage_2tracks_long", "stage_1track_long",
-    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_separate", "fx_sends", "fx_bus1", "fx_bus2", "fx_bus3", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error", "stage_light", "view_light"};
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_separate", "fx_sends", "fx_bus1", "fx_bus2", "fx_bus3", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -913,30 +905,6 @@ static void ref_scene(int s)
     }
 }
 
-/* HOME's light (ui_glow.c) quiet: what was played before seen, nothing lit (every scene but its own) */
-static void glow_quiet(void)
-{
-    uint32_t k;
-    for (k = 0; k < NTRK; k++)
-        glow.seen[k] = glow_hit[k];
-    memset(glow.age, 255, sizeof glow.age);
-    memset(glow.env, 0, sizeof glow.env);
-    glow.ms = fm1_ms;
-}
-/* track t plays a factory sound of category c (browse.c preset_cat), the first found */
-static void cat_preset(track_t *t, uint32_t c)
-{
-    uint32_t e, k;
-    for (e = 0; e < NENGINES; e++)
-        if (eng_ok(e) && ENGINES[e] != &ENG_DRUM)
-            for (k = 0; k < ENGINES[e]->npresets; k++)
-                if (preset_cat(e, k) == c) {
-                    set_engine_of(t, e);
-                    t->preset = (uint16_t)k;
-                    t->engine = t->eng_req;
-                    return;
-                }
-}
 static void setup(int s)
 {
     memset(kb_chn, 0, sizeof kb_chn);               /* no key held (roll_playing holds one) */
@@ -947,29 +915,6 @@ static void setup(int s)
         return;
     }
     state();
-    if (s == S_STAGE_LIGHT || s == S_VIEW_LIGHT) {     /* HOME's light, each track a moment after its hit: a BASS
-                                                     * from the floor, a LEAD up the sides, a PAD held, a kit's kick,
-                                                     * snare and hat; the wheel page: a bass note, a PLUCK's ripple, a kit */
-        uint32_t k, d = s == S_VIEW_LIGHT ? 2u : 3u;
-        song.ntrk = (uint8_t)(d + 1u); song.sel = 0; song.playing = 0;
-        cat_preset(&trk[0], CAT_BASS);
-        cat_preset(&trk[1], s == S_VIEW_LIGHT ? CAT_PLUCK : CAT_LEAD);
-        if (d == 3u) cat_preset(&trk[2], CAT_PAD);
-        set_engine_of(&trk[d], ENGI_DRUM); trk[d].engine = trk[d].eng_req;
-        go_home(); ui.home_pg = s == S_VIEW_LIGHT;
-        memset(&view, 0, sizeof view);
-        if (s == S_VIEW_LIGHT) { input_on(&trk[0], 45, 100); input_on(&trk[1], 64, 100); trk[0].peak = 9000; }
-        glow_quiet();
-        for (k = 0; k < NTRK; k++) {
-            glow.vel[k] = 100;
-            glow.cat[k] = (uint8_t)glow_cat(k);
-        }
-        glow.age[0][0] = 6;                             /* (48 ms) */
-        glow.age[1][0] = s == S_VIEW_LIGHT ? 12 : 22;
-        glow.env[2] = 220;
-        glow.age[d][0] = 2; glow.age[d][1] = 2; glow.age[d][2] = 4; glow.lanes[d] = 0x0Bu;
-        return;
-    }
     if (s >= S_REF_STAGE_HELD && s <= S_REF_SCALES) {
         ref_scene(s);
         return;
@@ -1383,11 +1328,14 @@ static void setup(int s)
     case S_MENU_ADD: ui.menu=1;ui.menu_sel=MI_ADD;settings_chord_add=1;break;
     case S_MENU_AUTOSAVE_ON: ui.menu=1;ui.menu_sel=MI_AUTOSAVE;settings_autosave=1;break;
     /* HOME SELECT: the menu's row on MOD WHEEL; SELECT just turned on Stage (MOD WHEEL), on the chord view (LEVEL) */
-    case S_MENU_HOME_SEL: ui.menu = 1; ui.menu_sel = MI_HOME_SEL; HOME_SELECT = HS_MOD; break;
-    case S_HOME_SEL_MOD: go_home(); HOME_SELECT = HS_MOD; home_select_turn(64); HOME_SELECT = 0; break;
+    case S_MENU_HOME_SEL: ui.menu = 1; ui.menu_sel = MI_HOME_SEL; HOME_SELECT = HS_MOD; glo_select_set(HS_SWING); break;
+    case S_HOME_SEL_MOD: go_home(); HOME_SELECT = HS_MOD; select_turn(home_select(), 64); HOME_SELECT = 0; glo_select_set(0); break;
     case S_HOME_SEL_CHORD:
-        song.ntrk = 1; go_home(); HOME_SELECT = HS_CHORD; TSEL->p[P_CHRD] = 5; home_select_turn(1); HOME_SELECT = 0; break;
-    case S_HOME_SEL_LEVEL: go_home(); ui.home_pg = 1; memset(&view, 0, sizeof view); HOME_SELECT = HS_LEVEL; home_select_turn(-3); HOME_SELECT = 0; break;
+        song.ntrk = 1; go_home(); HOME_SELECT = HS_CHORD; TSEL->p[P_CHRD] = 5; select_turn(home_select(), 1); HOME_SELECT = 0; break;
+    case S_HOME_SEL_LEVEL: go_home(); ui.home_pg = 1; memset(&view, 0, sizeof view); HOME_SELECT = HS_LEVEL; select_turn(home_select(), -3); HOME_SELECT = 0; break;
+    /* SEQ + a white key held: its dialog over Stage (pattern 3 of track 1); one track armed, its row's red border */
+    case S_PAT_DIALOG: song.playing = 0; go_home(); ui.pat_dlg = 2; ui.confirm = CF_PAT_KEY; ui.confirm_trk = 0; break;
+    case S_STAGE_T1_REC: song.ntrk = 1; song.sel = 0; demo_pat16(&trk[0], DEMO_ACID); song.rec = 1u; go_home(); break;
     case S_MENU_AUTOSAVE_OFF: ui.menu=1;ui.menu_sel=MI_AUTOSAVE;settings_autosave=0;break;
     case S_MENU_HOLD: ui.menu = 1; ui.menu_sel = MI_HOLD; settings_hold = 2; break;
 #if MELODEE_USB_AUDIO
@@ -1456,8 +1404,6 @@ static void setup(int s)
 static void draw(int s)
 {
     nscr = npend = 0;
-    if (s != S_STAGE_LIGHT && s != S_VIEW_LIGHT)
-        glow_quiet();
     ntight = 0;
     tight[0] = 0;
     screen_clear();
@@ -1476,8 +1422,6 @@ static void draw(int s)
         setup_show("TURN RIGHT", "ALGORITHM");
         return;
     }
-    if (ui.hot_t && !ui.home)                     /* a knob just turned on a page: the hero over its picture */
-        hero_touch();
     ui.force = 1;
     ui_draw();
 }
@@ -1843,25 +1787,6 @@ static void aud_page(const char *page, int playing)
     if (idle > 1000u)
         aud_note("idle, a frame", page, idle);
 }
-/* HOME's light (ui_glow.c) as a song plays: the kit every 16th, the bass every 8th, the other every quarter (120 BPM,
- * a frame 16 ms): what a frame sends, the light's part (less the same frames dark: glow_quiet each frame) */
-static void aud_light(int s, const char *page)
-{
-    uint32_t f, run, px[2], d = s == S_VIEW_LIGHT ? 2u : 3u;
-    for (run = 0; run < 2u; run++) {
-        setup(s); pal(1); glow_quiet(); cur_name = page;
-        ui.force = 1; frame(); aud_frames(2);
-        px[run] = 0;
-        for (f = 0; f < 64u; f++) {
-            if (f % 8u == 0u) { input_on(&trk[d], f % 32u ? 42 : 36, 110); drum_flash[d] |= f % 32u ? 0x08u : 0x09u; }
-            if (f % 16u == 0u) { input_off(&trk[0], 36); input_on(&trk[0], 36, 110); }
-            if (f % 32u == 0u) { input_off(&trk[1], 72); input_on(&trk[1], 72, 110); }
-            if (!run) glow_quiet();
-            px[run] += aud_frames(1);
-        }
-    }
-    aud_note("playing, a frame (the light's part)", page, px[1] > px[0] ? (px[1] - px[0]) / 64u : 0u);
-}
 static void audit_sends(FILE *rep)
 {
     uint32_t e, i, playing;
@@ -1894,8 +1819,6 @@ static void audit_sends(FILE *rep)
     state(); pal(1); drum(0); go_page(GR_ROLL); cur_name = "DRUM/NOTES grid";
     aud_page("DRUM/NOTES grid", 0);
     state(); pal(1); drum(0); go_page(GR_ROLL); aud_page("DRUM/NOTES grid", 1);
-    aud_light(S_STAGE_LIGHT, "STAGE light");
-    aud_light(S_VIEW_LIGHT, "HOME 2 light");
     aud_on = 0;
     fprintf(rep, "\nLCD load, the worst (px sent; the SPI 12 MHz: 1000 px ~ 1.3 ms; a full screen 57600 ~ 77 ms):\n");
     for (i = 0; i < naud && (i < 40u || getenv("UI_AUDIT")); i++)

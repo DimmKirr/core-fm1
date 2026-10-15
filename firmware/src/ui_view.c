@@ -8,8 +8,7 @@
  * pulse swelling with its level; at the foot four octaves of keys (C2 .. B5), those sounding lit in their track's
  * colour. A DRUM track's notes are hits, not pitches: it pulses only. The wheel and the keys redraw when what they show
  * changes, the pulses as they move (every other frame, as Stage's band). Stage's knobs drop in over the top as on Stage
- * (ui_stage.c stage_knobs). Behind it all, what the tracks play lights the screen from its edges (ui_glow.c): seen in
- * the 6 px beside the pulses and under the keys. Included by ui_draw.c */
+ * (ui_stage.c stage_knobs). Included by ui_draw.c */
 #define VW_WHEEL_X 40                                   /* the wheel: a canvas of 160 x 172 at (40, 32) */
 #define VW_WHEEL_Y 32
 #define VW_WHEEL_W 160
@@ -23,11 +22,6 @@
 #define VW_LO 36u
 #define VW_OCT 4u
 #define VW_PULSE 32                                     /* a pulse: 32 x 32 in a corner of the wheel's rows */
-#define VW_GLOW 6                                       /* the light: 6 px in from the sides (the pulses, the keys
-                                                         * beyond it) */
-#define VW_GLOW_F 12                                    /* .. 12 up from the floor (the keys' lower 10 rows) */
-#define VW_KEYS_X VW_GLOW                               /* the keys' canvas: x 6 .. 233 (the sides' light beside it) */
-#define VW_KEYS_W (240 - 2 * VW_GLOW)
 
 static struct {
     uint32_t wheel, keys, pulse[NTRK];                  /* what each part drew */
@@ -212,14 +206,12 @@ static int vw_black(uint32_t n) { return (int)((0x54Au >> (n % 12u)) & 1u); }
 static void view_keys(const uint32_t *on, const uint8_t *of, int faded)
 {
     uint32_t n, w = 0;
-    int32_t x0 = 8 - VW_KEYS_X;                         /* (the first key's x on the canvas) */
-    cv_begin(VW_KEYS_W, VW_KEYS_H, T_BG);
-    glow_paint(VW_KEYS_X, VW_KEYS_Y);                   /* (the light from the floor, between them) */
+    cv_begin(240, VW_KEYS_H, T_BG);
     for (n = VW_LO; n < VW_LO + 12u * VW_OCT; n++) {    /* the white keys, then the black over them */
         uint32_t lit = (on[n >> 5] >> (n & 31u)) & 1u;
         if (vw_black(n))
             continue;
-        cv_rrect(x0 + (int32_t)w * 8, 0, 7, VW_KEYS_H - 1, 2,
+        cv_rrect(8 + (int32_t)w * 8, 0, 7, VW_KEYS_H - 1, 2,
                  lit ? (faded ? ux_mix(T_BG, T_TRK(of[n]), 45) : T_TRK(of[n])) : T_SURF, T_BG);
         w++;
     }
@@ -229,12 +221,11 @@ static void view_keys(const uint32_t *on, const uint8_t *of, int faded)
             w++;
             continue;
         }
-        cv_rect(x0 + (int32_t)w * 8 - 4, 0, 7, 18, T_BG);
-        glow_paint_in(VW_KEYS_X, VW_KEYS_Y, x0 + (int32_t)w * 8 - 4, 0, 7, 18);
-        cv_rrect(x0 + (int32_t)w * 8 - 3, 0, 5, 17, 2,
+        cv_rect(8 + (int32_t)w * 8 - 4, 0, 7, 18, T_BG);
+        cv_rrect(8 + (int32_t)w * 8 - 3, 0, 5, 17, 2,
                  lit ? (faded ? ux_mix(T_BG, T_TRK(of[n]), 45) : T_TRK(of[n])) : T_PANEL, T_BG);
     }
-    cv_blit(VW_KEYS_X, VW_KEYS_Y);
+    cv_blit(0, VW_KEYS_Y);
 }
 
 /* track k's pulse: a ring in its colour, a disc in it as large as its level now */
@@ -263,20 +254,6 @@ static void view_pulse(uint32_t k)
 static void view_frame(void)
 {
     lcd_fill(0, H_HEAD, 240, 240u - H_HEAD, T_BG);
-    glow.drawn = 0;
-}
-
-/* the light (ui_glow.c) at the sides: the margins beside the header (it paints the top's), then VW_GLOW px beside the
- * pulses and the keys; under the keys (they take theirs from the floor); the knobs out: below them only (the light
- * dark then) */
-static void view_glow(void)
-{
-    int32_t y0 = stage.out ? Y_LABEL + CARD_H : H_HEAD;
-    glow_strip(0, 0, BOX_X, H_HEAD);
-    glow_strip(240 - BOX_X, 0, BOX_X, H_HEAD);
-    glow_strip(0, y0, VW_GLOW, VW_KEYS_Y + VW_KEYS_H - y0);
-    glow_strip(240 - VW_GLOW, y0, VW_GLOW, VW_KEYS_Y + VW_KEYS_H - y0);
-    glow_strip(0, VW_KEYS_Y + VW_KEYS_H, 240, 240 - VW_KEYS_Y - VW_KEYS_H);
 }
 
 /* every frame the knobs; every other frame (the scope's) the pulses, the wheel and the keys when they changed */
@@ -288,10 +265,6 @@ static void view_draw(void)
     stage_knobs();
     if (!ui.force && (ui.frame & 1u))
         return;
-    if (glow.sig != glow.drawn) {
-        view_glow();
-        glow.drawn = glow.sig;
-    }
     for (k = 0; k < trk_n(); k++)
         view_pulse(k);
     view_notes(on, of, &faded);
@@ -305,31 +278,9 @@ static void view_draw(void)
         view.wheel = sig;
         view_wheel(on, of, faded);
     }
-    sig += song.sel * 613u + glow.sig * 3u;
+    sig += song.sel * 613u;
     if (ui.force || sig != view.keys) {
         view.keys = sig;
         view_keys(on, of, faded);
     }
-}
-
-/* HOME (both pages), every frame before anything is drawn: the hits polled (Stage's band takes a kit's lanes), the
- * light worked out (ui_glow.c) for the header, the strips and the band to take their parts; dark while the knobs are
- * out and with Settings > STAGE EFFECTS OFF. lt: GL_N colours on the caller's stack */
-static void home_light(uint16_t *lt)
-{
-    static const int16_t ORG[NTRK] = {239 - 36 - VW_PULSE / 2, 239 - 36 - VW_PULSE / 2, 239 - 170 - VW_PULSE / 2,
-                                      239 - 170 - VW_PULSE / 2};   /* (the pulses' middles on the light's path) */
-    uint8_t lanes[NTRK];
-    int16_t org[NTRK];
-    uint32_t k;
-    int dark = stage.out || stage_knobs_out() || (PREF_BITS & PREF_GLOW_OFF), upd = ui.force || !(ui.frame & 1u);
-    glow_poll(lanes);
-    stage_panel_hits(lanes);
-    if (ui.home_pg) {
-        glow_light(lt, ORG, dark, VW_GLOW, VW_GLOW_F, upd);
-        return;
-    }
-    for (k = 0; k < NTRK; k++)                          /* (each row's middle on the light's path) */
-        org[k] = (int16_t)(239 - st_row_y(k) - st_row_h() / 2);
-    glow_light(lt, org, dark, 80, 24, upd);
 }

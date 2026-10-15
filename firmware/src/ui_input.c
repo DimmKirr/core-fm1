@@ -104,51 +104,127 @@ static uint32_t arp_led(void)
     return !on ? 2u : beat_pos < (beat_n ? b / 6u : b / 2u);
 }
 
+/* SEQ held: the white keys F3 .. F4 are the selected track's eight patterns, the first four black keys (F# G# A# C#,
+ * as GLO's mutes) the tracks. A white key tapped switches to its pattern (playing: at the bar), hit again at once
+ * (PAT_DTAP_MS) arms REC as REC's tap does; held with another pressed, copies it there; held alone PAT_HOLD_MS, its
+ * dialog (CF_PAT_KEY): the key again deletes it, another white key copies it there, OCT- leaves it as it is */
 static const uint8_t PAT_KEY[NPAT] = {0, 2, 4, 6, 7, 9, 11, 12};
+static const uint8_t TRK_KEY[NTRK] = {1, 3, 5, 8};
+#define PAT_HOLD_MS 1000u
+#define PAT_DTAP_MS 300u
 static int pattern_keys_on(void)
 {
     return !ui.menu && !ui.confirm && !name_on() && !ui.ly && !ui.uboot &&
         (fm1_in.buttons & (1u << panel.btn[B_SEQ]));
 }
 /* the pattern keys (SEQ held), as the keys show things everywhere: bright the pattern playing (and the one held to copy),
- * dim the others that hold something, breathing the one waiting for the bar; the empty ones dark */
+ * dim the others that hold something, breathing the one waiting for the bar; the empty ones dark. The track keys: the
+ * selected one bright, the others in use dim, an armed one breathing */
 static uint32_t pattern_leds(uint32_t *dim, uint32_t *breath)
 {
-    uint32_t m = 1u << PAT_KEY[TSEL->pattern], b;
+    uint32_t m = 1u << PAT_KEY[TSEL->pattern] | 1u << TRK_KEY[song.sel % NTRK], b;
     *dim = *breath = 0;
     for (b = 0; b < NPAT; b++)
         if (b != TSEL->pattern && pattern_used(song.sel, b))
             *dim |= 1u << PAT_KEY[b];
-    if (TSEL->pattern_next < NPAT) *breath = 1u << PAT_KEY[TSEL->pattern_next];
+    for (b = 0; b < trk_n(); b++)
+        if ((song.rec >> b) & 1u) *breath |= 1u << TRK_KEY[b];
+        else *dim |= 1u << TRK_KEY[b];
+    if (TSEL->pattern_next < NPAT) *breath |= 1u << PAT_KEY[TSEL->pattern_next];
     if (ui.pat_key) m |= 1u << PAT_KEY[ui.pat_key - 1u];
+    if (ui.confirm == CF_PAT_KEY) m |= 1u << PAT_KEY[ui.pat_dlg % NPAT];   /* (its dialog: the one held) */
     *dim &= ~(m | *breath);
     *breath &= ~m;
     return m;
 }
+static void rec_tap(void);
 static void pattern_keys(uint32_t notes)
 {
+    uint32_t b;
+    if (pattern_keys_on())
+        for (b = 0; b < NTRK; b++) if (notes & (1u << TRK_KEY[b])) {   /* a track key: that track */
+            ui.seq_t0 |= 2u;
+            track_select(b);                            /* (one not in use: nothing) */
+        }
     if (ui.pat_key && ui.pat_track != song.sel) ui.pat_key = ui.pat_copy = 0;
     if (pattern_keys_on()) {
-        for (uint32_t b = 0; b < NPAT; b++) if (notes & (1u << PAT_KEY[b])) {
+        for (b = 0; b < NPAT; b++) if (notes & (1u << PAT_KEY[b])) {
             ui.seq_t0 |= 2u;
-            if (!ui.pat_key) { ui.pat_key = (uint8_t)(b + 1u); ui.pat_track = song.sel; ui.pat_copy = 0; }
-            else if (ui.pat_key != b + 1u) {
+            if (!ui.pat_key) {
+                ui.pat_key = (uint8_t)(b + 1u); ui.pat_track = song.sel; ui.pat_copy = 0; ui.pat_ms = fm1_ms;
+                if (ui.pat_tap == b + 1u && fm1_ms - ui.pat_tap_ms <= PAT_DTAP_MS) {   /* hit again: REC */
+                    ui.pat_copy = 1;                    /* (let go: no switch, no dialog) */
+                    rec_tap();
+                }
+                ui.pat_tap = 0;
+            } else if (ui.pat_key != b + 1u) {
                 int rc = pattern_copy(TSEL, ui.pat_key - 1u, b);
                 ui.pat_copy = 1;
                 ui_message(rc == 2 ? "PATTERN DATA FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
                 ui.force = 1;
             }
         }
+        if (ui.pat_key && !ui.pat_copy && (fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])) &&
+            fm1_ms - ui.pat_ms >= PAT_HOLD_MS) {        /* held alone: its dialog */
+            ui.pat_dlg = (uint8_t)(ui.pat_key - 1u);
+            ui.pat_key = ui.pat_copy = 0;
+            ui.confirm = CF_PAT_KEY;
+            ui.confirm_trk = song.sel;
+            song.grid = (uint8_t)keys_mode();           /* (the keys silent from now: they choose) */
+            ui.force = 1;
+            return;
+        }
     }
     if (ui.pat_key && (!pattern_keys_on() || !(fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])))) {
         if (!ui.pat_copy) {
             uint32_t bank = ui.pat_key - 1u;
             if (pattern_request(TSEL, bank)) ui_message("STOP SONG TO SWITCH");
-            else { char b[12] = "PATTERN "; b[8] = (char)('1' + bank); b[9] = 0; ui_message(b); }
+            else { char m[12] = "PATTERN "; m[8] = (char)('1' + bank); m[9] = 0; ui_message(m); }
             ui.entry_open = 0; cursor_set(0); ui.force = 1;
+            ui.pat_tap = ui.pat_key;                    /* (hit again at once: REC) */
+            ui.pat_tap_ms = fm1_ms;
         }
         ui.pat_key = ui.pat_copy = 0;
     }
+}
+/* SEQ's pattern dialog (CF_PAT_KEY): pattern b of track k deleted: the one playing as SEQ > PATTERNS' Delete pattern
+ * (EDIT held undoes it), another emptied in its bank */
+static void ui_confirm_accept(void);
+static void pattern_key_delete(uint32_t k, uint32_t b)
+{
+    if (chain_busy()) {
+        ui_message("STOP TO EDIT");
+    } else if (pattern_empty(k, b)) {
+        ui_message("NOTHING TO DELETE");
+    } else if (b == trk[k].pattern) {
+        ui.confirm = CF_DEL_PAT;
+        ui.confirm_trk = (uint8_t)k;
+        ui_confirm_accept();
+    } else if (pattern_clear(&trk[k], b)) {
+        ui_message("STOP TO EDIT");
+    } else {
+        ui_message("PATTERN DELETED");
+    }
+    ui.force = 1;
+}
+/* .. a white key pressed: its own again deletes the pattern, another copies it there; 1 = taken */
+static int pattern_key_dialog(uint32_t notes)
+{
+    uint32_t b, k = ui.confirm_trk % NTRK, src = ui.pat_dlg % NPAT;
+    int rc;
+    for (b = 0; b < NPAT && !(notes & (1u << PAT_KEY[b])); b++)
+        ;
+    if (b == NPAT)
+        return 0;
+    ui.confirm = 0;
+    ui.force = 1;
+    if (b == src) {
+        pattern_key_delete(k, b);
+        return 1;
+    }
+    rc = pattern_copy(&trk[k], src, b);
+    ui_message(rc == 2 ? "PATTERN DATA FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
+    return 1;
 }
 /* key k of track t as the keys play now (LIGHTS): bright while it sounds (pressed, or its note held on the track by
  * a key or MIDI), dim when it plays something (a kit's or the slices' own map: every key; QNT OFF: the notes in the
@@ -202,9 +278,10 @@ static void ui_leds(void)
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)(k >> 1));
-    play = !pattern_keys_on() && !(name_on() && !ui.menu) && !ui.layer && !grid_on();
-    c = pattern_keys_on() ? pattern_leds(&pdim, &pbr) : name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() :
-        grid_on() ? grid_leds() : fm1_in.notes & ~kb_layer;   /* the patterns, NAME's keys, the map, the grid, the keys held */
+    play = !pattern_keys_on() && ui.confirm != CF_PAT_KEY && !(name_on() && !ui.menu) && !ui.layer && !grid_on();
+    c = pattern_keys_on() || ui.confirm == CF_PAT_KEY ? pattern_leds(&pdim, &pbr) : name_on() && !ui.menu ? name_leds() :
+        ui.layer ? layer_leds() : grid_on() ? grid_leds() : fm1_in.notes & ~kb_layer;   /* the patterns (SEQ held, its
+                                                         * dialog), NAME's keys, the map, the grid, the keys held */
 #if MELODEE_SLICE
     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
         c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
@@ -1507,7 +1584,6 @@ static void page_knob(uint32_t k, int32_t s)
         || (pg->graph == GR_SLICES && k < 2u)) {       /* (not an empty column) */
         ui.hot_col = (uint8_t)k;
         ui.hot_t = 40;
-        hero_touch();                                   /* (ui_pages.c: the hero over the page's picture) */
     }
     if (list_on()) {                                    /* a list page: KNOB 2 the row, KNOB 1 its value (ui_list.c) */
         list_knob(k, s);
@@ -1554,18 +1630,18 @@ static void notes_bulk_copy(void){note_copy_arm();}
 static const sheet_row_t SHEET_NOTE_BULK[]={{"Move: KNOB 1",0,0,note_move_arm,0},{"Copy: KNOB 1",0,0,notes_bulk_copy,0},{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0},{"Delete selected",0,0,notes_bulk_delete,0},{"Clear selection",0,0,bulk_clear,0}};
 static void notes_bulk_sheet_open(void){sheet_open("Selected notes","",SHEET_NOTE_BULK,NELEM(SHEET_NOTE_BULK));}
 
-/* SELECT on HOME (both its pages): the menu's HOME SELECT (ui.c home_select): BPM (the header shows it), the selected
- * track's MOD WHEEL (as MIDI CC1 on its channel: the matrix's MW, FM6's and the Prophet's wheel; sent to MIDI OUT as
+/* SELECT on HOME (both its pages): the menu's HOME SELECT (ui.c home_select); with GLO held, on any page, its GLO SELECT
+ * (glo_select): BPM (the header shows it), the selected track's MOD WHEEL (as MIDI CC1 on its channel: the matrix's MW, FM6's and the Prophet's wheel; sent to MIDI OUT as
  * its keys are), LEVEL, the song's SWING, TRANSPOSE, the CHORD its keys play (SCL > CHORD's CHRD: a name a detent),
  * ARP RATE, its next PATTERN (as SEQ held + SELECT), or nothing.
  * What it set: a header message ("MOD WHEEL 64") */
-static void home_select_turn(int32_t s)
+static void select_turn(uint32_t hs, int32_t s)
 {
     track_t *t = TSEL;
     char v[16], b[24];
     const char *unit = "";
     int32_t x;
-    switch (home_select()) {
+    switch (hs) {
     case HS_BPM:
         song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, GP[G_BPM].max - GP[G_BPM].min), GP[G_BPM].min,
                                        GP[G_BPM].max);
@@ -1584,7 +1660,7 @@ static void home_select_turn(int32_t s)
     case HS_TRANS:
     case HS_CHORD:
     case HS_ARATE: {
-        uint32_t hs = home_select(), id = hs == HS_LEVEL ? P_LEVEL : hs == HS_TRANS ? P_TRANS : hs == HS_CHORD ? P_CHRD : P_ARATE;
+        uint32_t id = hs == HS_LEVEL ? P_LEVEL : hs == HS_TRANS ? P_TRANS : hs == HS_CHORD ? P_CHRD : P_ARATE;
         const param_desc_t *d = &TP[id];
         x = d->fmt == F_ENUM ? (s > 0 ? 1 : -1) : accel(EN_SELECT, s, desc_range(d));   /* (names: one a detent) */
         t->p[id] = (int16_t)clamp(t->p[id] + x, d->min, d->max);
@@ -1592,7 +1668,7 @@ static void home_select_turn(int32_t s)
         param_format(d, t->p[id], v, &unit);
         str_cpy(b, "T1 ", sizeof b);
         b[1] = (char)('1' + song.sel % NTRK);
-        str_cpy(b + 3, HS_NAME[home_select()], sizeof b - 3u);
+        str_cpy(b + 3, HS_NAME[hs], sizeof b - 3u);
         str_cpy(b + str_len(b), " ", 2);
         if (unit && unit[0]) {
             str_cpy(v + str_len(v), " ", 2);
@@ -1672,6 +1748,8 @@ static void ui_confirm_accept(void)
         if (designer_on() && designer_quit) { designer_quit(1); ui_message("SOUND RESTORED"); }
     } else if (kind == CF_INIT_SOUND) {
         if (!chain_busy()) { sound_init_of(TSEL, TSEL->eng_req); ui_message("SOUND INIT"); }
+    } else if (kind == CF_PAT_KEY) {            /* SEQ's pattern dialog: OCT+ as its key again */
+        pattern_key_delete(ui.confirm_trk % NTRK, ui.pat_dlg % NPAT);
     } else {
         track_t *t = &trk[ui.confirm_trk % NTRK];
         if(recording_head[recording_owner(t)]<RECORD_MAX){
@@ -1741,7 +1819,7 @@ static void ui_input(void)
     }
     oct = oct_taps(pressed, oct_nav());
     uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
-    int32_t s, ks[4] = {0, 0, 0, 0};
+    int32_t s, ks[4] = {0, 0, 0, 0}, glo_sel = 0;
     seq_erase_update(pressed);
     if (ui.erase_gesture || ui.ly || ui.menu || ui.confirm || name_on() || new_on()) {
         if (ui.edit_t0) ui.edit_t0 |= 2u;
@@ -1800,6 +1878,8 @@ static void ui_input(void)
             ui.seq_t0 |= 2u;
         s=panel_enc(EN_PRESET);
         panel_enc(EN_ALGO);                             /* (another track: OCT- puts back the layer's track only) */
+        if (ui.ly == LAYER_GLO && (glo_sel = panel_enc(EN_SELECT)) != 0)   /* GLO + SELECT: the menu's GLO SELECT */
+            combo = 1;
     }
     lytap = layer_gesture(now, combo);
     layer_masks();
@@ -1811,6 +1891,8 @@ static void ui_input(void)
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
         }
+    if (glo_sel)
+        select_turn(glo_select(), glo_sel);
     song.grid = (uint8_t)keys_mode();                 /* (the menu, a dialog: the keys play again; NAME: silent) */
     if (!step_page() || drum_track(TSEL) || ui.menu || ui.confirm || name_on() || lay || live_rec_sel() || chain_busy())
         seq_midi_events(0);                         /* discard events during modal/layer input too */
@@ -1893,13 +1975,16 @@ static void ui_input(void)
                pop.on != POP_SHEET && pop.on != POP_LIST) {
         page_tap(B_EDIT);
     }
-    if (ui.confirm) {                                   /* OCT- cancels, OCT+ does it; nothing else reacts */
-        if (oct & 2u) {
+    if (ui.confirm) {                                   /* OCT- cancels, OCT+ does it; nothing else reacts (SEQ's
+                                                         * pattern dialog: the white keys too) */
+        if (ui.confirm == CF_PAT_KEY && pattern_key_dialog(bank_notes)) {
+        } else if (oct & 2u) {
             ui_confirm_accept();
         } else if (oct & 1u) {
             ui.confirm = 0;
             ui.force = 1;
         }
+        song.grid = (uint8_t)keys_mode();               /* (closed: the keys play at once) */
         ui.pg_down = 0;
         enc_drop();
         return;
@@ -2134,7 +2219,7 @@ static void ui_input(void)
                                                          * KNOB 1) */
             page_scroll(s);
         } else {                                        /* HOME: what the menu's HOME SELECT says */
-            home_select_turn(s);
+            select_turn(home_select(), s);
         }
     }
     for (k = 0; !knob_layer && k < 4u; k++) {

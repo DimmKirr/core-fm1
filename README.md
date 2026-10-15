@@ -419,7 +419,9 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Stage (HOME):** the selected track's own four knobs (its engine's: the Prophet's cutoff, resonance, filter envelope
   and release, the CZ-1's wave, DCW, detune and vibrato), the notes and chord it plays in front of the live waveform
   (the last voicing stays after release; a DRUM track lights its lanes as they hit), and a lane per track: its sound,
-  its pattern (and the next one while it waits for the bar), the bar playing and its level
+  its pattern (and the next one while it waits for the bar), the bar playing and its level. An armed track's lane has a
+  soft red border: breathing while it waits, flashing on each beat while it records. A knob turning shows its value
+  in its cell, never over the picture
 - **Lights:** one grammar for keys and buttons: dark nothing there, dim something there, bright happening now,
   breathing waiting. The keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up
   while its note sounds, MIDI in too, and the idle buttons glow; REC breathes while armed and waiting for the pattern start, PLAY while
@@ -493,6 +495,7 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
   selected track's, as MIDI CC1; also sent to MIDI out), LEVEL, SWING, TRANSPOSE, CHORD (the chord its keys play:
   OFF, DIA3, DIA7, MAJ, MIN, DOM7, MAJ7, MIN7, SUS4, POW), ARP RATE, PATTERN (the selected track's next pattern) or OFF.
   The header shows the value
+- **GLO + SELECT** turns the menu's **GLO SELECT** on any page: the same choices, BPM by default
 - **Held:** GLO and SCL open their quick layers; EDIT undoes, SAVE saves the project, HOME opens the menu, SEQ the PATTERNS grid with
   the song under it, REC captures (below).
 - **Undo:** hold EDIT to undo the last sound or pattern load or Capture; hold it again to go further back (up to 8
@@ -563,7 +566,10 @@ loads it at once. Hold **SAVE** to return to the sound you had before browsing.
 
 Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8: the pattern playing is lit, the others
 holding notes glow, the one waiting for the loop end breathes. Hold a pattern key and press a second one to copy its
-notes, ties, timing, chance, drum hits and automation. **SEQ + SELECT** also chooses a pattern. While playing, each
+notes, ties, timing, chance, drum hits and automation. Hit a pattern key twice quickly to arm REC (as a REC tap).
+Hold a pattern key alone for a second: a small dialog asks what next: press it again to delete the pattern, another
+pattern key to copy it there, OCT- to leave it. With SEQ held the first four black keys (F#, G#, A#, C#) select
+tracks 1–4 (the selected one lit, an armed one breathing). **SEQ + SELECT** also chooses a pattern. While playing, each
 track changes at its own loop end. Selecting the active pattern cancels a queued change. STOP applies pending choices.
 
 **SEQ > PATTERNS** (or hold SEQ) shows the four tracks' eight patterns at once: the one playing in the track's colour

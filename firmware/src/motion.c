@@ -9,6 +9,9 @@ static motion_store_t motion;
  * enable bits and event pool remain unchanged. */
 static uint8_t motion_design_pause;
 static int recording_copy(track_t *t, uint32_t source, uint32_t dest, int apply);
+static void recording_drop(track_t *t, uint32_t owner);
+static void recording_reindex(void);
+static void step_clear(step_t *st);
 static int16_t motion_base[NTRK][P_COUNT];
 static uint32_t motion_active[NTRK][(P_COUNT + 31u) / 32u];
 static uint8_t motion_base_valid, motion_full;
@@ -456,6 +459,27 @@ static int pattern_copy(track_t *t, uint32_t source, uint32_t dest)
         motion.event[motion.count] = motion.event[i]; motion_pattern[motion.count++] = (uint8_t)dest;
     }
     if (dest == t->pattern) pattern_apply(t, dest);
+    motion_unguard(f);
+    return 0;
+}
+/* track t's pattern bank emptied, not the one playing (ui_input.c deletes that one as SEQ > PATTERNS does, undoably):
+ * its steps, recorded notes and motion; its length and division stay. 1 = refused (a song running) */
+static int pattern_clear(track_t *t, uint32_t bank)
+{
+    uint32_t k = trk_index(t), i, n = 0, f;
+    pattern_t *p;
+    if (bank >= NPAT || bank == t->pattern) return 1;
+    f = motion_guard();
+    if (chain.running || chain.armed) { motion_unguard(f); return 1; }
+    recording_drop(t, k * NPAT + bank);
+    recording_reindex();
+    p = pattern_at(k, bank);
+    for (i = 0; i < NSTEP; i++) step_clear(&p->step[i]);
+    for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) != k || motion_pattern[i] != bank) {
+        motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
+    }
+    motion.count = (uint8_t)n;
+    motion.rsv[0] = 1;
     motion_unguard(f);
     return 0;
 }
