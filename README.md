@@ -25,8 +25,11 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**[Melodee 1.4.0](https://github.com/keremimo/melodee/releases/tag/v1.4.0)**
-([release notes](docs/RELEASE_1.4.0.md), [what's new](#whats-new-in-140)).
+**[Melodee 1.4.1](https://github.com/keremimo/melodee/releases/tag/v1.4.1)**
+([release notes](docs/RELEASE_1.4.1.md), [what's new](#whats-new-in-140)).
+
+The stock-restore installer accepts 1.4's backup capabilities. Existing Melodee 1.4.0
+users can return to official V15 directly from the updated web installer.
 
 The stable installer includes the latest UI, recording, effects, SID and preset-bank
 changes. Read the [illustrated manual](https://keremimo.github.io/melodee/webapp/manual/)
