@@ -803,7 +803,8 @@ calibration; the FPU conversion does not establish hardware fidelity.
   KIT SID plays the track as a C64 drum routine on one 6581: its three voices take the hits, each drum a
   50 Hz frame program (waveform, frequency slide, gate) on the chip's envelope; TONE and RES set its filter
   for kick, snare, toms and clap; DIGI ON plays kick and snare as 4-bit samples on the volume register
-  ($D418), synthesized at build time, and the voices ringing meanwhile follow that volume as on a C64
+  ($D418), synthesized at build time, and the voices ringing meanwhile follow that volume as on a C64.
+  Two factory kits: SID KIT (every drum on the chip's voices) and SID DIGI (DIGI ON)
 
 ANALOG, DIGITAL, PHASE, VOICE, NOISE, TRIO, WHEEL and PHYS are retired. Their engine IDs, saved edit
 values and favourite bits remain reserved; old tracks using these engines are silent. PROPHET replaces
