@@ -260,7 +260,7 @@ static void pattern_copy_ui(uint32_t k, uint32_t src, uint32_t dst)
     ui_message(rc == 2 ? "PATTERN DATA FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
     ui.force = 1;
 }
-static void rec_tap(void);
+static void rec_toggle(uint32_t latch);
 /* Finish a released key before reading a new press: both can arrive in one UI frame. */
 static void pattern_key_release(void)
 {
@@ -271,9 +271,9 @@ static void pattern_key_release(void)
             else {
                 char m[12] = "PATTERN ";
                 m[8] = (char)('1' + bank); m[9] = 0; ui_message(m);
-                if (pattern_empty(song.sel, bank)) {    /* an empty one: REC armed with it (as REC's tap) */
+                if (pattern_empty(song.sel, bank)) {    /* an empty one: arm a single pattern pass */
                     armed = 1;
-                    if (!((song.rec >> song.sel) & 1u)) rec_tap();
+                    if (!((song.rec >> song.sel) & 1u)) rec_toggle(0);
                 }
             }
             ui.entry_open = 0; cursor_set(0); ui.force = 1;
@@ -300,7 +300,7 @@ static void pattern_keys(uint32_t notes)
                 ui.pat_key = (uint8_t)(b + 1u); ui.pat_track = song.sel; ui.pat_copy = 0; ui.pat_ms = fm1_ms;
                 if (ui.pat_tap == b + 1u && fm1_ms - ui.pat_tap_ms <= PAT_DTAP_MS) {   /* hit again: REC */
                     ui.pat_copy = 1;                    /* (let go: no switch, no dialog) */
-                    rec_tap();
+                    rec_toggle(0);
                 }
                 ui.pat_tap = 0;
             }
@@ -505,10 +505,10 @@ static void tracks_edit(uint32_t slot, int32_t steps)
     motion_capture(t, (uint32_t)(vp - t->p), *vp);
 }
 
-/* REC arms one pattern pass on the selected track without navigating. During
- * playback it waits for loop zero; another tap cancels or finishes the take.
+/* REC latches recording; SEQ's pattern shortcuts arm only one pass. During
+ * playback both wait for loop zero; another tap cancels or finishes the take.
  * On STEP, armed keys audition/record instead of writing the cursor step. */
-static void rec_tap(void)
+static void rec_toggle(uint32_t latch)
 {
     uint8_t bit = (uint8_t)(1u << song.sel);
     if (!ui.home && cur_page()->graph == GR_SONG && !(song.rec & bit)) {
@@ -517,6 +517,7 @@ static void rec_tap(void)
     }
     fm1_irq_off();
     rec_set(TSEL, !(song.rec & bit));
+    if (latch && (song.rec & bit)) song.rec_latch |= bit;
     fm1_irq_on();
     ui.force = 1;                                     /* also refresh the status on MENU / ABOUT */
     if (song.rec_wait & bit)
@@ -529,7 +530,9 @@ static void rec_tap(void)
         ui_message("REC OFF");
 }
 
-/* REC + PLAY starts an armed track, or queues its next pattern pass if playback
+static void rec_tap(void) { rec_toggle(1); }
+
+/* REC + PLAY latches and starts an armed track, or queues recording if playback
  * already runs. REC's release then does nothing (no tap, no hold). */
 static void rec_play(void)
 {
@@ -545,6 +548,7 @@ static void rec_play(void)
     }
     fm1_irq_off();
     rec_set(TSEL, 1);
+    song.rec_latch |= bit;
     fm1_irq_on();
     if (!song.playing && !seq_counting())
         transport_req = 1;

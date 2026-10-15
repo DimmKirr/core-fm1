@@ -3488,7 +3488,7 @@ static int test_rec_gestures(void)
     press(B_PLAY);
     btn_up(B_REC); frame();
     bad += check("REC + PLAY: the track armed, the transport starting, REC's release no disarm",
-                 (song.rec & 1u) && transport_req == 1u && msg_is("RECORDING"));
+                 (song.rec & 1u) && (song.rec_latch & 1u) && transport_req == 1u && msg_is("RECORDING"));
     stop_transport();
     transport_req = 0;
     song.rec = 0;
@@ -3496,7 +3496,7 @@ static int test_rec_gestures(void)
     bad += check("REC held: Capture, nothing armed", !song.rec && !transport_req && msg_is("NOTHING TO CAPTURE"));
     go_home();
     press(B_REC);
-    bad += check("REC tapped: armed, transport remains stopped", (song.rec & 1u) && transport_req == 0u && ui.home);
+    bad += check("REC tapped: latched, transport remains stopped", (song.rec & 1u) && (song.rec_latch & 1u) && transport_req == 0u && ui.home);
     stop_transport();
     transport_req = 0;
     song.rec = 0;
@@ -5077,7 +5077,7 @@ static int test_seq_keys(void)
     song.rec = 0;
     tap_key(w2);
     bad += check("  white key 2 tapped, an empty pattern: pattern 2, REC armed with it", TSEL->pattern == 1u &&
-                 (song.rec & 1u));
+                 (song.rec & 1u) && !(song.rec_latch & 1u));
     tap_key(w2);
     bad += check("  .. hit again at once: still armed", (song.rec & 1u) != 0u);
     song.rec = 0;
@@ -5086,7 +5086,7 @@ static int test_seq_keys(void)
     tap_key(w2);
     bad += check("  .. now with notes: tapped, REC as it was", TSEL->pattern == 1u && !song.rec);
     tap_key(w2);
-    bad += check("  .. hit again at once: REC armed, still pattern 2", (song.rec & 1u) && TSEL->pattern == 1u);
+    bad += check("  .. hit again at once: REC armed for one pass, still pattern 2", (song.rec & 1u) && !(song.rec_latch & 1u) && TSEL->pattern == 1u);
     fm1_ms += 400u;
     tap_key(w2);
     fm1_ms += 400u;

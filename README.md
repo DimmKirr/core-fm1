@@ -511,10 +511,11 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
   SONG and GLO show the tracks in use; with one, Stage shows its sound across the screen in large type. Projects and
   the template keep their number of tracks; projects from before keep all four
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
-  transport. While playing, REC waits for that track's next pattern start, records one pass and
-  automatically disarms at its end while playback continues. While stopped and armed, the first
+  transport. While playing, REC waits for that track's next pattern start and keeps recording
+  across loops until tapped again or playback stops. STOP leaves the track armed for the next start.
+  SEQ + pattern-key shortcuts arm one pass and automatically disarm at its end. While stopped and armed, the first
   key or MIDI note starts playback and records from step zero, skipping count-in.
-  **REC + PLAY** arms and starts in one gesture
+  **REC + PLAY** arms and starts in one gesture, keeping recording active across loops
 - On Stage, OCT− / OCT+ shift the octave (both: reset). Everywhere else OCT+ enters, opens or
   confirms and OCT− goes back. During synth step editing they move the step cursor
 - Save a sound: stop, tap SAVE, choose USER and a slot, press OCT+ to open its sheet with
@@ -567,7 +568,8 @@ loads it at once. Hold **SAVE** to return to the sound you had before browsing.
 
 Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8: the pattern playing is lit, the others
 holding notes glow, the one waiting for the loop end breathes. Picking an empty pattern arms REC with it; on a
-pattern with notes, hit its key twice quickly to arm REC (as a REC tap).
+pattern with notes, hit its key twice quickly to arm REC. These shortcuts record one pattern pass
+and automatically disarm. Selecting an empty pattern preserves existing explicit REC arming.
 Hold a pattern key alone for a second: a small dialog asks what next: press it again to delete the pattern, another
 pattern key to copy it there, OCT- to leave it. With SEQ held the first four black keys (F#, G#, A#, C#) select
 tracks 1–4 (the selected one lit, an armed one breathing). **SEQ + SELECT** also chooses a pattern. While playing,

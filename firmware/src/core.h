@@ -445,7 +445,8 @@ typedef struct {
     uint8_t grid;                /* 1: the keys are the DRUM grid (ui.c grid_on): only the lane keys play (seq.c);
                                   * 2: NAME (ui_name.c): no key plays */
     uint8_t rec;                 /* live recording armed: bit per track */
-    uint8_t rec_wait, rec_pass;   /* waiting for loop zero, or recording one pattern pass */
+    uint8_t rec_wait, rec_pass;   /* waiting for loop zero, or recording since pattern start */
+    uint8_t rec_latch;           /* explicit REC stays armed across pattern ends: bit per track */
     uint8_t sel;                 /* selected track 0..trk_n()-1: keys, pages, editor */
     uint8_t ntrk;                /* tracks in use: 1..ntrk play, the rest wait empty and silent (0: all NTRK) */
     int8_t octave;

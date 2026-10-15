@@ -618,6 +618,7 @@ static void rec_set(track_t *t, uint32_t on)
         song.rec &= (uint8_t)~bit;
         song.rec_wait &= (uint8_t)~bit;
         song.rec_pass &= (uint8_t)~bit;
+        song.rec_latch &= (uint8_t)~bit;
         recording_undo_finish(t);
     }
 }
@@ -1032,7 +1033,7 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         t->seq_idx = (uint16_t)((t->seq_idx + 1u) % (len ? len : 1u));
         if (!t->seq_idx && !starting && !chain.running) {
             uint8_t bit = (uint8_t)(1u << trk_index(t));
-            if (song.rec_pass & bit) rec_set(t, 0);
+            if (song.rec_pass & (uint8_t)~song.rec_latch & bit) rec_set(t, 0);
             else if (song.rec & song.rec_wait & bit) {
                 song.rec_wait &= (uint8_t)~bit;
                 song.rec_pass |= bit;
