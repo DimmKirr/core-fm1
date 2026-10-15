@@ -2337,6 +2337,21 @@ static int test_popups(void)
         set_engine_of(TSEL, ENGI_FM6); go_title("ALGO"); frame(); turn(EN_K1, 1);
         bad += check("POPUPS: DRUM, MIDI and FM6 ALG step inline; five ROUT choices use a picker", ok && !pop.on);
     }
+    {   /* MOD destinations use the engine's labels while choosing, as on the route itself (#51). */
+        int16_t *vp;
+        ui_power_on_general(); go_page(GR_MOD); frame();
+        TSEL->p[P_M1DST] = MD_E1 + 2;
+        turn(EN_K3, 1);
+        const param_desc_t *d = page_desc(cur_page(), 2, &vp);
+        int ok = pop.on == POP_PICK && *vp == MD_E1 + 3 && str_eq(enum_name(d, *vp), "PW");
+        for (uint32_t i = 0; i < 8u; i++)
+            ok &= str_eq(enum_name(d, MD_E1 + i), mod_dst_name(TSEL, MD_E1 + i));
+        bad += check("MOD picker: SID engine destinations use their parameter names, including PW", ok);
+        pop_close(); set_engine_of(TSEL, ENGI_PROPHET); frame();
+        bad += check("MOD picker: names follow engine changes; ordinary source names stay unchanged",
+                     str_eq(enum_name(d, MD_E1), mod_dst_name(TSEL, MD_E1)) &&
+                     str_eq(enum_name(track_desc(TSEL, P_M1SRC), MS_ENV), N_MSRC[MS_ENV]));
+    }
     {   /* list pages (ui_list.c): KNOB 2 the row, KNOB 1 its value, OCT+ its list (SCL's Scale: SCALES), OCT- Stage */
         ui_power_on(); go_title("VOICE"); frame();
         o = TSEL->p[P_DETUNE];

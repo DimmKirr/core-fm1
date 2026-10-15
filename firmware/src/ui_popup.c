@@ -371,6 +371,11 @@ static void sheet_input(int32_t k1, int32_t k2, uint32_t oct)
 }
 
 /* ---------------------------------------------------- the pickers --- */
+/* Destination IDs stay stable; both picker styles show the current engine's parameter labels. */
+static const char *enum_name(const param_desc_t *d, int32_t v)
+{
+    return d->names == N_MDST ? mod_dst_name(TSEL, v) : d->names[v - d->min];
+}
 /* knob c turned on a page: its picker when its value is a name from a long list; another knob: the picker goes.
  * Not on a screen of its own: SCALES is the scales' list itself (Kerem: the picker covered it) */
 static int own_screen(void);                            /* ui_draw.c */
@@ -526,7 +531,7 @@ static void vlist_row(uint32_t i, int32_t y)
 {
     char b[20];
     int32_t v = enum_value(vl_d, (int32_t)i);
-    menu_words(b, vl_d->names[v - vl_d->min], sizeof b);
+    menu_words(b, enum_name(vl_d, v), sizeof b);
     pop_row(y, b, 0, v == vl.sel, 0, v == vl_now);
 }
 static void vlist_draw(void)
@@ -604,7 +609,7 @@ static void pick_draw(void)
         int32_t n = enum_value(d,first + i), y = 6 + i * 28, far = n - v > 1 || v - n > 1;
         uint16_t bg = n == v ? ux_mix(T_SURF, T_THEME, 22) : T_SURF;
         char b[16];
-        list_words(b, d->names[n - d->min], sizeof b);
+        list_words(b, enum_name(d, n), sizeof b);
         if (n == v)
             cv_rrect(4, y, POP_PICK_W - 8, 26, 6, bg, T_SURF);
         cv_free_text(10, ty_y(y + 13, ty_fit(TY_TX, b, POP_PICK_W - 18)), ty_fit(TY_TX, b, POP_PICK_W - 18), b,
