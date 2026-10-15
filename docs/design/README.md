@@ -217,6 +217,9 @@ and incremental redraws when the state ends or the selected track changes (`test
 - **The map**: EDIT pressed on an EDIT page: a row a section, a tile a page (FM6: operators x their pages); KNOB 1 (or
   SELECT) moves to the next page of the category, KNOB 2 to the next category (its last-used page), one per detent,
   every detent counted. OCT+ opens it, OCT- closes the map, HOME returns to Stage.
+  For DRUM, KNOB 1 changes Sound's Kit / Hit selection without leaving Sound. One KNOB 2 detent moves
+  directly to Drum (Drum sound / Drum mix), with Lanes below. A category starts at its first page until
+  another page has been opened there; vertical navigation recalls that last-used page.
 - **EDIT held**: undo; EDIT + OCT- / OCT+ undo/redo. Hold SAVE to save the current project. The engine is chosen
   in the browser (KNOB 4).
 - **Init sound** (Kerem 2026-10-11: sound design from scratch): the engine's own INIT, nothing changed and dry:
