@@ -309,8 +309,9 @@ function archiveInfo(a) {
   const engines = a[pos]; pos += 5;
   for (let i = 0; i < engines; i++) { const end = a.indexOf(0,pos); if (end < 0) throw new Error("Invalid INFO"); pos = end + 1; }
   const ext = a.slice(pos + 1);
-  const supported = /^(MELODEE|FELUCCA) /i.test(version) && ext[0] === 16 && ext[1] === 0x55 && ext[2] === 1 &&
-    ext[4] === 0x4d && ext[5] === 1 && ext[8] === 0x42 && ext[9] === 1 && (ext[10] & 1);
+  // Archives contain opaque objects; backup support is independent of motion and UI versions.
+  const supported = /^(MELODEE|FELUCCA) /i.test(version) &&
+    ext[8] === 0x42 && ext[9] === 1 && (ext[10] & 1);
   return {version,supported};
 }
 $("stock-go").addEventListener("click", async () => {

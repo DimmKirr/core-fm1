@@ -1393,10 +1393,11 @@ const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 
 /* an FM-1 on WebMIDI: identity, then "device asks, host answers" reads of the image */
 class FakeFM1 {
-  constructor(image, { unplugAfter = Infinity } = {}) {
+  constructor(image, { unplugAfter = Infinity, identity = "FM-1_015", afterWrite = "FM-1_900" } = {}) {
+    this.afterWrite = afterWrite;
     this.image = image; this.unplugAfter = unplugAfter; this.served = 0; this.bad = 0;
     this.access = { inputs: new Map(), outputs: new Map() };
-    this.boot("FM-1_015", "FM-1");
+    this.boot(identity, identity === "FM-1_015" ? "FM-1" : "Melodee");
   }
   boot(identity, name) {
     this.identity = identity; this.waiting = null; this.queue = [];
@@ -1431,7 +1432,7 @@ class FakeFM1 {
       this.served++;
       if (this.served >= this.unplugAfter) { this.input.state = this.output.state = "disconnected"; return; }
       if (addr === 0xE0000000) setTimeout(() => this.boot("ota-FM-1_900", "Melodee Update"), 300);
-      else if (addr === 0xF0000000) setTimeout(() => this.boot("FM-1_900", "Melodee"), 300);
+      else if (addr === 0xF0000000) setTimeout(() => this.boot(this.afterWrite, this.afterWrite === "FM-1_015" ? "FM-1" : "Melodee"), 300);
       else this.next();
     }
   }
@@ -1455,6 +1456,18 @@ async function updater() {
   const got = await new Updater(dev.access).install(image, "FM-1_900", (k) => steps.push(k));
   ok(got === "FM-1_900" && dev.bad === 0 && steps.includes("write") && steps.at(-1) === "done",
     `fm1ota.js: install: running firmware -> loader -> Melodee (${dev.served} reads)`);
+
+  for (const identity of ["FM-1_900", "FM-1_91040", "FM-1_91041"]) {
+    const stock = new FakeFM1(image, {identity, afterWrite:"FM-1_015"});
+    const restored = await new Updater(stock.access).install(image, "FM-1_015");
+    ok(restored === "FM-1_015" && stock.bad === 0,
+      `fm1ota.js: ${identity} returns to stock V15 across USB name/identity changes`);
+  }
+  const recovery = new FakeFM1(image, {afterWrite:"FM-1_015"});
+  recovery.boot("ota-FM-1_91040", "Melodee Update");
+  const resumed = await new Updater(recovery.access).resume(image, null, "FM-1_015");
+  ok(resumed && recovery.identity === "FM-1_015" && recovery.bad === 0,
+    "fm1ota.js: interrupted release firmware update resumes to verified stock V15");
 
   const dev2 = new FakeFM1(image, { unplugAfter: 3 });
   dev2.boot("ota-FM-1_900", "Melodee Update");
@@ -1492,7 +1505,7 @@ async function stockRestore() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace("/*META*/{}", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc"}}));
-  async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false} = {}) {
+  async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false, motionVersion = 2, backupVersion = 1, backupCaps = 1} = {}) {
     const calls = [], elements = new Map();
     const element = (id) => {
       if (!elements.has(id)) elements.set(id, {checked:false, disabled:false, textContent:"", value:0, listeners:{}, options:[],
@@ -1500,8 +1513,8 @@ async function stockRestore() {
         addEventListener(k, fn) { this.listeners[k] = fn; }});
       return elements.get(id);
     };
-    const info = [...Buffer.from("MELODEE 0.9"),0,0,92,0,64,84,4,
-      ...(supported ? [16,0x55,1,0,0x4d,1,64,1,0x42,1,1] : [])];
+    const info = [...Buffer.from("MELODEE v1.4.0"),0,0,92,0,64,84,4,
+      ...(supported ? [16,0x55,1,0,0x4d,motionVersion,64,1,0x42,backupVersion,backupCaps] : [])];
     const context = vm.createContext({
       navigator:{language:"en", requestMIDIAccess:async () => ({})},
       document:{documentElement:{}, querySelectorAll:() => [], getElementById:element,
@@ -1549,9 +1562,18 @@ async function stockRestore() {
   r = await run({supported:true});
   ok(r.calls.indexOf("backup") < r.calls.indexOf("save") && r.calls.indexOf("save") < r.calls.indexOf("confirm")
     && r.calls.indexOf("confirm") < r.calls.indexOf("install") && r.label.startsWith("Back up"),
-    "stock: default flow saves the backup before confirmation and flashing");
+    "stock: motion v2 firmware saves the backup before confirmation and flashing");
+  r = await run({supported:true, motionVersion:1});
+  ok(r.calls.includes("backup") && r.calls.includes("install"),
+    "stock: older motion v1 firmware retains backup and restore support");
+  for (const capabilities of [{backupVersion:2}, {backupCaps:0}]) {
+    r = await run({supported:true, ...capabilities});
+    ok(!r.calls.includes("backup") && !r.calls.includes("install") && r.status.includes("Skip backup"),
+      "stock: unsupported backup protocol or missing read capability still blocks flashing");
+  }
   r = await run({supported:true, backupError:true});
-  ok(!r.calls.includes("install") && !r.calls.includes("confirm") && r.calls.includes("backup-close") && r.unlocked,
+  ok(!r.calls.includes("install") && !r.calls.includes("confirm") && r.calls.includes("backup")
+    && r.status.includes("Backup failed") && r.calls.includes("backup-close") && r.unlocked,
     "stock: a failed backup never silently falls through to flashing");
   r = await run({loader:true});
   ok(!r.calls.includes("resume") && r.status.includes("Skip backup"),
