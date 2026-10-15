@@ -32,7 +32,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 {
@@ -177,6 +177,33 @@ async function czTests() {
   link.close();m.close?.();
 }
 await czTests();
+
+{
+  const engines=Array(20).fill("-");engines[12]="FM6";engines[15]="CZ-1";engines[19]="PROPHET";
+  const ctx={keys:Array.from({length:92},(_,i)=>`P${i}`),pe0:84,engines};
+  const cz=E.readSysexLibrary(readFileSync(join(HERE,"../assets/cz1-factory/cz1-factory.syx")),"factory.syx",ctx);
+  ok(cz.length===64 && cz.every(p=>p.engine===15),"Library SysEx: real Casio factory bank imports offline");
+  ok(cz.every(p=>{
+    const [one]=E.readSysexLibrary(E.CZ.sysex(p.cz),`${p.name}.SYX`,ctx);
+    const json=E.readLibraryFile(E.libraryFile("patch",[one],ctx),ctx).patches[0];
+    return eq(one.cz,p.cz)&&eq(json.cz,p.cz)&&json.name===p.name;
+  }),"Library SysEx: all 64 individual CZ tones survive SysEx import and JSON export/reimport");
+  const voices=E.FM6.FACTORY_PK.map(p=>E.FM6.unpack(p)),single=E.FM6.singleSysex(voices[3]);
+  const [one]=E.readSysexLibrary(single,"single.syx",ctx);
+  const again=E.readLibraryFile(E.libraryFile("patch",[one],ctx),ctx).patches[0];
+  ok(one.engine===12&&eq(one.fm6,E.FM6.FACTORY_PK[3])&&eq(again.fm6,one.fm6),
+     "Library SysEx: individual Yamaha voices import as FM6 and export/reimport as JSON");
+  const bank=E.readSysexLibrary(E.FM6.bankSysex(voices),"bank.syx",ctx);
+  ok(bank.length===32&&bank.slice(0,voices.length).every((p,i)=>eq(p.fm6,E.FM6.FACTORY_PK[i])),
+     "Library SysEx: Yamaha banks retain every packed voice");
+  const prophet=E.readSysexLibrary(readFileSync(join(HERE,"../assets/prophet5-factory/prophet5-v1.03.syx")),"prophet.syx",ctx);
+  ok(prophet.length===200&&prophet.every(p=>p.engine===19&&E.P5.valid(p.p5)),
+     "Library SysEx: real Prophet factory library keeps its native programs");
+  const bad=Array.from(single);bad[161]^=1;
+  let rejected=0;for(const file of [bad,single.slice(0,-1),[240,125,0,247]])
+    try{E.readSysexLibrary(file,"bad.syx",ctx);}catch{rejected++;}
+  ok(rejected===3,"Library SysEx: corrupt, truncated and unknown files are rejected");
+}
 
 async function nativeTests() {
   const m=E.makeMockDevice(), inp=[...m.access.inputs.values()][0], out=[...m.access.outputs.values()][0];

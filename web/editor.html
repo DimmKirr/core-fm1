@@ -1381,6 +1381,17 @@ function czLibraryPatch(v,ctx={}) {
   return cleanPatch({name:v.name,engine:15,engineName:"CZ-1",p,cz:v.raw,tags:["CZ-1","SysEx"]});
 }
 function p5LibraryPatch(v,ctx={}) {return cleanPatch({name:v.name,engine:19,engineName:"PROPHET",p:Array(ctx.keys?.length||ctx.pcount||92).fill(null),p5:v.raw,tags:["PROPHET","SysEx"]});}
+/* Library imports work offline too: dispatch by the file's manufacturer, never the selected engine. */
+function readSysexLibrary(bytes, filename, ctx={}) {
+  const start = bytes.indexOf(0xF0), maker = start < 0 ? -1 : bytes[start + 1];
+  if (maker === 0x44) return CZ.read(bytes, filename).voices.map(v => czLibraryPatch(v, ctx));
+  if (maker === 0x01) return P5.read(bytes).voices.map(v => p5LibraryPatch(v, ctx));
+  if (maker !== 0x43) throw new Error("Unknown SysEx manufacturer");
+  const imported = FM6.parseSysex(bytes);
+  if (!imported.voices.length || imported.badSum) throw new Error("Invalid Yamaha DX7 SysEx file");
+  return imported.voices.map(v => cleanPatch({name:v.name,engine:12,engineName:"FM6",
+    p:Array(ctx.keys?.length||ctx.pcount||92).fill(null),fm6:Array.from(FM6.pack(v.v)),tags:["FM6","SysEx"]}));
+}
 /* -> {patches, skipped, keys (the file's, for a library that has none yet)}; throws on a file it cannot read.
    A DIGITAL patch (the engine retired in 1.0) where ctx has no DIGITAL imports as FM6 (fromDigital) */
 function readLibraryFile(obj, ctx) {
@@ -4931,7 +4942,7 @@ $("libfile").addEventListener("change", async () => {
   for (const f of [...$("libfile").files]) {
     try {
       const ctx = libCtx();
-      if(/\.syx$/i.test(f.name)) { const bytes=new Uint8Array(await f.arrayBuffer()),prophet=bytes[1]===1&&[49,50].includes(bytes[2]),imported=prophet?P5.read(bytes):CZ.read(bytes,f.name);await libAdd(imported.voices.map(v=>prophet?p5LibraryPatch(v,ctx):czLibraryPatch(v,ctx)));n+=imported.voices.length;continue; }
+      if(/\.syx$/i.test(f.name)) { const patches=readSysexLibrary(new Uint8Array(await f.arrayBuffer()),f.name,ctx);await libAdd(patches);n+=patches.length;continue; }
       const obj = JSON.parse(await f.text());
       const r = readLibraryFile(obj, ctx);
       if (!ctx.keys && r.keys) {                     /* no layout yet: the file's becomes the library's */
