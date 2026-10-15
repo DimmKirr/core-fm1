@@ -565,9 +565,8 @@ loads it at once. Hold **SAVE** to return to the sound you had before browsing.
 ### Patterns and songs
 
 Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8: the pattern playing is lit, the others
-holding notes glow, the one waiting for the loop end breathes. Hold a pattern key and press a second one to copy its
-notes, ties, timing, chance, drum hits and automation. Picking an empty pattern arms REC with it; on a pattern with
-notes, hit its key twice quickly to arm REC (as a REC tap).
+holding notes glow, the one waiting for the loop end breathes. Picking an empty pattern arms REC with it; on a
+pattern with notes, hit its key twice quickly to arm REC (as a REC tap).
 Hold a pattern key alone for a second: a small dialog asks what next: press it again to delete the pattern, another
 pattern key to copy it there, OCT- to leave it. With SEQ held the first four black keys (F#, G#, A#, C#) select
 tracks 1–4 (the selected one lit, an armed one breathing). **SEQ + SELECT** also chooses a pattern. While playing,

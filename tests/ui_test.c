@@ -5013,6 +5013,37 @@ static void seq_hold_key(uint32_t k, uint32_t ms)  /* key k held ms (SEQ as it i
     key_up(k);
     frame();
 }
+static int test_pattern_key_handoff(void)
+{
+    int bad = 0;
+    uint32_t playing, action;
+    for (playing = 0; playing < 2u; playing++) for (action = 0; action < 2u; action++) {
+        ui_power_on(); stop_transport();
+        my_steps(TSEL); TSEL->step[0].note[0] = 48;
+        pattern_switch(TSEL, 2); my_steps(TSEL); TSEL->step[0].note[0] = 72;
+        pattern_switch(TSEL, 0);
+        if (playing) { seq_start(); seq_advance(0); seq_advance(1); }
+        go_home(); btn_down(B_SEQ); frame();
+        key_down(PAT_KEY[0]); frame();
+        /* Release the old key and press the new one between UI frames. */
+        key_up(PAT_KEY[0]); key_down(PAT_KEY[2]);
+        frames(1100u);
+        bad += check("a new held pattern after a release opens its own dialog",
+                     ui.confirm == CF_PAT_KEY && ui.pat_dlg == 2u &&
+                     TSEL->pattern == 0u && pattern_at(0, 2)->step[0].note[0] == 72u);
+        key_up(PAT_KEY[2]); frame();
+        if (ui.confirm == CF_PAT_KEY) {
+            if (action) tap_key(PAT_KEY[3]); else press(B_OCTUP);
+            if (playing) { stop_transport(); frame(); }
+            bad += check("held pattern copy/delete uses the new bank and preserves the previous one",
+                         !ui.confirm && TSEL->step[0].note[0] == 48u &&
+                         (action ? pattern_at(0, 3)->step[0].note[0] == 72u : pattern_empty(0, 2)));
+        }
+        btn_up(B_SEQ); frame();
+    }
+    ui_power_on();
+    return bad;
+}
 static int test_seq_keys(void)
 {
     int bad = 0;
@@ -5092,7 +5123,9 @@ static int test_seq_keys(void)
     key_up(key_at(0, 4));
     key_up(key_at(0, 0));
     frame();
-    bad += check("  key 1 held, key 5 pressed at once: the quick copy, no dialog", !ui.confirm && pattern_used(0, 4));
+    bad += check("  key 1 held, key 5 pressed before the dialog: no copy", ui.confirm == CF_PAT_KEY &&
+                 ui.pat_dlg == 0u && !pattern_used(0, 4));
+    press(B_OCTDN);
     btn_up(B_SEQ);
     frame();
     {   /* GLO + SELECT */
@@ -5175,6 +5208,7 @@ int main(void)
     bad += test_home_view_release();
     bad += test_home_select();
     bad += test_seq_keys();
+    bad += test_pattern_key_handoff();
     bad += test_loop_end_edits();
     bad += test_grid();
     bad += test_screen();

@@ -85,8 +85,12 @@ static int panel_banks(void)
     TSEL->step[3] = (step_t){{60,64,67,71},4,ST_NOTE,0,100};
     btn_down(B_SEQ); frame(); key_down(PAT_KEY[7]); frame(); key_down(PAT_KEY[2]); frame();
     key_up(PAT_KEY[2]); key_up(PAT_KEY[7]); frame(); btn_up(B_SEQ); frame();
+    bad += check("SEQ plus two pattern keys does not copy", pattern_empty(0, 2) && TSEL->step[3].note[3] == 71);
+    fm1_ms += 400u;
+    btn_down(B_SEQ); frame(); key_down(PAT_KEY[7]); frames(1100u);
+    key_up(PAT_KEY[7]); frame(); tap_key(PAT_KEY[2]); btn_up(B_SEQ); frame();
     pattern_request(TSEL,2);
-    bad += check("holding one bank key and pressing another copies its full chord", TSEL->step[3].n == 4 && TSEL->step[3].note[3] == 71);
+    bad += check("the compact held-pattern dialog copies its full chord", TSEL->step[3].n == 4 && TSEL->step[3].note[3] == 71);
     return bad;
 }
 static int arranged_chords(void)

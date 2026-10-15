@@ -106,8 +106,7 @@ static uint32_t arp_led(void)
 
 /* SEQ held: the white keys F3 .. F4 are the selected track's eight patterns, the first four black keys (F# G# A# C#,
  * as GLO's mutes) the tracks. A white key tapped switches to its pattern (playing: at the bar); an empty one arms REC
- * with it, one with notes when hit again at once (PAT_DTAP_MS: REC's tap, on or off); held with another pressed,
- * copies it there; held alone PAT_HOLD_MS, its
+ * with it, one with notes when hit again at once (PAT_DTAP_MS: REC's tap, on or off); held PAT_HOLD_MS, its
  * dialog (CF_PAT_KEY): the key again deletes it, another white key copies it there, OCT- leaves it as it is */
 static const uint8_t PAT_KEY[NPAT] = {0, 2, 4, 6, 7, 9, 11, 12};
 static const uint8_t TRK_KEY[NTRK] = {1, 3, 5, 8};
@@ -262,41 +261,9 @@ static void pattern_copy_ui(uint32_t k, uint32_t src, uint32_t dst)
     ui.force = 1;
 }
 static void rec_tap(void);
-static void pattern_keys(uint32_t notes)
+/* Finish a released key before reading a new press: both can arrive in one UI frame. */
+static void pattern_key_release(void)
 {
-    uint32_t b;
-    if (pattern_keys_on())
-        for (b = 0; b < NTRK; b++) if (notes & (1u << TRK_KEY[b])) {   /* a track key: that track */
-            ui.seq_t0 |= 2u;
-            track_select(b);                            /* (one not in use: nothing) */
-        }
-    if (ui.pat_key && ui.pat_track != song.sel) ui.pat_key = ui.pat_copy = 0;
-    if (pattern_keys_on()) {
-        for (b = 0; b < NPAT; b++) if (notes & (1u << PAT_KEY[b])) {
-            ui.seq_t0 |= 2u;
-            if (!ui.pat_key) {
-                ui.pat_key = (uint8_t)(b + 1u); ui.pat_track = song.sel; ui.pat_copy = 0; ui.pat_ms = fm1_ms;
-                if (ui.pat_tap == b + 1u && fm1_ms - ui.pat_tap_ms <= PAT_DTAP_MS) {   /* hit again: REC */
-                    ui.pat_copy = 1;                    /* (let go: no switch, no dialog) */
-                    rec_tap();
-                }
-                ui.pat_tap = 0;
-            } else if (ui.pat_key != b + 1u) {
-                ui.pat_copy = 1;
-                pattern_copy_ui(song.sel, ui.pat_key - 1u, b);
-            }
-        }
-        if (ui.pat_key && !ui.pat_copy && (fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])) &&
-            fm1_ms - ui.pat_ms >= PAT_HOLD_MS) {        /* held alone: its dialog */
-            ui.pat_dlg = (uint8_t)(ui.pat_key - 1u);
-            ui.pat_key = ui.pat_copy = 0;
-            ui.confirm = CF_PAT_KEY;
-            ui.confirm_trk = song.sel;
-            song.grid = (uint8_t)keys_mode();           /* (the keys silent from now: they choose) */
-            ui.force = 1;
-            return;
-        }
-    }
     if (ui.pat_key && (!pattern_keys_on() || !(fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])))) {
         if (!ui.pat_copy) {
             uint32_t bank = ui.pat_key - 1u, armed = 0;
@@ -315,6 +282,41 @@ static void pattern_keys(uint32_t notes)
         }
         ui.pat_key = ui.pat_copy = 0;
     }
+}
+static void pattern_keys(uint32_t notes)
+{
+    uint32_t b;
+    if (pattern_keys_on())
+        for (b = 0; b < NTRK; b++) if (notes & (1u << TRK_KEY[b])) {   /* a track key: that track */
+            ui.seq_t0 |= 2u;
+            track_select(b);                            /* (one not in use: nothing) */
+        }
+    if (ui.pat_key && ui.pat_track != song.sel) ui.pat_key = ui.pat_copy = 0;
+    pattern_key_release();
+    if (pattern_keys_on()) {
+        for (b = 0; b < NPAT; b++) if (notes & (1u << PAT_KEY[b])) {
+            ui.seq_t0 |= 2u;
+            if (!ui.pat_key) {
+                ui.pat_key = (uint8_t)(b + 1u); ui.pat_track = song.sel; ui.pat_copy = 0; ui.pat_ms = fm1_ms;
+                if (ui.pat_tap == b + 1u && fm1_ms - ui.pat_tap_ms <= PAT_DTAP_MS) {   /* hit again: REC */
+                    ui.pat_copy = 1;                    /* (let go: no switch, no dialog) */
+                    rec_tap();
+                }
+                ui.pat_tap = 0;
+            }
+        }
+        if (ui.pat_key && !ui.pat_copy && (fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])) &&
+            fm1_ms - ui.pat_ms >= PAT_HOLD_MS) {        /* held alone: its dialog */
+            ui.pat_dlg = (uint8_t)(ui.pat_key - 1u);
+            ui.pat_key = ui.pat_copy = 0;
+            ui.confirm = CF_PAT_KEY;
+            ui.confirm_trk = song.sel;
+            song.grid = (uint8_t)keys_mode();           /* (the keys silent from now: they choose) */
+            ui.force = 1;
+            return;
+        }
+    }
+    pattern_key_release();
 }
 /* SEQ's pattern dialog (CF_PAT_KEY): pattern b of track k deleted (playing: at its loop end): the one playing as SEQ >
  * PATTERNS' Delete pattern (EDIT held undoes it), another emptied in its bank */
