@@ -6,6 +6,7 @@
 #   tests/run_tests.sh               everything
 #   SOUND=0 tests/run_tests.sh       everything but the sound tests
 #   SOUND=only tests/run_tests.sh    the sound tests alone
+#   UI=renders tests/run_tests.sh    UI screenshots only (build/ui_new), for the web manual
 # Sound tests: the regression suite, the DSP render and TRACKS, and every test of an engine's or an effect's rendered
 #   signal (native fp32, Prophet, SPEAKER, MOD, SLICER, the FX layer, REVERB, DELAY, MOD / SPREAD, CZ, SID,
 #   CZ-1 knobs, PHYS, DRUM, NOISE, FM6, the dual-core pairing). The rest (storage, UI, MIDI, USB, editor, web) always runs.
@@ -64,6 +65,9 @@
 #                   Melodee's targets, the controls' directions, no clipping, DC, retriggers, the hat choke, the
 #                   kick on a small speaker; the DRUM engine (src/eng_drum.c): its key map, the 8 lanes together,
 #                   one hit per lane, the choke between lanes; the cost per voice; demos in build/drum_demo/.
+# DRUM SID (tests/drum_sid_test.c): KIT SID (src/drum_sid.c): one 6581 on one voice, its three voices taken by
+#                   the hits, frame programs at PAL frames, DIGI on $D418 and its effect on the voices ringing,
+#                   the filter for the routed drums, levels next to the 808; demos in build/sid_kit_demo/.
 # NOISE (tests/noise_test.c): the engine (src/eng_noise.c): COLR's slope (white, pink, brown), the filter and the
 #                   register clock following the key, META periodic at the key, no DC, no clipping at the
 #                   corners, a note from silence the same twice, the cost per voice; demos in build/noise_demo/.
@@ -87,10 +91,19 @@ P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
 PARALLEL=${PARALLEL:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 case $SOUND in 0 | 1 | only) ;; *) echo "SOUND=0, 1 or only"; exit 2 ;; esac
+UI=${UI:-}
+case $UI in "" | renders) ;; *) echo "UI=renders or empty"; exit 2 ;; esac
+if [ "$UI" = renders ]; then
+    python3 -c "import PIL" 2>/dev/null || { echo "UI renders need Pillow (python3 -m pip install Pillow)" >&2; exit 1; }
+fi
 [ "$PARALLEL" -ge 1 ] 2>/dev/null || { echo "PARALLEL=n, n >= 1"; exit 2; }
 python3 tools/gen_scales.py --check || exit 1
 python3 tools/audio_contract.py --check || exit 1
-[ -f build/melodee.fwsc ] || { echo "run ./build.sh first"; exit 1; }
+if [ "$UI" = renders ]; then
+    [ -f build/gen/melodee_tables.h ] || { echo "run ./build.sh first"; exit 1; }
+else
+    [ -f build/melodee.fwsc ] || { echo "run ./build.sh first"; exit 1; }
+fi
 TABLES=0; [ -f build/gen/melodee_tables.h ] && TABLES=1
 PIL=0; python3 -c "import PIL" 2>/dev/null && PIL=1
 mkdir -p "$OUT" "$LOG"
@@ -183,6 +196,20 @@ ui_renders() {
         python3 tools/ui_mockcmp.py build/ui_new build/ui_mock || fail "tools/ui_mockcmp.py" # redesign parity (docs/design): a report, no gate yet
     fi
 }
+if [ "$UI" = renders ]; then
+    ui_renders || true
+    if [ -s "$LOG/$n.fail" ]; then
+        echo "UI RENDERS FAILED"
+        cat "$LOG/$n.fail"
+        exit 1
+    fi
+    if [ ! -f build/ui_new/NIGHT/home.png ]; then
+        echo "UI renders produced no NIGHT screenshots" >&2
+        exit 1
+    fi
+    echo "UI RENDERS PASSED in $(($(date +%s) - start)) s"
+    exit 0
+fi
 dsp_tracks() {
     build hostsim hostsim -O2 $FW || return
     step "DSP render (CZ-1 preset 0)" "$OUT/hostsim" 15 0 1 "$OUT/render.wav"
@@ -226,9 +253,11 @@ if core; then
     t "Prophet native slots, atomic saves, projects, undo and performance" prophet_integration_test -O1 $FW
     t "resource lifetimes, cache eviction, tails and capacity" resources_test -O2 $FW
     t "aligned libc: copy/clear bounds, ordering and float aliasing" libc_word_test -O2 -fstrict-aliasing
+    t "wire fields: byte order, cross-byte bounds and preserved surrounding bits" wire_bits_test -O2
     t "audio worker: stalled jobs and wrapping deadlines" audio_worker_test
     t "cache RAM startup, memory faults and safe fallback" cache_ram_test
     t "system clock: read only, never written" clock_test -O1
+    t "stock V15 supply startup, timeouts and read-back faults" power_test -O1
     job step "nightly and synth-only site preserve release and editor" python3 tests/nightly_site_test.py
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
     run "target budget: natural loops and FPU decoding" python3 tests/target_budget_test.py
@@ -337,6 +366,8 @@ if sound && [ $TABLES = 1 ]; then
     job phys_ref
     t "DRUM: 808 instruments, velocity, hat choke, release, eight lanes and shared voice budget" drum_test -O2 $FW -- \
         "$OUT/drum_test" build/drum_demo
+    t "DRUM SID: one 6581 on one voice, frame programs, DIGI on \$D418, filter routing, levels" drum_sid_test -O2 $FW -- \
+        "$OUT/drum_sid_test" build/sid_kit_demo
     t "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" noise_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/noise_test" build/noise_demo
     t "FM6: the DX7's algorithms, pitch, levels, envelopes, modulation; DC, clipping, macros, patches, voices, cost, demos" \

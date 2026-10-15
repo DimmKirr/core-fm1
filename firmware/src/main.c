@@ -208,9 +208,9 @@ static void fm1_main(void)
     panel_init();
     melodee_init();
 #if MELODEE_DUAL_CORE
-    /* One core after a crash in the first 30 s (a second would enter UBOOT),
+    /* One core if stock supply setup failed, after a crash in the first 30 s (a second would enter UBOOT),
      * and until power-off once CPU1 was retired or CPU0 crashed beside it. */
-    if (!bootguard.failed && !fm1_core1_barred())
+    if (fm1_power_ready && !bootguard.failed && !fm1_core1_barred())
         fm1_multicore_start();              /* bounded handshake; failure keeps serial rendering */
     /* CPU1 starts through mask-ROM before it reaches our RAM worker. Restrict
      * instruction fetch only after that bootstrap has returned, or stopped
@@ -380,6 +380,7 @@ void fm1_cstart(void)
     for (s = _audio_load, d = _audio_start; d < _audio_end; s++, d++)
         *d = *s;                                /* resident audio profile: executable ordinary SRAM */
     fm1_mailbox_clear();
+    fm1_power_ready = (uint8_t)fm1_power_init(); /* stock V15 supplies before cache, peripherals or CPU1 */
 #if MELODEE_CACHE_RAM
     {   /* XIP-to-SRAM exceeds the direct-call range on pi32v2. */
         void (*volatile init)(uint32_t) = fm1_cache_init;

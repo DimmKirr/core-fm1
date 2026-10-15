@@ -73,7 +73,14 @@ static void bank_claim(uint32_t kind);
 static up_bank_t *bank_up(void);
 #define up_cache (*bank_up())
 static uint8_t up_cached = 255;
-static struct { uint8_t ready, used, engine, old, favorite; char name[13]; } up_meta[UP_SLOTS];
+/* Main-loop index only, never serialized. Four Boolean flags share a byte;
+ * names keep their 12 stored bytes and gain a terminator when read out. */
+static struct {
+    uint8_t ready:1, used:1, old:1, favorite:1;
+    uint8_t engine;
+    char name[12];
+} up_meta[UP_SLOTS];
+_Static_assert(sizeof up_meta[0] == 14u, "compact preset index");
 static uint32_t up_migrate;
 static uint8_t up_migration_error,up_converting;
 static uint32_t up_fav_dirty;
@@ -160,7 +167,7 @@ static int up_valid(const up_rec_t *r)
         return r->packed[133]==128u || r->packed[133]==133u;
 #endif
     }
-    if ((r->used & ~UP_STAR) == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==108u || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
+    if ((r->used & ~UP_STAR) == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==108u || r->np==119u || r->np==125u /* (the FX cuts) */ || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
     if (!((r->used & ~UP_STAR) == UP_USED && (r->ver == UP_VER || r->ver == UP_VER_GRID || (r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= UP_PMAX * 2u && r->name[0])) return 0;
     for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
@@ -218,12 +225,13 @@ static void up_cache_index(uint32_t b)
 {
     for(uint32_t j=0;j<UP_PER_BANK;j++){
         uint32_t k=b*UP_PER_BANK+j; if(k>=UP_SLOTS)break; const up_rec_t *r=&up_cache.r[j];
-        up_meta[k].ready=1;up_meta[k].used=(uint8_t)up_valid(r);if(!(up_fav_dirty>>b&1u))up_meta[k].favorite=(uint8_t)(!!(r->used&UP_STAR) && up_valid(r));
-        up_meta[k].old=(uint8_t)(((up_bank_old >> b) & 1u) || (r->used != 0 && !up_valid(r)));
+        int valid = up_valid(r);
+        up_meta[k].ready=1;up_meta[k].used=(uint8_t)valid;if(!(up_fav_dirty>>b&1u))up_meta[k].favorite=(uint8_t)(!!(r->used&UP_STAR) && valid);
+        up_meta[k].old=(uint8_t)(((up_bank_old >> b) & 1u) || (r->used != 0 && !valid));
         up_meta[k].engine=up_native_cz(r)?ENGI_CZ:eng_sound_idx(r->engine);
         uint32_t n=0;
         for(;n<12u && r->name[n];n++)up_meta[k].name[n]=r->name[n]>='a' && r->name[n]<='z'?(char)(r->name[n]-32):r->name[n];
-        up_meta[k].name[n]=0;
+        if(n<sizeof up_meta[k].name)up_meta[k].name[n]=0;
     }
 }
 static up_bank_t *up_cache_bank(uint32_t b)
@@ -275,7 +283,7 @@ static void up_name(uint32_t k, char *b)       /* upper case, 0-terminated: b ho
 {
     if (up_old(k)) { memcpy(b, "OLD FORMAT", 11); return; }
 #if MELODEE_FLASH && !defined(UP_HOST)
-    if(up_cached != k/UP_PER_BANK && up_meta[k].ready){memcpy(b,up_meta[k].name,13);return;}
+    if(up_cached != k/UP_PER_BANK && up_meta[k].ready){memcpy(b,up_meta[k].name,12);b[12]=0;return;}
 #endif
     const up_rec_t *r = up_rec(k);
     uint32_t i;

@@ -88,17 +88,6 @@ typedef struct {
 static dr_scratch_t dr_scratch __attribute__((section(".pool"),aligned(32)));
 
 /* ------------------------------------------------------------ helpers --- */
-/* Keep these inside the RAM sample loops even with the old target compiler.
- * Their arithmetic is identical to dsp.c's shared integer helpers. */
-static inline __attribute__((always_inline)) int32_t dr_clamp(int32_t v, int32_t lo, int32_t hi)
-{ return v < lo ? lo : v > hi ? hi : v; }
-static inline __attribute__((always_inline)) int32_t dr_softclip(int32_t x)
-{
-    int32_t a = x < 0 ? -x : x, i = a >> 8, y;
-    if (i >= 256) y = TANH_Q15[256];
-    else y = TANH_Q15[i] + (((TANH_Q15[i + 1] - TANH_Q15[i]) * (a & 255)) >> 8);
-    return x < 0 ? -y : y;
-}
 static inline __attribute__((always_inline)) int32_t dr_freq(uint32_t hz16) /* 2 sin(pi fc / FS), Q30 */
 {
     int32_t x = (int32_t)(hz16 * 4781u);         /* pi fc / FS, Q30 */
@@ -281,7 +270,7 @@ static __attribute__((noinline, section(".dsp_text"))) void dr_bd(dr8_t *d, cons
         if (d->s[3] > DR_SIGH0)
             m += (d->s[3] - DR_SIGH0) >> DR_SIGHS;
         y = dr_res(&d->lp, &d->bp, f0 + (int32_t)(((int64_t)f0 * m) >> 15), q, x);
-        y = dr_clamp((int32_t)(((int64_t)y * g) >> 16), -65535, 65535);
+        y = clamp((int32_t)(((int64_t)y * g) >> 16), -65535, 65535);
         d->s[3] = y;
         y += x >> DR_LEAK;
         d->s[1] += ((y - d->s[1]) * c) >> 14;    /* TONE */
@@ -375,7 +364,7 @@ static __attribute__((noinline, section(".dsp_text"))) void dr_rs(dr8_t *d, int3
         if (d->t < DR_PEND)
             x = dr_pulse(d) * 16;
         y = dr_res(&d->lp, &d->bp, d->f, d->q, x) + (dr_res(&d->lp2, &d->bp2, d->f2, d->q2, x) >> 1);
-        y = dr_softclip(dr_clamp((int32_t)(((int64_t)y * DR_RS_G) >> 16) * DR_RS_V >> 4, -200000, 200000));
+        y = softclip(clamp((int32_t)(((int64_t)y * DR_RS_G) >> 16) * DR_RS_V >> 4, -200000, 200000));
         y = (drf_hp(&DRF_RS, (y * DRE_AT(e0, de, i)) >> 15, d->s) * DR_RS_O) >> 15;
         acc[i] += y;
         if (y > pk || -y > pk)
@@ -488,7 +477,7 @@ static __attribute__((noinline, section(".dsp_text"))) void dr_metal(dr8_t *d, u
         d->ph[k] = ph[k];
     if ((DR_BANDS >> d->ins) & 1u)
         for (i = 0; i < n; i++)
-            scratch->m2[i] = dr_softclip(dr_clamp(drf_bp(&DRF_M2, scratch->m1[i], d->m2) * DR_MV, -200000, 200000));
+            scratch->m2[i] = softclip(clamp(drf_bp(&DRF_M2, scratch->m1[i], d->m2) * DR_MV, -200000, 200000));
     if (d->ins == DR_CY)
         for (i = 0; i < n; i++)
             scratch->m1[i] = drf_bp(&DRF_M1, scratch->m1[i], d->m1);
@@ -501,7 +490,7 @@ static __attribute__((noinline, section(".dsp_text"))) void dr_cb(dr8_t *d, int3
     int32_t e0, de = dre_next(&d->e[0], &e0), t0, dt = dre_next(&d->e[1], &t0);
     uint32_t i;
     for (i = 0; i < n; i++) {
-        int32_t y = dr_softclip(dr_clamp(drf_bp(&DRF_CB, scratch->cbx[i], d->x), -200000, 200000));
+        int32_t y = softclip(clamp(drf_bp(&DRF_CB, scratch->cbx[i], d->x), -200000, 200000));
         int32_t w = ((DRE_AT(e0, de, i) * DR_CB_FAST) >> 15) + ((DRE_AT(t0, dt, i) * (32767 - DR_CB_FAST)) >> 15);
         acc[i] += (((y * w) >> 15) * DR_CB_G) >> 15;
     }
@@ -520,7 +509,7 @@ static __attribute__((noinline, section(".dsp_text"))) void dr_cy(dr8_t *d, cons
     da = dre_next(&d->e[0], &a0);
     db = dre_next(&d->e[1], &b0);
     for (i = 0; i < n; i++) {
-        int32_t a = dr_softclip(dr_clamp(scratch->m1[i] * DR_MV, -200000, 200000));
+        int32_t a = softclip(clamp(scratch->m1[i] * DR_MV, -200000, 200000));
         int32_t b = scratch->m2[i], y;
         a = drf_hp(&DRF_CYA, (a * DRE_AT(a0, da, i)) >> 15, s);
         b = drf_hp(&DRF_CYB, (b * DRE_AT(b0, db, i)) >> 15, s + 2);

@@ -147,11 +147,8 @@ def luma(c):
 
 
 def lum(c565):
-    def lin(v):
-        v /= 255.0
-        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
     r, g, b = from565(c565)
-    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    return 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b)
 
 
 def contrast(a, b):

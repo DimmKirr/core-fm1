@@ -55,6 +55,15 @@ int memcmp(const void *a, const void *b, unsigned n)
     return 0;
 }
 
+/* Seeded FNV-1a over bytes, shared by history and persistent checksums. */
+static uint32_t fnv(uint32_t h, const void *p, uint32_t n)
+{
+    const uint8_t *b = (const uint8_t *)p;
+    while (n--)
+        h = (h ^ *b++) * 16777619u;
+    return h;
+}
+
 static int str_eq(const char *a, const char *b)
 {
     while (*a && *a == *b) {

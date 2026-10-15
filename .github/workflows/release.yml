@@ -50,20 +50,30 @@ jobs:
             git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$AC79_SDK"
           fi
           test "$(git -C "$AC79_SDK" rev-parse HEAD)" = d179b4484759423312073f5fbb232501aa491047
-      - name: Build both firmware variants and run full host suite
+      - name: Build dual-core firmware and run full host suite
         run: |
           version=$(python tools/fm1_recover.py --version | awk '{print $NF}')
           MELODEE_RAM_AUDIO=1 ./build.sh --release "$version"
           cp "build/melodee-$version.fwsc" build/melodee.fwsc
           tests/run_tests.sh
-          MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release "$version"
           mkdir -p build/release-assets
           cp "build/release-$version/"*.fwsc "build/release-$version/"*-app.bin build/release-assets/
-          cp "build/release-$version-1core/"*.fwsc "build/release-$version-1core/"*-app.bin build/release-assets/
+          # The live manual is published only with a stable tag. Release candidates leave it alone.
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != *-* ]]; then
+            python3 tools/manual_shots.py
+            python3 tools/manual_shots.py --require
+            tar -czf build/manual-screenshots.tar.gz -C web/manual \
+              $(find web/manual -name '*.png' | sed 's|^web/manual/||')
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: release-firmware
           path: build/release-assets/*
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+        with:
+          name: manual-screenshots
+          path: build/manual-screenshots.tar.gz
 
   recovery:
     strategy:
@@ -116,8 +126,25 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
+          name: release-firmware
+          path: build/release-assets
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: recovery-*
           path: build/release-assets
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+        with:
+          name: manual-screenshots
+          path: build/manual-screenshots-artifact
+      - name: Unpack generated manual screenshots
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+        run: |
+          archive=$(find build/manual-screenshots-artifact -name manual-screenshots.tar.gz -print -quit)
+          test -n "$archive"
+          tar -xzf "$archive" -C web/manual
+          python3 tools/manual_shots.py --require
       - name: Validate release provenance and every archive checksum
         run: |
           version=$(python tools/fm1_recover.py --version | awk '{print $NF}')
@@ -184,8 +211,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
         run: |
           version=${GITHUB_REF_NAME#v}
+          python3 tools/manual_shots.py --require
           python web/make_site.py "build/release-assets/melodee-$version.fwsc" \
-            "build/release-assets/melodee-$version-1core.fwsc" "$version" .nightly-pages
+            "$version" .nightly-pages
           cd .nightly-pages
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

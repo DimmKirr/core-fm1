@@ -17,7 +17,6 @@ static uint32_t library_engine(void)
 {
     return sx_import.count && !ui.home && cur_page()->graph == GR_USER ? sx_import.engine : TSEL->eng_req;
 }
-static uint32_t library_native(void) { return 0u; }
 static void bulk_clear(void) { bulk.on = 0; ui.note_copy = ui.note_move = 0; ui.force = 1; }
 static int bulk_has(uint32_t k)
 {

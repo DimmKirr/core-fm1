@@ -53,7 +53,6 @@ static inline __attribute__((always_inline)) p5_voice_t *p5_voice(track_t *t, vo
 }
 /* Integer phase counters retain low-frequency tuning precision. Everything
  * after phase conversion is normalized fp32, including BLEP and saturation. */
-static inline __attribute__((always_inline)) int32_t p5_fast_clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 static inline __attribute__((always_inline)) float p5_fast_blep(uint32_t ph, uint32_t inc)
 {
     if (!inc) return 0.0f;
@@ -82,15 +81,6 @@ static inline __attribute__((always_inline)) float p5_fast_softclip(float x)
     return x<0.0f?-y:y;
 }
 
-static inline __attribute__((always_inline)) uint32_t p5_fast_noise32(int32_t *st)
-{
-    uint32_t s = (uint32_t)*st;
-    s ^= s << 13;
-    s ^= s >> 17;
-    s ^= s << 5;
-    *st = (int32_t)s;
-    return s;
-}
 /* Stored knobs are 0..127; native patch bytes remain exact. */
 static int32_t p5_value(const uint8_t *p,uint32_t k) { return p[k]>127u?127:p[k]; }
 #define P5_ENV_END (1.0f / 1024.0f)   /* about -60 dB */
@@ -148,14 +138,14 @@ static void p5_note_on(track_t *t, voice_t *v)
     int32_t vintage = p5_value(p, P5_VINTAGE);
     /* Fixed mismatch for the life of the voice, deterministic per note/slot.
      * This is an initial engineering range, awaiting reference calibration. */
-    s->drift = ((int32_t)(p5_fast_noise32(&s->noise) & 255u) - 128) * vintage / 1024;
-    s->filter_drift = ((int32_t)(p5_fast_noise32(&s->noise) & 255u) - 128) * vintage / 32;
-    s->amp_drift = ((int32_t)(p5_fast_noise32(&s->noise) & 255u) - 128) * vintage / 16;
-    s->env_drift = ((int32_t)(p5_fast_noise32(&s->noise) & 255u) - 128) * vintage / 128;
+    s->drift = ((int32_t)(noise32(&s->noise) & 255u) - 128) * vintage / 1024;
+    s->filter_drift = ((int32_t)(noise32(&s->noise) & 255u) - 128) * vintage / 32;
+    s->amp_drift = ((int32_t)(noise32(&s->noise) & 255u) - 128) * vintage / 16;
+    s->env_drift = ((int32_t)(noise32(&s->noise) & 255u) - 128) * vintage / 128;
     /* The oscillators free-run, so a key finds a Lo Freq B anywhere in its
      * cycle. Starting each new voice at the bottom of the ramp instead held
      * Pickle Pincher's filter shut (Poly-Mod B 127) for every fresh note. */
-    if (!voice_was && p[P5_LOW_B]) s->phase[1] = p5_fast_noise32(&s->noise);
+    if (!voice_was && p[P5_LOW_B]) s->phase[1] = noise32(&s->noise);
 }
 static __attribute__((noinline)) int32_t p5_env_source(track_t *t,voice_t *v) {p5_voice_t *s=p5_voice(t,v);return s?(int32_t)(s->amp_prev*32768.0f):0;}
 static int p5_done(track_t *t, voice_t *v)
@@ -190,7 +180,7 @@ static __attribute__((section(".dsp_text"))) void p5_mod_samples(p5_part_t *s,co
 {
     uint32_t phase=s->lfo;if(!s->mod_noise)s->mod_noise=0x517953;
     for(uint32_t i=0;i<CTL*P5_OVERSAMPLE;i++){
-        float noise=(float)(int32_t)(p5_fast_noise32(&s->mod_noise)>>8)*(1.0f/16777216.0f)-0.5f;
+        float noise=(float)(int32_t)(noise32(&s->mod_noise)>>8)*(1.0f/16777216.0f)-0.5f;
         float w=(p5_lfo_wave(phase,p)*(1.0f-mix)+noise*mix)*amount;
         s->wheel[i]=w;
         s->wheel_pitch[i]=p5_pitch_ratio(w*(470.0f/1200.0f));
@@ -236,7 +226,7 @@ static void p5_block(track_t *t)
         /* Keep the wheel clock and noise sequence exact while skipping
          * stateless modulation buffers that no voice can read. */
         if(!s->mod_noise)s->mod_noise=0x517953;
-        for(uint32_t i=0;i<CTL*P5_OVERSAMPLE;i++)p5_fast_noise32(&s->mod_noise);
+        for(uint32_t i=0;i<CTL*P5_OVERSAMPLE;i++)noise32(&s->mod_noise);
         s->lfo+=inc*(CTL*P5_OVERSAMPLE);
         s->lfo_value=(int32_t)(p5_lfo_wave(s->lfo,p)*32768.0f);return;
     }
@@ -343,7 +333,7 @@ static __attribute__((section(".dsp_text"))) void p5_samples(p5_voice_t *restric
         float time=(float)i*(1.0f/CTL);
         float fe=c->f0+(c->f1-c->f0)*time,ae=c->a0+(c->a1-c->a0)*time,sum=0.0f;
         for(uint32_t os=0;os<P5_OVERSAMPLE;os++){
-            float noise=(float)(p5_fast_noise32(&s->noise)>>8)*(1.0f/16777216.0f)-0.5f;
+            float noise=(float)(noise32(&s->noise)>>8)*(1.0f/16777216.0f)-0.5f;
             float lfo=c->wheel[i*P5_OVERSAMPLE+os],wheel_pitch=c->wheel_pitch[i*P5_OVERSAMPLE+os];
             uint32_t db=p[P5_WHEEL_FREQ_B]?p5_wheel_inc(c->ib,wheel_pitch):c->ib;
             float b=p5_wave(s->phase[1],db,p5_pw(c->pwm_b+(p[P5_WHEEL_PW_B]?lfo:0.0f)),p[P5_SAW_B],p[P5_PULSE_B],p[P5_TRI_B],&s->triangle);
@@ -502,7 +492,7 @@ static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
      * (MIDI 36) near 870 Hz * 2^((raw-67)/15.2); SSI sits ~0.7 octave higher
      * below the middle of the knob, converging at the top. */
     int32_t cut=m->cutoff+s->filter_drift;
-    cut+=(m->pitch16-36*16)*p5_fast_clamp(p[P5_KEY_FILTER],0,2)*P5_KEYTRACK_HALF_Q7/128;
+    cut+=(m->pitch16-36*16)*clamp(p[P5_KEY_FILTER],0,2)*P5_KEYTRACK_HALF_Q7/128;
     if(p[P5_PRESS_FILTER])cut+=t->at*96;
     const p5_render_params_t *base=&part->base;
     float width_mod=(float)(m->shape-(64<<8))/32768.0f;

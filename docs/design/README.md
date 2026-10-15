@@ -42,7 +42,7 @@ Colours: background `#17141F`, panel `#1D1926`, surface `#221E2C`, raised `#2620
 
 Knob shades (`gfx.c` T_KNOB, `tools/gen_ui_palettes.py` SHADES): a track's pages are not one colour. Each knob has a
 shade of the track's colour, the track's own for knob 1, then turned round the OKLCH hue circle (+32, -32, +64
-degrees). A knob's label, its value while it turns, the hero and the curve segment it moves take it (ENV: attack,
+degrees). A knob's label, its value while it turns and the curve segment it moves take it (ENV: attack,
 decay, sustain, release; FM6 EG: R1..R4; LFO: the wave WAVE's, the reach FADE's). Rows in turn take the four (lists,
 Settings, mod slots), as do drum lanes, a pattern's beats, ARP's octaves and the roll's notes (by octave); the browser
 gives each engine one and the scale picker each family. Palettes: NIGHT, DAY, CONTRAST, SUNSET, OCEAN, NEON, CANDY,
@@ -155,6 +155,31 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   it comes with every turn of such a knob, and dimming sent the whole screen twice). SCALES keeps its own list page
   (Kerem: the list is intuitive), no picker.
 
+## Status indicators (2026-10-15)
+
+Ongoing device and transport state belongs in the **header, rows 0–29**. Draw it from the current state, keep it
+visible while that state applies, and remove it immediately when the state ends. Do not use timed messages or
+place status cards over knobs, lists, waveforms, or notes.
+
+- **Left:** transport, BPM, then the REC mark. A filled REC mark means the selected track is ready/recording;
+  an outline means it is waiting or another track is armed.
+- **Right:** the active transport status replaces the page/engine title and optional navigation marks. Priority:
+  `ERASING`, then `WAIT LOOP` (waiting for the selected track's loop boundary), then brief action feedback, then
+  the normal context. Keep transport, BPM, and REC visible. Use REC colour for recording states.
+- **Optional context:** octave, song row, page dots, and the low-battery glyph use the remaining header space in
+  the normal layout. Never overlap or truncate a status to preserve optional context. Use a concise, documented
+  label that fits both Rubik and Melodee Pixel; `WAIT LOOP` is the header label for “waiting for loop”.
+- **Screens with their own headers:** while waiting, use the shared transport header; restore the screen's header
+  on start, cancel, or a change to a track that is not waiting. Dialogs and pickers retain the header above them.
+
+Brief action results (saved, copied, invalid action) use the existing header-message area; a long explanation may
+wrap in a temporary toast. A question requiring a decision uses a dialog; a value being edited stays at its
+control. These are feedback and interaction, rather than ongoing state indicators.
+
+For each new indicator, specify its state, lifetime, priority, and compact label here, and extend the shared
+header renderer instead of choosing a new position in a page. Verify both fonts, crowded headers, persistence,
+and incremental redraws when the state ends or the selected track changes (`tests/ui_test.c`, `tests/ui_render.c`).
+
 ## Drawing and the LCD (2026-10-10)
 
 - The SPI to the LCD (12 MHz) is the UI's bottleneck: the whole screen takes ~77 ms, 1000 px ~1.3 ms. gfx.c sends a
@@ -202,26 +227,47 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   factory's numbers); DRUM its 808 kit. The browser's KNOB 4 (the engine) loads the engine's INIT, and each engine's
   INIT comes first in its sounds there; Init sound (the sound's sheet) the engine's own.
 
-## FX inserts (2026-10-12)
+## FX rack (2026-10-15)
 
-FX opens the selected track's insert family. SELECT moves between FX 1, FX 2
-and FX 3, using the existing page dots; all three slots can run together. Each
-is an R5 knob page: four rings over a
-rounded picture, the existing track palette, Rubik faces, sound bar and footer.
-KNOB 1: the effect-name picker; KNOB 2: MIX; KNOB 3: RATE (ECHO: TIME, ROOM / REVERB: SIZE);
-KNOB 4: DEPTH / FOCUS / JITTER / BITE / REPEAT / DECAY. OCT+ opens the sound's
-actions, OCT- returns to Stage. FX held opens no keyboard layer. WIDTH says
-“All-pass L / dry R” and “Mono changes the tone”. MEMORY FULL appears in the
-picture when that slot's time-effect buffer cannot be allocated. REVERB says
-“Diffused stereo reverb”; ROOM keeps its existing character and picture.
-Reverb's fourth knob is DEPTH, combining wet body
-and longer sustain; MIX and SIZE stay separate. Effects
-belong to the track: preset loads, engine changes, Init sound and sound undo keep
-them. Projects and templates save the chain. Reduced processing rates apply
-only to effects, with no change to synth rendering. Screens for every effect
-and this state are rendered and linted in every palette by `tests/ui_render.c`.
+FX opens the selected track's **rack**, laid out like MOD's rows: its three insert slots (1–3) and a fourth row for
+the shared FX (an arrow, "Shared", the shared effects in order: a chain arrow between them, a comma in SPLIT). KNOB 2
+picks the row (outlined and tinted in its knob colour), KNOB 1 its effect (the name picker), KNOB 4 its amount: a
+slot's MIX, the shared row the track's SEND (in SPLIT the track's sends are SHARED's rows; the shared row then has no
+amount). Empty slots read "--", dim. OCT+ opens the row: a slot's page; an empty slot its effects' list (OCT+ takes
+one); the shared row SHARED. OCT- goes back up a level (slot → its rack, SHARED → FX, FX → Stage). FX pressed off the
+rack returns to it; on the rack it turns on to the next page, as SELECT does.
 
-FX SEND uses the same four-ring page with SEND for the selected track and RETURN for the shared bus. SEND FX 1–3 keep the insert page layout, show TYPE / MIX / RATE or SIZE / CHAR or DEPTH, and identify SEND / RETURN and ALL TRACKS in the footer. These controls belong to the project and track, never the instrument preset. Shared MIX defaults fully wet.
+**SHARED** is the same rack for the shared bus: its slots A–C (KNOB 4 their MIX; SPLIT: the selected track's send to
+each) and RETURN (the four track colours as its numeral); KNOB 3 is ROUTE, Chain or Split (Kerem asked where it had
+gone). Its sheet (OCT+ held, or OCT+ on RETURN) holds Routing too and Clear shared FX (asks first).
+
+A **slot's page** shows while the slot holds an effect, so SELECT never stops on an empty one: FX, the slots in use,
+SHARED, its slots in use. The header names the effect ("ECHO", "REVERB"). Its four knobs are the ones played: MIX,
+TIME or RATE (ECHO: TIME, ROOM and REVERB: SIZE), the effect's DEPTH / FOCUS / JITTER / BITE / REPEAT / DECAY, and TONE.
+The picture says what the effect does and draws its sound; WIDTH says "Mono changes the tone", a time effect without its
+buffer "MEMORY FULL". No hint rows. A shared slot's footer is "All tracks" with the four track colours. These controls
+belong to the project and track, never the instrument preset; shared MIX defaults fully wet.
+
+**TONE** (ECHO, ROOM and REVERB; the knob is empty for the others) is one knob from DARK through FULL to THIN: below
+FULL a high cut from 2640 Hz down to 120 Hz, above it a low cut from 150 Hz up to 1280 Hz (core.h `fx_tone_hz`, fine
+steps where the ear needs them). Smooth 6 dB/octave cuts shape the wet input; the dry signal stays intact.
+
+**No boom** (Kerem, 2026-10-15: "still some boominess" in the tails and repeats): what enters ECHO keeps a 100 Hz low
+cut, ROOM and REVERB a 150 Hz one, at FULL and under a high cut (`fx_floor_hz`; THIN starts there), and each echo
+and each reverb round trip loses its lows (a one-pole low cut in the loop: ECHO ~110 Hz, REVERB ~55 Hz; ~110 Hz
+silenced REVERB's deep tail; ROOM's short combs need only the floor), so no bass note rings out of the tail. Measured
+on sines (1/24 octave, against the 320 Hz–1 kHz band): the worst low ring of a big REVERB went from +12.9 dB to +5.8,
+a big ROOM's from +9.6 to +6.4 (both now under their loudest mid one), 40–120 Hz now 3–12 dB under the mids (it was up
+to 3.7 dB over). `tests/fx_test.c` boom_test holds it, and its opposite (Kerem): never harsh (1–2.5 kHz no louder
+than the mids on average, no high note 3 dB over the loudest mid one) nor thin (the bass within 15 dB of the mids).
+
+Under the picture a strip on a log axis (20 Hz–2.6 kHz) lights, in TONE's colour, the band that reaches the effect
+(from the effect's own low cut), the cut TONE sets under its edge; at FULL dimmed. Each track and shared slot keeps its TONE in projects
+(FUN22) and templates (TPLL). FUN21/TPLK's two cuts load as the nearest TONE (the low cut when both were set); older
+records load FULL.
+
+Screens for every effect, the racks (picker, list, SPLIT), SHARED's sheet and TONE's two sides are rendered and linted
+in every palette by `tests/ui_render.c` (fx_*).
 
 ## Large type (2026-10-14)
 
@@ -234,7 +280,7 @@ a role has the same line height and baseline in both, so a layout holds in eithe
 | `TY_LB` | labels, units, tags, chips, keycaps | 16 px | 2 x (letters and figures 4 wide) |
 | `TY_TX` | names, rows, the header, text | 20 px | 2 x |
 | `TY_VL` | values | 28 px | 3 x |
-| `TY_HR` | the hero: the knob turning, the chord, big names | 48 px | 5 x |
+| `TY_HR` | the hero: the chord, big names | 48 px | 5 x |
 
 `ty_y(cy, f)` centres a face's capitals on a row; `ty_fit(f, s, w)` drops to the label face before anything is cut.
 
@@ -242,8 +288,8 @@ The grid: header rows 0 .. 29; the knob strip at y 32, four cells 57 x 48 at x 2
 turning: its value in the track's colour and a bar); the picture at y 84, 124 tall; the sound bar or the keys at y 212,
 28 tall. Two layouts (Kerem: "your mix"):
 
-- Knob and curve pages: the strip on top, the picture under it, and while a knob turns (1.5 s) its value in the hero
-  face over the picture (a scrim calms the picture; a curve gets a halo instead).
+- Knob and curve pages: the strip on top, the picture under it; a knob turning shows in its cell alone, nothing over
+  the picture (Kerem 2026-10-15: the large value over it hid what it shapes).
 - Stage, lists, Settings, the browser, sheets: rows across the screen, 32 px tall and 34 apart, the picked row tinted
   in the track's colour. Stage's rows are the tracks, each in its colour, with every step of the pattern as dots
   (an LED matrix in the track's colour: a bar a line of 16 in four beats, lines stacked; `ui_stage.c` st_layout picks
@@ -251,7 +297,7 @@ turning: its value in the track's colour and a bar); the picture at y 84, 124 ta
   name's right).
 
 Rules, from the reviews: screens stay calm (no boxes or rings around cells, no tabs, no hint rows); nothing is ever
-cut or ellipsised (labels have short forms, `ui_draw.c` CELL_SHORT, the hero says the word in full; dialogs and toasts
+cut or ellipsised (labels have short forms, `ui_draw.c` CELL_SHORT; dialogs and toasts
 wrap); Stage is multicolour. `tests/ui_render.c` lints every screen in both faces: overlaps, texts past their canvas
 or cell, ellipsised labels; it must report none.
 
@@ -259,41 +305,3 @@ Storage: the four Rubik faces are 4-bit alpha kept in four steps (0, 5, 10, 15) 
 table for all of them (at 28 px, scaled per face); with the pixel face 31.4 KB in all. Glyphs stay in flash: no
 decode table lives in RAM (`gfx.c` builds a 64-entry one on the stack per string).
 
-
-## HOME's light (2026-10-14)
-
-What each track plays lights the screen from its edges, in the track's colour, behind everything on it (Kerem: "the
-effects start from the edges of the screen and behind all the boxes"). How the light moves is the kind of sound (the
-browser's category, `browse.c`):
-
-| Category | The light |
-|---|---|
-| BASS | swells from the floor, up the lower half of the sides |
-| LEAD | streaks from the floor's middle round the corners, up the sides and along the top |
-| PAD | breathes: a slow wave up the sides while held |
-| PLUCK | a ripple out from its row, both ways |
-| KEYS | a block a note of the chord, stacked up the sides |
-| DRUM | by lane: the kick from the floor, snare and clap all round (paler), hats high and along the top, toms and the rest mid-way |
-| FX | sparks along the edges |
-| ORGAN | a steady glow while held |
-| STRING | a slow swell, brighter higher up |
-| BRASS | rises from the floor as high as the note has swelled |
-| WIND | bands drifting up while held |
-| BELL | two rings out from its row, the second paler |
-| anything else | one soft glow |
-
-Settings (HOME held) > STAGE EFFECTS turns it off (ON by default; favorites.factory[15][30] bit 7, ui.c
-PREF_GLOW_OFF): the light stays dark, nothing is painted or sent for it.
-
-Where it shows: all round the screen, the header included (Kerem: without it the light looked cut off). On Stage the
-2 px margins from the top to the floor, the gaps between the rows, the band (from the floor only) and the header's top
-rows (from the top only; its canvas is x 2 .. 237, so the margins beside it carry the sides' light); on the wheel page
-the margins beside the header, then 6 px at the sides (beside the pulses and the keys) and under the keys.
-`ui_glow.c` works the light out every frame on HOME before the header is drawn (`ui_view.c` home_light) as a path round
-the floor, the sides and the top (2 px a step, on `ui_draw_frame`'s stack; ~89 B of state); whatever background is
-drawn takes its part of it by its distance from each edge. The strips redraw on drawn frames where the light changed,
-the header only for the top's light, on drawn frames. Nothing lit or nothing changed: nothing sent. The knobs out:
-dark. LCD cost while a busy song plays (tests/ui_render.c audit, "light"): ~5.2 k px a frame on Stage and ~3.6 k on
-the wheel page over the same frames without it; a drawn frame at most ~11 k px (~14 ms of the SPI, inside the 32 ms
-between drawn frames). The band, the header and the wheel page's keys sit inside the side strips, so the light from
-the sides never makes them send whole.

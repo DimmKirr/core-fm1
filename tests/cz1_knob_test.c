@@ -30,7 +30,7 @@ static void reset_all(track_t *t)
     eng_state_clear(0);
 }
 
-static void render(track_t *t, int16_t *dst)
+static void render(track_t *t, int32_t *dst)
 {
     static const uint8_t N[4] = {36, 55, 72, 84}, V[4] = {30, 70, 100, 127};
     int32_t o[CTL];
@@ -47,7 +47,7 @@ static void render(track_t *t, int16_t *dst)
         track_render(t, o, CTL);
         if (mod.on)
             mod_end(t);
-        for (i = 0; i < CTL; i++)
+        for (i = 0; i < CTL && n < RENDER_N; i++)
             dst[n++] = o[i];
     }
 }

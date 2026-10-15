@@ -98,13 +98,6 @@ static int shared_import(uint32_t e,uint32_t first,uint32_t count,const uint8_t 
     return 0;
 }
 static int native_fm_import32(uint32_t first,const uint8_t *raw,uint32_t *saved){return shared_import(ENGI_FM6,first,32u,raw,FM6_PACKED,saved);}
-static uint32_t user_limit(void){return UP_SLOTS;}
-static int user_used(uint32_t k){return up_used(k);}
-static int user_old(uint32_t k){return up_old(k);}
-static int user_old_bank(uint32_t k){return up_old_bank(k);}
-static void user_name(uint32_t k,char *out){up_name(k,out);}
-static void user_label(char *out,uint32_t k){up_slot_label(out,k);}
-static void user_ui_named(uint32_t op,uint32_t k,const char *name){up_ui_named(op,k,name);}
 
 #if MELODEE_FLASH
 /* P5's 26-record banks spill their final eight records into the two unused

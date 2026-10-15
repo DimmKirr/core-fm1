@@ -26,24 +26,23 @@ def main():
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     out = args.directory
     expected = release_product(args.version)
+    if list(out.glob("*-1core*")):
+        raise RuntimeError("Single-core release assets are retired")
     packages = {}
-    for suffix, cores in (("", 1), ("-1core", 0)):
-        name = f"melodee-{args.version}{suffix}.fwsc"
-        package = Package(out / name)
-        if package.product != expected:
-            raise RuntimeError(f"Wrong package identity: {name}")
-        app = out / f"melodee-{args.version}{suffix}-app.bin"
-        if not app.is_file():
-            raise RuntimeError(f"Missing application binary: {app}")
-        decoded = bytearray(package.flash[APP_LO:])
-        sfc(decoded, 0, len(decoded), 0, package.key)
-        app_data = app.read_bytes()
-        if decoded[0x120:0x120 + len(app_data)] != app_data:
-            raise RuntimeError(f"Application binary differs from package: {app}")
-        packages[name] = {"MELODEE_DUAL_CORE": cores, "MELODEE_RAM_AUDIO": 1,
-                          "sha256": package.digest}
-    if len({p["sha256"] for p in packages.values()}) != 2:
-        raise RuntimeError("Dual and single core packages must differ")
+    name = f"melodee-{args.version}.fwsc"
+    package = Package(out / name)
+    if package.product != expected:
+        raise RuntimeError(f"Wrong package identity: {name}")
+    app = out / f"melodee-{args.version}-app.bin"
+    if not app.is_file():
+        raise RuntimeError(f"Missing application binary: {app}")
+    decoded = bytearray(package.flash[APP_LO:])
+    sfc(decoded, 0, len(decoded), 0, package.key)
+    app_data = app.read_bytes()
+    if decoded[0x120:0x120 + len(app_data)] != app_data:
+        raise RuntimeError(f"Application binary differs from package: {app}")
+    packages[name] = {"MELODEE_DUAL_CORE": 1, "MELODEE_RAM_AUDIO": 1,
+                      "sha256": package.digest}
     recovery = {}
     for target in TARGETS:
         name = f"fm1-recover-{VERSION}-{target}.zip"

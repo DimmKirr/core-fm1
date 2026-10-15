@@ -41,13 +41,12 @@ static uint32_t ty_pixel(void);
 #define TY_LB (ty_pixel() ? &AP_LB : &AF_LB)  /* labels, units, chips, tags: 16 px, pixel 2 x */
 #define TY_TX (ty_pixel() ? &AP_TX : &AF_TX)  /* names, rows, the header, text: 20 px, pixel 2 x */
 #define TY_VL (ty_pixel() ? &AP_VL : &AF_VL)  /* values: 28 px, pixel 3 x */
-#define TY_HR (ty_pixel() ? &AP_HR : &AF_HR)  /* the hero (the chord, the value turning): 48 px, pixel 5 x */
+#define TY_HR (ty_pixel() ? &AP_HR : &AF_HR)  /* the hero (the chord, a sound's name alone): 48 px, pixel 5 x */
 
 /* host tests hook in here (layout lint, draw cost); nothing in the firmware */
 #ifndef GFX_HOOK_TEXT
 #define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) ((void)0)   /* an ink box; flags 1 ellipsised, 2 cut, 4 icon, 8 free text,
-                                                              * 16 under a question (cv_dim), 32 in a scrolled view, 64 over
-                                                              * a scrim (the hero: what is under it covered on purpose) */
+                                                              * 16 under a question (cv_dim), 32 in a scrolled view */
 #define GFX_HOOK_BLIT(x, y, r0) ((void)0)
 #define GFX_HOOK_BEGIN() ((void)0)
 #define GFX_HOOK_PIXELS(n) ((void)0)
@@ -55,9 +54,6 @@ static uint32_t ty_pixel(void);
 #ifndef GFX_HOOK_WHOLE
 #define GFX_HOOK_WHOLE(x, y, r0, fill) ((void)0)   /* what the screen would hold sent whole: canvas rows r0.. at x, y (or a
                                                      * fill) (tests/ui_render.c: the diff checked against it) */
-#endif
-#ifndef GFX_HOOK_SCRIM
-#define GFX_HOOK_SCRIM(x0, y0, x1, y1) ((void)0)   /* a scrim (cv_scrim): the canvas's texts under it covered on purpose */
 #endif
 #ifndef GFX_HOOK_COVER
 #define GFX_HOOK_COVER(x0, y0, x1, y1) ((void)0)   /* a card over the screen (the toast): the texts under it covered on
@@ -238,7 +234,6 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
 /* cv_dim: a canvas goes out darkened (72 % toward BG): the page under a question (ui_draw.c); cv_under: the page under
  * a popup, dimmed or not (a knob's picker: not), its texts covered on purpose (the lint's flag 16) */
 static uint8_t cv_dim, cv_under;
-static uint8_t cv_hero;                                 /* drawing over a scrim (ui_pages.c pv_hero): the texts' flag 64 */
 static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a);
 static void cv_dim_rows(uint32_t r0)
 {
@@ -1001,7 +996,7 @@ static const aafont_t *ty_fit(const aafont_t *f, const char *s, int32_t maxw)
 {
     return text_w(f, s) <= maxw ? f : TY_LB;
 }
-/* every character of s is in f (the hero's face holds only what values and names need: else the value's face) */
+/* every character of s is in f (the hero's face holds only what values and names need: else a smaller face) */
 static int text_has(const aafont_t *f, const char *s)
 {
     for (; *s; s++)
@@ -1086,8 +1081,6 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
         }
         if (cv_dim || cv_under)                      /* (the page under a question: covered on purpose) */
             flags |= 16u;
-        if (cv_hero)
-            flags |= 64u;
         GFX_HOOK_TEXT(x0, y0 + cv_oy, x1, y1 + cv_oy, s0, flags);
     }
     (void)s0;
@@ -1101,24 +1094,6 @@ static int32_t cv_text_on(int32_t x, int32_t y, const aafont_t *f, const char *s
 static int32_t cv_text(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg)
 {
     return cv_text_flags(x, y, f, s, fg, cv_bg, 0);
-}
-/* a scrim: the canvas inside (x, y, w, h) a of 32 of the way to c, the last f px towards each edge less (feathered): a
- * picture calmed behind text (cv_over) and still seen through it. Per pixel a blend of the row's or the column's
- * alpha (mix565), nothing else */
-static void cv_scrim(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c, uint32_t a, int32_t f)
-{
-    GFX_HOOK_SCRIM(x, y + cv_oy, x + w, y + h + cv_oy);
-    int32_t i, j, x0 = x < 0 ? 0 : x, x1 = x + w < (int32_t)cv_w ? x + w : (int32_t)cv_w;
-    y += cv_oy;
-    for (j = y < 0 ? 0 : y; j < y + h && j < (int32_t)cv_h; j++) {
-        int32_t dy = j - y < y + h - 1 - j ? j - y : y + h - 1 - j;
-        uint16_t *row = &cv_px[(uint32_t)j * cv_w];
-        for (i = x0; i < x1; i++) {
-            int32_t d = i - x < x + w - 1 - i ? i - x : x + w - 1 - i;
-            if (dy < d) d = dy;
-            row[i] = swap16(mix565(swap16(row[i]), c, d >= f ? a : a * (uint32_t)(d + 1) / (uint32_t)(f + 1)));
-        }
-    }
 }
 /* right-aligned: the advance ends at xr */
 static int32_t cv_text_r(int32_t xr, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg)

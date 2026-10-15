@@ -698,7 +698,7 @@ static __attribute__((noinline,section(".audio_text"))) void fm6_control_ram(tra
     const uint8_t *ed = fm6_ed(t);
     int32_t lv[6], lfo = P->lfo.val, dly = P->lfo.depth, pm, sens, pbase, amd, a1, a2, fbv;
     /* MLVL and FLT: the modulators' level, 0.75 dB / 32 steps (microsteps, as the output levels), Q24 */
-    int32_t mod = (fm6_clamp(t->p[P_E2], -64, 63) * 24 + fm6_clamp(m->cutoff >> 8, -150, 150) * 16) * (1 << 16);
+    int32_t mod = (clamp(t->p[P_E2], -64, 63) * 24 + clamp(m->cutoff >> 8, -150, 150) * 16) * (1 << 16);
     uint32_t pmd = ((uint32_t)ed[FP_LPMD] * 165u) >> 6;
     alg = (uint32_t)ed[FP_ALG] & 31u;
     if (!v->gate && s->down) {                           /* key up: every envelope to its fourth segment */
@@ -776,7 +776,7 @@ static __attribute__((noinline,section(".audio_text"))) void fm6_control_ram(tra
             level -= (int32_t)((float)level * ((float)pt * (1.0f / 16777216.0f)));
         }
         if (!car && mod)
-            level = fm6_clamp(level + mod, 0, 20 << 24);
+            level = clamp(level + mod, 0, 20 << 24);
         lv[k] = level;
     }
     for (k = 0; k < 6u; k++) {                           /* the output operators all gone for good? */
@@ -787,7 +787,7 @@ static __attribute__((noinline,section(".audio_text"))) void fm6_control_ram(tra
             dead = 0;
     }
     s->quiet = dead ? (uint8_t)(s->quiet + (s->quiet < 2u)) : 0;
-    fbv = fm6_clamp(ed[FP_FB] + ((m->shape - (64 << 8)) >> 11), 0, 7);   /* SHP moves the feedback */
+    fbv = clamp(ed[FP_FB] + ((m->shape - (64 << 8)) >> 11), 0, 7);   /* SHP moves the feedback */
     fm6_plan(s, lv, alg, FM6F(t)[FN_ENGINE], fbv ? 8u - (uint32_t)fbv : 16u);
 }
 
@@ -844,12 +844,6 @@ static void fm6_ghost(track_t *t, voice_t *v, fm6_voice_t *s)
     }
 }
 
-/* Keep the same signed rounding as amp_at, inside the RAM output loop. */
-static inline __attribute__((always_inline)) int32_t fm6_output_amp(const vmod_t *m, uint32_t i)
-{
-    int32_t x = (m->amp1 - m->amp0) * (int32_t)i;
-    return m->amp0 + ((x + ((x >> 31) & (CTL - 1))) >> CTL_LOG2);
-}
 static inline __attribute__((always_inline)) float fm6_output_clip(float x)
 { return x < -16.0f ? -16.0f : x > 16.0f ? 16.0f : x; }
 
@@ -857,7 +851,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_output(const floa
 {
     float scale = (float)gain * (1.0f / 131072.0f);
     for (uint32_t i = 0; i < n; i++) {
-        int32_t y = (int32_t)(fm6_output_clip(sum[i]) * (float)fm6_output_amp(m, i) * scale);
+        int32_t y = (int32_t)(fm6_output_clip(sum[i]) * (float)amp_at(m, i) * scale);
         if (add) out[i] += y; else out[i] = y;
     }
 }
@@ -906,12 +900,15 @@ typedef struct { fm6_voice_t *voice;vmod_t modulation;uint32_t n;int32_t gain; }
 _Static_assert(sizeof(fm6_batch_t)<=AUDIO_BATCH_BYTES,"FM6 batch descriptor");
 static void fm6_batch_kernel(const void *data,int32_t *pcm)
 {
-    const fm6_batch_t *j=data;float bus[2][CTL],sum[CTL];
+    const fm6_batch_t *j=data;float sum[CTL];
 #if MELODEE_DUAL_CORE
+    float bus[2][CTL];
     void (*volatile run)(fm6_voice_t *,uint32_t,float [2][CTL],float *)=fm6_run_into;
     run(j->voice,j->n,bus,sum);
 #else
-    fm6_run(j->voice,j->n);memcpy(sum,fm6_sum,j->n*sizeof *sum);
+    /* The serial operator kernel also lives beyond XIP's direct-call range. */
+    void (*volatile run)(fm6_voice_t *,uint32_t)=fm6_run;
+    run(j->voice,j->n);memcpy(sum,fm6_sum,j->n*sizeof *sum);
 #endif
     fm6_output_run(sum,pcm,j->n,&j->modulation,j->gain,0);
 }

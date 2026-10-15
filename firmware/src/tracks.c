@@ -123,6 +123,7 @@ static int track_remove(uint32_t k)
         for (j = k; j < last; j++)
             jam.pat[r][j] = jam.pat[r][j + 1u];
     song.rec = trk_bits_remove(song.rec, k);
+    song.rec_latch = trk_bits_remove(song.rec_latch, k);
     track_solo = trk_bits_remove(track_solo, k);
     track_say(k, "REMOVED");
     return 0;

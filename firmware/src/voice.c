@@ -97,24 +97,12 @@ static int audio_bench_active(void)
 #endif
 }
 #endif
-/* Engine capacity is independent of admission. Sounding voices, including
- * releases, compete in one weighted pool; idle tracks reserve no voices. */
-static uint32_t voice_contract_cap(const track_t *t)
-{
-    const engine_t *e=ENGINES[t->engine];uint32_t n=e->cap?e->cap(t):e->poly;
-    return !n?NPOLY:n<NVOICE?n:NVOICE;
-}
-
 /* voices the engine may use (POLY and UNISON): its cap, else NPOLY */
 static uint32_t trk_nvoice(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
     uint32_t c = e->cap ? e->cap(t) : e->poly;
-    uint32_t cap=!c?NPOLY:c<NVOICE?c:NVOICE;
-#if MELODEE_AUDIO_BENCH
-    if(audio_bench_active())return cap;
-#endif
-    uint32_t contract=voice_contract_cap(t);return cap<contract?cap:contract;
+    return !c ? NPOLY : c < NVOICE ? c : NVOICE;
 }
 
 /* the part's voice mode: P_VOICE, POLY for an engine of hits (engine_t.oneshot: DRUM) */
@@ -481,15 +469,22 @@ static void mono_remove(track_t *t, uint32_t note)
     t->nmono = (uint8_t)k;
 }
 
-/* note-ons per track since power-on and the last one's velocity: HOME's light (ui_glow.c) */
-static volatile uint8_t glow_hit[NTRK], glow_vel[NTRK];
+static void mono_push(track_t *t, uint32_t note)       /* the latest key on top (full: the oldest goes) */
+{
+    mono_remove(t, note);
+    if (t->nmono >= NVOICE)
+        mono_remove(t, t->mono_stack[0]);
+    t->mono_stack[t->nmono++] = (uint8_t)note;
+}
+
+/* SID's MODEL C64 in POLY: the keys held (the mono stack) are the chord its one voice arpeggiates (eng_sid.c) */
+static int trk_chord(const track_t *t) { return ENGINES[t->engine] == &ENG_SID && sid_chord(t); }
+
 static void trk_note_on_work(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t any = 0, i, mode = trk_vmode(t);
     if (t->p[P_MUTE] || (uint32_t)(t - trk) >= trk_n())   /* (a track not in use: silent) */
         return;
-    glow_hit[t - trk]++;
-    glow_vel[t - trk] = (uint8_t)vel;
     if (t->xf_on || t->eng_req != t->engine) {          /* engine switch under way: after the fade */
         for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)
             ;
@@ -510,7 +505,10 @@ static void trk_note_on_work(track_t *t, uint32_t note, uint32_t vel)
     }
     if (mode == V_POLY) {
         AP_START(alloc_start);voice_t *v = voice_alloc(t, note);AP_END(AP_ALLOC,alloc_start);
-        t->nmono = 0;                                   /* no stale mono stack after a mode change */
+        if (!trk_chord(t) || !any)
+            t->nmono = 0;                               /* no stale mono stack after a mode change */
+        if (trk_chord(t))
+            mono_push(t, note);                         /* C64: the chord grows (the new note sounds first) */
         t->mono_note = 0;
         v->fine = 0;
         voice_start(t, v, note, vel, t->p[P_GLIDE] != 0 && !ENGINES[t->engine]->oneshot);
@@ -518,10 +516,7 @@ static void trk_note_on_work(track_t *t, uint32_t note, uint32_t vel)
     }
     {
         uint32_t sounding = t->mono_note && t->v[0].active && t->v[0].gate, want;
-        mono_remove(t, note);
-        if (t->nmono >= NVOICE)
-            mono_remove(t, t->mono_stack[0]);
-        t->mono_stack[t->nmono++] = (uint8_t)note;
+        mono_push(t, note);
         if (ENGINES[t->engine]->mono_key)
             ENGINES[t->engine]->mono_key(t, note);
         want = mono_pick(t);
@@ -549,13 +544,15 @@ static void trk_note_on(track_t *t,uint32_t note,uint32_t vel)
 
 static void trk_note_off(track_t *t, uint32_t note)
 {
-    uint32_t i, k = 0, mode = trk_vmode(t);
+    uint32_t i, k = 0, mode = trk_vmode(t), chord = trk_chord(t), held = 0;
     for (i = 0; i < t->xp_n; i++)                       /* not sounding yet (engine switch): forget it */
         if (t->xp_note[i] != note) {
             t->xp_note[k] = t->xp_note[i];
             t->xp_vel[k++] = t->xp_vel[i];
         }
     t->xp_n = (uint8_t)k;
+    for (i = 0; i < t->nmono; i++)
+        held |= t->mono_stack[i] == note;
     mono_remove(t, note);                              /* a mode change must not retain a released key */
     if (mode != V_POLY) {
         uint32_t nv = mode == V_UNISON ? trk_nvoice(t) : 1u;
@@ -573,8 +570,9 @@ static void trk_note_off(track_t *t, uint32_t note)
             }
         }
     }
-    for (i = 0; i < NVOICE; i++)                        /* a fallback above already has its new pitch */
-        if (t->v[i].note == note && t->v[i].gate) {
+    /* a fallback above already has its new pitch; a C64 chord (v[0]) ends with its last key, whichever note sounds */
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].gate && (chord && !i ? !t->nmono && (held || t->v[0].note == note) : t->v[i].note == note)) {
             t->v[i].gate = 0;
             t->v[i].stage = 3;
         }
@@ -730,7 +728,7 @@ static void engine_render(track_t *t,voice_t *v,const engine_t *e,int32_t *out,u
         engine_batch_t j;j.track=t;j.voice=v;j.engine=e;j.modulation=*m;j.n=n;
         for(uint32_t k=0;k<8u;k++)j.engine_params[k]=t->p[P_E0+k];
         for(uint32_t k=0;k<DV_NLANE;k++)j.lane_params[k]=t->p[P_LN0+k];
-        audio_batch_push(engine_batch_kernel,&j,sizeof j,out,n,e==&ENG_CZ?AP_CZ:e==&ENG_SID?AP_SID:drum_is909(t)?AP_909:AP_808);return;
+        audio_batch_push(engine_batch_kernel,&j,sizeof j,out,n,e==&ENG_CZ?AP_CZ:e==&ENG_SID||drum_issid(t)?AP_SID:drum_is909(t)?AP_909:AP_808);return;
     }
     e->render(t,v,out,n,m);
 }

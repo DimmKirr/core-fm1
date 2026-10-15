@@ -356,7 +356,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         uint32_t values[8u+NPART];fm1_irq_off();
         values[0]=fm1_clock_mhz_of(fm1_clock_mult());values[1]=audio_timer5_max_ticks;values[2]=audio_irq_max_ticks;
         values[3]=MELODEE_AUDIO_PROFILE;values[4]=MELODEE_AUDIO_BENCH;values[5]=MELODEE_ADMISSION;values[6]=HALF_FRAMES;
-        for(uint32_t p=0;p<NPART;p++)values[7u+p]=voice_contract_cap(&trk[p]);
+        for(uint32_t p=0;p<NPART;p++)values[7u+p]=trk_nvoice(&trk[p]);
         values[7u+NPART]=(uint32_t)settings_budget;
         fm1_irq_on();ed_b(0);ed_b(2);ed_b(8u+NPART);
         for(uint32_t k=0;k<8u+NPART;k++)for(uint32_t j=0;j<5u;j++)ed_b(values[k]>>(7u*j));

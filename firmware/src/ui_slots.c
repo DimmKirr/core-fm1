@@ -22,14 +22,14 @@ static uint32_t slot_kind(void)
     return pg->graph == GR_SLOTS ? SK_PROJECT : pg->graph == GR_USER ? SK_USER : pg->graph == GR_FMSTORE ? SK_FM6 :
            pg->scope == SC_P5STORE ? SK_P5 : SK_NONE;
 }
-static uint32_t slot_count(uint32_t k) { return k == SK_PROJECT ? (uint32_t)PROJ_TMPL + 1u : user_limit(); }
+static uint32_t slot_count(uint32_t k) { return k == SK_PROJECT ? (uint32_t)PROJ_TMPL + 1u : UP_SLOTS; }
 static uint32_t slot_cur(uint32_t k)                    /* the row picked */
 {
     switch (k) {
     case SK_PROJECT: return ui.proj_new ? (uint32_t)PROJ_TMPL : (uint32_t)song.g[G_SLOT] - 1u;
-    case SK_USER: return ui.uslot % user_limit();
-    case SK_FM6: return fm6_bslot % user_limit();
-    default: return ((uint32_t)p5_store_slot - 1u) % user_limit();
+    case SK_USER: return ui.uslot % UP_SLOTS;
+    case SK_FM6: return fm6_bslot % UP_SLOTS;
+    default: return ((uint32_t)p5_store_slot - 1u) % UP_SLOTS;
     }
 }
 static uint32_t slot_boot(void)                         /* the row power-on loads (+1), 0 none */
@@ -54,12 +54,12 @@ static int slot_row(uint32_t k, uint32_t r, char *tag, char *nm)
                     : used ? "Saved" : "--", 16);
         return used;
     }
-    user_label(tag, r);
-    if (!user_used(r) && !user_old(r)) {
+    up_slot_label(tag, r);
+    if (!up_used(r) && !up_old(r)) {
         str_cpy(nm, "--", 16);
         return 0;
     }
-    user_name(r, nm);
+    up_name(r, nm);
     return 1;
 }
 static void slot_detail(uint32_t k, uint32_t r, int used, char *b)   /* the card's second line */
