@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+// Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 // The Dexed side of the FM6 parity test (tests/fm6_parity.sh): renders a score (tests/fm6_score.h)
 // through Dexed's own synthesis sources (a Dexed checkout, DEXED_SRC: msfa/ and the Mark I / OPL
 // engines), with the voice handling of Dexed's DexedAudioProcessor (keydown / keyup / chooseNote,

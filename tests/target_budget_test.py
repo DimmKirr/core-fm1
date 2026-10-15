@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Assembly layouts must not turn alternative paths into nested DSP loops."""
 import importlib.util
 from pathlib import Path

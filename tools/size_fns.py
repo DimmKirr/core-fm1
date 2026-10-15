@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Build the main-loop code for size (build.py): the functions defined in SIZE_FILES get LLVM's
 minsize (about -Oz) while everything else (the sound, render and ISR code, the flash and OTA code,
 the main loop) keeps -Os. The JieLi clang 4 has no '#pragma clang attribute' and its minsize
@@ -54,7 +55,9 @@ def definitions(text):
 def size_names():
     # These recording helpers only restore, copy or reindex editor/persistence data.
     # Playback, live capture and erase functions retain the normal optimization.
-    names = {"recording_restore_note", "recording_copy", "recording_reindex"}
+    names = {"recording_restore_note", "recording_copy", "recording_reindex",
+             "drum909_init", "drum909_set", "drum_note_on", "voice_start",
+             "audio_batch_push", "mix_prepare_batch", "fm6_sync", "cz_native_block"}
     for f in SIZE_FILES:
         names.update(n for n in definitions((SRC / f).read_text()) if not n.endswith("_irq"))   # (ISRs stay as they are)
     return names

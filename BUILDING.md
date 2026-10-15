@@ -85,10 +85,10 @@ Build options (environment; most use `0` or `1`; defaults in `firmware/src/build
 | --- | --- | --- |
 | `MELODEE_FLASH` | 1 | settings, presets and projects in flash |
 | `MELODEE_OTA` | 1 | update entry (needs `MELODEE_FLASH`) |
-| `MELODEE_USB_AUDIO` | 1 | USB audio: "Melodee Out" plays the computer through the FM-1, "Melodee In" records the four tracks (16 / 24 bit, 44.1 kHz) |
+| `MELODEE_USB_AUDIO` | 1 | One duplex "Melodee" device: stereo playback and stereo master recording or optional four-track mono recording (16 / 24 bit, 44.1 kHz) |
 | `MELODEE_CDC` | 0 (1 without USB audio) | USB serial console; it shares EP2 / EP3 with USB audio, so `MELODEE_USB_AUDIO=0` |
 | `MELODEE_UART` | 1 | TRS MIDI IN |
-| `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; `0` builds serial-only firmware |
+| `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; target builds require `1` |
 | `MELODEE_SLICE` | 1 | the SLICE engine |
 | `MELODEE_ICONS` | 1 | parameter icons on the knob cards |
 
@@ -163,17 +163,57 @@ python3 tools/fm1_install.py --info          # identity of the connected FM-1
 ```
 
 Or, to install your own build from the web installer, make a local copy of the site and open it from `localhost`
-(Web MIDI needs a secure context):
+(Web MIDI needs a secure context). See [Local site](#local-site) below.
+
+## Local site
+
+`web/make_site.py` assembles GitHub Pages layout under an output directory:
+
+- `webapp/installer/` — self-contained installer
+- `webapp/editor/` — patch editor
+- `webapp/manual/` — the stable manual from `web/manual/` (HTML and screenshots), published with a full release
+- `firmware/` — the dual-core `.fwsc` package, LICENSE texts
+
+The manual’s screenshots are generated into `web/manual/` (NIGHT palette only) and
+are not committed. `build/` is gitignored, and so are those PNGs.
 
 ```
-# Build both variants from the same source; release outputs are kept separately.
-MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.6
-MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.6
-python3 web/make_site.py build/release-1.3.6/melodee-1.3.6.fwsc \
-  build/release-1.3.6-1core/melodee-1.3.6-1core.fwsc 1.3.6 /tmp/melodee-site
+# 0) Firmware (and host-test assets under build/gen). Needed before UI renders or release packages.
+MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.3
+
+# 1) Host UI renders → build/ui_new/<PALETTE>/*.png (and side folders). Needs Pillow.
+#    Supported path: the host test suite (ui_renders is one of its jobs).
+tests/run_tests.sh
+#    SOUND=0 tests/run_tests.sh   # skip the long sound tests if you only need UI/screenshots
+
+# 2) Copy the NIGHT frames named in web/manual/index.html into the manual.
+python3 tools/manual_shots.py            # build/ui_new/NIGHT → web/manual/
+# python3 tools/manual_shots.py --require  # succeed when every figure is already present
+# python3 tools/manual_shots.py --sources  # succeed when every source render exists
+# python3 tools/manual_shots.py --check    # report missing/stale without writing
+
+# 3) Assemble Pages layout and serve it (Web MIDI needs localhost / HTTPS).
+python3 web/make_site.py build/release-1.3.3/melodee-1.3.3.fwsc \
+  1.3.3 /tmp/melodee-site
 cd /tmp/melodee-site && python3 -m http.server 8000
 # open http://localhost:8000/webapp/installer/
+#      http://localhost:8000/webapp/manual/
+#      http://localhost:8000/webapp/editor/
 ```
+
+`web/quick-host.sh` can be run from any directory. `VERSION` defaults to the firmware
+version in `tools/fm1_recover.py`. It runs step 2 only when the manual is missing figures.
+If any frame named in the manual is missing from `build/ui_new/NIGHT/`, it renders those
+screens (`UI=renders tests/run_tests.sh`) and then copies them. It replaces `SITE_DIR` only
+when that path is already a Melodee site (or does not exist yet).
+A stable release does the same after the host tests, before the site is published.
+Nightly and release-candidate publishes update the installer and their packages, and leave
+the stable manual on the last stable release. Nightlies publish a separate development guide
+at `webapp/manual/nightly/`, stamped with the firmware version. Stable publishes keep that
+development guide.
+`make_site.py` publishes the manual page and the screenshots it embeds on a full publish,
+and removes old PNGs and version folders from `webapp/manual/` while preserving `nightly/`. An
+installer-only update does not need the screenshots.
 
 Installing firmware is at your own risk. If an install fails and the FM-1 no longer
 starts, identify its recovery mode using the steps below.
@@ -197,7 +237,7 @@ If it appears as USB **4c4a:8057**, with inquiry identity **WL82 / UBOOT1.00**, 
 already in mask-ROM UBOOT. `tools/fm1_recover.py` can recover it over a normal USB data
 cable, without an RP2040. It does not force a running device into UBOOT.
 
-The [1.3.5 release downloads](https://github.com/keremimo/melodee/releases/tag/v1.3.5)
+The [1.3.3 release downloads](https://github.com/keremimo/melodee/releases/tag/v1.3.3)
 include standalone recovery archives for Windows x64, Linux x64, macOS Intel/x64
 and Apple Silicon/arm64. Extract the matching archive and follow its `RECOVERY.md`,
 also available [here](docs/RECOVERY.md). Python, libusb and the RAM helper are bundled.
@@ -333,9 +373,11 @@ Host suite, golden renders, concurrent PCM/state comparison, address/thread
 sanitizers and both serial/dual-core builds passed. The startup correction also
 passed the target budget check; the serial package remained byte-identical.
 
-`./build.sh` enables a bare-metal CPU1 worker by default. Use
-`MELODEE_DUAL_CORE=0 ./build.sh` for serial-only firmware. Application and
-assembly startup share this default in `firmware/src/build_options.h`.
+`./build.sh` enables a bare-metal CPU1 worker. Following the CPU voltage
+startup fix, this branch builds and distributes dual-core firmware only;
+`MELODEE_DUAL_CORE=0` is rejected by the target build tool. Application and
+assembly startup share the default in `firmware/src/build_options.h`.
+CPU1 fault retirement and serial host reference tests remain supported.
 There is no async runtime or RTOS dependency. Sustained musical load and
 battery impact still need device measurements.
 
@@ -457,13 +499,13 @@ with [charlesvestal](https://github.com/charlesvestal)'s register reads, found t
 multiplier in PLL2_CON1 (0x119AC): the SPL's 268 means 24 MHz / 12 x 270 = 540 MHz, and
 CLK_CON2 selects 2/3, so SYS 360 / HSB 180 / LSB 60 / SFC 90 MHz.
 
-1.3.0 to 1.3.3 offered a boot-time retune to 320 MHz (OVERCLOCK; the default in
+1.3.0 to 1.3.3 and 1.4.0-rc.1/2 offered a boot-time retune to 320 MHz (OVERCLOCK; the default in
 1.3.0 and 1.3.1). On some FM-1s, the ones whose CPU1 also misbehaves, the retune failed
 before the LCD and USB came up: the watchdog reset, the next start retuned and failed
 again, and the boot guard entered UBOOT behind a black screen (a retained-RAM capture of
 a bricked 1.3.0 unit showed every start stopping between the clock code and the
-splash). 1.3.2 and 1.3.3 made 360 MHz the default and guarded the option; 1.3.4 removes
-it. Its setting bits in `favorites.factory[15][30]` (2..4) are left as saved and never
+splash). 1.3.2 and 1.3.3 made 360 MHz the default and guarded the option; 1.3.4 and 1.4
+remove it. Its setting bits in `favorites.factory[15][30]` (2..4) are left as saved and never
 read. A soft reset keeps the PLL, so after an update from a session at 320 MHz the
 FM-1 runs at 320 until its next power-off; `main.c` `clock_boot` reads the multiplier
 for the voice budget.
@@ -523,54 +565,33 @@ release tails before adopting it in a release.
 
 ## Nightly builds from `nightly`
 
-The web installer keeps the released standard and single-core packages and
-adds two development builds from `nightly`: dual core and single core, both with
-`MELODEE_RAM_AUDIO=1`. Both run at the boot loader's clock (above).
-Save a complete backup in the editor before trying a nightly. Selecting
+The installer offers dual-core firmware for the stable, **Release candidate**
+and nightly channels. `web/publish_rc.py <pages checkout> <release assets
+directory>` checks the candidate's package hashes and build metadata before
+adding it. Stable and nightly updates preserve the RC channel.
+
+The development build from `nightly` uses `MELODEE_RAM_AUDIO=1` and both CPU
+cores. Save a complete backup in the editor before trying a nightly. Selecting
 Standard in the installer returns to the released firmware.
 
 `./build.sh --nightly` stamps the current Git commit into the firmware version
-(`next-<commit>`) and uses development identity `FM-1_900`. Build both variants
-from the same commit; `MELODEE_DUAL_CORE=0 ./build.sh --nightly` produces
-`build/melodee-nightly-1core.fwsc`, while the dual-core package is
-`build/melodee-nightly.fwsc`. The installer shows the source commit and UTC
-build time, verifies the selected channel's identity, and locks all choices
-while installing.
+(`next-<commit>`), uses development identity `FM-1_900`, and produces
+`build/melodee-nightly.fwsc`. Single-core packages are no longer built,
+checksummed, uploaded or offered by the installer. The installer shows the
+source commit and UTC build time, verifies the selected channel's identity,
+and locks all choices while installing.
 
 The Nightly builds workflow runs on pushes to `nightly`, manually, and daily at
 02:00 UTC. Its scheduled definition must also exist on GitHub's default branch.
-It checks out `nightly`, builds both variants, runs the host/web suite,
+It checks out `nightly`, builds the dual-core firmware, runs the host/web suite,
 and publishes only after successful checks. Packages, checksums and source
 metadata are available as an Actions artifact and in `gh-pages/firmware`.
 `web/publish_nightly.py` updates the existing Pages checkout while keeping its
-published release packages and editor.
-
-## Synth-only firmware
-
-The `synth-only` branch is a one-track sound module for playing and recording into a computer: every
-synth with its sound pages, ARP, CHORD and SCALES, the effects (drive, chorus, delay, reverb), and
-stereo master capture on the USB audio input. It has no sequencer, songs or project saving; PLAY holds
-the ARP, and the last sound comes back at power-on. It keeps the main firmware's flash layout, so the
-projects and presets saved on the FM-1 stay and return with Standard. The branch is never merged into
-`next`.
-
-The installer offers it as an option (Synth only, dual or single core) when the site carries it, with
-its own editor at `webapp/synth-editor/`. Build both variants on `synth-only` from one commit
-(`--nightly` stamps `synth-<commit>` with identity `FM-1_900`), then add them to a Pages checkout from
-this branch's `web/`:
-
-```
-# on synth-only
-MELODEE_RAM_AUDIO=1 ./build.sh --nightly
-MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --nightly
-# from next's web/: the packages, the source commit, the synth-only checkout's web/ (its editor)
-python3 web/publish_synth.py <pages checkout> --dual <synth>/build/melodee-synth-nightly.fwsc \
-  --single <synth>/build/melodee-synth-nightly-1core.fwsc --version synth-<commit> \
-  --commit <full commit> --built-at <UTC time> --web <synth>/web
-```
-
-`web/make_site.py` and the nightly workflow keep the synth-only packages, `firmware/synth.json` and
-its editor when they regenerate the site.
+published release packages, editor, and stable manual. The stable manual goes out with a stable
+release. The development manual is published at `webapp/manual/nightly/` with each nightly.
+Keep experimental firmware commits on `nightly`; updating `next` alone does
+not publish a nightly. The workflow routing is also kept on `main` (the
+scheduled definition) and `next` so neither retains the old source or trigger.
 
 ## EQ accelerator experiment
 

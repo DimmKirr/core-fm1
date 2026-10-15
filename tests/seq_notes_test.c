@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Original performance events through real recording, panel, playback and storage paths. */
 #define RECORDING_NO_MAIN 1
 #include "recording_test.c"
@@ -69,8 +70,10 @@ static int deletion_history(void)
     step_history_apply(0);frame();step_history_apply(0);frame();
     press(B_EDIT);
     bad+=check("a new one-hit deletion drops the old redo branch",!step_history_apply(1));
+    recorded_note_t before_take[RECORD_MAX];memcpy(before_take,recording,sizeof before_take);
     song.rec=1;seq_start();seq_advance(0);seq_advance(180);input_on(t,60,120);seq_advance(60);input_off(t,60);seq_stop();song.rec=0;
-    frame();bad+=check("slot reuse by recording invalidates deletion undo",!step_history_apply(0)&&recording[0].vel==120);
+    frame();bad+=check("slot reuse by recording undoes the take instead of stale deletions",step_history_apply(0)&&!memcmp(before_take,recording,sizeof before_take));
+    bad+=check("redo restores the new take in its reused slot",step_history_apply(1)&&recording[0].vel==120);
     return bad;
 }
 
@@ -84,7 +87,7 @@ static int loop_drums_and_playback(void)
                   notes_selected(t)==0&&recording_view(t,&recording[0])==0);
     press(B_EDIT);bad+=check("late-loop deletion clears its step-zero overview",!recording[0].vel&&!step_on(&t->step[0]));
     hold(B_EDIT);bad+=check("late-loop undo restores the event and overview",!memcmp(&saved,&recording[0],sizeof saved)&&step_on(&t->step[0]));
-    cursor_set(1);frame();press(B_EDIT);bad+=check("empty interval deletion leaves neighbouring notes alone",!memcmp(&saved,&recording[0],sizeof saved)&&!step_history_apply(0));
+    cursor_set(1);frame();press(B_EDIT);bad+=check("empty interval deletion leaves neighbouring notes and manual history alone",!memcmp(&saved,&recording[0],sizeof saved)&&!step_history.pending&&!step_history.pos);
     turn(EN_PRESET,100);bad+=check("zoom clamps at one step",ui.note_zoom==4);
     turn(EN_PRESET,-100);bad+=check("zoom clamps at sixteen steps",ui.note_zoom==0);
 
@@ -411,7 +414,7 @@ static int erase_edit_hold_conflicts(void)
         if(context==0)go_home();
         if(context==1)go_page(GR_STEPS);
         if(context==2){set_engine_of(t,ENGI_DRUM);t->engine=t->eng_req;seq_stop();song.rec=0;go_page(GR_ROLL);}
-        frame();undo_clear();step_t before=t->step[0];erase_down();frames(800);
+        frame();undo_clear();recording_undo_clear();step_t before=t->step[0];erase_down();frames(800);
         int normal=!layer_open()&&!seq_erase_active(t);
         seq_advance(6144);erase_up();
         bad+=check("EDIT hold outside live NOTES never opens a navigation layer or deletes on release",normal&&!memcmp(&before,&t->step[0],sizeof before));

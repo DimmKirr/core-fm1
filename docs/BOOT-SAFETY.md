@@ -3,8 +3,8 @@
 Melodee's boot protection is adapted from [ChoralRoot FM-1 v0.16](https://github.com/Quixotic7/ChoralRootFM1/tree/v0.16),
 commit `9c7445cdd7b767c779741d28654fb59cca3acd97`, under GPL-3.0-only.
 The shared `CRSTUB` entry signature and `CRBM` marker format are retained.
-Melodee 1.3.5 introduces this protection on the stable release line. Stock V15 and
-Melodee through 1.3.4 do not gain protection until a build containing the stub is installed.
+This applies to builds containing `firmware/stub/`; existing published releases
+without the stub do not gain protection until one of these builds is installed.
 
 ## Recovery
 
@@ -64,56 +64,51 @@ Damaged or foreign staging is erased. Presets, projects, samples and settings
 outside the update windows are untouched. The stub reserves 32 bytes at RAM
 `0x01C7C000`; application retained state begins at `0x01C7C020`.
 
-## Stored data at first boot
+## First-boot data compatibility
 
-Settings are checked before USB starts or a startup project/template loads.
-Empty, invalid or incompatible foreign settings use defaults immediately,
-including retained RAM preferences, then commit one owned PER5 record through
-the existing A/B save. The display is flushed before this write. A failed write
-keeps the previous committed object, shows an error and queues a retry; retry
-also shows progress even if the RAM defaults have not changed.
+The 1.3.5 storage safeguards also apply on the development line. Before USB
+starts or a BOOT project/template loads, the complete settings envelope must
+match Melodee's layout. Foreign or invalid settings replace retained RAM with
+sane defaults and commit once through the A/B save, with visible progress and
+retry after failure. A fork's longer PER5 object cannot be truncated into our
+USB/global preferences. Validated settings receive an MDS version marker in
+unused bytes of the retired DIGITAL favorites row, retaining the PER5 layout.
+Compatible legacy settings and supported templates survive; unknown future
+markers and recognizable but unreadable templates stay protected for backup.
+Legacy layout compatibility does not prove which firmware last ran.
 
-Legacy PER5 has no firmware identity. Its tagged palette, settings schema and
-complete optional template layout must match Melodee before it is accepted.
-The longer ChoralRoot PER5 layout is rejected rather than truncated into our
-USB/startup/global settings. A versioned `MDS` marker in the retired DIGITAL
-favorites row records validation without changing the PER5 layout. This is a
-compatibility marker, not authentication of the firmware that last ran.
-Unknown future marker versions and recognizable but unreadable Melodee
-templates stay protected for backup and explicit replacement.
-
-Projects require known magic, size, hashes, parameter count and field bounds;
-templates also require known layout, selection and engine IDs. A fork's unknown
-engine must not wrap into an existing engine. Rejected projects remain
-**OLD FORMAT**, occupied and excluded from automatic startup loading. Settings
-cleanup does not format these slots or any existing preset bank.
+Projects and templates require known layout, parameter count, selection and
+engine IDs. Unknown engines cannot wrap into existing ones. Rejected projects
+remain OLD FORMAT and cannot auto-load or be automatically overwritten.
+Settings cleanup does not format musical data. The development line retains
+its tagged shared workload-budget preference; cleanup defaults it to the
+standard budget. A settings-repair error also prevents preset migration from
+replacing its failure screen.
 
 ## Preset reset policy from 1.3.6
 
-Startup treats unsupported preset formats as damaged data to reset. Invalid
-native FM6/CZ banks get the same empty defaults as missing banks. Unsupported
-general user-preset banks become empty, while readable banks keep compatible
-records and clear only unreadable entries. This deliberately discards unsupported
-preset contents; back up before updating if another firmware may need them.
-Projects and unsupported settings/template ownership retain their separate guards.
+Startup resets unsupported preset banks to empty defaults and clears unreadable
+entries in otherwise readable banks. Compatible records survive; recognized
+legacy Melodee banks still convert normally, including FM6 sidecars and Prophet
+spill records. This deliberately discards unsupported preset contents. Backup
+before updating if another firmware may need them. Projects keep OLD FORMAT
+protection, and live writes remain guarded until boot or explicit replacement.
 
-Progress is flushed before each reset. A/B commits keep the prior copy until
-the default/repaired bank is fully written and verified. A failed write remains
-visible and prevents later preset initialization from hiding it; restarting retries
-the unfinished bank. A successfully reset bank is not rewritten on later boots.
+Each repair is displayed before its A/B write. Failure retains the prior
+committed copy and stops further migration with a visible error. Restart retries
+unfinished repairs; successful repairs do not repeat. Migration may then perform
+its normal writes for the remaining recognized legacy banks.
 
-Validation: Standard and Single core 1.3.6 builds pass; both packages retain the
-boot sector of published 1.3.5. The full host suite passes. Simulated NOR tests
-check unsupported general/FM6/CZ banks, preservation of good entries and project
-bytes, visible writes, interruption before four different program calls, retry,
-and no repeated writes after success. Physical device validation remains pending.
+Validation: the target build and full host suite pass, including reset/cut/retry
+checks, preservation of good entries in partially readable legacy banks, multiple
+FM6 sidecars across shared-cache reuse, and the existing 384-slot conversions.
+Physical device validation remains pending.
 
 ## Limits and verification
 
 The first installation of the stub, a stub change, or a directory/SDK layout change
-must rewrite the boot sector. First installations remain unprotected until that
-sector is complete, including the preceding marker-sector erase. A power cut
-during that phase or a boot-sector rewrite can still require hardware recovery. Keep the battery charged, connect
+must rewrite the boot sector. A power cut while that sector is erased or partially
+written can still require hardware recovery. Keep the battery charged, connect
 USB directly, and keep the computer awake. Installing older Melodee, stock firmware
 or another package without a compatible stub removes this protection.
 
@@ -144,7 +139,7 @@ normal warm/cold boots, OCT− rescue, both-key calibration, interrupted ordinar
 updates followed by cold-boot recovery and reinstall, and preservation of musical
 data. Do interruption testing only with an independent recovery route available.
 
-Original next-branch validation on 2026-10-14: default, resident-audio dual-core and resident-audio
+Validation on 2026-10-14: default, resident-audio dual-core and resident-audio
 single-core target builds passed; both release configurations produced identical
 sector `0x4000`. The host suite with `SOUND=0` passed. The four synthetic update
 scenarios exercised 8,555 cut points, including 2,126 with an unchanged stub and
@@ -153,41 +148,3 @@ no unprotected state. An additional single-core to dual-core update exercised
 package tests passed 265 checks, and the two staged-loader checkers agreed on
 20,480 damaged copies. These are automated results; no device was flashed or
 physically power-cycled for this change.
-
-1.3.5 backport validation on 2026-10-14: Standard and Single core release builds
-passed, used the pinned version-3 stub, and produced identical sector `0x4000`.
-The full host suite passed against the Standard build (including sound and target
-render-cost checks). Boot-stub tests passed 16,143 checks and package tests passed
-265 checks. The four synthetic scenarios exercised 8,215 cut points. A separate
-simulation using the genuine, hash-verified official V15 package exercised 2,432
-cut points: 2,414 selected rescue, one was the completed boot, and 17 were in the
-initial unprotected phase before the stub sector was complete. Single core to
-Standard exercised 2,041 cut points with no unprotected state. Across these six
-scenarios, 12,688 interruption positions were checked. Genuine V15 recovery-package
-validation also passed. No device was flashed or physically power-cycled.
-
-Startup-display hotfix validation on 2026-10-14: both release variants passed
-build checks and kept the pinned boot sector identical. The full host suite,
-including sound and target render-cost checks, passed again. Simulated NOR tests
-verify that the warning is flushed before the twelve first-boot bank erases,
-that completed banks are preserved after a failure, and that retry initializes
-only the nine unfinished banks in the injected partial-failure case. UI tests
-verify that working screens consume input and that errors remain visible above
-menus/dialogs, do not sleep, and require OCT+ acknowledgment. Progress and error
-renders were visually checked. Physical first-boot/display validation remains
-pending.
-
-First-boot data hotfix validation on 2026-10-14: the full host suite passed in
-57 seconds, including sound, target cost, backup/restore and storage safety.
-Both release variants built successfully and retained the same pinned stub and
-boot sector. Simulated NOR tests cover the CRC-valid 764-byte ChoralRoot PER5
-collision, erased storage, 31 random settings-sector fills, CRC-valid malformed
-settings, retained RAM, compatible legacy settings/templates, intentional USB
-OFF, future ownership versions, and all four settings-program interruption points.
-Successful retries persist defaults even when RAM has not changed, and subsequent
-boots do not rewrite them. Checksums outside the two settings sectors remain
-unchanged during cleanup. CRC-valid incompatible bank/project layouts and unknown
-engine IDs cannot load at boot and keep their raw bytes; incompatible template
-engines stay inert while compatible settings survive. Settings progress/error
-renders were visually checked. Physical stock-to-Melodee first-boot validation
-remains pending.

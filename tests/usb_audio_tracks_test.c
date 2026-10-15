@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Real render path (mix.c mix_part -> track_capture -> usb_audio_stream.c ua_audio): Melodee In's four channels are
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* Real render path (mix.c mix_part -> track_capture -> usb_audio_stream.c ua_audio): Melodee's four input channels are
  * the four tracks, each isolated, after DIST, the SLICER and LEVEL, independent of the monitor's pan, sends and
  * MASTER; a silent block clears its channel. */
 #include <assert.h>
@@ -22,7 +22,8 @@ static struct result render(uint32_t channel, int sliced, int variant)
         int32_t out[CTL * 2];
         track_t *t = &trk[channel];
         close(fd[0]);
-        usb.up=usb.config=1;usb.suspended=0;ua.cap_alt=1;ua_cap_channels=4;
+        usb.up=usb.config=1;usb.suspended=0;ua.cap_alt=1;
+        ua_tracks=ua_tracks_want=1;ua_off=0;ua_cfg_build();
         host_tracks_init();
         for (uint32_t k = 0; k < NPART; k++) host_preset(&trk[k], HOST_SYNTH, 0);
         t->p[P_RESERVED33] = 60;
@@ -91,7 +92,7 @@ static struct result stereo_render(int insert, int send, uint32_t master)
         song.g[G_FXRETURN] = 127;
         song.master_q12 = master;
         usb.up = usb.config = 1; usb.suspended = 0;
-        ua.cap_alt = 1; ua_cap_channels = 2;
+        ua.cap_alt = 1; ua_tracks = ua_tracks_want = 0; ua_off = 0; ua_cfg_build();
         for (uint32_t i = 0; i < CTL * NTRK; i++) track_capture[i] = 123456;
         trk_note_on(&trk[0], 60, 100);
         for (uint32_t block = 0; block < 2048; block++) {
@@ -119,8 +120,71 @@ static struct result stereo_render(int insert, int send, uint32_t master)
     return result;
 }
 
+/* Follow the enumerated mode through mixer collection, ring writes and actual
+ * PCM16/24 packets. A muted master makes any L/R fallback immediately visible;
+ * all four simultaneous tracks must survive only while 4 TRACKS is enabled. */
+static void mode_packets(uint8_t alt)
+{
+    pid_t child = fork();
+    int status;
+    assert(child >= 0);
+    if (!child) {
+        int32_t out[CTL * 2];
+        int16_t expected[(UA_TARGET + CTL) * NTRK];
+        uint8_t packet[UA_PACKET];
+        host_tracks_init();
+        for (uint32_t ch = 0; ch < NTRK; ch++) {
+            host_preset(&trk[ch], HOST_SYNTH, 0);
+            trk[ch].p[P_PAN] = ch & 1u ? 63 : -64;
+            trk_note_on(&trk[ch], 48 + ch * 7u, 100);
+        }
+        song.master_q12 = 0;
+        usb.up = usb.config = 1; usb.suspended = 0; ua_off = 0;
+        for (uint32_t mode = 0; mode < 3; mode++) {
+            uint32_t tracks = mode != 1;     /* four tracks -> stereo -> four tracks */
+            ua_reset();
+            ua_tracks = ua_tracks_want = (uint8_t)tracks;
+            ua_cfg_build();
+            ua.cap_alt = alt;
+            uint32_t channels = tracks ? NTRK : 2u;
+            assert(ua_cap_channels == channels);
+            for (uint32_t at = 0; at < UA_TARGET + CTL; at += CTL) {
+                for (uint32_t i = 0; i < CTL * NTRK; i++) track_capture[i] = 123456;
+                mix_block(out, CTL);
+                assert(track_capture_on == tracks);
+                for (uint32_t i = 0; i < CTL * 2u; i++) assert(out[i] == 0);
+                if (!tracks)
+                    for (uint32_t i = 0; i < CTL * NTRK; i++) assert(track_capture[i] == 123456);
+                for (uint32_t i = 0; i < CTL * channels; i++)
+                    expected[at * channels + i] = (int16_t)(tracks ? ua_clip(track_capture[i]) : out[i]);
+                ua_audio(out, track_capture_on ? track_capture : 0, CTL, song.master_q12);
+            }
+            uint32_t read = 0, width = ua_sample_bytes(alt);
+            uint64_t energy[NTRK] = {0};
+            for (uint32_t p = 0; p < 12; p++) {
+                uint32_t bytes = ua_transmit(packet);
+                assert(bytes && bytes % (channels * width) == 0);
+                for (uint32_t i = 0; i < bytes / (channels * width); i++, read++) {
+                    assert(read < UA_TARGET + CTL);
+                    for (uint32_t ch = 0; ch < channels; ch++) {
+                        int32_t sample = ua_decode(packet + (i * channels + ch) * width, width);
+                        assert(sample == expected[read * channels + ch]);
+                        energy[ch] += (int64_t)sample * sample;
+                    }
+                }
+            }
+            for (uint32_t ch = 0; ch < channels; ch++) assert(!!energy[ch] == tracks);
+        }
+        _exit(0);
+    }
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
 int main(void)
 {
+    mode_packets(1);
+    mode_packets(2);
+    puts("USB mode packets: all four lanes survive a muted master, stereo disables stems, PCM16/24 transitions: OK");
     struct result dry = stereo_render(0, 0, 4096);
     struct result insert = stereo_render(1, 0, 4096);
     struct result wet = stereo_render(1, 1, 4096);

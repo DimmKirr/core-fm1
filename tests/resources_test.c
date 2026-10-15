@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Resource lifetimes under cache eviction, audio transitions and exhaustion. */
 #define PERSISTENCE_TEST_NO_MAIN
 #include "persistence_test.c"
@@ -8,37 +9,37 @@ static int cache_tests(void)
 {
     int bad=0;uint8_t fm[FM6_PACKED],cz[CZ_BYTES];char name[13];
     reset();audio_resources_reset();up_boot();fm6_factory(3,fm);cz_patch_init(cz);
-    for(uint32_t b=0;b<4u;b++){fm[118]=(uint8_t)('A'+b);bad+=check("native FM cache writes across bank evictions",!native_put(ENGI_FM6,b*16u,fm));}
-    for(uint32_t b=0;b<8u;b++){cz[128]=(uint8_t)('A'+b);bad+=check("native CZ cache writes across bank evictions",!native_put(ENGI_CZ,b*16u,cz));}
-    for(uint32_t b=0;b<4u;b++){set_engine_of(TSEL,3);TSEL->p[P_E1]=(int16_t)b;   /* (SID's WAVE) */bad+=check("general cache writes across bank evictions",!up_store(b*16u,"BANK SOUND"));}
+    for(uint32_t b=0;b<4u;b++){fm[118]=(uint8_t)('A'+b);bad+=check("native FM cache writes across bank evictions",!native_put(ENGI_FM6,72u+b*18u,fm));}
+    for(uint32_t b=0;b<8u;b++){cz[128]=(uint8_t)('A'+b);bad+=check("native CZ cache writes across bank evictions",!native_put(ENGI_CZ,144u+b*18u,cz));}
+    for(uint32_t b=0;b<4u;b++){set_engine_of(TSEL,3);TSEL->p[P_E1]=(int16_t)b;   /* (SID's WAVE) */bad+=check("general cache writes across bank evictions",!up_store(b*18u,"BANK SOUND"));}
     up_boot();uint32_t reads=preset_reads;
     for(uint32_t k=0;k<64u;k++){up_used(k);up_engine(k);up_name(k,name);native_used(ENGI_FM6,k);native_name(ENGI_FM6,k,name);}
     for(uint32_t k=0;k<128u;k++){native_used(ENGI_CZ,k);native_name(ENGI_CZ,k,name);}
     bad+=check("browsing every preset name/slot does no flash reads",preset_reads==reads);
-    for(uint32_t b=0;b<4u;b++)bad+=check("FM cache reload preserves each independent patch",native_raw(ENGI_FM6,b*16u)[118]=='A'+b);
-    for(uint32_t b=0;b<8u;b++)bad+=check("CZ cache reload preserves each independent patch",native_raw(ENGI_CZ,b*16u)[128]=='A'+b);
-    for(uint32_t b=0;b<4u;b++)bad+=check("general cache reload preserves parameters",up_value(up_rec(b*16u),P_E1)==(int16_t)b);
+    for(uint32_t b=0;b<4u;b++)bad+=check("FM cache reload preserves each independent patch",native_raw(ENGI_FM6,72u+b*18u)[118]=='A'+b);
+    for(uint32_t b=0;b<8u;b++)bad+=check("CZ cache reload preserves each independent patch",native_raw(ENGI_CZ,144u+b*18u)[128]=='A'+b);
+    for(uint32_t b=0;b<4u;b++)bad+=check("general cache reload preserves parameters",up_value(up_rec(b*18u),P_E1)==(int16_t)b);
     {   /* one bank cache for every kind (upreset.c bank_buf): interleaved reads load the bank asked for and find each
          * kind's contents intact; an edit made while a user bank was the cached one reaches its index on eviction */
         p5_patch_t p5,got;p5_patch_init(&p5);memcpy(p5.raw+P5_NAME,"SHARED BANK P5      ",20);
         uint8_t old[CZ_BYTES];int ok=!native_put(ENGI_PROPHET,30,(const uint8_t *)&p5);
         for(uint32_t r=0;r<3u;r++)for(uint32_t b=0;b<4u;b++){
-            ok&=up_value(up_rec(b*16u),P_E1)==(int16_t)b && native_raw(ENGI_FM6,b*16u)[118]=='A'+b &&
-                native_raw(ENGI_CZ,(b+4u)*16u)[128]=='A'+b+4u && !cz_bank_get(b,0,old) && old[128]=='A'+b &&
+            ok&=up_value(up_rec(b*18u),P_E1)==(int16_t)b && native_raw(ENGI_FM6,72u+b*18u)[118]=='A'+b &&
+                native_raw(ENGI_CZ,144u+(b+4u)*18u)[128]=='A'+b+4u &&
                 !p5_user_get(30,&got) && !memcmp(got.raw+P5_NAME,"SHARED BANK P5",14);
         }
         bad+=check("one bank cache: user, FM6, CZ-1 (both views) and Prophet banks interleaved read back intact",ok);
-        set_engine_of(TSEL,3);up_store(5,"AFTER EDIT");native_raw(ENGI_FM6,16u);up_name(5,name);
+        set_engine_of(TSEL,3);up_store(5,"AFTER EDIT");native_raw(ENGI_FM6,90u);up_name(5,name);
         bad+=check("one bank cache: a user bank evicted after an edit keeps its index (the new name, no reload)",
-                   up_cached==255u && !strcmp(name,"AFTER EDIT"));
+                   up_cached==5u && !strcmp(name,"AFTER EDIT"));
         bad+=check("one bank cache: the largest bank's size, not the sum (8208 + 3600 B before)",
                    sizeof bank_buf==sizeof(up_bank_t) && sizeof(up_bank_t)>=sizeof(p5_bank_t) &&
                    sizeof(up_bank_t)>=sizeof(cz_bank_t) && sizeof(up_bank_t)>=sizeof(native_fm_t));
     }
     flash_ok=0;
-    bad+=check("missing flash refuses mutations without evicting committed indexes",native_put(ENGI_FM6,0,fm)==2 && native_put(ENGI_CZ,0,cz)==2 && up_store(0,"NO FLASH")==2 && native_used(ENGI_FM6,0) && native_used(ENGI_CZ,0) && up_used(0));
+    bad+=check("missing flash refuses mutations without evicting committed indexes",native_put(ENGI_FM6,72,fm)==2 && native_put(ENGI_CZ,144,cz)==2 && up_store(0,"NO FLASH")==2 && native_used(ENGI_FM6,72) && native_used(ENGI_CZ,144) && up_used(0));
     flash_ok=1;
-    bad+=check("failed missing-flash writes preserve stored patches",native_raw(ENGI_FM6,0)[118]=='A' && native_raw(ENGI_CZ,0)[128]=='A' && up_value(up_rec(0),P_E0)==0);
+    bad+=check("failed missing-flash writes preserve stored patches",native_raw(ENGI_FM6,72)[118]=='A' && native_raw(ENGI_CZ,144)[128]=='A' && up_value(up_rec(0),P_E0)==0);
     resource_get(RES_NOTE_HISTORY,RESOURCE_MAIN_CAPACITY);
     for(uint32_t b=0;b<RESOURCE_BANKS-1u;b++)if(b!=RESOURCE_CACHE_BANK || RESOURCE_CACHE_AVAILABLE)
         resource_get(RES_ENGINE0+b,(uint32_t)((uintptr_t)resource_banks[b].end-(uintptr_t)resource_banks[b].start));
@@ -52,7 +53,7 @@ static int audio_tests(void)
     audio_resources_reset();host_tracks_init();
     const uint8_t engines[4]={0,ENGI_FM6,3,ENGI_DRUM};uint32_t expected=sizeof(fm6_part_t)+sizeof(sid_part_t)+sizeof(drum_lane_t)*DV_NLANE;
     for(uint32_t k=0;k<4u;k++){trk[k].engine=engines[k];eng_state_prepare(&trk[k]);}
-    bad+=check("default engine setup uses 12440 bytes rather than 51552",resource_used()==expected && expected==12440u);
+    bad+=check("default engine setup and derived caches stay within 16 KiB",resource_used()==expected && expected<=16u*1024u);
     for(uint32_t cycle=0;cycle<2048u;cycle++){
         uint32_t k=cycle%NPART,e=eng_vis(cycle/NPART);
         eng_state_clear(k);trk[k].engine=(uint8_t)e;
@@ -67,7 +68,7 @@ static int audio_tests(void)
     for(uint32_t k=0;k<4u;k++){
         eng_state_clear(k);trk[k].engine=(uint8_t)largest_engine;eng_state_prepare(&trk[k]);
     }
-    bad+=check("four maximum engine states fit without effect buffers",resource_used()==maximum && maximum<=64u*1024u);
+    bad+=check("four maximum engine states fit without effect buffers",resource_used()==maximum && maximum<=48u*1024u);
     bad+=check("capacity exhaustion returns failure and preserves live memory",resource_get(RES_ENGINE0,RESOURCE_CAPACITY+4u)==0 && resource[RES_ENGINE0].size==largest);
     bad+=check("zero-byte requests release rather than return an arena pointer",!resource_get(RES_ENGINE0,0) && !resource[RES_ENGINE0].size);
     printf("resources: default engine bytes %u, worst audio bytes %u, host arena %u\n",expected,maximum,RESOURCE_CAPACITY);

@@ -2,16 +2,19 @@
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 
-![Melodee 1.0.0: the Melodee logo and six firmware screens](docs/media/melodee-1.0.0.png)
+![Current Melodee screens: HOME, SONG, MOTION and FX](docs/media/melodee-screens.svg)
 
 **TL;DR:** connect your FM-1 to a computer by USB, open the
 [web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
 
-Melodee 1.3.5 introduces boot protection for interrupted application updates,
-including power loss. The stub requests USB update mode when the application is
-incomplete. Switch on again, or hold **OCT− alone** while
+Current builds use both CPU cores. Following the CPU voltage startup fix,
+single-core packages are retired from the build, release and installer workflows.
+
+Melodee 1.3.5 and later builds with boot protection return to USB update mode after an interrupted
+firmware write, including power loss. Switch on again, or hold **OCT− alone** while
 switching on; three short key-light flashes mean you can reconnect USB and press Install
-again. The first installation remains unprotected until its boot sector is complete. Releases through 1.3.4 do not have it. See
+again. The first installation of this protection still needs uninterrupted power while
+its boot sector is written. Older releases do not have it. See
 [boot protection and validation limits](docs/BOOT-SAFETY.md).
 
 No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the installer's
@@ -22,7 +25,13 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.6** ([what's new](#whats-new-in-136)).
+**[Melodee 1.4.0](https://github.com/keremimo/melodee/releases/tag/v1.4.0)**
+([release notes](docs/RELEASE_1.4.0.md), [what's new](#whats-new-in-140)).
+
+The stable installer includes the latest UI, recording, effects, SID and preset-bank
+changes. Read the [illustrated manual](https://keremimo.github.io/melodee/webapp/manual/)
+for this release, or the [nightly guide](https://keremimo.github.io/melodee/webapp/manual/nightly/)
+for development firmware.
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -32,48 +41,41 @@ runs Felucca.
 
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
-- Synth only (optional): a one-track sound module build without the sequencer, for playing and recording
-  into a computer; choose **Synth only** in the installer, edit it with its own
-  [synth editor](https://keremimo.github.io/melodee/webapp/synth-editor/) ([BUILDING.md](BUILDING.md#synth-only-firmware))
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.4.0
+
+- **Larger, clearer UI:** Rubik or Melodee Pixel, coloured track rows, full-pattern dots,
+  new palettes, sound-reactive Stage edges and a persistent knob strip.
+- **FX racks:** three track inserts and a shared rack, chain/split routing, and DARK–FULL–THIN
+  TONE controls for ECHO, ROOM and REVERB with reduced bass buildup.
+- **C64 SID and drum kits:** frame-rate chip models, held-chord chip arpeggios, SID KIT and SID DIGI.
+- **Recording and patterns:** continuous explicit REC, one-pass pattern shortcuts, whole-take undo,
+  loop-end destructive edits and SEQ track-selection keys.
+- **Tracks and chords:** one to four tracks per song, a HOME chord wheel and assignable HOME/GLO SELECT.
+- **Shared presets:** U001–U384 for every engine, native voice data and supported legacy migration.
+- **USB audio:** one duplex Melodee device with host playback volume/mute; stereo or four-track capture.
+- **Online manual:** generated screenshots and separate stable/nightly guides, thanks to @relyt29.
+- **Performance and navigation:** audio optimizations, more audio RAM, a saved shared voice budget,
+  remembered EDIT-map pages and retained knob detents. Current packages use both cores.
+
+See the [release notes](docs/RELEASE_1.4.0.md) for compatibility and upgrade details.
 
 ## What's new in 1.3.6
 
-- **Stock V15 power startup:** both builds apply the original firmware's analog
-  setup, including DCDC handover and SYSVDD 15 / VDC14 7, before CPU1 starts.
-  The system PLL remains unchanged. Hardware stability validation is pending.
-- **Physical controls:** hold EDIT to undo, EDIT+OCT−/OCT+ for undo/redo, and hold
-  SAVE to save the current project. MIDI channel selection stays within its valid range.
-- **Reset incompatible preset banks:** startup replaces unsupported FM6, CZ and
-  general user-preset banks with empty defaults. In a readable general bank,
-  usable presets are kept and only unsupported entries are cleared. This erases
-  unreadable preset data; keep a backup if another firmware may need it.
-- **Visible and retryable resets:** progress appears before writes; interrupted
-  resets keep the previous committed copy and retry on restart. Projects retain
-  their OLD FORMAT protection.
+- **Reset unsupported preset data at startup:** unreadable banks become empty
+  defaults, while readable banks keep their compatible entries. This discards
+  unsupported preset data. Projects keep their OLD FORMAT protection. The
+  development line still converts recognized legacy Melodee presets normally.
 
 ## What's new in 1.3.5
 
-- **Visible startup work:** the screen shows STARTING UP before loading storage,
-  with a progress bar and a keep-power-connected message during first-boot
-  preset initialization or update cleanup. Errors remain visible until OCT+
-  acknowledges them; restart to retry unfinished work.
-- **Safe first-boot settings:** foreign or invalid settings reset once to sane
-  defaults, with stereo USB audio enabled. Compatible Melodee settings are kept.
-  Incompatible projects stay recoverable as OLD FORMAT and cannot load at startup.
-- **Recovery after an interrupted update:** a boot stub checks the application
-  before starting it. An incomplete write returns to the retained USB MIDI update
-  loader, with ROM UBOOT as a fallback. Reconnect USB and install the same package
-  again; sectors that already match are skipped.
-- **OCT− rescue at power-on:** hold OCT− alone while switching on to request the
-  update loader. Three short key-light flashes signal loader handover; one long
-  flash signals the request for ROM UBOOT. Both octave buttons still select calibration.
-- **First installation:** upgrading from stock V15 or Melodee through 1.3.4 writes
-  the boot-stub sector. Power loss while that sector is being written can still
-  require hardware recovery. Keep the FM-1 charged and connected throughout the update.
-- **Validation:** automated boot, package and interruption tests cover this change;
-  physical boot and recovery validation remains pending. See
-  [boot protection and limits](docs/BOOT-SAFETY.md).
+- **Visible startup and update recovery:** maintenance is displayed before flash
+  writes; a boot stub detects incomplete updates and requests the retained loader.
+- **Safe first-boot settings:** foreign or invalid records reset once to sane
+  defaults, including stereo USB audio. Compatible Melodee preferences survive.
+- **Project compatibility:** unknown layouts and engine IDs cannot load at boot.
+  Incompatible projects remain recoverable as OLD FORMAT.
 
 ## What's new in 1.3.4
 
@@ -142,8 +144,8 @@ This removes the relocation step; it does not establish the cause of the reporte
 ## What's new in 1.3.0
 
 This release adds track and shared effects, one-pass recording, selectable USB capture,
-and an optional autosave setting. Standard (dual-core) and Single core firmware are
-available in the installer and release downloads.
+and an optional autosave setting. The original release downloads included
+standard and single-core firmware; the current installer offers dual-core firmware only.
 
 - **Effects:** three inserts per track and a shared three-slot return, with independent
   sends. Choose Phaser, Width, Formant, Tape, Spit, Echo, Room, Reverb or Chorus.
@@ -160,8 +162,8 @@ available in the installer and release downloads.
   It defaults ON, remembers the choice across power-offs, and leaves manual SAVE working.
 - **Clock choice:** the HOME menu's OVERCLOCK chooses 320 MHz (default) or 360 MHz for
   the next start. A CPU fault at 360 MHz returns the device to 320 MHz.
-- **Installer options:** stable, next nightly and the separate synth-only firmware
-  remain selectable, with Standard and Single core variants for each.
+- **Installer options:** stable and nightly remain selectable. Current builds
+  use both CPU cores.
 - **Compatibility:** earlier Melodee project and template layouts load with their
   effect routing preserved. Back up before upgrading; older firmware may not reproduce
   the new effects and recording behavior.
@@ -169,8 +171,8 @@ available in the installer and release downloads.
 ## What's new in 1.2.1
 
 This release makes room for more voices. External effects are gone, the audio engine runs from fast
-internal RAM, and the firmware is about 115 KB smaller. Standard (dual-core) and Single core firmware
-are both available in the installer and release downloads.
+internal RAM, and the firmware is about 115 KB smaller. The original release downloads included
+standard and single-core firmware; the current installer offers dual-core firmware only.
 
 - **No external effects:** distortion, the SLICER, chorus, delay, reverb and the FX layer (repeat,
   reverse, filter sweeps, tape stop, freeze, harmonizer, flanger, phaser, FX LATCH and punch-in) are
@@ -197,8 +199,8 @@ are both available in the installer and release downloads.
 ## What's new in 1.1.0
 
 The minor release carries forward 1.0.2's native synth motion, pattern operations and UI fixes,
-with both Standard (dual-core) and Single core firmware available in the installer and release
-downloads. Both builds have the same features and project format.
+whose original release downloads included standard and single-core firmware
+with the same features and project format. Current builds use both cores.
 
 **On-device sound designer:** choose a sound goal or an expert synthesis path, start with INIT
 or your current tone, switch on the features the sound needs (Prophet pulse, Poly-Mod and unison,
@@ -223,11 +225,9 @@ or a sound page's action sheet. [Controls and saving](docs/SOUND_DESIGNER.md).
 
 ## What's new in 1.0.2
 
-- **Two installer builds:** Standard uses both cores. Choose **Single core** if your FM-1 crashes,
-  freezes or restarts into update mode with Standard. Single core never starts the second core;
-  PROPHET plays up to five voices instead of eight, and heavy FM6 and PROPHET sounds reach the CPU
-  limit sooner. Both builds have the same features and project format. Choose Standard and install
-  again to return to dual core.
+- **Historical installer builds:** 1.0.2 originally offered standard and single-core
+  packages with the same features and project format. Following the CPU voltage
+  startup fix, current builds and installer channels use both cores.
 - **Motion records the native synth settings:** Prophet and CZ-1 Stage knobs, their sound pages,
   and FM6 operator and voice pages now record and replay their changes. Arm REC, start playback,
   then turn a sound knob. Turning one while armed but stopped shows **PLAY TO RECORD MOTION**.
@@ -407,7 +407,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 
 - **Five selectable instruments:** PROPHET, FM6, CZ-1, SID and DRUM, each with factory presets;
   DRUM contains synthesized 808 and 909 kits
-- **Four tracks**, one instrument and sound per track. FM6 plays up to 16 voices; PROPHET plays up
+- **One to four tracks**, one instrument and sound per track: a new song starts with one, so the FM-1 can be a
+  single synth; add more when the song needs them. FM6 plays up to 16 voices; PROPHET plays up
   to eight voices per track in the default dual-core build (five if CPU1 is unavailable or disabled).
   ALGORITHM selects the track on every page. Running several eight-voice Prophet tracks together
   has not yet been stress-tested on hardware
@@ -428,31 +429,37 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Quick layers:** hold GLO or SCL for shortcuts on the keys and knobs; double-press to lock
   a layer. Multi-level undo (EDIT held); REC on every page; OCT+ confirms, OCT- goes back
 - **Presets:** browse by category (BASS, LEAD, PAD, KEYS, ORGAN, STRING, BRASS, WIND, PLUCK, BELL, DRUM, FX), favourites or
-  RECENT, with knob acceleration; factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
+  RECENT, with knob acceleration; factory presets, 384 shared user slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
 - **Screen:** Melodee's own look: Rubik type, icons drawn for Melodee, every track in its own colour (the screen takes the
-  selected track's), three palettes: NIGHT, DAY and CONTRAST
+  selected track's, each knob a shade of it), eight palettes: NIGHT, DAY, CONTRAST, SUNSET, OCEAN, NEON, CANDY and LO-FI
 - **Stage (HOME):** the selected track's own four knobs (its engine's: the Prophet's cutoff, resonance, filter envelope
   and release, the CZ-1's wave, DCW, detune and vibrato), the notes and chord it plays in front of the live waveform
   (the last voicing stays after release; a DRUM track lights its lanes as they hit), and a lane per track: its sound,
-  its pattern (and the next one while it waits for the bar), the bar playing and its level
+  its pattern (and the next one while it waits for the bar), the bar playing and its level. An armed track's lane has a
+  soft red border: breathing while it waits, flashing on each beat while it records. A knob turning shows its value
+  in its cell, never over the picture
 - **Lights:** one grammar for keys and buttons: dark nothing there, dim something there, bright happening now,
   breathing waiting. The keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up
   while its note sounds, MIDI in too, and the idle buttons glow; REC breathes while armed and waiting for the pattern start, PLAY while
   counting in; the HOME-held menu's LIGHTS sets the level (OFF: only what is pressed, engaged or selectable)
-- **USB:** class-compliant MIDI in and out; **Melodee Out** plays the computer through the FM-1,
-  **Melodee In** defaults to a stereo copy of the synth master, including track effects, shared effects,
+- **USB:** class-compliant MIDI in and out; one **Melodee** audio device handles playback and recording.
+  Playback plays the computer through the FM-1; recording defaults to a stereo copy of the synth master,
+  including track effects, shared effects,
   pan, master level and output protection. The HOME-held menu's **USB INPUT** selects **STEREO** or
   **4 TRACKS** (four isolated mono stems, after track effects/level, before shared effects and master).
   Stereo skips stem collection and halves capture transfer/packing work; no extra effects pass or resampling.
-  Computer playback and the monitor click stay out of recordings. Both support 16/24-bit audio at 44.1 kHz;
-  each device can be disabled with **USB AUDIO**. Changing USB options reconnects automatically; reselect the
-  input in your DAW if needed. No driver needed
+  Computer playback and the monitor click stay out of recordings. Both support 16/24-bit audio at 44.1 kHz.
+  The computer or phone's standard USB volume and mute controls adjust playback, with smooth level changes.
+  The synth master and recorded channels keep their levels; the FM-1's MASTER still sets playback's overall limit.
+  Each direction can be disabled with **USB AUDIO**. Changing USB options reconnects automatically; reselect the
+  input in your DAW if needed. Switching between stereo and four-track modes changes the USB layout
+  revision along with the channel count. No driver needed
 - **System clock:** Melodee runs at 360 MHz, the clock the FM-1's boot loader sets, and never changes it. The
   OVERCLOCK menu of 1.3.x is gone: on some FM-1s its clock change left the device in UBOOT
 - **MIDI:** USB and TRS MIDI in; GLO > SYSTEM **ROUT** selects **CH1-4**, **CH5-8**, **CH9-12** or **CH13-16**.
   The panel abbreviates these as **1-4**, **5-8**, **9-12**, **13-16**. Only that range plays tracks 1–4
-  in order; other channels are ignored. **SEL** receives all
+  (those in use), in order; other channels are ignored. **SEL** receives all
   channels on the selected track. **DRUM** (10 by default, any channel or OFF) redirects its channel to the
   first DRUM track only within the chosen range; without a DRUM track, normal routing applies.
   The keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
@@ -462,18 +469,50 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Web:** editor for every parameter (with a 6-operator FM patch editor), step grid, mixer,
   preset library and FM6 voice editor; full backup and restore; return to the official firmware
 
+## Feature feedback improvements (in development)
+
+Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
+[issue #39](https://github.com/keremimo/melodee/issues/39). These changes add:
+
+- **Motion editing:** on SEQ > MOTION, KNOB 2 selects the lane, KNOB 3 selects the step,
+  and KNOB 4 changes its value. Editing a step without a point inserts one at the held
+  value. KNOB 1 controls motion playback. Hold SEQ and turn KNOB 2 to clear the selected
+  lane, or KNOB 4 to remove the selected point.
+  The lane’s OCT+ sheet also offers **Clear <parameter>**. Each edit or clear can be undone
+  with EDIT held. Other parameters, tracks and pattern banks are preserved; song playback
+  must be stopped before editing.
+- **Picker popups:** hold HOME and choose **PICKER POPUPS > OFF** to edit named parameters
+  inline. This device setting persists across restarts; action sheets and explicit list
+  selection remain available. ON keeps the existing automatic picker for longer named lists.
+- **UI feedback:** ON/OFF values have filled or outlined badges. SONG and SCALES put their
+  titles on the right, and MOTION clears the entire page background when entering.
+- **Installer:** choose a stable release explicitly; Standard stays the default and Single
+  core is under **Advanced / Hardware fallback**. The flashing log scrolls within a bounded
+  box. Previously published releases with both core variants are staged with verified
+  checksums and retained for later selection; the banner no longer names an outdated version.
+- **Documentation:** the screen strip comes from the firmware renderer, and the hardware
+  diagram matches the current buttons, HOME assignment, effects and shortcuts.
+
 ## Controls
 
-![FM-1 controls](docs/panel.jpg)
+![Current FM-1 controls in Melodee](docs/media/melodee-controls.svg)
 
 - **SELECT** turns the pages of the open section (both ways); **MASTER** sets the volume,
-  **ALGORITHM** picks the track (T1–T4), and **PRESETS** browses its sounds. KNOB 1 moves across
+  **ALGORITHM** picks the track (T1 up to the last one in use), and **PRESETS** browses its sounds. KNOB 1 moves across
   lists and grids, KNOB 2 moves down; on parameter pages KNOB 1–4 edit the four controls
 - **BPM**, the song's **SWG** and the selected track's recording **QNT** are on **SEQ > TEMPO**:
   the project's, saved and loaded with it (power-on: the BOOT project's, the template's or 120);
   GLO > GLOBAL keeps CLK and TUNE, the device's
 - SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
-  HOME returns home
+  HOME returns home; on HOME, tap HOME again for its second page: the chord in the middle of a wheel
+  of the twelve notes in fifths (the key's notes marked, the notes sounding lit in their track's colour and joined
+  into the chord's shape), each track's level pulsing in the corners, the output's waveform and four octaves of keys
+  lit as they sound. The knobs and octave buttons work there as on Stage
+- **SELECT on HOME** turns what you choose in the menu (hold HOME): **HOME SELECT** BPM (default), MOD WHEEL (the
+  selected track's, as MIDI CC1; also sent to MIDI out), LEVEL, SWING, TRANSPOSE, CHORD (the chord its keys play:
+  OFF, DIA3, DIA7, MAJ, MIN, DOM7, MAJ7, MIN7, SUS4, POW), ARP RATE, PATTERN (the selected track's next pattern) or OFF.
+  The header shows the value
+- **GLO + SELECT** turns the menu's **GLO SELECT** on any page: the same choices, BPM by default
 - **Held:** GLO and SCL open their quick layers; EDIT undoes, SAVE saves the project, HOME opens the menu, SEQ the PATTERNS grid with
   the song under it, REC captures (below).
 - **Undo:** hold EDIT to undo the last sound or pattern load or Capture; hold it again to go further back (up to 8
@@ -481,11 +520,18 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   covers the step edits first
   When editing synth steps, SCL and EDIT use the editing controls below instead.
 - **FX** opens the track's three insert pages; SELECT moves between the slots.
+- **Tracks:** a new song has one track. On Stage, hold OCT+ for the sheet: **Add track** adds the next one (up to
+  four) with its own starting sound and empty patterns, selects it and opens the sound browser on it (OCT− keeps
+  the starting sound). **Remove track** removes the selected track after a question, stopped only: the tracks after
+  it move down a place with their sounds, patterns, song sections, motion and recordings. Stage, MIXER, PATTERNS,
+  SONG and GLO show the tracks in use; with one, Stage shows its sound across the screen in large type. Projects and
+  the template keep their number of tracks; projects from before keep all four
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
-  transport. While playing, REC waits for that track's next pattern start, records one pass and
-  automatically disarms at its end while playback continues. While stopped and armed, the first
+  transport. While playing, REC waits for that track's next pattern start and keeps recording
+  across loops until tapped again or playback stops. STOP leaves the track armed for the next start.
+  SEQ + pattern-key shortcuts arm one pass and automatically disarm at its end. While stopped and armed, the first
   key or MIDI note starts playback and records from step zero, skipping count-in.
-  **REC + PLAY** arms and starts in one gesture
+  **REC + PLAY** arms and starts in one gesture, keeping recording active across loops
 - On Stage, OCT− / OCT+ shift the octave (both: reset). Everywhere else OCT+ enters, opens or
   confirms and OCT− goes back. During synth step editing they move the step cursor
 - Save a sound: stop, tap SAVE, choose USER and a slot, press OCT+ to open its sheet with
@@ -498,9 +544,10 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   or STORE. Release, then tap OCT+ for **Send selected** over USB SysEx, **Erase selected** (one confirmation),
   or **Clear selection**. Empty slots are skipped. Single-slot **Send** is also available in USER.
 - **New song:** SAVE > PROJECT, turn KNOB 1 past TMPL to **NEW**, KNOB 3 to pick it and OCT+ (unsaved changes ask
-  first). Set the key (KNOB 1 ROOT, 2 SCALE) and tempo (KNOB 3), OCT+; give each track a role with KNOB 1–4 (KEEP,
-  DRUMS, BASS, CHORDS, LEAD, PAD), OCT+ creates it: your template's sounds (none saved: the power-on ones), a role's
-  first sound where the template's does not fit it, every pattern empty
+  first). Set the key (KNOB 1 ROOT, 2 SCALE) and tempo (KNOB 3), OCT+; give each track a role with KNOB 1–4 (--
+  for no track, KEEP, DRUMS, BASS, CHORDS, LEAD, PAD), OCT+ creates it: the tracks with a role, in order (track 1
+  KEEP and the rest -- to start with, or as many as your template has), your template's sounds (none saved: the
+  power-on ones), a role's first sound where the template's does not fit it, every pattern empty
 - **Hold SAVE** (or **SAVE + REC**) to save the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
   the transport first; a new project opens SAVE > PROJECT on a free slot. **Autosave:** stopped and untouched for
   5 seconds (no key, button, knob or MIDI), a project that has a slot saves itself there when it changed.
@@ -514,10 +561,10 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 ### Browsing sounds
 
 Turn **PRESETS** to open the sound browser. **KNOB 1** chooses the list and **KNOB 2** chooses a
-sound: each engine's factory presets in engine order, its native user slots, then the general user presets.
+sound: each engine's factory presets in engine order, followed by the shared user slots that use that engine.
 The list can be **FAV**, **RECENT** (sounds browsed since power-on, newest first) or one category: **BASS LEAD PAD KEYS ORGAN STRING
 BRASS WIND PLUCK BELL DRUM FX OTHER**. Every factory sound, the Prophet, CZ-1 and FM6 libraries included, has a
-category; native and user slots take the category of a factory sound with the same name, otherwise the words in
+category; shared user slots take the category of a factory sound with the same name, otherwise the words in
 their name (BASS, PIANO, STRINGS, ...). The chosen category is kept with the device settings.
 
 **KNOB 4** chooses the engine and starts it from its init sound, nothing changed and dry (INIT PROPHET, INIT TONE,
@@ -536,8 +583,15 @@ loads it at once. Hold **SAVE** to return to the sound you had before browsing.
 ### Patterns and songs
 
 Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8: the pattern playing is lit, the others
-holding notes glow, the one waiting for the loop end breathes. Hold a pattern key and press a second one to copy its
-notes, ties, timing, chance, drum hits and automation. **SEQ + SELECT** also chooses a pattern. While playing, each
+holding notes glow, the one waiting for the loop end breathes. Picking an empty pattern arms REC with it; on a
+pattern with notes, hit its key twice quickly to arm REC. These shortcuts record one pattern pass
+and automatically disarm. Selecting an empty pattern preserves existing explicit REC arming.
+Hold a pattern key alone for a second: a small dialog asks what next: press it again to delete the pattern, another
+pattern key to copy it there, OCT- to leave it. With SEQ held the first four black keys (F#, G#, A#, C#) select
+tracks 1–4 (the selected one lit, an armed one breathing). **SEQ + SELECT** also chooses a pattern. While playing,
+destructive edits wait for the track's loop end, as a pattern change does: deleting or clearing a pattern, clearing
+its motion, copying over a pattern in use or the one playing (the header says **… AT LOOP END**, the pattern's key
+breathes); STOP does them at once. Live edits (a note, a hit, ERASE, a motion lane) stay immediate. While playing, each
 track changes at its own loop end. Selecting the active pattern cancels a queued change. STOP applies pending choices.
 
 **SEQ > PATTERNS** (or hold SEQ) shows the four tracks' eight patterns at once: the one playing in the track's colour
@@ -682,7 +736,8 @@ selects the grid committed at recording end. The DRUM grid keeps its white-key s
 
 On **SAVE > PROJECT**, KNOB 2 **BOOT** selects OFF or project A–D to load at power-on.
 KNOB 1 **SLOT** also offers **TMPL**: save your sounds and settings there as the template for new
-projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK, TUNE, MIDI
+projects, with empty patterns and its number of tracks. BOOT OFF uses the template when one is saved, else one track
+with the power-on sound. CLK, TUNE, MIDI
 and ROUT persist between starts; loading a project or template applies its own settings. DRUM is the
 device's own setting.
 
@@ -700,19 +755,35 @@ User sample slots USR1–3 and sample uploads are removed; their flash space now
 SAMPLE, GRAIN, SLICE, OBXF and the custom drum kit are removed; DRUM provides synthesized 808 and
 909 kits. Earlier sample data is overwritten as projects
 are saved. Complete backups with nonempty user samples require firmware that supports those slots.
-FM6 and CZ-1 have independent native user collections: F001–F064 store the 128-byte Dexed/DX7
-voice, and Z001–Z128 store the complete 144-byte Casio tone. They appear alongside factory tones
-in normal global and engine-specific preset scrolling, and can be favorited. SAVE > USER selects
-the current engine's collection; FM6 > STORE uses those same FM6 slots. Native saves exclude
-Felucca envelopes, modulation settings and patterns. Loading keeps these track settings;
-when changing engines, only engine-specific controls receive their defaults.
+All engines use **one bank of 384 user presets, U001–U384**. Every slot can hold any engine:
+fill the entire bank with CZ-1 tones, Prophet programs, FM6 voices, SID sounds, drum sounds, or any mix.
+**SAVE > USER**, **FM6 > STORE**, and **P5 STORE** all show these same slots, including presets
+made with other engines. PRESETS groups user sounds beneath their own engine's factory tones.
 
-The 64 general U01–U64 slots remain available for other engines. First boot copies saved FM6
-voices and saved CZ banks into their native collections, imports embedded CZ user tones into free
-CZ slots, and releases successfully migrated general slots. If CZ's collection is full, unmatched
-legacy tones stay in their general slots. Migration and saves use atomic flash writes; full backups
-include both collections. The editor's User presets collection selector imports/exports .syx directly.
-Going back to older firmware cannot access these new native FM6 slots or U33–U64.
+First boot converts the preceding preset banks automatically. A dedicated startup screen shows
+**MIGRATING PRESETS**, progress, and **KEEP POWER CONNECTED** before conversion begins.
+Update cleanup uses the same screen. If migration fails, the error stays visible:
+**OCT+** keeps the presets and continues, with preset writes protected until conversion succeeds;
+**OCT-** offers **wipe all user presets and continue**, followed by a separate OCT+ confirmation
+(OCT- goes back). Wiping clears user presets for every engine; projects, settings and factory
+sounds remain. A completed wipe ends migration retries and makes all shared slots available.
+If power is interrupted after the wipe choice is committed, startup resumes the wipe.
+Later boots skip conversion once the banks are updated. Update cleanup errors offer continue/retry
+without a preset wipe option.
+
+Saving keeps the complete native voice and the sound's envelopes, modulation, voice controls and
+stereo spread. Loading keeps the destination track's mix, effects, scale, arpeggiator and notes.
+The web editor has one shared bank; native .syx imports identify their engine automatically and
+check occupied slots across every engine before offering an overwrite. Native exports retain the
+manufacturer's voice format; JSON bank exports also retain the Felucca sound parameters.
+
+The first boot converts the immediately preceding general, FM6, CZ-1 and current Prophet banks
+using atomic A/B writes. Names, native bytes and favorites survive; slot numbers are reassigned
+within the shared bank. A failed conversion keeps its source data and blocks further preset writes
+until conversion succeeds. Unsupported older formats remain protected as **OLD FORMAT**.
+The retired Prophet bank format is still ignored. Full backups contain all shared slots, and the
+current editor can restore preceding complete backups. Older firmware cannot read the new bank
+format; use a backup made before conversion when returning to an older version.
 
 ## Engines
 
@@ -742,16 +813,21 @@ calibration; the FPU conversion does not establish hardware fidelity.
   Each track keeps its own patch and function settings (MODERN / MARK I / OPL, pitch bend,
   portamento, wheel, foot, breath and aftertouch), saved with the project and the template
 - **CZ-1**: native Casio tones, with separate eight-point pitch, timbre and volume envelopes on each line
-- **SID**: a Commodore MOS 6581 / 8580 per note, modelled at the register level after reSID: three oscillators on the 16-bit frequency register (pulse width 12 bits, the 23-bit noise register, ring modulation, hard sync, combined waveforms sampled from real chips), the chip's envelope generator (16 rates, exponential decay, the ADSR delay), each revision's DACs and cutoff curve, the 6581's thump through the C64's output stage; 32 factory presets
+- **SID**: a Commodore MOS 6581 / 8580 per note, modelled at the register level after reSID: three oscillators on the 16-bit frequency register (pulse width 12 bits, the 23-bit noise register, ring modulation, hard sync, combined waveforms sampled from real chips), the chip's envelope generator (16 rates, exponential decay, the ADSR delay), each revision's DACs and cutoff curve, the 6581's thump through the C64's output stage; 32 factory presets. MODEL C64 6581 / C64 8580 plays the track as one channel of a C64 tune: one voice, with frequency, pulse width, cutoff and resonance written once a PAL frame (50 Hz) as a player routine writes them; in POLY a held chord is arpeggiated on that voice, one note a frame, with one gate and envelope for the whole chord
 - **DRUM**: synthesized TR-808 and TR-909 kits with the General MIDI key map. Every drum has its
-  own tuning, decay, tone, attack/snappy and level controls; recorded hits can override pitch and length
+  own tuning, decay, tone, attack/snappy and level controls; recorded hits can override pitch and length.
+  KIT SID plays the track as a C64 drum routine on one 6581: its three voices take the hits, each drum a
+  50 Hz frame program (waveform, frequency slide, gate) on the chip's envelope; TONE and RES set its filter
+  for kick, snare, toms and clap; DIGI ON plays kick and snare as 4-bit samples on the volume register
+  ($D418), synthesized at build time, and the voices ringing meanwhile follow that volume as on a C64.
+  Two factory kits: SID KIT (every drum on the chip's voices) and SID DIGI (DIGI ON)
 
 ANALOG, DIGITAL, PHASE, VOICE, NOISE, TRIO, WHEEL and PHYS are retired. Their engine IDs, saved edit
 values and favourite bits remain reserved; old tracks using these engines are silent. PROPHET replaces
 ANALOG in the engine list, and track 1 powers on with PROPHET FUNK BASS II.
 
-PROPHET opens on It's a Prophet 5 (or on user slot P001 once it holds your own program). PRESETS lists
-INIT and Sequential's 200 factory programs, then the native user slots P001–P128. In the web editor,
+PROPHET opens on It's a Prophet 5. PRESETS lists INIT and Sequential's 200 factory programs,
+then the shared user slots containing Prophet programs. In the web editor,
 choose PROPHET to edit a track's program field by field, read and send it, import or export .syx
 programs and banks in Sequential's format, and manage the user slots. Calibration, storage and format
 notes: [docs/PROPHET5_PROTOTYPE.md](docs/PROPHET5_PROTOTYPE.md).
@@ -760,7 +836,7 @@ The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DI
 as FM6 sounds converted from them.
 
 CZ-1 opens with a native INIT TONE; PRESETS then lists Casio's 64 CZ-1 preset tones (A-1 BRASS 1 to
-H-8 TYPHOON SOUND). The separate 128-slot user collection starts empty. Imported Casio tones use
+H-8 TYPHOON SOUND). Shared user slots start empty on a fresh device. Imported Casio tones use
 their original oscillator and six eight-point envelope parameters.
 
 **Native CZ-1 SysEx**: choose CZ-1 in the web editor, then **CZ-1 native patches → Import .syx**.
@@ -768,7 +844,7 @@ Select a tone from the imported bank and **Send to track**. **Read track** retri
 **Export .syx** writes a CZ-1-compatible tone. **Add to library** retains it for later use.
 In **User presets**, choose **CZ-1**, then import .syx into free native slots or save the current track's
 native tone. Export writes the collection as Casio frames. The device scrolls these tones in PRESETS;
-there is no BANK / PTCH selection page. Full backups include all 128 slots.
+there is no BANK / PTCH selection page. Full backups include all 384 shared slots.
 Both lines have separate eight-point DCO/DCW/DCA envelopes, including sustain,
 end points, velocity sensitivity and key follow. The original 144-byte CZ-1 tone survives user presets,
 projects, templates and library export; it is not reduced to common ADSR values. Compatible 128-byte

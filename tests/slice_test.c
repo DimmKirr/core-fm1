@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* SLICE engine tests on the Mac (same sources as the firmware, through hostsim.c; run_tests.sh):
  *   build/host/slice_test LOOP DEMO_DIR
  * LOOP.hdr / LOOP.bin: a user slot image written by `fm1_sample_upload.py build` from tests/slice_loop.py's

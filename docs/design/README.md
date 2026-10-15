@@ -40,7 +40,16 @@ Colours: background `#17141F`, panel `#1D1926`, surface `#221E2C`, raised `#2620
 `#1A1722`, line `#2E2939`, text `#F3EEF8`, mid `#9A93A8`, dim `#5A5468`, secondary names `#C9C2D6`. Tracks: coral
 `#FF7A5C`, amber `#FFC145`, mint `#46D9B0`, lilac `#9D8CFF`. On a filled track colour: background-coloured text.
 
-Type (Rubik): labels 8.5-9 px / 500, capitals, in the track's colour; names 10 px (selected: 500); header 11 px / 500;
+Knob shades (`gfx.c` T_KNOB, `tools/gen_ui_palettes.py` SHADES): a track's pages are not one colour. Each knob has a
+shade of the track's colour, the track's own for knob 1, then turned round the OKLCH hue circle (+32, -32, +64
+degrees). A knob's label, its value while it turns and the curve segment it moves take it (ENV: attack,
+decay, sustain, release; FM6 EG: R1..R4; LFO: the wave WAVE's, the reach FADE's). Rows in turn take the four (lists,
+Settings, mod slots), as do drum lanes, a pattern's beats, ARP's octaves and the roll's notes (by octave); the browser
+gives each engine one and the scale picker each family. Palettes: NIGHT, DAY, CONTRAST, SUNSET, OCEAN, NEON, CANDY,
+LO-FI (muted: dusty rose, mustard, sage, faded denim on warm charcoal), each with its own four track colours; every track colour and shade passes the generator's contrast checks.
+
+Type (the mockups'; on the device since 2026-10-14 the large type below sets every size and position): Rubik labels
+8.5-9 px / 500, capitals, in the track's colour; names 10 px (selected: 500); header 11 px / 500;
 values 15 px / 500 with 9 px units in mid; the chord root 30 px / 500, its quality 17 px / 500, the notes 11 px / 500.
 On the device the small faces are a pixel larger for legibility: X 10 px (the 9 px labels, units, chips) and S 12 px
 (the 11 px names, values, rows), each set on the smaller size's baseline and line height (tools/gen_aa_font.py lifts
@@ -66,6 +75,28 @@ Stage (`stage_note_overlay`), all positions in device pixels:
   8 px / 500; 16 steps 4 x 8 r 1 from x 128, 5.6 apart (on: the track's colour, the playhead text, off: line); the
   level at x 222: a 3 px bar over a 10 x 2 line.
 - Drum track: the lanes BD SD CP CH OH RS as chips 32 x 14 at y 132 (hitting: filled), the waveform dimmed above.
+
+Tracks in use (2026-10-13, `firmware/src/tracks.c`): one to four, always from track 1. Stage's columns share the
+four's place (x 4 .. 236): two 114 px (the sound 15 px), three 74 px (5 px apart); every column's content centred, the
+four's too (Kerem 2026-10-13; an armed column's role keeps clear of its REC dot); one
+track is the synth build's card across it, centred (role 12 px, the sound 30 px, the pattern and ARP / HOLD / CHORD /
+scale as pills each in a track colour, the four colours' bars, the 16 steps in a row, the level as the big ring; a
+track with no pattern at all, none waiting, not armed: no pattern pill, no steps, the ring in the middle). MIXER's
+strips follow Stage's columns (centred); PATTERNS and SONG draw the rows in use; GLO blanks
+the keys and cards of the others. Stage's sheet ends with **Add track** (the next, its value T2..; the browser opens
+on it) and **Remove track** (the selected; red, its question "Remove track 2?"). NEW SONG's roles start at `--` (no
+track). Renders: `stage_1track*` (`_synth`: no pattern), `stage_2tracks`, `stage_3tracks`, `sheet_stage`, `confirm_track`, `mixer_*track*`,
+`patterns_2tracks`, `song_2tracks`, `layer_glo_2tracks`, `new_roles_1track`.
+
+HOME's second page (2026-10-13, `firmware/src/ui_view.c`; HOME tapped on HOME, two page dots in the header; HOME
+from elsewhere returns to the page it was on; SELECT is not a page turn on HOME: it turns the menu's HOME SELECT, a
+header message saying the value): a wheel of the twelve notes in fifths centred (160 x 158
+at 40, 19; the key's notes marked, its root larger), the notes sounding on the tracks in use (not DRUM) lit in their
+track's colour and joined into the chord's shape, the chord's root ringed; in the middle the chord (root L, quality M
+on its baseline, the notes S in the selected track's colour), one note L, nothing yet the key (M, mid); let go: the
+last notes faded. Track pulses (32 x 32) in the wheel's corners, the waveform (rows 179 .. 204), keys C2 .. B5 (rows
+208 .. 237). Stage's knobs drop in over the wheel's top. Renders: `view`, `view_letgo`, `view_note`, `view_empty`,
+`view_knobs`, `view_slash`.
 
 ## Navigation (R6)
 
@@ -124,6 +155,31 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   it comes with every turn of such a knob, and dimming sent the whole screen twice). SCALES keeps its own list page
   (Kerem: the list is intuitive), no picker.
 
+## Status indicators (2026-10-15)
+
+Ongoing device and transport state belongs in the **header, rows 0–29**. Draw it from the current state, keep it
+visible while that state applies, and remove it immediately when the state ends. Do not use timed messages or
+place status cards over knobs, lists, waveforms, or notes.
+
+- **Left:** transport, BPM, then the REC mark. A filled REC mark means the selected track is ready/recording;
+  an outline means it is waiting or another track is armed.
+- **Right:** the active transport status replaces the page/engine title and optional navigation marks. Priority:
+  `ERASING`, then `WAIT LOOP` (waiting for the selected track's loop boundary), then brief action feedback, then
+  the normal context. Keep transport, BPM, and REC visible. Use REC colour for recording states.
+- **Optional context:** octave, song row, page dots, and the low-battery glyph use the remaining header space in
+  the normal layout. Never overlap or truncate a status to preserve optional context. Use a concise, documented
+  label that fits both Rubik and Melodee Pixel; `WAIT LOOP` is the header label for “waiting for loop”.
+- **Screens with their own headers:** while waiting, use the shared transport header; restore the screen's header
+  on start, cancel, or a change to a track that is not waiting. Dialogs and pickers retain the header above them.
+
+Brief action results (saved, copied, invalid action) use the existing header-message area; a long explanation may
+wrap in a temporary toast. A question requiring a decision uses a dialog; a value being edited stays at its
+control. These are feedback and interaction, rather than ongoing state indicators.
+
+For each new indicator, specify its state, lifetime, priority, and compact label here, and extend the shared
+header renderer instead of choosing a new position in a page. Verify both fonts, crowded headers, persistence,
+and incremental redraws when the state ends or the selected track changes (`tests/ui_test.c`, `tests/ui_render.c`).
+
 ## Drawing and the LCD (2026-10-10)
 
 - The SPI to the LCD (12 MHz) is the UI's bottleneck: the whole screen takes ~77 ms, 1000 px ~1.3 ms. gfx.c sends a
@@ -158,8 +214,12 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
 - **Sections**: an engine's pages in sections (Prophet: Osc, Mixer, Filter, Amp, Mod, LFO, Wheel, Voice; FM6:
   Algorithm, OP1-OP6, Pitch, LFO, Controls; CZ-1 ..). PRESETS jumps a section (to its last-used page), SELECT turns the
   pages (on across the sections). The sections as tabs under the header, the pages of one as the header's dots.
-- **The map**: EDIT pressed on an EDIT page: a row a section, a tile a page (FM6: operators x their pages); KNOB 1 / 2
-  move, OCT+ opens, OCT- closes.
+- **The map**: EDIT pressed on an EDIT page: a row a section, a tile a page (FM6: operators x their pages); KNOB 1 (or
+  SELECT) moves to the next page of the category, KNOB 2 to the next category (its last-used page), one per detent,
+  every detent counted. OCT+ opens it, OCT- closes the map, HOME returns to Stage.
+  For DRUM, KNOB 1 changes Sound's Kit / Hit selection without leaving Sound. One KNOB 2 detent moves
+  directly to Drum (Drum sound / Drum mix), with Lanes below. A category starts at its first page until
+  another page has been opened there; vertical navigation recalls that last-used page.
 - **EDIT held**: undo; EDIT + OCT- / OCT+ undo/redo. Hold SAVE to save the current project. The engine is chosen
   in the browser (KNOB 4).
 - **Init sound** (Kerem 2026-10-11: sound design from scratch): the engine's own INIT, nothing changed and dry:
@@ -167,23 +227,81 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   factory's numbers); DRUM its 808 kit. The browser's KNOB 4 (the engine) loads the engine's INIT, and each engine's
   INIT comes first in its sounds there; Init sound (the sound's sheet) the engine's own.
 
-## FX inserts (2026-10-12)
+## FX rack (2026-10-15)
 
-FX opens the selected track's insert family. SELECT moves between FX 1, FX 2
-and FX 3, using the existing page dots; all three slots can run together. Each
-is an R5 knob page: four rings over a
-rounded picture, the existing track palette, Rubik faces, sound bar and footer.
-KNOB 1: the effect-name picker; KNOB 2: MIX; KNOB 3: RATE (ECHO: TIME, ROOM / REVERB: SIZE);
-KNOB 4: DEPTH / FOCUS / JITTER / BITE / REPEAT / DECAY. OCT+ opens the sound's
-actions, OCT- returns to Stage. FX held opens no keyboard layer. WIDTH says
-“All-pass L / dry R” and “Mono changes the tone”. MEMORY FULL appears in the
-picture when that slot's time-effect buffer cannot be allocated. REVERB says
-“Diffused stereo reverb”; ROOM keeps its existing character and picture.
-Reverb's fourth knob is DEPTH, combining wet body
-and longer sustain; MIX and SIZE stay separate. Effects
-belong to the track: preset loads, engine changes, Init sound and sound undo keep
-them. Projects and templates save the chain. Reduced processing rates apply
-only to effects, with no change to synth rendering. Screens for every effect
-and this state are rendered and linted in every palette by `tests/ui_render.c`.
+FX opens the selected track's **rack**, laid out like MOD's rows: its three insert slots (1–3) and a fourth row for
+the shared FX (an arrow, "Shared", the shared effects in order: a chain arrow between them, a comma in SPLIT). KNOB 2
+picks the row (outlined and tinted in its knob colour), KNOB 1 its effect (the name picker), KNOB 4 its amount: a
+slot's MIX, the shared row the track's SEND (in SPLIT the track's sends are SHARED's rows; the shared row then has no
+amount). Empty slots read "--", dim. OCT+ opens the row: a slot's page; an empty slot its effects' list (OCT+ takes
+one); the shared row SHARED. OCT- goes back up a level (slot → its rack, SHARED → FX, FX → Stage). FX pressed off the
+rack returns to it; on the rack it turns on to the next page, as SELECT does.
 
-FX SEND uses the same four-ring page with SEND for the selected track and RETURN for the shared bus. SEND FX 1–3 keep the insert page layout, show TYPE / MIX / RATE or SIZE / CHAR or DEPTH, and identify SEND / RETURN and ALL TRACKS in the footer. These controls belong to the project and track, never the instrument preset. Shared MIX defaults fully wet.
+**SHARED** is the same rack for the shared bus: its slots A–C (KNOB 4 their MIX; SPLIT: the selected track's send to
+each) and RETURN (the four track colours as its numeral); KNOB 3 is ROUTE, Chain or Split (Kerem asked where it had
+gone). Its sheet (OCT+ held, or OCT+ on RETURN) holds Routing too and Clear shared FX (asks first).
+
+A **slot's page** shows while the slot holds an effect, so SELECT never stops on an empty one: FX, the slots in use,
+SHARED, its slots in use. The header names the effect ("ECHO", "REVERB"). Its four knobs are the ones played: MIX,
+TIME or RATE (ECHO: TIME, ROOM and REVERB: SIZE), the effect's DEPTH / FOCUS / JITTER / BITE / REPEAT / DECAY, and TONE.
+The picture says what the effect does and draws its sound; WIDTH says "Mono changes the tone", a time effect without its
+buffer "MEMORY FULL". No hint rows. A shared slot's footer is "All tracks" with the four track colours. These controls
+belong to the project and track, never the instrument preset; shared MIX defaults fully wet.
+
+**TONE** (ECHO, ROOM and REVERB; the knob is empty for the others) is one knob from DARK through FULL to THIN: below
+FULL a high cut from 2640 Hz down to 120 Hz, above it a low cut from 150 Hz up to 1280 Hz (core.h `fx_tone_hz`, fine
+steps where the ear needs them). Smooth 6 dB/octave cuts shape the wet input; the dry signal stays intact.
+
+**No boom** (Kerem, 2026-10-15: "still some boominess" in the tails and repeats): what enters ECHO keeps a 100 Hz low
+cut, ROOM and REVERB a 150 Hz one, at FULL and under a high cut (`fx_floor_hz`; THIN starts there), and each echo
+and each reverb round trip loses its lows (a one-pole low cut in the loop: ECHO ~110 Hz, REVERB ~55 Hz; ~110 Hz
+silenced REVERB's deep tail; ROOM's short combs need only the floor), so no bass note rings out of the tail. Measured
+on sines (1/24 octave, against the 320 Hz–1 kHz band): the worst low ring of a big REVERB went from +12.9 dB to +5.8,
+a big ROOM's from +9.6 to +6.4 (both now under their loudest mid one), 40–120 Hz now 3–12 dB under the mids (it was up
+to 3.7 dB over). `tests/fx_test.c` boom_test holds it, and its opposite (Kerem): never harsh (1–2.5 kHz no louder
+than the mids on average, no high note 3 dB over the loudest mid one) nor thin (the bass within 15 dB of the mids).
+
+Under the picture a strip on a log axis (20 Hz–2.6 kHz) lights, in TONE's colour, the band that reaches the effect
+(from the effect's own low cut), the cut TONE sets under its edge; at FULL dimmed. Each track and shared slot keeps its TONE in projects
+(FUN22) and templates (TPLL). FUN21/TPLK's two cuts load as the nearest TONE (the low cut when both were set); older
+records load FULL.
+
+Screens for every effect, the racks (picker, list, SPLIT), SHARED's sheet and TONE's two sides are rendered and linted
+in every palette by `tests/ui_render.c` (fx_*).
+
+## Large type (2026-10-14)
+
+The 1.54" panel (27.7 mm across) needs larger text: every screen is set in four type roles, and Settings > FONT picks
+the face. Rubik 500 or Melodee Pixel (`assets/fonts/melodee_pixel.txt`, a 5 x 7 1-bit face drawn at whole multiples);
+a role has the same line height and baseline in both, so a layout holds in either (`gfx.c` `TY_*`, `ui.c` PREF_PIXEL).
+
+| Role | Use | Rubik | Pixel |
+|---|---|---|---|
+| `TY_LB` | labels, units, tags, chips, keycaps | 16 px | 2 x (letters and figures 4 wide) |
+| `TY_TX` | names, rows, the header, text | 20 px | 2 x |
+| `TY_VL` | values | 28 px | 3 x |
+| `TY_HR` | the hero: the chord, big names | 48 px | 5 x |
+
+`ty_y(cy, f)` centres a face's capitals on a row; `ty_fit(f, s, w)` drops to the label face before anything is cut.
+
+The grid: header rows 0 .. 29; the knob strip at y 32, four cells 57 x 48 at x 2 + 60 c (label, value; the knob
+turning: its value in the track's colour and a bar); the picture at y 84, 124 tall; the sound bar or the keys at y 212,
+28 tall. Two layouts (Kerem: "your mix"):
+
+- Knob and curve pages: the strip on top, the picture under it; a knob turning shows in its cell alone, nothing over
+  the picture (Kerem 2026-10-15: the large value over it hid what it shapes).
+- Stage, lists, Settings, the browser, sheets: rows across the screen, 32 px tall and 34 apart, the picked row tinted
+  in the track's colour. Stage's rows are the tracks, each in its colour, with every step of the pattern as dots
+  (an LED matrix in the track's colour: a bar a line of 16 in four beats, lines stacked; `ui_stage.c` st_layout picks
+  the largest dots that fit: under the name across the row, three or four tracks with the role and pattern at the
+  name's right).
+
+Rules, from the reviews: screens stay calm (no boxes or rings around cells, no tabs, no hint rows); nothing is ever
+cut or ellipsised (labels have short forms, `ui_draw.c` CELL_SHORT; dialogs and toasts
+wrap); Stage is multicolour. `tests/ui_render.c` lints every screen in both faces: overlaps, texts past their canvas
+or cell, ellipsised labels; it must report none.
+
+Storage: the four Rubik faces are 4-bit alpha kept in four steps (0, 5, 10, 15) and Huffman-coded, with one kerning
+table for all of them (at 28 px, scaled per face); with the pixel face 31.4 KB in all. Glyphs stay in flash: no
+decode table lives in RAM (`gfx.c` builds a 64-entry one on the stack per string).
+

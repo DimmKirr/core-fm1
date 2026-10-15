@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 #define MIDI_TIMING_NO_MAIN 1
 #include "midi_timing_test.c"
 
@@ -9,7 +10,7 @@ static void raw_begin(void)
     timing_packet(timing_now, 0xF8, 0, 0, 2);
     events_block(0);
     /* These event-store fixtures exercise deliberately continuous, multi-loop
-     * takes. Pattern-pass recording is covered separately through REC below. */
+     * takes. Pattern-pass recording is covered through the shortcut path below. */
     song.rec_pass = 0;
 }
 static void raw_replay(void)
@@ -257,25 +258,26 @@ static int pattern_passes(void)
         track_t *t = &trk[0];
         uint32_t period = seq_div_samples(t->p[P_SDIV]), loop = recording_loop(t, period);
         seq_advance(300);
-        rec_tap();
+        rec_toggle(0);
         input_on(t, 60, 83); input_on(t, 62, 91); input_off(t, 62);
         motion_capture(t, P_LEVEL, 77);
-        bad += check("REC during playback waits: keys and motion cannot write before loop zero",
-            song.rec == 1 && song.rec_wait == 1 && !song.rec_pass && !rec_on(t) &&
+        bad += check("shortcut arming during playback waits: keys and motion cannot write before loop zero",
+            song.rec == 1 && !song.rec_latch && song.rec_wait == 1 && !song.rec_pass && !rec_on(t) &&
             recording_head[0] == RECORD_MAX && !motion.count && gate_note(t, 60));
         fm1_ms = 0; ui_leds();
         bad += check("waiting REC breathes while playback stays lit", pass_led(2, panel.btn[B_REC]) &&
             !pass_led(0, panel.btn[B_REC]) && pass_led(0, panel.btn[B_PLAY]));
-        rec_tap(); seq_advance(100);
+        rec_toggle(0); seq_advance(100);
         bad += check("a second REC cancels waiting without losing a held live note",
             !song.rec && !song.rec_wait && !song.rec_pass && gate_note(t, 60) && recording_head[0] == RECORD_MAX);
-        rec_tap(); seq_advance(loop - 401u);
+        rec_toggle(0); seq_advance(loop - 401u);
         bad += check("the final sample before the selected pattern ends is still waiting", !rec_on(t) && song.rec_wait == 1);
         seq_advance(1);
         ui_notices();
         bad += check("INT/USB/TRS punch-in at swung loop zero retains a held note's original velocity",
             rec_on(t) && !song.rec_wait && song.rec_pass == 1 && t->seq_idx == 0 && !t->seq_pos &&
-            recording[0].note == 60 && recording[0].vel == 83 && !recording[0].on && !(recording[0].step & 63u) && !recording[1].vel && msg_is("RECORDING"));
+            recording[0].note == 60 && recording[0].vel == 83 && !recording[0].on && !(recording[0].step & 63u) && !recording[1].vel);
+        bad += check("punch-in clears the persistent waiting header", !head_waiting());
         ui_leds();
         bad += check("REC becomes steady when the pattern pass starts", !pass_led(2, panel.btn[B_REC]) && pass_led(0, panel.btn[B_REC]));
         motion_capture(t, P_LEVEL, 78);
@@ -301,11 +303,11 @@ static int pattern_passes(void)
 
     pass_begin(0, 1, 0); track_t *t = &trk[0];
     uint32_t period = seq_div_samples(t->p[P_SDIV]);
-    rec_tap(); seq_advance(recording_loop(t, period));
+    rec_toggle(0); seq_advance(recording_loop(t, period));
     bad += check("a one-step pattern activates at its wrap rather than disarming immediately", rec_on(t) && song.rec_pass == 1);
     seq_advance(recording_loop(t, period));
     bad += check("an empty one-step take also disarms after exactly one pass", song.playing && !song.rec);
-    rec_tap(); seq_stop();
+    rec_toggle(0); seq_stop();
     bad += check("STOP clears pending runtime state and leaves the track armed for the next start", song.rec == 1 && !song.rec_wait && !song.rec_pass);
     seq_start(); seq_advance(0); input_on(t, 65, 99);
     seq_advance(recording_loop(t, period));
@@ -327,7 +329,7 @@ static int pattern_passes(void)
 
     pass_begin(2, 3, 0); t = &trk[0]; period = seq_div_samples(t->p[P_SDIV]);
     uint32_t loop = recording_loop(t, period);
-    seq_advance(100); rec_tap(); seq_advance(loop * 5u);
+    seq_advance(100); rec_toggle(0); seq_advance(loop * 5u);
     bad += check("a large external-clock batch can punch in and finish an empty pass without missing either boundary",
         !song.rec && !song.rec_wait && !song.rec_pass && song.playing);
     seq_stop();
@@ -336,14 +338,14 @@ static int pattern_passes(void)
     input_on(t, 60, 84); seq_advance(period * 3u); input_off(t, 60);
     raw_replay(); seq_advance(100);
     uint32_t left = recording_run[0].left;
-    rec_tap(); rec_tap();
+    rec_toggle(0); rec_toggle(0);
     bad += check("cancelling a waiting pass preserves sounding backing notes and their remaining gates",
         left && recording_run[0].left == left && recording_refs[0][60] && gate_note(t, 60));
     seq_stop();
 
-    pass_begin(0, 3, 0); t = &trk[0]; rec_tap();
+    pass_begin(0, 3, 0); t = &trk[0]; rec_toggle(0);
     seq_advance(recording_loop(t, seq_div_samples(t->p[P_SDIV])));
-    input_on(t, 64, 102); seq_advance(500); rec_tap();
+    input_on(t, 64, 102); seq_advance(500); rec_toggle(0);
     recorded_note_t finished = recording[0];
     seq_advance(500); input_off(t, 64);
     bad += check("manual punch-out seals the note immediately rather than recording a later key release",
@@ -352,7 +354,7 @@ static int pattern_passes(void)
     seq_stop();
 
     pass_begin(2, 3, 0); t = &trk[0];
-    seq_advance(100); rec_tap(); seq_stop();
+    seq_advance(100); rec_toggle(0); seq_stop();
     midi_clock_transport(0xFB, fm1_ms);
     period = seq_div_samples(t->p[P_SDIV]); loop = recording_loop(t, period);
     bad += check("MIDI Continue keeps a stopped armed take waiting for a complete pattern", song.rec_wait == 1 && !rec_on(t));
@@ -362,13 +364,65 @@ static int pattern_passes(void)
     bad += check("the continued take also disarms after one full pattern", !song.rec && song.playing);
     seq_stop();
 
-    pass_begin(0, 3, 0); t = &trk[0]; rec_tap();
+    pass_begin(0, 3, 0); t = &trk[0]; rec_toggle(0);
     input_on(t, 60, 73);
     for (uint32_t i = 0; i < CAP_N + 1u; i++) { input_on(t, 62, 95); input_off(t, 62); }
     seq_advance(recording_loop(t, seq_div_samples(t->p[P_SDIV])));
     bad += check("a held punch-in note retains its velocity even after the jam capture ring wraps",
         recording[0].vel == 73 && recording[0].note == 60 && !recording[1].vel);
     input_off(t, 60); seq_stop(); led_pos_init(); return bad;
+}
+
+static int explicit_rec(void)
+{
+    int bad = 0;
+    for (uint32_t source = 0; source < 3; source++) for (uint32_t q = 0; q <= 3; q += 3) {
+        pass_begin(source, 3, q);
+        track_t *t = TSEL;
+        uint32_t loop = recording_loop(t, seq_div_samples(t->p[P_SDIV]));
+        seq_advance(100); press(B_REC);
+        bad += check("explicit REC queues latched recording at the next loop", song.rec_latch == 1 && song.rec_wait == 1 && !rec_on(t));
+        seq_advance(loop - 100u);
+        seq_advance(loop - 500u); input_on(t, 60, 93);
+        seq_advance(1000);
+        bad += check("explicit REC stays active across loop zero without sealing a held note",
+            song.playing && rec_on(t) && song.rec_latch == 1 && (recording_flags[0] & 1u));
+        input_off(t, 60); input_on(t, 67, 104); input_off(t, 67);
+        motion_capture(t, P_LEVEL, 79);
+        seq_advance(loop * 2u);
+        bad += check("later loops still record notes and motion after explicit REC",
+            rec_on(t) && recording[1].note == 67 && recording[1].vel == 104 && motion.count == 1 && motion.event[0].value == 79);
+        press(B_REC);
+        bad += check("a second explicit REC finishes and quantizes the take while playback continues",
+            !song.rec && !song.rec_latch && !song.rec_wait && !song.rec_pass && song.playing &&
+            !(recording_flags[0] & 1u) && (!q || !recording[1].on));
+        seq_stop();
+
+        pass_begin(source, 1, q); t = TSEL;
+        loop = recording_loop(t, seq_div_samples(t->p[P_SDIV]));
+        press(B_REC); seq_stop();
+        input_on(t, 64, 87);
+        seq_advance(loop * 3u);
+        bad += check("a note-started explicit REC stays armed through one-step loops",
+            rec_on(t) && song.rec_latch == 1 && recording[0].note == 64);
+        seq_stop();
+        bad += check("STOP finalizes a latched take and keeps explicit arming for the next start",
+            song.rec == 1 && song.rec_latch == 1 && !song.rec_pass && !song.rec_wait && !(recording_flags[0] & 1u));
+        input_off(t, 64); seq_start(); seq_advance(loop * 2u);
+        bad += check("PLAY restarts latched recording across subsequent loops", rec_on(t) && song.rec_latch == 1);
+        press(B_REC); seq_stop();
+    }
+
+    pass_begin(0, 2, 0); track_t *t = TSEL;
+    uint32_t period = seq_div_samples(t->p[P_SDIV]);
+    trk[1].p[P_SLEN] = 3; trk[1].p[P_SDIV] = t->p[P_SDIV];
+    t->p[P_SSWING] = trk[1].p[P_SSWING] = 0;
+    press(B_REC); rec_set(&trk[1], 1);
+    seq_advance(6u * period);
+    bad += check("a shortcut track disarms independently while an explicit REC track keeps recording",
+        song.rec == 1 && song.rec_latch == 1 && rec_on(t) && !rec_on(&trk[1]));
+    press(B_REC); seq_stop(); led_pos_init();
+    return bad;
 }
 
 static int first_note_start(void)
@@ -486,7 +540,7 @@ static int take_quantization(void)
         pass_begin(source, 16, q); track_t *t = TSEL;
         uint32_t period = seq_div_samples(t->p[P_SDIV]), loop = recording_loop(t, period);
         uint32_t a = step_samples(t, period, 0), b = step_samples(t, period, 1);
-        rec_tap(); seq_advance(loop);
+        rec_toggle(0); seq_advance(loop);
         seq_advance(a / 3u); input_on(t, 60, 73); input_on(t, 64, 91);
         seq_advance(101); input_off(t, 60); seq_advance(299); input_off(t, 64);
         uint32_t at = a + b / 3u;
@@ -528,7 +582,7 @@ static int take_quantization(void)
 
     raw_begin(); t = TSEL;
     seq_advance(600); input_on(t, 60, 91); seq_advance(300); input_off(t, 60);
-    t->p[P_RECQ] = 3; rec_tap();
+    t->p[P_RECQ] = 3; rec_toggle(0);
     bad += check("manual disarm commits the grid selected when recording finishes", !song.rec && !recording[0].on);
 
     raw_begin(); t = TSEL; t->p[P_RECQ] = 3;
@@ -579,10 +633,10 @@ static int take_quantization(void)
 
     pass_begin(0, 3, 0); t = TSEL;
     uint32_t loop = recording_loop(t, seq_div_samples(t->p[P_SDIV]));
-    rec_tap(); seq_advance(loop);
+    rec_toggle(0); seq_advance(loop);
     seq_advance(1000); input_on(t, 60, 91); seq_advance(100); input_off(t, 60);
     seq_advance(loop - 1100u); original = recording[0];
-    t->p[P_RECQ] = 3; rec_tap(); seq_advance(loop);
+    t->p[P_RECQ] = 3; rec_toggle(0); seq_advance(loop);
     seq_advance(2000); input_on(t, 67, 99); seq_advance(100); input_off(t, 67);
     seq_advance(loop - 2100u);
     bad += check("an automatically finished OFF take is never swept into a later enabled quantization pass",
@@ -591,7 +645,7 @@ static int take_quantization(void)
 
     raw_begin(); t = TSEL; t->p[P_RECQ] = 3;
     seq_advance(600); input_on(t, 60, 91); seq_advance(300); input_off(t, 60);
-    original = recording[0]; t->p[P_RECQ] = 0; rec_tap();
+    original = recording[0]; t->p[P_RECQ] = 0; rec_toggle(0);
     raw_replay(); int raw_playback = !gate_note(t, 60);
     seq_advance(599); raw_playback &= !gate_note(t, 60); seq_advance(1); raw_playback &= gate_note(t, 60);
     bad += check("switching OFF before disarm discards prepared targets and replays the actual captured edge",
@@ -602,7 +656,7 @@ static int take_quantization(void)
 #ifndef RECORDING_NO_MAIN
 int main(void)
 {
-    int bad=take_quantization()+first_note_start()+pattern_passes()+control_tick_precision()+repeated_hits()+independent_lengths()+raw_loop()+raw_storage()+raw_capacity()+copy_and_edit()+slow_precision()+replace_during_replay()+standalone_and_template()+full_recording_replay();
+    int bad=explicit_rec()+take_quantization()+first_note_start()+pattern_passes()+control_tick_precision()+repeated_hits()+independent_lengths()+raw_loop()+raw_storage()+raw_capacity()+copy_and_edit()+slow_precision()+replace_during_replay()+standalone_and_template()+full_recording_replay();
     printf("%s\n",bad?"RAW RECORDING TEST FAILED":"Raw recording tests passed");return !!bad;
 }
 #endif

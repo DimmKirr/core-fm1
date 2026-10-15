@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* FM6 parity scores: one DX7 voice, the player's settings and timed MIDI events, read the same
  * way by the FM6 side (tests/fm6_parity.c) and the Dexed side (tests/dexed_ref.cc), so both
  * render the same performance. Text, one directive per line, '#' starts a comment:

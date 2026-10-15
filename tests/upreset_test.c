@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the user preset record (firmware/src/upreset.c, -DUP_HOST part):
  * UP_PUT parsing, a bank round trip through storage.c on a simulated NOR,
  * bank / record version checks, map-by-count, pattern <-> steps,
@@ -105,7 +106,7 @@ int main(void)
         bad += check("short optional tail rejected", up_parse(a, n + 1u, &r, &slot) == 1 &&
                                                        !memcmp(&r, &keep, sizeof r));
     }
-    n = put_frame(a, UP_SLOTS, 0, "X", 0);
+    n = put_frame(a, 128u, 0, "X", 0);
     bad += check("UP_PUT past last slot -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 0, NENGINES, "X", 0);
     bad += check("UP_PUT bad engine -> args", up_parse(a, n, &r, &slot) == 1);
@@ -133,7 +134,7 @@ int main(void)
     up_cache_bank(1)->rsize = sizeof(up_rec_t);
     up_cache_bank(1)->nslot = UP_PER_BANK;
     *up_rec(17) = r;
-    bad += check("bank fits one object", sizeof(up_bank_t) <= ST_PAYLOAD_MAX);
+    bad += check("legacy wire bank fits one object", sizeof(up_bank_t) <= ST_PAYLOAD_MAX);
     bad += check("bank save", st_save(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1))) == 0);
     up_cache_reset();
     len = st_load(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1)));
@@ -220,7 +221,7 @@ int main(void)
         up_set_value(&r, i, (int16_t)i);
     up_params(&r, v, def);
     ok = P_RESERVED45 == 45 && P_RESERVED48 + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD &&
-         P_VOIC + 1 == P_MPCDEG && P_MPCDEG + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SPRD + 1 == P_FXTYPE && P_FX3CHAR + 1 == P_FXSEND && P_FXSEND + 1 == P_FXSEND2 && P_FXSEND2 + 1 == P_FXSEND3 && P_FXSEND3 + 1 == P_E0 && P_E0 == 111 && P_COUNT == 119;
+         P_VOIC + 1 == P_MPCDEG && P_MPCDEG + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SPRD + 1 == P_FXTYPE && P_FX3CHAR + 1 == P_FXSEND && P_FXSEND + 1 == P_FXSEND2 && P_FXSEND2 + 1 == P_FXSEND3 && P_FXSEND3 + 1 == P_FXTONE && P_FX3TONE + 1 == P_E0 && P_E0 == 114 && P_COUNT == 122;
     for (i = 0; i < 45u; i++)
         ok &= v[i] == (int16_t)i;
     for (i = P_RESERVED45; i < P_E0; i++)

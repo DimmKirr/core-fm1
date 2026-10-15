@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -26,14 +27,31 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "../firmware/src/panel.c"
 static void settings_save(void) {}
 static uint8_t settings_boot, settings_drumch = 10;  /* (params.c) */
+#define VOICE_BUDGET_DEFAULT 16u
+static int16_t settings_budget=VOICE_BUDGET_DEFAULT;
 static int native_used(uint32_t e, uint32_t k) { (void)e; (void)k; return 0; }
 #if __has_include("../firmware/src/favorites.c")
+static int up_favorite(uint32_t k);
+static int up_favorite_set(uint32_t k,int on);
 #include "../firmware/src/favorites.c"
+static int up_favorite(uint32_t k){return k<64u && (((k<32u?favorites.user:favorites_user_hi)>>(k%32u))&1u);}
+static int up_favorite_set(uint32_t k,int on){if(k>=64u)return 0;uint32_t *word=k<32u?&favorites.user:&favorites_user_hi;uint32_t old=*word;if(on)*word|=1u<<(k%32u);else *word&=~(1u<<(k%32u));return old!=*word;}
 #endif
 #include "../firmware/src/settings_persist.c"
 int main(void)
 {
     persist_t original = {0}, p;
+    {   /* Device workload budget shares tagged high USB bits, never its low flags. */
+        persist_t q={0};q.magic=PERSIST_MAGIC;q.panel=PANEL_DEFAULT;
+        for(uint32_t usb=0;usb<4u;usb++)for(int16_t points=8;points<=32;points++){
+            q.ext.usb_off=usb;settings_budget=points;settings_export(&q);
+            assert((q.ext.usb_off&3u)==usb && sizeof q==604u);
+            settings_budget=0;assert(settings_import(&q,sizeof q) && settings_budget==points);
+        }
+        q.ext.usb_off=WORK_BUDGET_TAG|(7u<<8)|2u;
+        assert(settings_import(&q,sizeof q) && settings_budget==VOICE_BUDGET_DEFAULT && q.ext.usb_off==2u);
+        q.ext.usb_off=0;assert(settings_import(&q,sizeof q) && settings_budget==VOICE_BUDGET_DEFAULT);
+    }
     original.magic = PERSIST_MAGIC;
     original.palette = 4; original.bold = original.lowcut = original.zoom = 1;   /* an untagged id: the default */
     original.panel = PANEL_DEFAULT; original.panel.enc[0] = 3;
@@ -55,9 +73,9 @@ int main(void)
 #ifdef MELODEE_FAVORITES
     assert(favorite_has(8, 0) && favorite_has(USER_GENERAL, 31) && favorites.filter);
 #endif
-    favorite_set(USER_NATIVE_FM,63,1);favorite_set(USER_NATIVE_CZ,127,1);favorite_set(USER_GENERAL,63,1);
+    favorite_set(USER_NATIVE_FM,63,1);favorite_set(USER_NATIVE_CZ,63,1);favorite_set(USER_GENERAL,63,1);
     settings_export(&p);memset(&favorites,0,sizeof favorites);favorites_user_hi=0;settings_import(&p,sizeof p);
-    assert(favorite_has(USER_NATIVE_FM,63) && favorite_has(USER_NATIVE_CZ,127) && favorite_has(USER_GENERAL,63));
+    assert(favorite_has(USER_NATIVE_FM,63) && favorite_has(USER_NATIVE_CZ,63) && favorite_has(USER_GENERAL,63));
     assert(!favorite_has(USER_NATIVE_FM,64) && !favorite_has(USER_NATIVE_CZ,128));
     p=original;settings_import(&p,sizeof p);
     {

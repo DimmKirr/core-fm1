@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Download the CC0 samples used by the SAMPLE engine into assets/samples-cc0/.
 
 The files are already in the tree; this re-creates them from the source:

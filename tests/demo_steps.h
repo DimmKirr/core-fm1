@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The 16-step phrases the UI tests and renders start from (the firmware's factory patterns until the phrases
  * left it, 2026-10-10). Absolute notes, 0 = rest; flags 1 accent, 2 slide, 4 tie (holds the previous note).
  * demo_pat16: into steps 1..16, the rest empty, LEN 16; on a DRUM track its grid (eng_drum.c step_to_grid) */

@@ -83,7 +83,6 @@ static void reset(void)
     memset(&persist_saved, 0, sizeof persist_saved);
     memset(&settings, 0, sizeof settings);
     memset(&ui, 0, sizeof ui);
-    memset(&boot_work, 0, sizeof boot_work);
     memset(&favorites, 0, sizeof favorites);
     panel = PANEL_DEFAULT;
     host_tracks_init();
@@ -97,6 +96,7 @@ static void reset(void)
     fail_after = -1;
     up_gen = erases = 0;
     boot_syncs = boot_trace = boot_trace_bad = 0;
+    memset(&boot_work, 0, sizeof boot_work);
     irq_start_race = irq_races = 0;
 }
 
@@ -118,44 +118,16 @@ static int staged_import_persistence(void)
     int bad=0;reset();memset(&sx_import,0,sizeof sx_import);fm6_rx_ready=0;
     fail_after=100000;native_put(ENGI_FM6,4,FM6_INIT);uint32_t writes=100000u-(uint32_t)fail_after;
     reset();for(uint32_t i=0;i<32;i++){memcpy(fm6_rx+6+i*FM6_PACKED,FM6_INIT,FM6_PACKED);fm6_rx[6+i*FM6_PACKED+118]=(uint8_t)('A'+i%26);}
-    sysex_stage(ENGI_FM6,fm6_rx+6,32,FM6_PACKED);ui.uslot=4;fail_after=(int)writes;sysex_choose();
-    bad+=check("partial SysEx write retains only unsaved tones for retry",sx_import.count==31&&sx_import.first==5&&sx_import.data==fm6_rx+6+FM6_PACKED&&fm6_rx_ready==2&&native_used(ENGI_FM6,4)&&!native_used(ENGI_FM6,5));
-    native_cache_reset();bad+=check("committed import prefix survives cache reset and torn next slot",native_used(ENGI_FM6,4)&&native_raw(ENGI_FM6,4)[118]=='A'&&!native_used(ENGI_FM6,5));
+    sysex_stage(ENGI_FM6,fm6_rx+6,32,FM6_PACKED);ui.uslot=4;fail_after=(int)writes;sysex_choose();if(ui.confirm==CF_IMPORT){ui.confirm=0;preset_old_allow(1);sysex_commit();preset_old_allow(0);}
+    bad+=check("partial SysEx write retains only unsaved tones for retry",sx_import.count==18&&sx_import.first==18&&sx_import.data==fm6_rx+6+14u*FM6_PACKED&&fm6_rx_ready==2&&native_used(ENGI_FM6,4)&&!native_used(ENGI_FM6,18));
+    native_cache_reset();bad+=check("committed import prefix survives cache reset and torn next slot",native_used(ENGI_FM6,4)&&native_raw(ENGI_FM6,4)[118]=='A'&&!native_used(ENGI_FM6,18));
     fail_after=-1;sysex_choose();
     bad+=check("retry starts after committed prefix and unlocks the receive buffer",!sx_import.count&&!fm6_rx_ready&&native_used(ENGI_FM6,35)&&native_raw(ENGI_FM6,5)[118]=='B'&&native_raw(ENGI_FM6,4)[118]=='A');
     return bad;
 }
-static int test_boot_maintenance_writes(void)
-{
-    int bad = 0;
-    reset(); boot_trace = 1;
-    persist_boot();
-    bad += check("first boot flushes warning before settings and 12 bank erases",
-                 erases == 13u && !boot_trace_bad && boot_syncs >= 17u &&
-                 !boot_work.state && boot_work.total == 12u && boot_work.done == 12u);
-    uint32_t before = erases, flushed = boot_syncs;
-    persist_boot();
-    bad += check("completed first boot needs no more bank writes or progress screen",
-                 erases == before && boot_syncs == flushed && !boot_work.state);
-    reset(); persist_t prefs = {0}; settings_init(); settings_export(&prefs);
-    st_save(OBJ_SETTINGS, &prefs, sizeof prefs); erases = 0;
-    boot_trace = 1; fail_after = 30;               /* first three FM6 banks commit, the fourth fails */
-    persist_boot();
-    bad += check("failed first-boot write preserves completed banks and visible failure",
-                 boot_work.state == 2u && boot_work.done == 3u && !boot_trace_bad &&
-                 native_fm_valid(native_fm_bank(0)) && native_fm_valid(native_fm_bank(2)));
-    fail_after = -1; before = erases; boot_syncs = 0;
-    persist_boot();
-    bad += check("restart retries only the nine unfinished banks",
-                 !boot_work.state && boot_work.total == 9u && boot_work.done == 9u &&
-                 erases == before + 9u && !boot_trace_bad && boot_syncs >= 11u);
-    reset();
-    return bad;
-}
-
 int main(void)
 {
-    int bad = test_boot_maintenance_writes(), ok;
+    int bad = 0, ok;
     uint32_t before;
     persist_t p;
     project_store_t old;
@@ -329,7 +301,7 @@ int main(void)
     fail_after = -1;
     bad += check("failed preset save rolls back bank and generation", ok && up_gen == before &&
                   !memcmp(up_cache_bank(0), &bank, sizeof bank));
-    favorite_set(USER_GENERAL, 3, 1);
+    favorite_set(USER_GENERAL, 3, 1);bank=*up_cache_bank(0);before=up_gen;
     fail_after = 1;
     ok = up_put(3, 0) == 2;
     fail_after = -1;

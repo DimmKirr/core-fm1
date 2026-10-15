@@ -6,6 +6,7 @@
 #   tests/run_tests.sh               everything
 #   SOUND=0 tests/run_tests.sh       everything but the sound tests
 #   SOUND=only tests/run_tests.sh    the sound tests alone
+#   UI=renders tests/run_tests.sh    UI screenshots only (build/ui_new), for the web manual
 # Sound tests: the regression suite, the DSP render and TRACKS, and every test of an engine's or an effect's rendered
 #   signal (native fp32, Prophet, SPEAKER, MOD, SLICER, the FX layer, REVERB, DELAY, MOD / SPREAD, CZ, SID,
 #   CZ-1 knobs, PHYS, DRUM, NOISE, FM6, the dual-core pairing). The rest (storage, UI, MIDI, USB, editor, web) always runs.
@@ -64,6 +65,9 @@
 #                   Melodee's targets, the controls' directions, no clipping, DC, retriggers, the hat choke, the
 #                   kick on a small speaker; the DRUM engine (src/eng_drum.c): its key map, the 8 lanes together,
 #                   one hit per lane, the choke between lanes; the cost per voice; demos in build/drum_demo/.
+# DRUM SID (tests/drum_sid_test.c): KIT SID (src/drum_sid.c): one 6581 on one voice, its three voices taken by
+#                   the hits, frame programs at PAL frames, DIGI on $D418 and its effect on the voices ringing,
+#                   the filter for the routed drums, levels next to the 808; demos in build/sid_kit_demo/.
 # NOISE (tests/noise_test.c): the engine (src/eng_noise.c): COLR's slope (white, pink, brown), the filter and the
 #                   register clock following the key, META periodic at the key, no DC, no clipping at the
 #                   corners, a note from silence the same twice, the cost per voice; demos in build/noise_demo/.
@@ -87,9 +91,19 @@ P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
 PARALLEL=${PARALLEL:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 case $SOUND in 0 | 1 | only) ;; *) echo "SOUND=0, 1 or only"; exit 2 ;; esac
+UI=${UI:-}
+case $UI in "" | renders) ;; *) echo "UI=renders or empty"; exit 2 ;; esac
+if [ "$UI" = renders ]; then
+    python3 -c "import PIL" 2>/dev/null || { echo "UI renders need Pillow (python3 -m pip install Pillow)" >&2; exit 1; }
+fi
 [ "$PARALLEL" -ge 1 ] 2>/dev/null || { echo "PARALLEL=n, n >= 1"; exit 2; }
 python3 tools/gen_scales.py --check || exit 1
-[ -f build/melodee.fwsc ] || { echo "run ./build.sh first"; exit 1; }
+python3 tools/audio_contract.py --check || exit 1
+if [ "$UI" = renders ]; then
+    [ -f build/gen/melodee_tables.h ] || { echo "run ./build.sh first"; exit 1; }
+else
+    [ -f build/melodee.fwsc ] || { echo "run ./build.sh first"; exit 1; }
+fi
 TABLES=0; [ -f build/gen/melodee_tables.h ] && TABLES=1
 PIL=0; python3 -c "import PIL" 2>/dev/null && PIL=1
 mkdir -p "$OUT" "$LOG"
@@ -154,6 +168,7 @@ web_tests() {                                     # the editor mock's tables mus
     fi
     if command -v node >/dev/null 2>&1; then
         step "web pages: editor protocol + native CZ patches, package builder, update protocol" node web/test_web.mjs
+        step "installer UI: release selection, fetch races, cache and write lock" node web/test_installer.mjs
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
     else
         echo "== skip web tests (no node)"
@@ -181,6 +196,20 @@ ui_renders() {
         python3 tools/ui_mockcmp.py build/ui_new build/ui_mock || fail "tools/ui_mockcmp.py" # redesign parity (docs/design): a report, no gate yet
     fi
 }
+if [ "$UI" = renders ]; then
+    ui_renders || true
+    if [ -s "$LOG/$n.fail" ]; then
+        echo "UI RENDERS FAILED"
+        cat "$LOG/$n.fail"
+        exit 1
+    fi
+    if [ ! -f build/ui_new/NIGHT/home.png ]; then
+        echo "UI renders produced no NIGHT screenshots" >&2
+        exit 1
+    fi
+    echo "UI RENDERS PASSED in $(($(date +%s) - start)) s"
+    exit 0
+fi
 dsp_tracks() {
     build hostsim hostsim -O2 $FW || return
     step "DSP render (CZ-1 preset 0)" "$OUT/hostsim" 15 0 1 "$OUT/render.wav"
@@ -223,6 +252,8 @@ if core; then
     t "native FM6/CZ user presets, scrolling, migration and interrupted saves" fm6_preset_test -O1 $FW
     t "Prophet native slots, atomic saves, projects, undo and performance" prophet_integration_test -O1 $FW
     t "resource lifetimes, cache eviction, tails and capacity" resources_test -O2 $FW
+    t "aligned libc: copy/clear bounds, ordering and float aliasing" libc_word_test -O2 -fstrict-aliasing
+    t "wire fields: byte order, cross-byte bounds and preserved surrounding bits" wire_bits_test -O2
     t "audio worker: stalled jobs and wrapping deadlines" audio_worker_test
     t "cache RAM startup, memory faults and safe fallback" cache_ram_test
     t "system clock: read only, never written" clock_test -O1
@@ -244,6 +275,7 @@ if core; then
     t "removed effects: old songs and motion, MIDI, physical input and dry output" no_effects_test -O1 $FW
     t "resident audio: four-track resource budget and removed buses" ram_audio_test -O2 $FW
     t "resident audio: expanded voice budget and CPU1 fallback" ram_voice_budget_test -O2 $FW
+    t "audio: calibrated reservations, release tails and overlapping hits" audio_admission_test -O2 $FW
     t "USB audio: four isolated track stems through the real mixer" usb_audio_tracks_test -O2 $FW
     t "boot stub: CRCs, rescue keys, damaged staging and retry fallback" boot_stub_test -O2
     run "boot packages: constant entry sector and valid directory CRCs" python3 tests/boot_stub_pkg_test.py
@@ -271,6 +303,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" midi_timing_test -O1 $FW
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
+    t "Recording undo: whole takes, motion, early stops, redo, isolation and memory" recording_undo_test -O1 $FW
     t "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" seq_notes_test \
         -O1 $FW
     t "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" midi_scale_test -O1 $FW
@@ -296,6 +329,7 @@ if core && [ $TABLES = 1 ]; then
     t "audio: overload protection, bounded fades and DMA diagnostics" audio_test $FW
     t "audio: silent bench keeps synthesis running and silences physical output" audio_silent_test:audio_test \
         -DMELODEE_BENCH_SILENT=1 $FW
+    t "384 shared presets: all-engine capacity, conversion, torn writes and high-slot identity" unified_presets_test $FW
     t "persistence: deferred settings, retry and failed-save rollback" persistence_test $FW
     t "first boot: foreign settings, safe defaults, ownership and interrupted cleanup" settings_origin_test $FW
     t "first boot: reset unsupported preset banks, preserve good entries and retry cuts" preset_boot_reset_test $FW
@@ -318,6 +352,7 @@ if sound && [ $TABLES = 1 ]; then
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/phys_test" build/phys_demo
     t "paired FM6/Prophet voices: serial/concurrent sample equality and eight-voice allocation" dual_core_test \
         -O2 $FW -pthread
+    t "audio: 1296 ordered engine assignments, releases, controls and concurrent PCM parity" audio_matrix_test -O2 $FW -pthread
     t "CZ-1: every knob changes a full tone; the dim ones leave INIT and factory tones bit for bit" cz1_knob_test -O2 $FW
     t "native fp32: independent numerical references, exact pitch, quiet signals and fractional envelopes" synth_fpu_test \
         -O2 $FW
@@ -331,6 +366,8 @@ if sound && [ $TABLES = 1 ]; then
     job phys_ref
     t "DRUM: 808 instruments, velocity, hat choke, release, eight lanes and shared voice budget" drum_test -O2 $FW -- \
         "$OUT/drum_test" build/drum_demo
+    t "DRUM SID: one 6581 on one voice, frame programs, DIGI on \$D418, filter routing, levels" drum_sid_test -O2 $FW -- \
+        "$OUT/drum_sid_test" build/sid_kit_demo
     t "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" noise_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/noise_test" build/noise_demo
     t "FM6: the DX7's algorithms, pitch, levels, envelopes, modulation; DC, clipping, macros, patches, voices, cost, demos" \

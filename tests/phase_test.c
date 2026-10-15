@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* CZ behavior checks against the manual's rate/target and waveform rules.
  * These are architectural regressions, not hardware audio parity measurements. */
 #define main hostsim_main

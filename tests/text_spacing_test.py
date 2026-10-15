@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Text spacing against the font itself: the generated glyph tables (build/gen/ui_fonts.h), placed as
 src/gfx.c cv_text places them (tests/text_ref_test.c pins cv_text to that rule), against a 16 x supersampled,
 unhinted rendering of the same instanced weight, every glyph at its exact fractional pen from shaping the
@@ -8,8 +9,8 @@ whole string (advances and GPOS kerning at 16 x the size).
 
 Per glyph: its displacement d = ink centroid (tables) - ink centroid (reference); area coverage keeps the first
 moment, so d is how far the glyph sits from its true place. Per pair: gap error = d[i+1] - d[i], the error of
-the space between two neighbours. Fails when a pair is off by more than 0.51 px: every face has 2 phases (a half
-pixel step) since the 2026-10 storage pass, as L always had; X, S and M had 4 and a 0.25 px limit before.
+the space between two neighbours. Fails when a pair is off by more than a phase step: LB and TX have 2 phases (a
+half pixel, 0.51 px), VL and HR one (at 28 / 48 px a pixel is a small part of a letter: 1.01 px).
 
   text_spacing_test.py [ui_fonts.h] [--png DIR [--tag NAME]] [--rule gfx|rounded] [--no-limit]
   (PNG: the specimen strings x4, gray on black; --rule rounded measures tables made before the phases)
@@ -34,7 +35,7 @@ LOWER = ["oeo", "coco", "eco", "nono", "minimum", "hello", "level", "decay", "re
 UPPER = ["CUTOFF", "RESO", "LEVEL", "DECAY", "RELEASE", "SOUND", "OCOE", "COCO", "NONO", "MINIMUM", "SUPER SAW",
          "MELODEE", "PRESETS", "ANALOG", "DIGITAL", "PITCH", "SWING", "AV AW LT TA YO"]
 RULE = ["gfx"]   # "gfx": src/gfx.c cv_text; "rounded": the earlier rule (each glyph at the rounded pen, 1 phase)
-LIMIT = {"X": 0.51, "S": 0.51, "M": 0.51, "L": 0.51}   # a phase step, plus raster noise
+LIMIT = {"LB": 0.51, "TX": 0.51, "VL": 1.01, "HR": 1.01}   # a phase step (VL, HR: one phase, a pixel), plus raster noise
 
 
 def parse(path):
@@ -43,16 +44,16 @@ def parse(path):
     faces = {}
     for m in re.finditer(r"static const aafont_t AF_(\w+) = \{([^}]*)\};", t):
         name, f = m.group(1), [x.strip() for x in m.group(2).split(",")]
-        arr = lambda n: [int(v, 0) for v in re.search(r"AF_%s_%s\[\d+\] = \{([^}]*)\}" % (name, n), t)
-                         .group(1).replace("\n", " ").split(",") if v.strip()]
+        arr = lambda n: [int(v, 0) for v in re.search(r"%s\[\d+\] = \{([^}]*)\}" % (n if n.startswith("AF_") else
+                         "AF_%s_%s" % (name, n)), t).group(1).replace("\n", " ").split(",") if v.strip()]
         g = [tuple(int(v) for v in e.split(",")) for e in
              re.findall(r"\{(-?\d+, -?\d+, -?\d+, -?\d+, -?\d+, -?\d+)\}",
                         re.search(r"AF_%s_G\[\d+\] = \{(.*?)\n\};" % name, t, re.S).group(1))]
         kern = {}
         codes = list(range(int(f[2]), int(f[3]) + 1)) + arr("EX")[:int(f[4])]
-        if f[8] != "0":                      # the class tables, back to pairs keyed a << 8 | b
-            kl, kr, km, nkr = arr("KL"), arr("KR"), arr("KM"), int(f[5])
-            kern = {a << 8 | b: km[(kl[i] - 1) * nkr + kr[j] - 1] for i, a in enumerate(codes)
+        if f[8] != "0":                      # the (shared) class tables, scaled (ks, Q8), back to pairs keyed a << 8 | b
+            kl, kr, km, nkr, ks = arr(f[8]), arr(f[9]), arr(f[10]), int(f[5]), int(f[16])
+            kern = {a << 8 | b: (km[(kl[i] - 1) * nkr + kr[j] - 1] * ks + 128) >> 8 for i, a in enumerate(codes)
                     for j, b in enumerate(codes) if kl[i] and kr[j] and a < 256 and b < 256}
         faces[name] = {"h": int(f[0]), "asc": int(f[1]), "first": int(f[2]), "last": int(f[3]), "nex": int(f[4]),
                        "g": g, "data": bytes(arr("DATA")), "kern": kern, "ex": arr("EX")[:int(f[4])],
@@ -184,7 +185,7 @@ def main():
         font, px = spec[name]
         font_hi = ar.open_font(font, px * SS)
         words = LOWER if f["last"] >= ord("z") else UPPER
-        # a sparse face (L): the words it can draw (the firmware draws no others in it)
+        # a sparse face (HR): the words it can draw (the firmware draws no others in it)
         words = [w for w in words if all(glyph_at(f, ord(ch.upper())) is not None for ch in w)]
         pairs = [p for s in words for p in measure(f, font_hi, s)]
         e = sorted(pairs, key=lambda p: -abs(p[1]))

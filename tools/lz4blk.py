@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Minimal LZ4 *block* format (no frame), written for the Melodee loader
 wrapper: greedy hash-chain-free compressor and a decoder for self-checks.
 Spec: https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md

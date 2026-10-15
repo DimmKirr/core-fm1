@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+# Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Rasterise the Fukiai icon font (web/fukiai.ttf, MIT, (c) Hügelton Instruments) into
 4-bit alpha icon cells for the UI (run by tools/build.py generate()).
 
@@ -76,7 +77,6 @@ EXTRA = {
     "x_back": "control_arrow_back", "x_down": "symbol_carret_down", "x_up": "symbol_carret_up",
     "x_left": "symbol_carret_left", "x_right": "symbol_carret_right", "x_hugelton": "symbol_hugelton",
     # page and state icons (Fukiai 0.8.0): MIXER / PHRASES / SONG pages, motion, calibration, the battery
-    # (battery_2 is not used: the stock level 0..3 maps to battery_0 / 1 / 3 / 4, see ui_draw.c batt_icon)
     "x_mixer": "ui_slider_vertical", "x_pattern": "symbol_grid_nine", "x_song": "symbol_disc",
     "x_motion": "symbol_motion", "x_motion_rec": "symbol_motion_rec", "x_motion_del": "symbol_motion_delete",
     "x_doctor": "symbol_doctor", "x_bat0": "system_battery_0", "x_bat1": "system_battery_1",

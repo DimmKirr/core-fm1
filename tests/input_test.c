@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the key / button debounce in hal/fm1_input.h (fm1__key, fm1__frame), against a model
  * of the scan and of bouncing contacts. The scan is the TIMER5 one (fm1_input_tick): one column every
  * 100 us, sampled one tick after it was latched; a frame (the debounce step) every 11 ticks.

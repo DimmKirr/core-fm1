@@ -27,6 +27,7 @@ build.py --release do).
 """
 import argparse
 import os
+import re
 import struct
 import zlib
 from pathlib import Path
@@ -47,6 +48,15 @@ APP_CRC_FIXED = 0x4352              # app.bin's CRC-16 in every stub package ("C
 FLASH_HDR = bytes.fromhex("20022f104cc900f00f001010a4ff4e5d0b41e0cd781dc856417fb367cf9f")
 UFW_CHIP = b"AC791N"
 SDK = None
+
+
+def release_product(version):
+    """Map release/prerelease labels to the boot loader's numeric identity."""
+    match = re.fullmatch(r"(\d)\.(\d{1,2})(?:\.(\d))?(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?", version)
+    if not match:
+        raise ValueError(f"Invalid release version: {version}; use X.Y[.Z][-suffix]")
+    major, minor, patch = match.groups()
+    return "FM-1_9" + major + (minor.zfill(2) + patch if patch else minor)
 
 
 def _crc_table():

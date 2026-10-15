@@ -47,12 +47,17 @@ mod_end 7
 # Quarter-rate Tape now includes the fused wet interpolation/mix, replacing full-rate passes.
 # These are static compiled-loop sizes; device before/after proves the actual CPU reduction.
 fx_tape 259
-cz_native_render 529
+# Accepted recording-undo resource_get inline growth from 167e9f2; inner oscillator loop unchanged.
+cz_native_render 583
 cz_native_wave 0
-drum_source 10
+# Eight-control snapshot loop is now local and visible here; it replaces
+# drum808_values' full-track copy. The original PCM conversion loop remains.
+drum_source 15
 drum_limit 22
 drum_color 19
-dr_metal_tune 7
+# Private scratch pointer adds one loop instruction; concurrent voices no
+# longer race on global metal increments. All other kernel budgets retained.
+dr_metal_tune 8
 d9_render_bd 224
 d9_render_sd 280
 d9_render_tom 3064
@@ -68,7 +73,8 @@ p5_mod_samples 105
 fx_filter 176
 fx_down 126
 fx_up 141
-fx_time 249
+# Two smoothed wet-input cuts (the low one always: the floor), evaluated at quarter rate, and the echo loop's low cut.
+fx_time 351
 fx_reverb 1016
 mix_fx_samples 82
 mix_extra_sends 94

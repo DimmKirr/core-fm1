@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Release aggregation refuses mismatched firmware, stale native builds and damaged ZIPs."""
 import contextlib
 import io
@@ -16,31 +17,35 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import prepare_release as A
 from fm1_recover import APP_LO, Package, sha256
-from fm1pkg_make import sfc, ufw
+from fm1pkg_make import release_product, sfc, ufw
 from recovery_test import make_package
 
-MAJOR, MINOR, PATCH = A.VERSION.split(".")
+MAJOR, MINOR, PATCH = A.VERSION.split("-", 1)[0].split(".")
 PRODUCT = f"FM-1_9{MAJOR}{int(MINOR):02d}{PATCH}"
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_release_and_prerelease_identities(self):
+        for version, product in (("1.3.2", "FM-1_91032"), ("1.4.0-rc.1", "FM-1_91040"),
+                                 ("1.4.0", "FM-1_91040"), ("0.11.1-audio3", "FM-1_90111"),
+                                 ("0.10", "FM-1_9010")):
+            with self.subTest(version=version):
+                self.assertEqual(release_product(version), product)
+        for version in ("1.4.0-", "1.4.0-rc..1", "1.4.0/rc.1", "10.4.0", "1.4.10"):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                release_product(version)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.folder = Path(self.temp.name)
         self.commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-        for suffix in ("", "-1core"):
-            package = self.folder / f"melodee-{A.VERSION}{suffix}.fwsc"
-            package.write_bytes(make_package())
-            if suffix:
-                flash = bytearray(Package(package).flash)
-                flash[APP_LO + 0x120] ^= 1
-                package.write_bytes(ufw(bytes(flash), b"loader", PRODUCT))
-            else:
-                package.write_bytes(ufw(Package(package).flash, b"loader", PRODUCT))
-            obj = Package(package)
-            decoded = bytearray(obj.flash[APP_LO:])
-            sfc(decoded, 0, len(decoded), 0, obj.key)
-            (self.folder / f"melodee-{A.VERSION}{suffix}-app.bin").write_bytes(decoded[0x120:0x121])
+        package = self.folder / f"melodee-{A.VERSION}.fwsc"
+        package.write_bytes(make_package())
+        package.write_bytes(ufw(Package(package).flash, b"loader", PRODUCT))
+        obj = Package(package)
+        decoded = bytearray(obj.flash[APP_LO:])
+        sfc(decoded, 0, len(decoded), 0, obj.key)
+        (self.folder / f"melodee-{A.VERSION}-app.bin").write_bytes(decoded[0x120:0x121])
         for target in A.TARGETS:
             self.write_archive(target)
 
@@ -65,9 +70,16 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(info["product"], PRODUCT)
         self.assertEqual(info["commit"], self.commit)
         self.assertEqual(len(info["recovery_builds"]), 4)
+        self.assertEqual(set(info["core_builds"]), {f"melodee-{A.VERSION}.fwsc"})
+        self.assertEqual(info["core_builds"][f"melodee-{A.VERSION}.fwsc"]["MELODEE_DUAL_CORE"], 1)
         for line in (self.folder / "SHA256SUMS").read_text().splitlines():
             digest, name = line.split("  ", 1)
             self.assertEqual(sha256((self.folder / name).read_bytes()), digest)
+
+    def test_stale_single_core_assets_are_rejected(self):
+        (self.folder / f"melodee-{A.VERSION}-1core.fwsc").write_bytes(b"stale")
+        with self.assertRaisesRegex(RuntimeError, "Single-core release assets are retired"):
+            self.prepare()
 
     def test_application_mismatch_is_rejected(self):
         (self.folder / f"melodee-{A.VERSION}-app.bin").write_bytes(b"wrong app")

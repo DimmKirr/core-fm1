@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* CZ-1's knobs (the SC_CZ1 pages, cz_edit.h), through cz_ed_put as the device writes them, rendered:
  *   ALL WORK   on a tone that uses every part of the CZ (1+2', both lines' own values, detune, vibrato,
  *              eight-step envelopes), each panel value at its minimum and maximum changes the sound; the one
@@ -29,7 +30,7 @@ static void reset_all(track_t *t)
     eng_state_clear(0);
 }
 
-static void render(track_t *t, int16_t *dst)
+static void render(track_t *t, int32_t *dst)
 {
     static const uint8_t N[4] = {36, 55, 72, 84}, V[4] = {30, 70, 100, 127};
     int32_t o[CTL];
@@ -46,7 +47,7 @@ static void render(track_t *t, int16_t *dst)
         track_render(t, o, CTL);
         if (mod.on)
             mod_end(t);
-        for (i = 0; i < CTL; i++)
+        for (i = 0; i < CTL && n < RENDER_N; i++)
             dst[n++] = o[i];
     }
 }

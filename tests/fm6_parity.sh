@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # FM6 against Dexed, sample by sample (tests/fm6_parity.py). Needs a Dexed checkout (its Source/
 # directory: msfa/, EngineMkI.cpp, EngineOpl.cpp; https://github.com/asb2m10/dexed), and the host
 # tables (./build.sh, or python3 tools/gen_tables.py build/gen/melodee_tables.h).

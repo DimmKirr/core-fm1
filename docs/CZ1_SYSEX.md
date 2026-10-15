@@ -57,20 +57,17 @@ Sources:
 
 ## Native user presets
 
-CZ-1 has 128 separate native user slots, Z001–Z128. In the editor's User presets section,
-choose CZ-1 and import a .syx file into free slots, save the current track tone, or upload a library tone.
-Read, load, save, erase and export use this collection; export concatenates complete Casio tone frames.
-Each save commits atomically. A multi-tone import commits one tone at a time, so an interrupted import
-may have saved earlier tones. Capacity is checked before the import starts, and occupied slots stay intact.
+CZ-1 shares **384 user slots (U001–U384)** with every other engine. Any slot can hold a complete
+144-byte Casio tone, and the entire bank can be filled with CZ-1 sounds. The tone picker groups
+these presets under CZ-1, while SAVE > USER and the editor show every occupied slot's actual engine.
 
-The device scrolls used slots after CZ-1 factory tones in PRESETS and the engine's preset knob.
-Favorites work for these slots. SAVE > USER opens this collection when the selected track is CZ-1.
-Loading recalls only the native tone: Felucca effects, modulation and patterns remain the track's.
-There is no BANK / PTCH page. Full backups retain all native bytes and empty slots.
+Incoming USB tones are staged until a destination is chosen. Overwriting any occupied shared slot,
+including a Prophet or FM6 sound, asks for confirmation. The receive callback never writes flash.
+Native exports retain all sixteen Casio name bytes and every tone byte; JSON bank exports also
+retain Felucca sound controls. Track effects, mix, arpeggiator, scale and pattern survive loading.
 
-Existing saved CZ banks migrate with their tone indices intact. Embedded general CZ presets move into
-free native slots; if the collection is full, unmatched general records remain accessible. Factory tones
-stay in the factory preset list, and unsaved user slots start empty.
+Current saved CZ banks convert into the shared library with names and favorites retained. Factory
+tones remain separate. Unsupported formats stay protected, and full backups include all shared slots.
 
 ## Factory tones
 

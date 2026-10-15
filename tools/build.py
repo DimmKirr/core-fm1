@@ -124,18 +124,9 @@ def generate():
 
 # ---- update loader
 
-def crc16(d, c=0):
-    for b in d:
-        c ^= b << 8
-        for _ in range(8):
-            c = ((c << 1) ^ 0x1021) if c & 0x8000 else c << 1
-        c &= 0xFFFF
-    return c
-
-
 def ldr_head(dcrc, a, b, attr, name):
     body = struct.pack("<HIIBBH16s", dcrc, a, b, attr, 0, 0, name)
-    return struct.pack("<H", crc16(body)) + body
+    return struct.pack("<H", fm1pkg_make.crc16(body)) + body
 
 
 def ldr_wrap(image):
@@ -148,9 +139,9 @@ def ldr_wrap(image):
         if len(c) > 4096 or lz4blk.decompress(c) != raw:
             raise SystemExit(f"loader: block {i // 4096} does not compress below 4096 B")
         blocks += struct.pack("<II", len(c), len(raw)) + c
-    inner = ldr_head(crc16(image), len(image), LOADER_LOAD, 0, LOADER_NAME)
+    inner = ldr_head(fm1pkg_make.crc16(image), len(image), LOADER_LOAD, 0, LOADER_NAME)
     body = inner + bytes(blocks)
-    return ldr_head(crc16(body), 0x20, len(body), 0x41, LOADER_NAME) + body
+    return ldr_head(fm1pkg_make.crc16(body), 0x20, len(body), 0x41, LOADER_NAME) + body
 
 
 def build_loader():
@@ -252,7 +243,7 @@ def build_app(stub):
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
     for flag in ("MELODEE_FLASH", "MELODEE_OTA", "MELODEE_OTA_DRYRUN", "MELODEE_OTA_RAMONLY", "MELODEE_CDC",
                  "MELODEE_UART", "MELODEE_USB_AUDIO", "MELODEE_ICONS", "MELODEE_PROPHET_PROTOTYPE",
-                 "MELODEE_BENCH_SILENT", "MELODEE_FX_PROFILE", "MELODEE_DUAL_CORE", "MELODEE_CACHE_RAM", "MELODEE_CORE1_TEST", "MELODEE_RAM_AUDIO", "MELODEE_HW_EQ"):
+                 "MELODEE_BENCH_SILENT", "MELODEE_FX_PROFILE", "MELODEE_AUDIO_PROFILE", "MELODEE_BATCH_AUDIO", "MELODEE_ADMISSION", "MELODEE_AUDIO_BENCH", "MELODEE_DUAL_CORE", "MELODEE_CACHE_RAM", "MELODEE_CORE1_TEST", "MELODEE_RAM_AUDIO", "MELODEE_HW_EQ"):
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
@@ -380,7 +371,7 @@ def check(img, syms, dis, rt):
             if (name == kernel or address) and not sym("_dsp_start") <= address < sym("_dsp_end"):
                 errors.append(f"{name} must remain in internal DSP RAM")
         notes.append("FM6: sample kernel and operator helpers in internal DSP RAM")
-    for name in ("fm6_output", "fm6_dc_samples", "fm6_control_ram", "fm6_eg_go", "fm6_eg_step", "fm6_peg_go", "p5_dc_samples", "mix_mono_samples", "master_samples", "master_out"):
+    for name in ("fm6_output", "fm6_dc_samples", "fm6_eg_go", "fm6_eg_step", "fm6_peg_go", "p5_dc_samples", "mix_mono_samples", "master_samples", "master_out"):
         address = sym(name)
         if address and not sym("_dsp_start") <= address < sym("_dsp_end"):
             errors.append(f"{name} must remain in internal DSP RAM")
@@ -488,18 +479,20 @@ def main():
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     name = "melodee.fwsc"
-    variant = "-1core" if os.environ.get("MELODEE_DUAL_CORE") == "0" else ""
+    if os.environ.get("MELODEE_DUAL_CORE", "1") != "1":
+        ap.error("Single-core firmware is retired; MELODEE_DUAL_CORE must be 1")
+    os.environ["MELODEE_DUAL_CORE"] = "1"
     if a.release:                   # X one digit, Y one or two (1.0: FM-1_910; 1.0.0: FM-1_91000),
-        m = re.fullmatch(r"(\d)\.(\d{1,2})(?:\.(\d))?(-[A-Za-z0-9]+)?", a.release)   # Z one (Y two with it)
-        if not m:
-            raise SystemExit(f"--release {a.release}: use X.Y[.Z] or X.Y[.Z]-suffix (X one digit, Y one or two, Z one)")
-        PRODUCT = "FM-1_9" + m[1] + (m[2].zfill(2) + m[3] if m[3] else m[2])
+        try:
+            PRODUCT = fm1pkg_make.release_product(a.release)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
         VERSION = "v" + a.release.lower()      # e.g. v1.0, v1.1-rc1
-        name = f"melodee-{a.release}{variant}.fwsc"
+        name = f"melodee-{a.release}.fwsc"
     if a.nightly:
         revision = subprocess.check_output(["git", "rev-parse", "--short=7", "HEAD"], cwd=SRC, text=True).strip()
         VERSION = "next-" + revision
-        name = f"melodee-nightly{variant}.fwsc"
+        name = f"melodee-nightly.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
@@ -529,10 +522,10 @@ def main():
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
     print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}")
     if a.release:                   # what a release carries: the package, the app and every licence they need
-        rel = OUT / f"release-{a.release}{variant}"
+        rel = OUT / f"release-{a.release}"
         shutil.rmtree(rel, ignore_errors=True)
         (rel / "LICENSES").mkdir(parents=True)
-        app = f"melodee-{a.release}{variant}-app.bin"
+        app = f"melodee-{a.release}-app.bin"
         (rel / name).write_bytes(pkg)
         (rel / app).write_bytes(img)
         (rel / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(b).hexdigest()}  {n}\n"

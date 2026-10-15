@@ -1,4 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Synthesized 808 engine behavior, shared voice budget and output bounds. */
 #define main hostsim_main
 #include "hostsim.c"
@@ -234,7 +236,7 @@ static void kit_808(void)
         trk_note_on(&trk[0], 36, 110);
         k = drum_kit_part(0)[DV_KICK].r.ins == DR_BD && blocks_peak(4) > 200;
         printf("drum_test: retired custom kit plays 808: %s\n", k ? "ok" : "FAIL");
-        fails += !k || ENG_DRUM.npresets != 2 || ENG_DRUM.edit[0].min != DK_808;
+        fails += !k || ENG_DRUM.npresets != 4 || ENG_DRUM.edit[0].min != DK_808;
     }
     {   /* the corners: TUNE TONE DECY SNAP at 0 / 127, ACC 127, velocity 127, the whole kit at once: no clipping */
         int32_t pk = 0, q;

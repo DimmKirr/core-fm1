@@ -372,7 +372,8 @@ grid lives in the steps themselves, so every engine has it:
   work while the computer records.
 - **Global ids.** `G_ROUTE` (id 14, label "ROUT", GLO > SYSTEM) was a placeholder ("--", range 0..0);
   it is the MIDI IN routing: 0 "CH1-4", 1 "SEL", 2 "CH5-8", 3 "CH9-12", 4 "CH13-16".
-  Each range maps only its four channels to tracks 1..4 in order; other channels are ignored. SEL receives every channel on the selected track. DRUM redirects its channel to the
+  Each range maps only its four channels to tracks 1..4 in order; other channels and tracks not in use
+  are ignored. SEL receives every channel on the selected track. DRUM redirects its channel to the
   first DRUM track only within the selected range (or in SEL); without a DRUM track, normal routing applies.
   Note-offs and sustain release still reach their original owners after changing ROUT. Earlier firmware
   sent out-of-range channels to the selected track; this fallback is removed. Stored values 0 and 1,
@@ -791,7 +792,94 @@ cannot be captured. CC91 and CC93 have no effect. No FX pages, hold layer, key
 assignment or latch setting remain; UI preference 9 reports 127 (unsupported)
 and UI_SET for id 9 returns rc 2. The physical FX button has no action.
 
-## Expanded user storage
+## Shared user library (command 80)
+
+INFO appends `55 01 00 03`: shared-library tag U, version 1, capacity **384** as an unsigned
+low-first 7-bit pair. Modern clients use command **80** for every engine and every user slot.
+All indices below are absolute zero-based shared slots; they are not positions in an engine pool.
+
+Request header: `operation slotLo slotHi`. Every reply begins
+`operation slotLo slotHi rc` (0 success, 1 invalid/empty, 2 refused or save error).
+
+| Operation | Request arguments after the header | Successful reply after `rc` |
+|---|---|---|
+| 0 List | count (1–16) | actualCount totalLo totalHi, then used engine oldFormat name-Z per slot |
+| 1 Get | none | used engine name-Z, P_COUNT signed-v14 values, 32 empty legacy phrase bytes, nativeKind [sizeLo sizeHi pack7(raw)] |
+| 2 Put | engine name-Z, P_COUNT signed-v14 values, 32 legacy phrase bytes, nativeKind [sizeLo sizeHi pack7(raw)] | none |
+| 3 Store track | track, optional printable name bytes without a terminator | none |
+| 4 Load track | track | none |
+| 5 Erase | none | none |
+| 6 Rename | printable name bytes without a terminator | none |
+
+Native kinds: 0 parameters only, 1 DX7 VMEM (128 bytes), 2 CZ-1 (144 bytes), 3 Prophet
+(138 bytes, including model/size/command/address metadata), 4 drum sound offsets (54 bytes).
+PUT kind bit 5 preserves native name bytes while assigning the short browser name.
+PUT kind bit 6 requests default Felucca controls for an imported native synth voice; otherwise
+its common sound controls come from the supplied parameters. Names accept up to 20 bytes for
+native voices (the browser's short label remains 12); ordinary sound names accept 12.
+Phrase bytes remain present for framing compatibility and are not loaded or stored on flash.
+GET preserves the complete drum patch, including offsets for all sixteen sounds.
+
+All save paths share the same occupancy and overwrite rules. Device SysEx imports ask before
+replacing any occupied slot, regardless of its engine. Native bank imports validate the full
+transfer before writing and commit once per affected storage object. On failure, only the
+unsaved suffix remains staged. Audio and receive callbacks never access the library cache.
+Loading restores the sound and preserves track mix, effects, scale, ARP, and sequence data.
+Favorites share each preset's atomic commit; changes made while playing are queued until STOP.
+DUMP and native status replies continue to encode the loaded slot plus one with two 7-bit bytes.
+Projects use an optional `U,3` origin trailer with four little-endian 16-bit shared references;
+embedded sound bytes remain authoritative even when an origin slot is erased.
+
+Flash format UPB2 (`0x32425055`): 8-byte header (record size 206, 18 records), followed by
+18 records, total **3716 bytes**. The storage commit header uses reserved word 0 tag
+`0x32504D43` (CMP2) to put the payload at byte 32 in every reused pair. Old copies retain
+their original offset during conversion; the last 256 bytes of each new copy remain erased
+for the stock loader's update-record scan. A compact record contains the first 160 bytes and final 46 bytes
+of the existing 238-byte sound record; the unused 32 phrase bytes are omitted. Native versions
+11 (FM6), 12 (Prophet), and 13 (CZ) put their voice in the 144-byte payload and 45 named sound
+controls in the tail. Used-byte bit 1 is the persistent favorite flag. General parameters and
+drum patches retain their existing versions. Unknown records stay inert and protected.
+
+BACKUP_LIST contains **29 objects, IDs 0–28**. Existing object IDs and physical A/B pairs remain:
+
+| Shared bank (18 slots per bank) | Backup IDs | Previous owner |
+|---|---|---|
+| 0–3 | 6, 7, 17, 18 | General presets |
+| 4–7 | 21, 22, 19, 20 | FM6 voices |
+| 8–15 | 9–16 | CZ-1 tones |
+| 16–20 | 23–27 | Current Prophet programs |
+| 21 (six visible slots) | 28 | Previously free 0x9D000/0x9E000 pair |
+
+ID 8 remains empty and refuses payloads. First boot converts current preceding formats in place
+using A/B commits. General FM6 sidecars are embedded before their source banks are converted.
+The eight excess programs in each old 26-program Prophet bank move to the two spare records
+in each preceding 16-record bank; the last six use bank 21. Destinations are deterministic, so
+an interrupted conversion retries identical writes. Foreign occupied spill destinations and
+unsupported bank shapes are preserved; an incomplete conversion blocks subsequent preset writes.
+Boot maintenance initializes the display before any conversion writes and shows
+`MIGRATING PRESETS`, completed-bank progress, and `KEEP POWER CONNECTED`.
+Update staging cleanup uses the same screen (`FINISHING UPDATE`) with sector progress.
+Failures remain visible with restart-to-retry guidance. On preset conversion errors, OCT+
+keeps presets and continues with preset writes protected; OCT- opens a destructive wipe
+confirmation (OCT- back, OCT+ wipe). Update cleanup errors never offer preset wiping.
+Confirmed wiping clears both A/B copies of every shared/preceding preset object, retaining
+projects and settings. Bank 21's final unused record (index 17, outside the 384 visible slots)
+reserves the 12-byte name `WIPE-PENDING` in an otherwise empty record as durable reset intent.
+This is committed before source banks are cleared and removed only after every preceding
+copy is empty; interrupted resets resume wiping before attempting any conversion. Successful
+reset unlocks preset writes, invalidates loaded slot references and stops future migration
+retries. Wipe errors remain visible with writes protected. Clean boots skip maintenance.
+The retired Prophet format is never migrated. Unknown committed bytes remain in full backups.
+A complete preceding 28-object restore clears the derived extension before conversion; runtime
+music restores last, after all source banks are present.
+
+Legacy commands 16–21 address the first 128 shared positions. Command 78 retains the older
+64-FM6/128-CZ/128-Prophet addressable prefixes and manufacturer wire framing; it refuses to
+replace or erase a slot belonging to another engine. Its INFO capabilities remain compatible.
+Clients that need the full bank or mixed-engine writes must use command 80. The historical
+storage descriptions below apply to backups from older firmware.
+
+## Previous user storage
 
 UP_LIST reports 64 shared user slots, U01..U64. All slot indices remain 7-bit.
 BACKUP_LIST lists ids 0..27. Id 8 is always empty (the retired FM6 bank) and refuses a payload.
@@ -806,7 +894,7 @@ start payloads at byte 32 and leave bytes 3840..4095 erased for OTA record scann
 Existing user record banks and storage object numbers remain in place.
 
 
-## Native FM6 and CZ-1 user presets (command 78)
+## Previous native FM6 and CZ-1 pools (command 78)
 
 INFO appends `4E 01 40 00 00 01`: tag N, version 1, FM6 capacity u14 = 64, CZ capacity u14 = 128.
 These are unsigned low-first 7-bit pairs (unlike signed v14). Native slots appear after each engine's
@@ -1013,3 +1101,87 @@ do not offer a motion interface that would truncate native parameter IDs. The cu
 accepts both versions 1 and 2 and retains all other tagged capabilities.
 
 The send bus appends track SEND at ID 108; engine parameters are 109–116. Globals 27–38 are three shared FX slots (TYPE/MIX/RATE/CHAR); global 39 is RETURN. `G_COUNT=40`. SEND is track-owned during preset loads; shared controls are song globals. FUN19/TPLI store the routing; FUN18/TPLH and earlier records map engine IDs by count and default shared FX off. Native tagged motion IDs retain their meaning during conversion.
+
+## Complete audio profiling (laboratory builds)
+
+`72 AUDIO_STATS`, flag `32`, returns schema 7: all 55 schema-6 fields followed
+by complete interrupt maximum bound (us), last complete C span (us), elapsed C
+deadline violations, 80% target violations, cross-track batch pairs, occupied
+slot capacity steals, admission rejections, admission-enabled flag, and fixed
+benchmark status. Benchmark status bit 0 is its lease; higher bits count
+suppressed emergency fade requests. Existing diagnostic flags remain compatible.
+The complete bound includes an assembly entry/exit envelope, the largest observed
+nested TIMER5 span as a footer-preemption allowance, and 4 us wrapper allowance.
+
+With `MELODEE_AUDIO_PROFILE=1`, editor 98 (`[]` or `[0]` read, `[1]` read then
+reset scope totals) replies `rc, schema=1, scope_count=21`, then three unsigned
+32-bit values per scope (five little-endian 7-bit bytes each): total TIMER4 ticks,
+calls, maximum ticks. Scope order is defined in `audio_profile.h`. Five trailing
+values are worker ticks, CPU0 waiting ticks, lifetime worker jobs, waits since
+scope reset, and current SYS PLL clock in MHz. Inclusive/nested scopes must not
+be summed; worker engine spans are published privately and merged after joins.
+The FX span includes track inserts, shared preparation and the CPU1 shared
+kernel; output includes master processing, USB copy and output conversion.
+
+Editor 100 is a read-only target query available in production too. It replies
+`rc=0, schema=2, count=12`, then twelve u32 values in five 7-bit bytes each:
+PLL clock MHz, maximum TIMER5 ticks, maximum assembly audio-envelope ticks,
+profiling-enabled, benchmark-support-enabled, admission-enabled, half-buffer
+frames, four native engine capacities, and the selected shared workload budget
+in points. Schema 1 has the same eleven-field prefix but reports the earlier
+fixed track reservations; readers should accept both schemas. TIMER4 runs at
+24 MHz. The footer
+allowance above is valid only while maximum TIMER5 service is below its 100-us
+period (2400 ticks). This command writes no musical or persisted state.
+
+With `MELODEE_AUDIO_BENCH=1`, editor 99 `[0|1]` disables/enables a 30-second fixed
+voice lease. It bypasses normal admission and records emergency requests without
+cutting voices, preventing overloaded runs from reducing their own workload.
+`[2, track, mode]` sets the live FM6 render mode (0 MODERN, 1 MARK I, 2 OPL) for
+laboratory coverage. Both reply `rc`. Neither writes saved projects or patches.
+These controls are absent from production builds. A passing performance contract
+must also be checked with normal admission and emergency protection enabled.
+
+### Shared workload budget
+
+Global ID 41 is BUDGET (`G_COUNT=42`), range 8–32 integer points. Existing
+global IDs remain unchanged; FXMODE is 40. GLO > GLOBAL knob 2 edits this
+device setting. Like A4, it is a virtual global value preserved across project
+and template loads. A tagged high word (`0x5742`) in PER5 `ext.usb_off` stores
+nondefault budgets in bits 8–15 while retaining the low two USB flags. The
+604-byte settings record and project/template layouts are unchanged. Unknown
+or absent tags use the build default (16 with admission enabled).
+
+The shared pool borrows idle capacity and retains native engine slot counts.
+Its weights are Prophet 3 points with one active Prophet track, 4 with multiple
+active Prophet tracks; FM6, SID and DRUM 2 points; CZ 3 points. Capacity fades
+retain the legacy `voices_given_up` count and also increment `capacity_steals`;
+normal pool fades can be read as `voices_given_up - voices_shed`. Emergency
+CPU cuts remain `voices_shed`. Automatic settings writes wait until voices and
+USB audio streams are idle.
+
+### FX TONE
+
+`P_COUNT=122`, `P_E0=114`, `G_COUNT=45`. Track IDs 111–113 and global IDs
+42–44 are the three insert/shared slots' TONE, −63..63, default 0. Format 17
+(`F_TONE`) displays 0 as FULL, a value below 0 as DARK (a high cut of
+`120 + (64 − |v|)² × 2520 / 3969` Hz: 2640 Hz at −1 down to 120 Hz at −63) and
+a value above 0 as THIN (a low cut of `150 + v² × 1130 / 3969` Hz: 150 Hz at 1
+up to 1280 Hz at 63), using integer division. Echo, Room and Reverb filter their
+wet inputs and always keep a low cut of their own (Echo 100 Hz, Room and Reverb
+150 Hz) at FULL and under a high cut; THIN raises it. Other effects ignore TONE,
+and the device hides its knob for them. The editor places each slot's TONE on a page
+beside its main controls and hides it when that effect type does not support it.
+These values belong to tracks/projects, so instrument loads and librarian capture
+preserve/exclude them like the existing insert settings. FUN22 stores the three
+shared TONEs + 64 in the first three of the six reserved bytes before
+`PROJ_FM6_OFF` (the other three stay 0); track values map by count. TPLL stores
+the shared TONEs + 64 in master bytes 14–16 of its 20-byte master block (17–19
+zero).
+
+The firmware before it (201cbbd, never released) had a low cut and a high cut
+per slot (`P_COUNT=125`, `P_E0=117`, `G_COUNT=48`; FUN21 and TPLK, formats 17
+`F_HIGHPASS` and 18 `F_LOWPASS`). Its records load: each slot's cut becomes the
+nearest TONE, the low cut when both were set; a low cut at or under 150 Hz counts
+as the effects' own and leaves the high cut (or FULL). FUN20/TPLJ and all previously
+supported imports load TONE FULL and retain their routing and engine/motion values.

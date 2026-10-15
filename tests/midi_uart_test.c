@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the MIDI input parsers: the running-status parser in
  * firmware/src/midi_uart.c (um_byte) and the USB-MIDI SysEx path of firmware/src/usb.c
  * (sysex_byte frame assembly, ota_wire_send packetising). */

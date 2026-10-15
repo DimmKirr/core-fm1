@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Back up Prophet user banks, then remove only exact Sequential factory copies."""
 import argparse
 import hashlib

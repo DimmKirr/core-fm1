@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The editor's full backup (editor_backup.c: LIST / GET / PUT) against simulated NOR flash:
  * CRC before any write, stale runtime copies, USB resets and timeouts, malformed objects, older
  * project formats, settings values and user preset banks kept byte for byte. */
@@ -183,13 +184,14 @@ static int full_pattern_archive(void)
     uint32_t len,crc; list(0,&len,&crc); memcpy(archive,ED_BK_RAW,sizeof archive);
     bad+=check("full bank archive contains all runtime banks with its verified CRC",len==sizeof archive && crc==st_crc32(archive,sizeof archive));
     for (uint32_t off=0; off<sizeof saved; off+=256u) {
+        cv_begin(240,124,RGB(off&255u,20,30));cv_blit(0,24);
         uint32_t n=sizeof saved-off>256u?256u:sizeof saved-off;
         ok &= get(2,off,n)==0;
         ok &= ed_unpack7(rep+9u,rep_n-9u,saved+off,n)==n;
     }
     /* GET emits pack7; the XIP payload itself remains byte-identical after other object reads. */
     ok &= !memcmp(saved,archive,sizeof saved) && (st_load(OBJ_BANK0,saved,sizeof saved)==sizeof saved && !memcmp(saved,archive,sizeof saved)) && get(0,0,64)==0;
-    bad+=check("saved-bank GET uses flash without overwriting the frozen runtime snapshot",ok);
+    bad+=check("saved-bank GET and interleaved screen draws preserve the frozen runtime snapshot",ok);
     bad+=check("full archive restores a saved slot through the A/B path",put_all(3,archive,sizeof archive,st_crc32(archive,sizeof archive))==0);
     pattern_init(); memset(&motion,0,sizeof motion); memset(proj_meta,0,sizeof proj_meta); memset(proj_slot,0,sizeof proj_slot);
     proj_fetch(1); project_load(1); ok=1;
@@ -204,33 +206,33 @@ static int full_pattern_archive(void)
 }
 static int native_archive(void)
 {
-    reset();up_boot();int ok=1;uint8_t fm[FM6_PACKED],cz[CZ_BYTES];
-    const uint32_t slots[4]={0,16,32,63},ids[4]={21,22,19,20};static native_fm_t saved[4];static cz_bank_t savedcz;
-    for(uint32_t b=0;b<4;b++){fm6_factory(b,fm);ok &= !native_put(ENGI_FM6,slots[b],fm);saved[b]=(*native_fm_bank(b));}
-    cz_patch_init(cz);cz[128]='Z';ok &= !native_put(ENGI_CZ,127,cz);savedcz=(*native_cz_bank(7));
-    for(uint32_t b=0;b<4;b++){uint32_t len;const uint8_t *raw=ed_bk_object(ids[b],&len);ok &= len==sizeof saved[b] && !memcmp(raw,&saved[b],len);ok &= !native_put(ENGI_FM6,slots[b],0);}
-    ok &= !native_put(ENGI_CZ,127,0);
-    for(uint32_t b=0;b<4;b++)ok &= !put_all(ids[b],(uint8_t *)&saved[b],sizeof saved[b],st_crc32(&saved[b],sizeof saved[b]));
-    ok &= !put_all(16,(uint8_t *)&savedcz,sizeof savedcz,st_crc32(&savedcz,sizeof savedcz));
-    native_cache_reset();cz_bank_cached=255;up_boot();
-    for(uint32_t b=0;b<4;b++)ok &= !memcmp(native_fm_bank(b),&saved[b],sizeof saved[b]);
-    ok &= native_used(ENGI_CZ,127) && !memcmp(native_raw(ENGI_CZ,127),cz,sizeof cz);
-    return check("all four native FM6 objects and Z128 restore exactly after reboot",ok);
+    reset();up_boot();int ok=1;static up_disk_bank_t saved[UP_BANKS];uint8_t fm[FM6_PACKED];fm6_factory(3,fm);
+    for(uint32_t b=0;b<UP_BANKS;b++)ok &= !native_put(ENGI_FM6,b*UP_PER_BANK,fm);
+    for(uint32_t id=6;id<ED_BK_N;id++){
+        uint32_t b=ed_bk_preset_bank(id),len;if(b>=UP_BANKS)continue;
+        const uint8_t *raw=ed_bk_object(id,&len);ok &= len==sizeof(up_disk_bank_t);memcpy(&saved[b],raw,sizeof(up_disk_bank_t));
+        ok &= !put_all(id,0,0,0);ok &= !put_all(id,&saved[b],sizeof saved[b],st_crc32(&saved[b],sizeof saved[b]));
+    }
+    up_boot();for(uint32_t b=0;b<UP_BANKS;b++)ok &= native_used(ENGI_FM6,b*UP_PER_BANK)&&!memcmp(native_raw(ENGI_FM6,b*UP_PER_BANK),fm,sizeof fm);
+    return check("all 22 shared bank objects archive and restore native voices exactly",ok);
 }
 static int prophet_archive(void)
 {
-    reset();up_boot();int bad=0,ok=1;static p5_bank_t saved[5],readback;p5_patch_t patch;
-    p5_patch_init(&patch);patch.raw[97]=255;patch.raw[98]=255;
-    for(uint32_t b=0;b<5;b++){uint32_t slot=b==4?127:b*26;patch.raw[84]=(uint8_t)('A'+b);ok &= !native_put(ENGI_PROPHET,slot,(const uint8_t *)&patch);ok &= favorite_set(USER_NATIVE_P5,slot,1);saved[b]=*p5_user_bank(b);}
-    for(uint32_t b=0;b<5;b++){uint32_t len;const uint8_t *raw=ed_bk_object(23+b,&len);ok &= len==sizeof readback&&!memcmp(raw,&saved[b],len);ok &= !put_all(23+b,0,0,0);ok &= !put_all(23+b,&saved[b],sizeof readback,st_crc32(&saved[b],sizeof readback));}
-    native_cache_reset();for(uint32_t b=0;b<5;b++)ok &= !memcmp(p5_user_bank(b),&saved[b],sizeof readback);
-    bad+=check("all five Prophet backup objects restore patches, names, metadata and stars exactly",ok);
+    reset();up_boot();int bad=0,ok=1;static p5_bank_t saved[5],readback;
+    for(uint32_t b=0;b<5;b++){
+        p5_bank_defaults(&saved[b],b);saved[b].used=p5_bank_mask(b);saved[b].favorites=saved[b].used;
+        for(uint32_t j=0;j<26u;j++){p5_patch_init(&saved[b].patch[j]);saved[b].patch[j].raw[97]=255;saved[b].patch[j].raw[65]=(uint8_t)('A'+b);}
+        ok &= !put_all(23+b,&saved[b],sizeof saved[b],st_crc32(&saved[b],sizeof saved[b]));
+    }
+    up_boot();for(uint32_t k=0;k<128u;k++){p5_patch_t p;uint32_t dst=shared_p5_slot(k);ok &= !p5_user_get(dst,&p)&&p.raw[97]==255&&p.raw[65]=='A'+k/26u&&favorite_has(USER_GENERAL,dst);}
+    bad+=check("preceding Prophet archives convert all patches and stars into shared slots",ok);
     uint32_t before=erases;readback=saved[4];readback.used|=1u<<24;
     bad+=check("out-of-range Prophet slot masks are rejected before an erase",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==2&&erases==before);
     readback=saved[4];readback.patch[23].model=99;
     bad+=check("invalid Prophet wire metadata is rejected before an erase",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==2&&erases==before);
-    readback=saved[4];erase_error=1;
-    bad+=check("failed Prophet backup commit keeps the previous cached and flash bank",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==4&&!memcmp(p5_user_bank(4),&saved[4],sizeof readback));erase_error=0;
+    up_disk_bank_t disk;int n=st_load(OBJ_P5BANK0+4,&disk,sizeof disk);readback=saved[4];erase_error=1;
+    bad+=check("failed legacy backup commit keeps the previous shared bank",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==4&&n==sizeof disk);erase_error=0;
+    up_disk_bank_t after;bad+=check("failed restore retains committed native bytes",st_load(OBJ_P5BANK0+4,&after,sizeof after)==sizeof after&&!memcmp(&after,&disk,sizeof after));
     return bad;
 }
 static int expanded_recording_archive(void)
@@ -268,8 +270,8 @@ int main(void)
 
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
-    bad += check("LIST captures runtime and all 28 archive objects with CRC",
-                 list(0, &len, &crc) == 0 && rep[2] == 28u && len == BANK_STORE_SIZE &&
+    bad += check("LIST captures runtime and all 29 archive objects with CRC",
+                 list(0, &len, &crc) == 0 && rep[2] == 29u && len == BANK_STORE_SIZE &&
                  crc == st_crc32(ED_BK_RAW, len));
     bad += check("an empty project slot lists as length 0", list(2, &len, &crc) == 0 && len == 0);
     bad += check("GET of the runtime copy", get(0, 0, 64) == 0);
@@ -400,28 +402,17 @@ int main(void)
         ((uint32_t *)old)[0] = 0x46554E36u; ((uint32_t *)old)[1] = sizeof old;
         bad += check("a FUN6 project archive is refused (1)", put_begin(5, sizeof old, st_crc32(old, sizeof old)) == 1u);
     }
-    {   /* the retired FM6 bank (8) and owned-voice archives (19, 20 at 4,240 B) are refused; native voices restore */
-        static native_fm_t got;
-        static up_bank_t records;
-        static uint8_t owned[4240];
-        uint8_t pk[FM6_PACKED];
-        set_engine_of(TSEL, ENGI_FM6);
-        up_store(2, "OLD FM6");
-        bad += check("retired bank id 8 refuses a payload", put_begin(8, 3612, 0) == 1u);
-        bad += check("retired bank id 8 is listed empty", list(8, &len, &crc) == 0 && !len);
-        bad += check("an owned-voice archive (id 19) is refused", put_begin(19, sizeof owned, st_crc32(owned, sizeof owned)) == 1u);
-        fm6_factory(5, pk); native_put(ENGI_FM6, 2, pk);
-        bad += check("native voice id 21 is listed with its CRC", list(21, &len, &crc) == 0 && len == sizeof(native_fm_t) && crc == st_crc32(native_fm_bank(0), len));
-        memcpy(&got, native_fm_bank(0), sizeof got); native_put(ENGI_FM6, 2, 0);
-        bad += check("native voices restore through id 21", !native_used(ENGI_FM6, 2) && put_all(21, &got, sizeof got, st_crc32(&got, sizeof got)) == 0 && native_used(ENGI_FM6, 2) && !memcmp(native_raw(ENGI_FM6, 2), pk, FM6_PACKED));
-        got.magic ^= 1u;
-        bad += check("a damaged native voice bank is refused", put_all(21, &got, sizeof got, st_crc32(&got, sizeof got)) == 2u);
-        up_store(63, "LAST FM6");
-        bad += check("additional user record bank id 18 retains U64", list(18, &len, &crc) == 0 && len == sizeof(up_bank_t));
-        memcpy(&records, up_cache_bank(3), sizeof records); memset(up_cache_bank(3), 0, sizeof (*up_cache_bank(3)));
-        bad += check("additional user record bank id 18 restores U64", put_all(18, &records, sizeof records, st_crc32(&records, sizeof records)) == 0 && up_used(63));
-        fm6_pack(fm6_patch[0], pk);
-        bad += check("U64 keeps its own voice in native bank 3 (id 20)", native_used(ENGI_FM6, 63) && !memcmp(native_raw(ENGI_FM6, 63), pk, FM6_PACKED) && list(20, &len, &crc) == 0 && len == sizeof(native_fm_t));
+    {   /* Native voices now travel inside their shared record object. */
+        static up_disk_bank_t got;static uint8_t owned[4240];uint8_t pk[FM6_PACKED];
+        bad+=check("retired bank id 8 refuses a payload",put_begin(8,3612,0)==1u);
+        bad+=check("retired bank id 8 is listed empty",list(8,&len,&crc)==0&&!len);
+        bad+=check("obsolete oversized owned-voice archive is refused",put_begin(19,sizeof owned,st_crc32(owned,sizeof owned))==1u);
+        fm6_factory(5,pk);native_put(ENGI_FM6,383,pk);
+        const uint8_t *raw=ed_bk_object(28,&len);memcpy(&got,raw,sizeof got);
+        bad+=check("U384's shared bank lists with its compact CRC",list(28,&len,&crc)==0&&len==sizeof got&&crc==st_crc32(&got,sizeof got));
+        native_put(ENGI_FM6,383,0);
+        bad+=check("highest shared voice restores through object 28",put_all(28,&got,sizeof got,st_crc32(&got,sizeof got))==0&&native_used(ENGI_FM6,383)&&!memcmp(native_raw(ENGI_FM6,383),pk,sizeof pk));
+        got.magic^=1u;bad+=check("damaged shared bank magic is refused",put_all(28,&got,sizeof got,st_crc32(&got,sizeof got))==2u);
     }
     memcpy(&st, &proj_slot[2], sizeof st);
     erase_error = 1;
@@ -464,15 +455,15 @@ int main(void)
     /* user preset banks: unknown record versions are kept as bytes */
     reset();
     {
-        static up_bank_t b;
+        static up_disk_bank_t b;
         memset(&b, 0, sizeof b);
-        b.magic = UP_BANK_MAGIC;
-        b.rsize = sizeof(up_rec_t);
+        b.magic = UP_DISK_MAGIC;
+        b.rsize = sizeof(up_disk_rec_t);
         b.nslot = UP_PER_BANK;
-        b.r[4].used = UP_USED;
-        b.r[4].ver = 99;                                 /* a future record */
-        memcpy(b.r[4].name, "Future", 7);
-        b.r[4].packed[0] = 55;
+        up_rec_t future;memset(&future,0,sizeof future);future.used=UP_USED;
+        future.ver = 99;                                 /* a future record */
+        memcpy(future.name, "Future", 7);
+        future.packed[0] = 55;memcpy(b.r[4].head,&future,160u);
         bad += check("a bank with a future record version restores byte for byte",
                      put_all(6, &b, sizeof b, st_crc32(&b, sizeof b)) == 0 &&
                      st_load(OBJ_UPRESET0, &proj_wire, sizeof proj_wire) == (int)sizeof b &&
@@ -494,8 +485,8 @@ int main(void)
                      put_all(9, &cb, sizeof cb, st_crc32(&cb, sizeof cb)) == 0 && list(9, &len, &crc) == 0 &&
                      len == sizeof cb && cz_bank_load(0)->used == 1u << 3);
         bad += check("CZ-1: length 0 clears native presets while keeping factory tones separate",
-                     put_all(9, &cb, 0, st_crc32(&cb, 0)) == 0 && !native_cz_bank(0)->used &&
-                     list(9, &len, &crc) == 0 && len == sizeof(cz_bank_t));
+                     put_all(9, &cb, 0, st_crc32(&cb, 0)) == 0 && !up_used(144) &&
+                     list(9, &len, &crc) == 0 && len == 0);
     }
     bad += native_archive();
     bad += prophet_archive();

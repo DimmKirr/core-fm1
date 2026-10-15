@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* Exercise the actual HAL against a codec that requires settled silent I2S
  * before its control line is released, including a warm DMA restart. */
 #include <stdint.h>

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 // Stand-in for Surge's tuning library (a Dexed submodule): the parity test plays standard tuning.
 #pragma once
 namespace Tunings {

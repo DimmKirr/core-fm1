@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* The firmware's text (src/gfx.c cv_text) against the reference text path of the UI-redesign prototype that
  * drew the UI design screens (its aa_text / aa_blit4 / ramp_make,
  * restated below): pen in 1/16 px accumulated over the string, pair kerning (now class tables), no extra tracking,
@@ -7,7 +8,7 @@
  * (the glyph at the rounded pen) to horizontal phases (tools/aa_raster.py): of the two phase positions around
  * the pen, the one whose offset is nearer the previous glyph's, plus that phase's ink offset; a glyph with one
  * phase (figures, .) at the rounded pen as before; restated here too.
- * How close that lands to the font's own spacing is tests/text_spacing_test.py's question. Every string below, in S M L, THEME on SURF and TEXT on BG, in every palette: the end pen and every
+ * How close that lands to the font's own spacing is tests/text_spacing_test.py's question. Every string below, in LB TX VL (the large type's Rubik roles), THEME on SURF and TEXT on BG, in every palette: the end pen and every
  * pixel must be identical (MONO expands its gray with G = 2 R, the gray rule; the prototype's G = 2 R + R / 16
  * differed by one green LSB there, and that is the only difference to the mock renders). */
 #include <math.h>
@@ -20,6 +21,7 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #include "../firmware/src/gfx.c"
+static uint32_t ty_pixel(void) { return 0; }            /* (ui.c: Settings > FONT; the Rubik faces here) */
 
 static const char *const STR[] = {
     "CUTOFF", "RESO", "ATK", "DEC", "LEVEL", "PAN", "REV", "MUTE", "STEP", "LANE", "HIT", "ACC", "No.",
@@ -70,11 +72,11 @@ static uint32_t ref_gi(const aafont_t *f, uint32_t ch)      /* the glyph's numbe
     if (k < 0) k = ref_at(f, '?');
     return k < 0 ? 0u : (uint32_t)k;                        /* a sparse face (L) without '?': its first glyph */
 }
-static int32_t ref_kern(const aafont_t *f, uint32_t a, uint32_t b)   /* the class matrix, glyph by glyph */
+static int32_t ref_kern(const aafont_t *f, uint32_t a, uint32_t b)   /* the class matrix, glyph by glyph, scaled */
 {
     int32_t i = ref_at(f, a), j = ref_at(f, b);
     if (!f->nkr || i < 0 || j < 0 || !f->kl[i] || !f->kr[j]) return 0;
-    return f->km[(f->kl[i] - 1u) * f->nkr + f->kr[j] - 1u];
+    return (int32_t)floor((f->km[(f->kl[i] - 1u) * f->nkr + f->kr[j] - 1u] * (int32_t)f->ks + 128) / 256.0);   /* (Q8) */
 }
 /* a glyph's alpha values: 2 px per byte, or (f->hc) the Huffman bit stream of tools/gen_aa_font.py, decoded
  * here by matching each (length, code) against the canonical code table built from hc's length counts */
@@ -137,7 +139,7 @@ static int32_t ref_text(int32_t x, int32_t y, const aafont_t *f, const char *s, 
 
 int main(void)
 {
-    const aafont_t *F[3] = {&AF_S, &AF_M, &AF_L};
+    const aafont_t *F[3] = {&AF_LB, &AF_TX, &AF_VL};
     uint32_t n = 0, bad_px = 0, bad_pen = 0;
     for (uint32_t p = 0; p < NPALETTES; p++) {
         palette_set(p);

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of SWING (issue #31), same sources as the firmware (through hostsim.c):
  *   build/host/swing_test
  * 1. the sum: a track's SWG plus the global SWG is at most 100 (core.h track_swing).
