@@ -3,7 +3,8 @@
 /* Host test of Felucca 1.2's panel controls as Melodee has them, through the UI test's stubs (ui_test.c):
  * double-tapped quick layers stay open and own the keys silently, FX LATCH, the FX key map (PRESETS assigns, EDIT
  * restores the default), MENU > SCREEN OFF (the panel dark while the transport runs, the wake press swallowed, NEVER),
- * and LFO 2 (SYNC's increments at every division and tempo, TRIG NOTE / FREE, POL UNI, the transport's reset). */
+ * LFO 2 (SYNC's increments at every division and tempo, TRIG NOTE / FREE, POL UNI, the transport's reset),
+ * and EDIT map detents published by a scan interrupt between the control read and unused-control cleanup. */
 #include <stdint.h>
 static uint32_t lcd_commands[8], lcd_count;
 static void select_take_hook(uint32_t e);
@@ -16,8 +17,18 @@ static void select_take_hook(uint32_t e);
 
 static uint32_t select_takes;
 static int32_t select_inject;
+static uint32_t map_watch, map_takes[NE], map_inject_role;
+static int32_t map_inject;
 static void select_take_hook(uint32_t e)
 {
+    if (map_watch) {
+        for (uint32_t role = 0; role < NE; role++)
+            if (e == panel.enc[role]) map_takes[role]++;
+        if (map_inject && e == panel.enc[map_inject_role]) {
+            host_enc[e] += map_inject * panel.dir[map_inject_role];
+            map_inject = 0;
+        }
+    }
     if (e != panel.enc[EN_SELECT]) return;
     select_takes++;
     if (select_inject) {
@@ -112,6 +123,33 @@ static void test_glo_select(void)
     glo_select_set(0);
     puts("layers/screen: GLO SELECT exclusive when armed, held, locked and released; standalone SELECT restored");
 }
+static void test_map_encoder_reads(void)
+{
+    const uint32_t roles[] = {EN_K1, EN_K2, EN_SELECT};
+    for (uint32_t i = 0; i < NELEM(roles); i++)
+    for (int32_t dir = -1; dir <= 1; dir += 2) {
+        reset_controls(); set_engine_of(TSEL, ENGI_FM6); fm6_opsel = 2;
+        go_title("EG RATE"); frame(); press(B_EDIT);
+        uint32_t row = smap.row, col = smap.col, role = roles[i], page = ui.page;
+        assert(smap.on && row >= 2u && row + 2u < sec.n && col == 2u);
+        memset(map_takes, 0, sizeof map_takes);
+        map_inject_role = role; map_inject = dir; map_watch = 1;
+        turn(role, dir);                             /* scan ISR publishes another detent just after the read */
+        map_watch = 0;
+        assert(map_takes[role] == 1u);
+        for (uint32_t r = 0; r < NE; r++) assert(map_takes[r] == 1u);
+        assert(host_enc[panel.enc[role]] == dir * panel.dir[role]);
+        assert(ui.page == page && smap.row == row + (role == EN_K2 ? dir : 0) &&
+               smap.col == (role == EN_K2 ? 0u : col + dir));
+        memset(map_takes, 0, sizeof map_takes); map_watch = 1;
+        frame();
+        map_watch = 0;
+        assert(map_takes[role] == 1u && !host_enc[panel.enc[role]]);
+        assert(ui.page == page && smap.row == row + (role == EN_K2 ? 2 * dir : 0) &&
+               smap.col == (role == EN_K2 ? 0u : col + 2 * dir));
+    }
+    puts("EDIT map: detents arriving after a knob read survive until the next input pass, both axes and directions");
+}
 static void test_screen_sleep(void)
 {
     reset_controls(); scr_put(1); song.playing=1;
@@ -156,4 +194,4 @@ static void test_lfo(void)
 
 
 
-int main(void) { test_layers(); test_glo_select(); test_screen_sleep(); test_lfo(); return 0; }
+int main(void) { test_layers(); test_glo_select(); test_map_encoder_reads(); test_screen_sleep(); test_lfo(); return 0; }
