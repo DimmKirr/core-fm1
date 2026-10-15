@@ -1926,7 +1926,7 @@ static void ui_input(void)
         if(bulk_context()){if(bulk.on&&!slot_kind())notes_bulk_sheet_open();else if(!bulk.on)page_sheet_open();}ui.bulk_hold=0;
     }
     oct = oct_taps(pressed, oct_nav());
-    uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
+    uint32_t lay, knob_layer, glo_select_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0}, glo_sel = 0;
     seq_erase_update(pressed);
     if (ui.erase_gesture || ui.ly || ui.menu || ui.confirm || name_on() || new_on()) {
@@ -1960,6 +1960,9 @@ static void ui_input(void)
     /* The armed layer owns the release frame too. Read each knob once: the scan ISR can publish another
      * detent after a take, which must wait for the next frame rather than edit the underlying page. */
     knob_layer = ui.ly && layer_allowed();
+    glo_select_layer = knob_layer && ui.ly == LAYER_GLO;
+    if (glo_select_layer)
+        glo_sel = panel_enc(EN_SELECT);               /* GLO owns SELECT through its release frame too */
     if (knob_layer)
         for (k = 0; k < 4u; k++)
             ks[k] = panel_enc(EN_K1 + k);
@@ -1975,6 +1978,8 @@ static void ui_input(void)
     if (knob_layer)
         for (k = 0; k < 4u; k++)
             if (ks[k]) combo = 1;
+    if (glo_sel)                                       /* GLO + SELECT, including a turn on release: no tap */
+        combo = 1;
     if (lay) {                                          /* a layer's button held: keys, knobs and buttons are combos */
         combo |= (pressed & ~ly_bit(ui.ly)) != 0u;
         notes = 0;                                      /* (the keys are the layer's, not the grid's or a step's) */
@@ -1986,8 +1991,6 @@ static void ui_input(void)
             ui.seq_t0 |= 2u;
         s=panel_enc(EN_PRESET);
         panel_enc(EN_ALGO);                             /* (another track: OCT- puts back the layer's track only) */
-        if (ui.ly == LAYER_GLO && (glo_sel = panel_enc(EN_SELECT)) != 0)   /* GLO + SELECT: the menu's GLO SELECT */
-            combo = 1;
     }
     lytap = layer_gesture(now, combo);
     layer_masks();
@@ -2314,7 +2317,7 @@ static void ui_input(void)
         step_edit_combo();
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_n() - 1));
     }
-    if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT: pages; with SEQ / a step key / ENV / SCL: below */
+    if (!glo_select_layer && (s = panel_enc(EN_SELECT)) != 0) { /* SELECT: pages; with SEQ / a step key / ENV / SCL: below */
         step_edit_combo();
         if(bulk_jog(s)) {
         } else if (pattern_keys_on()) {
