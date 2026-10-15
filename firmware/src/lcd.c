@@ -15,33 +15,6 @@
 static uint8_t lcd_small[64];
 static uint8_t lcd_busy;           /* a lcd_data DMA may still run; CS is low */
 
-#ifndef LCD_INPUT_PENDING
-#define LCD_INPUT_PENDING(serial) 0
-#endif
-#ifndef LCD_INPUT_SERIAL
-#define LCD_INPUT_SERIAL() 0u
-#endif
-#define LCD_INPUT_ROWS 8u         /* <= 2.56 ms of pixels at 12 MHz, before IRQ overhead */
-static uint8_t lcd_input_frame, lcd_input_deferred;
-static uint32_t lcd_input_serial;
-static void lcd_input_begin(void)
-{
-    lcd_input_deferred = 0;
-    lcd_input_serial = LCD_INPUT_SERIAL();
-    lcd_input_frame = 1;
-}
-static int lcd_input_yield(void)
-{
-    if (lcd_input_frame && LCD_INPUT_PENDING(lcd_input_serial))
-        lcd_input_deferred = 1;
-    return lcd_input_frame && lcd_input_deferred;
-}
-static int lcd_input_end(void)
-{
-    lcd_input_frame = 0;
-    return lcd_input_deferred;
-}
-
 static void lcd_spin(uint32_t n)
 {
     for (volatile uint32_t i = 0; i < n; i++)
@@ -99,8 +72,6 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
     uint32_t i, n, k, sw = (uint16_t)((c >> 8) | (c << 8));
     if (!w || !h || x >= 240u || y >= 240u)
         return;
-    if (lcd_input_yield())
-        return;
     if (x + w > 240u)
         w = 240u - x;
     if (y + h > 240u)
@@ -111,8 +82,6 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
         lcd_fillbuf[i] = (uint16_t)sw;
     lcd_window(x, y, x + w - 1u, y + h - 1u);
     for (n = w * h; n; n -= k) {
-        if (lcd_input_yield())
-            return;
         if (k > n)
             k = n;
         lcd_data(lcd_fillbuf, k * 2u);
@@ -121,20 +90,10 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px)
 {
-    if (!w || !h || lcd_input_yield())
+    if (!w || !h)
         return;
     lcd_window(x, y, x + w - 1u, y + h - 1u);
-    /* Keep the last DMA asynchronous, but check input between short pieces.
-     * Boot, crash and maintenance drawing outside UI frames stays unconditional. */
-    while (h) {
-        uint32_t rows = lcd_input_frame && h > LCD_INPUT_ROWS ? LCD_INPUT_ROWS : h;
-        lcd_sync();
-        if (lcd_input_yield())
-            return;
-        lcd_data(px, w * rows * 2u);
-        px += w * rows;
-        h -= rows;
-    }
+    lcd_data(px, w * h * 2u);
 }
 
 /* ST7789V init: reset, then 16-bit colour, scan direction and IPS inversion;

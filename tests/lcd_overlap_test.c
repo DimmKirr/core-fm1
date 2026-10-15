@@ -9,24 +9,16 @@
 #define __attribute__(x)
 static const void *dma_source;
 static uint32_t dma_bytes, dma_waits;
-static uint32_t input_pending, input_serial, interrupt_pixels, pixel_transfers, pixel_bytes, pixel_max;
-#define LCD_INPUT_SERIAL() input_serial
-#define LCD_INPUT_PENDING(serial) (input_pending || input_serial != (serial))
 static uint8_t dma_copy[240u*124u*2u];
 static void fm1_lcd_wait(void)
 {
-    if(dma_source){
-        assert(!memcmp(dma_source,dma_copy,dma_bytes));
-        if(interrupt_pixels && dma_bytes>4u){input_pending=1;interrupt_pixels=0;}
-        dma_source=0;dma_waits++;
-    }
+    if(dma_source){assert(!memcmp(dma_source,dma_copy,dma_bytes));dma_source=0;dma_waits++;}
 }
 static void fm1_lcd_deselect(void) {}
 static void fm1_lcd_send_cmd(uint8_t c){(void)c;assert(!dma_source);}
 static void fm1_lcd_send_data(const void *p,uint32_t n)
 {
     assert(!dma_source && n<=sizeof dma_copy);dma_source=p;dma_bytes=n;memcpy(dma_copy,p,n);
-    if(n>4u){pixel_transfers++;pixel_bytes+=n;if(n>pixel_max)pixel_max=n;}
 }
 static void fm1_lcd_hw_init(void) {}
 static void fm1_lcd_baud(uint32_t b){(void)b;}
@@ -60,39 +52,6 @@ int main(void)
     before=dma_waits;work=cv_work();          /* small canvas still on DMA: borrow the other buffer */
     assert(dma_source==cv_alt && dma_waits==before);
     memset(work,0x5A,16400u);lcd_sync();assert(!dma_source);
-    /* A button arriving during the first pixel DMA stops a large canvas
-     * after eight rows. The pending edge survives for foreground handling. */
-    cv_begin(240,124,RGB(30,60,90));
-    pixel_transfers=pixel_bytes=pixel_max=0;
-    lcd_input_begin();interrupt_pixels=1;
-    cv_blit(0,24);
-    assert(input_pending && pixel_transfers==1u && pixel_bytes==240u*8u*2u);
-    assert(!dma_source && lcd_input_deferred);
-    input_pending=0;                         /* even if consumed, this frame stays deferred */
-    lcd_fill(0,0,240,240,RGB(0,0,0));
-    cv_blit(0,24);
-    assert(pixel_transfers==1u && lcd_input_end());
-    gfx_forget();                            /* ui_draw invalidates skipped canvas hashes */
-    pixel_transfers=pixel_bytes=pixel_max=0;
-    lcd_input_begin();cv_blit(0,24);
-    assert(!lcd_input_end());lcd_sync();
-    assert(pixel_transfers==16u && pixel_bytes==240u*124u*2u && pixel_max<=240u*8u*2u);
-    /* Fills also yield mid-transfer. Outside a UI frame a pending edge must
-     * never hide crash/update/boot output. */
-    pixel_transfers=pixel_bytes=0;
-    lcd_input_begin();interrupt_pixels=1;
-    lcd_fill(0,0,240,240,RGB(1,2,3));
-    assert(input_pending && lcd_input_end());lcd_sync();
-    assert(pixel_transfers<=2u);
-    pixel_bytes=0;
-    lcd_fill(0,0,240,240,RGB(1,2,3));lcd_sync();
-    assert(pixel_bytes==240u*240u*2u && input_pending);
-    input_pending=0;
-    lcd_input_begin();input_serial++;          /* note release / new knob detent during the frame */
-    assert(lcd_input_yield() && lcd_input_end());
-    lcd_input_begin();                        /* unchanged, unused detents do not starve the next frame */
-    assert(!lcd_input_yield() && !lcd_input_end());
     puts("LCD overlap: drawing overlaps DMA, partial/large/fill transfers preserve their source bytes");
-    puts("LCD input priority: interrupted canvases/fills defer pixels, redraws complete, boot output stays unconditional");
     return 0;
 }

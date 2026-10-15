@@ -1116,22 +1116,11 @@ static void draw_toast(void)
     toast_shown = 1;
 }
 static void ui_draw_frame(void);
-#ifndef UI_DRAW_BEGIN
-#define UI_DRAW_BEGIN() ((void)0)
-#define UI_DRAW_END() 0
-#endif
 static void ui_draw(void)                               /* (gfx.c: the fills wait for the frame's canvases) */
 {
-    UI_DRAW_BEGIN();
     gfx_frame(1);
     ui_draw_frame();
     gfx_frame(0);
-    if (UI_DRAW_END()) {
-        /* Drawing updated its signatures even where SPI was skipped. Rebuild
-         * them and the diff cache next time, after foreground input is handled. */
-        ui.force = 1;
-        gfx_forget();
-    }
 }
 static void ui_draw_frame(void)
 {

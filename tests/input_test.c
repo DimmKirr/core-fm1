@@ -343,27 +343,6 @@ int main(void)
         check("a one-frame glitch at rest: no step", fm1_in.enc_steps[0] == 0);
     }
 
-    reset();
-    check("display sees no pending input at rest", !fm1_input_pending(0));
-    fm1_in.pressed = 1u;
-    check("display sees button presses without taking them", fm1_input_pending(0) && fm1_in.pressed == 1u);
-    fm1_in.pressed = 0; fm1_in.released = 2u;
-    check("display sees button releases without taking them", fm1_input_pending(0) && fm1_in.released == 2u);
-    fm1_in.released = 0; fm1_in.notes_pressed = 4u;
-    check("display sees note presses without taking them", fm1_input_pending(0) && fm1_in.notes_pressed == 4u);
-    fm1_in.notes_pressed = 0;
-    for (uint32_t e = 0; e < FM1_NENC; e++) {
-        static const uint8_t cycle[] = {0,1,3,2,0};
-        reset();
-        for (uint32_t i = 0; i < 5u; i++) enc_frame(FM1_ENC[e], cycle[i]);
-        int32_t steps = fm1_in.enc_steps[e];
-        check("display sees each new knob detent without taking it", fm1_input_pending(0) && steps && fm1_in.enc_steps[e] == steps);
-        check("unused knob steps cannot starve the next display frame", !fm1_input_pending(fm1_in.activity));
-    }
-    reset();
-    fm1_in.buttons = 1u; fm1_in.notes = 4u;
-    check("held controls alone do not starve the display", !fm1_input_pending(0));
-
     if (fails) {
         printf("INPUT TEST FAILED (%d)\n", fails);
         return 1;
