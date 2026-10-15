@@ -483,7 +483,7 @@ def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
     mode = ap.add_mutually_exclusive_group()
-    mode.add_argument("--nightly", action="store_true", help="development package from the current next commit")
+    mode.add_argument("--nightly", action="store_true", help="development package from the current Git commit")
     mode.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_9XY[Z], version string vX.Y[.Z]")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()

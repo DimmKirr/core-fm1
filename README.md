@@ -39,6 +39,11 @@ runs Felucca.
 
 ## What's new in 1.3.6
 
+- **Stock V15 power startup:** both builds apply the original firmware's analog
+  setup, including DCDC handover and SYSVDD 15 / VDC14 7, before CPU1 starts.
+  The system PLL remains unchanged. Hardware stability validation is pending.
+- **Physical controls:** hold EDIT to undo, EDIT+OCT−/OCT+ for undo/redo, and hold
+  SAVE to save the current project. MIDI channel selection stays within its valid range.
 - **Reset incompatible preset banks:** startup replaces unsupported FM6, CZ and
   general user-preset banks with empty defaults. In a readable general bank,
   usable presets are kept and only unsupported entries are cleared. This erases

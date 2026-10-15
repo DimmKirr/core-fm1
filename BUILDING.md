@@ -521,10 +521,10 @@ entry on hardware before enabling this in a release. The eight-voice Prophet cap
 is enabled only in this experimental build; validate worst-case patches and
 release tails before adopting it in a release.
 
-## Nightly builds from `next`
+## Nightly builds from `nightly`
 
 The web installer keeps the released standard and single-core packages and
-adds two development builds from `next`: dual core and single core, both with
+adds two development builds from `nightly`: dual core and single core, both with
 `MELODEE_RAM_AUDIO=1`. Both run at the boot loader's clock (above).
 Save a complete backup in the editor before trying a nightly. Selecting
 Standard in the installer returns to the released firmware.
@@ -537,9 +537,9 @@ from the same commit; `MELODEE_DUAL_CORE=0 ./build.sh --nightly` produces
 build time, verifies the selected channel's identity, and locks all choices
 while installing.
 
-The Nightly builds workflow runs on pushes to `next`, manually, and daily at
+The Nightly builds workflow runs on pushes to `nightly`, manually, and daily at
 02:00 UTC. Its scheduled definition must also exist on GitHub's default branch.
-It checks out `next`, builds both variants, runs the host/web suite,
+It checks out `nightly`, builds both variants, runs the host/web suite,
 and publishes only after successful checks. Packages, checksums and source
 metadata are available as an Actions artifact and in `gh-pages/firmware`.
 `web/publish_nightly.py` updates the existing Pages checkout while keeping its

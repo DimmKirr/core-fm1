@@ -1,3 +1,20 @@
+Melodee 1.3.6 backports the stock V15 power startup to the 1.3.5 stable line.
+Both Standard and Single core apply the stock analog-register sequence, the
+LDO-to-DCDC handover and original settling loops, then select SYSVDD 15
+(nominal 1.38 V) and VDC14 7 (nominal 1.60 V). This happens before peripherals
+and CPU1 start. Transfer failures or incorrect read-back keep CPU1 off; existing
+boot guards and worker retirement remain. The system PLL is not changed.
+Matching stock's supply setup does not yet establish that all instability is
+resolved: physical rail measurements, cold/soft boot and loaded audio/CPU1
+validation remain pending.
+
+The release also retains the prepared stable backports:
+
+- Hold EDIT to undo; EDIT+OCT−/OCT+ performs undo/redo. Hold SAVE saves the
+  current project, stopping playback first and opening the project chooser
+  when the project has no saved slot.
+- MIDI channel selection is clamped to the supported range.
+
 Melodee 1.3.6 resets unsupported user preset banks at startup instead of leaving
 them as OLD FORMAT. This intentionally discards unreadable preset-bank contents.
 Keep a backup before upgrading if those bytes may be needed by another firmware.
