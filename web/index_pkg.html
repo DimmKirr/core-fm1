@@ -41,21 +41,14 @@
     <a href="https://github.com/keremimo/melodee/blob/next/docs/RECOVERY.md" target="_blank" rel="noopener" style="color:inherit" data-t="recoveryLink"></a></p>
   <p><label><span data-t="releaseTitle"></span><br><select id="release"></select></label></p>
   <p><label><input type="radio" name="build" id="build-dual" checked> <span data-t="dual"></span></label></p>
-  <details id="fallback-options">
-    <summary data-t="fallbackTitle"></summary>
-    <p><label><input type="radio" name="build" id="build-single"> <span data-t="single"></span></label></p>
-    <p class="small" data-t="singleWhy"></p>
-  </details>
   <section id="rc-options" hidden>
     <p><strong data-t="rcTitle"></strong> · <span id="rc-version"></span></p>
-    <p><label><input type="radio" name="build" id="build-rc-dual"> <span data-t="rc-dual"></span></label><br>
-      <label><input type="radio" name="build" id="build-rc-single"> <span data-t="rc-single"></span></label></p>
+    <p><label><input type="radio" name="build" id="build-rc-dual"> <span data-t="rc-dual"></span></label></p>
     <p class="small" data-t="rcWhy"></p>
   </section>
   <section id="nightly-options" hidden>
     <p><strong data-t="nightlyTitle"></strong></p>
-    <p><label><input type="radio" name="build" id="build-nightly-dual"> <span data-t="nightly-dual"></span></label><br>
-      <label><input type="radio" name="build" id="build-nightly-single"> <span data-t="nightly-single"></span></label></p>
+    <p><label><input type="radio" name="build" id="build-nightly-dual"> <span data-t="nightly-dual"></span></label></p>
     <p class="small" data-t="nightlyWhy"></p>
     <p class="small" id="nightly-info"></p>
   </section>
@@ -89,15 +82,14 @@ const TEXT = {
     intro: "FM-1 を USB で接続してください。（Chrome か Edge で使えます）",
     warn: "書き込み中は USB を抜かないでください。",
     install: "インストール", other: "English",
-    releaseTitle: "安定版のバージョン", latest: "最新版", fallbackTitle: "詳細設定 / ハードウェアの互換性",
-    rcTitle: "リリース候補", "rc-dual": "RC（デュアルコア）", "rc-single": "RC（シングルコア）",
-    "rc-dualTag": "リリース候補・デュアルコア", "rc-singleTag": "リリース候補・シングルコア",
+    releaseTitle: "安定版のバージョン", latest: "最新版",
+    rcTitle: "リリース候補", "rc-dual": "RC",
+    "rc-dualTag": "リリース候補",
     rcWhy: "次のリリースのテスト版です。標準を選んでインストールすると安定版へ戻せます。",
-    nightlyTitle: "Nightly（next）", "nightly-dual": "Nightly（デュアルコア）",
-    "nightly-single": "Nightly（シングルコア）", "nightly-dualTag": "nightly・デュアルコア", "nightly-singleTag": "nightly・シングルコア",
+    nightlyTitle: "Nightly（next）", "nightly-dual": "Nightly",
+    "nightly-dualTag": "nightly",
     nightlyWhy: "next の開発版です。インストール前にエディタで全体バックアップを保存してください。標準版を選ぶとリリース版へ戻せます。",
-    dual: "標準（デュアルコア）", single: "シングルコア", dualTag: "標準", singleTag: "シングルコア",
-    singleWhy: "シングルコア版は、標準版でクラッシュする FM-1 のためのものです（赤い MELODEE CRASH 画面、フリーズ、書き込みモードでの再起動）。FM-1 の 2 つ目のコアを起動しません（公式ファームウェアも使っていません）。PROPHET の最大発音数は 8 から 5 になり、重い FM6・PROPHET の音色は早めに処理の上限に達します。標準版に戻すには、標準を選んでインストールしてください。",
+    dual: "標準", dualTag: "標準",
     editor: "エディタ（インストール後、パソコンから音色やシーケンスを編集）",
     direct: "USB ケーブルはパソコンに直接つないでください。Probe や Transporter などの機材は不要です。",
     brick: "起動保護付きファームウェアの更新が中断した場合は、電源を入れ直すか、OCT− だけを押しながら電源を入れてください。キーのライトが短く3回点滅したら更新モードです。USB を接続し直して、もう一度インストールしてください。以前のファームウェアや長い1回の点滅の場合は、USB 復旧手順を確認してください:",
@@ -133,15 +125,14 @@ const TEXT = {
     intro: "Connect the FM-1 by USB. (Works in Chrome or Edge.)",
     warn: "Do not unplug the USB cable while writing.",
     install: "Install", other: "日本語",
-    releaseTitle: "Stable release", latest: "Latest", fallbackTitle: "Advanced / Hardware fallback",
-    rcTitle: "Release candidate", "rc-dual": "RC — dual core", "rc-single": "RC — single core",
-    "rc-dualTag": "release candidate, dual core", "rc-singleTag": "release candidate, single core",
+    releaseTitle: "Stable release", latest: "Latest",
+    rcTitle: "Release candidate", "rc-dual": "Release candidate",
+    "rc-dualTag": "release candidate",
     rcWhy: "Preview of the next release, available for testing. Choose Standard to return to stable.",
-    nightlyTitle: "Nightly (next)", "nightly-dual": "Nightly — dual core",
-    "nightly-single": "Nightly — single core", "nightly-dualTag": "nightly, dual core", "nightly-singleTag": "nightly, single core",
+    nightlyTitle: "Nightly (next)", "nightly-dual": "Nightly",
+    "nightly-dualTag": "nightly",
     nightlyWhy: "Development builds from next. Save a complete backup in the editor before installing. Choose Standard to return to the release.",
-    dual: "Standard (dual core)", single: "Single core", dualTag: "standard", singleTag: "single core",
-    singleWhy: "The single-core build is for FM-1s that crash with the standard build (a red MELODEE CRASH screen, freezes, or restarts into update mode). It never starts the FM-1's second core, which the official firmware does not use either. PROPHET then plays up to five voices instead of eight, and heavy FM6 and PROPHET sounds reach the CPU limit sooner. To go back, choose Standard and install again.",
+    dual: "Standard", dualTag: "standard",
     editor: "Editor (after installing: edit sounds and sequences from the computer)",
     direct: "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
     brick: "If an update is interrupted on firmware with boot protection, switch the FM-1 on again (or hold OCT− alone while switching on). Three short key-light flashes mean update mode: reconnect USB and press Install again. Older firmware and one long flash need the USB recovery instructions:",
@@ -191,7 +182,7 @@ applyLang();
 $("stock-skip-backup").addEventListener("change", applyLang);
 const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; };
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
-const buildIds = ["dual", "single", "rc-dual", "rc-single", "nightly-dual", "nightly-single"];
+const buildIds = ["dual", "rc-dual", "nightly-dual"];
 const build = () => buildIds.find(k => $("build-" + k).checked) || "dual";
 const selection = () => {     /* the release, or a channel ("nightly-dual": meta.nightly's dual-core package) */
   const kind = build(), dash = kind.indexOf("-");
@@ -216,7 +207,7 @@ $("rc-options").hidden = !meta.rc;
 if (meta.rc) $("rc-version").textContent = meta.rc.version;
 $("nightly-options").hidden = !meta.nightly;
 if (meta.nightly) $("nightly-info").textContent = `next · ${meta.nightly.commit.slice(0, 7)} · ${meta.nightly.builtAt}`;
-const images = {};                // a build ("dual", "nightly-single" ..) -> its package's image, each fetched once
+const images = {};                // a build ("dual", "nightly-dual" ..) -> its package's image, each fetched once
 
 let writing = false, stock = null, stockFileEpoch = 0, buildEpoch = 0;
 const lockInstaller = (on) => { writing = on; $("release").disabled = on; $("go").disabled = on || !image; buildIds.forEach(k => { $("build-" + k).disabled = on; }); $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; $("stock-skip-backup").disabled = on; };

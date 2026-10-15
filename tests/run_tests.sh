@@ -226,6 +226,7 @@ if core; then
     t "Prophet native slots, atomic saves, projects, undo and performance" prophet_integration_test -O1 $FW
     t "resource lifetimes, cache eviction, tails and capacity" resources_test -O2 $FW
     t "aligned libc: copy/clear bounds, ordering and float aliasing" libc_word_test -O2 -fstrict-aliasing
+    t "wire fields: byte order, cross-byte bounds and preserved surrounding bits" wire_bits_test -O2
     t "audio worker: stalled jobs and wrapping deadlines" audio_worker_test
     t "cache RAM startup, memory faults and safe fallback" cache_ram_test
     t "system clock: read only, never written" clock_test -O1

@@ -44,11 +44,11 @@ int main(void)
     bad+=check("native FM6 load keeps effects, modulation and pattern",!memcmp(got,fm,128) && !TSEL->p[P_RESERVED33] && TSEL->p[P_LD_PIT]==TP[P_LD_PIT].def && TSEL->step[0].note[0]==60);
     native_load(ENGI_CZ,127,0);
     bad+=check("native CZ load keeps effects, modulation and pattern",!memcmp(cz_patch[0].raw,cz,144) && !TSEL->p[P_RESERVED33] && TSEL->p[P_LD_PIT]==TP[P_LD_PIT].def && TSEL->step[0].note[0]==60);
-    uint32_t total,cur=eng_list_pos(&total);
-    bad+=check("Z128 occupies the next ordinary preset position after CZ factory tones",total==66 && cur==65 && user_of(TSEL)==127);
-    eng_list_step(1);bad+=check("ordinary engine preset scrolling wraps from Z128 to INIT",TSEL->eng_req==ENGI_CZ && TSEL->preset==0 && !TSEL->user);
-    eng_list_step(-1);bad+=check("ordinary engine preset scrolling returns to Z128",TSEL->user==128 && !memcmp(cz_patch[0].raw,cz,144));
-    cur=preset_all_pos(&total);uint32_t k,e=preset_all_at(cur,&k);
+    uint32_t total,cur=preset_all_pos(&total),k,e=preset_all_at(cur-1u,&k);
+    bad+=check("Z128 follows the final CZ factory tone in the real browser",e==ENGI_CZ && k==64u && user_of(TSEL)==127);
+    preset_go(cur-1u);bad+=check("global preset scrolling loads the preceding factory tone",TSEL->eng_req==ENGI_CZ && TSEL->preset==64u && !TSEL->user);
+    preset_go(cur);bad+=check("global preset scrolling returns to Z128",TSEL->user==128 && !memcmp(cz_patch[0].raw,cz,144));
+    cur=preset_all_pos(&total);e=preset_all_at(cur,&k);
     bad+=check("global preset browser identifies native slots as user sounds",e==USER_GENERAL && k==127);
     favorite_set(USER_NATIVE_FM,63,1);favorite_set(USER_NATIVE_CZ,127,1);favorites.filter=1;
     bad+=check("native presets participate in the regular favorites filter",preset_pos(&total)<2 && total==2);

@@ -642,13 +642,13 @@ static int library_transfers(void)
     frame[15]^=1;receive_library(frame,n);
     bad+=check("bad general checksum cannot stage or mutate a saved preset",!sx_import.count&&!memcmp(up_rec(2),&saved,sizeof saved));
     frame[15]^=1;receive_library(frame,n);
-    bad+=check("named general import opens its pool without loading the track",sx_import.count==1&&sx_import.general&&!library_native()&&cur_page()->graph==GR_USER&&TSEL->p[P_LEVEL]==level&&!memcmp(sx_import.data,&saved,sizeof saved));
+    bad+=check("named general import opens its pool without loading the track",sx_import.count==1&&sx_import.general&&cur_page()->graph==GR_USER&&TSEL->p[P_LEVEL]==level&&!memcmp(sx_import.data,&saved,sizeof saved));
     ui.uslot=5;sysex_choose();bad+=check("chosen general slot retains the entire record and name",!sx_import.count&&up_used(5)&&!memcmp(up_rec(5),&saved,sizeof saved));
     bulk=(typeof(bulk)){.on=1,.engine=TSEL->eng_req,.anchor=2,.end=5};host_wire_n=0;bulk_send();host_drain();
     bad+=check("general bulk export sends used selected slots and skips empty slots",host_wire_n==2*n&&!memcmp(host_wire,frame,n)&&!memcmp(host_wire+n,frame,n));
     reset();p5_patch_t p;p5_patch_init(&p);memcpy(p.raw+P5_NAME,"TWENTY NAME BYTES XYZ",20);p.raw[97]=255;
     n=p5_patch_encode(&p,frame,sizeof frame);receive_library(frame,n);
-    bad+=check("Prophet import keeps all twenty name bytes and opens P slots from another engine",sx_import.count==1&&library_engine()==ENGI_PROPHET&&user_limit()==384&&TSEL->eng_req!=ENGI_PROPHET&&!memcmp(sx_import.data,&p,sizeof p));
+    bad+=check("Prophet import keeps all twenty name bytes and opens P slots from another engine",sx_import.count==1&&library_engine()==ENGI_PROPHET&&UP_SLOTS==384&&TSEL->eng_req!=ENGI_PROPHET&&!memcmp(sx_import.data,&p,sizeof p));
     ui.uslot=127;sysex_choose();host_wire_n=0;library_send(ENGI_PROPHET,127);host_drain();
     bad+=check("Prophet export reproduces the received frame and opaque bytes",!sx_import.count&&host_wire_n==n&&!memcmp(host_wire,frame,n));
     reset();cz_patch_init(raw);memcpy(raw+128,"FULL CZ NAME XYZ!",16);native_put(ENGI_CZ,7,raw);host_wire_n=0;

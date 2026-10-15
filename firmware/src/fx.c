@@ -53,8 +53,6 @@ static void fx_clear_all(void) { fx_epoch++; } /* consumed at the next audio blo
 static inline __attribute__((always_inline)) float fx_bound(float x,float lim) { return x < -lim ? -lim : x > lim ? lim : x; }
 static inline __attribute__((always_inline)) int32_t fx_scale(int32_t a,uint32_t k)
 {return (a>>16)*(int32_t)k+(int32_t)(((uint32_t)(a&65535)*k)>>16);}
-static inline __attribute__((always_inline)) int32_t fx_limit(int32_t a,int32_t lo,int32_t hi)
-{return a<lo?lo:a>hi?hi:a;}
 /* Preserve C's truncation towards zero with shifts rather than the target's
  * expensive integer divider. Callers' bounded DSP values leave sign headroom. */
 static inline __attribute__((always_inline)) int32_t fx_div_pow2(int32_t x,uint32_t shift)
@@ -222,7 +220,7 @@ static inline __attribute__((always_inline)) void fx_return(int32_t target,uint3
     int32_t l=fx_dry_l[i],r=fx_dry_r[i];
     if(type==FX_PHASER){wl=fx_div_pow2(wl+l,1);wr=fx_div_pow2(wr+r,1);}
     if(type==FX_FORMANT){wl=fx_div_pow2(wl,1);wr=fx_div_pow2(wr,1);}
-    if(*mix!=target)*mix+=fx_limit(target-*mix,-128,128);
+    if(*mix!=target)*mix+=clamp(target-*mix,-128,128);
     fx_left[i]=l+fx_scale(wl-l,(uint32_t)*mix*2u);
     fx_right[i]=mono?fx_left[i]:type==FX_WIDTH?r:r+fx_scale(wr-r,(uint32_t)*mix*2u);
 }
@@ -241,7 +239,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_time(fx_state_t *r
         if(!f->decim){
             if(f->type==FX_ECHO){
                 f->echo=mem[(f->pos+4096u-delay)&4095u];
-                mem[f->pos]=(int16_t)fx_limit(mono+fx_div_pow2(f->echo*feedback,15),-32767,32767);
+                mem[f->pos]=(int16_t)clamp(mono+fx_div_pow2(f->echo*feedback,15),-32767,32767);
                 f->pos=(f->pos+1u)&4095u;
             }else{
                 int32_t sum=0;uint32_t off=0;
@@ -250,7 +248,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_time(fx_state_t *r
                     if(f->comb[k]>=span)f->comb[k]=0;
                     int32_t x=mem[off+f->comb[k]];
                     f->damp[k]+=fx_div_pow2(x-f->damp[k],2);
-                    mem[off+f->comb[k]]=(int16_t)fx_limit(fx_div_pow2(mono,2)+fx_div_pow2(f->damp[k]*feedback,15),-32767,32767);
+                    mem[off+f->comb[k]]=(int16_t)clamp(fx_div_pow2(mono,2)+fx_div_pow2(f->damp[k]*feedback,15),-32767,32767);
                     if(++f->comb[k]>=span)f->comb[k]=0;off+=len[k];sum+=x;
                 }
                 f->echo=fx_div_pow2(sum,1);
@@ -279,8 +277,8 @@ static __attribute__((noinline,section(".audio_text"))) void fx_chorus(fx_state_
 {
     int32_t l=f->rev_l,r=f->rev_r,mix=f->mix;uint32_t pos=f->pos;
     for(uint32_t i=0;i<n;i++){
-        mem[pos*2u]=(int16_t)fx_limit(fx_left[i]>>2,-32767,32767);
-        mem[pos*2u+1u]=(int16_t)fx_limit(fx_right[i]>>2,-32767,32767);
+        mem[pos*2u]=(int16_t)clamp(fx_left[i]>>2,-32767,32767);
+        mem[pos*2u+1u]=(int16_t)clamp(fx_right[i]>>2,-32767,32767);
         l+=step[0];r+=step[1];
         int32_t wl=fx_chorus_read(mem,pos,0,l),wr=fx_chorus_read(mem,pos,1,r);
         fx_return(target,0,0,i,wl,wr,&mix);pos=(pos+1u)&511u;
@@ -310,20 +308,11 @@ static inline __attribute__((always_inline)) int32_t fx_reverb_mul(int32_t x,uin
     int32_t y=fx_scale(x,k);
     return y+(x<0 && (((uint32_t)(x&65535)*k)&65535u)); /* truncate towards zero: no negative limit cycle */
 }
-/* The existing softclip curve, inlined to avoid a SRAM-to-flash helper call
- * in the standard profile. No new lookup table or synth behavior. */
-static inline __attribute__((always_inline)) int32_t fx_reverb_softclip(int32_t x)
-{
-    int32_t a=x<0?-x:x,i=a>>8,y;
-    if(i>=256)y=TANH_Q15[256];
-    else y=TANH_Q15[i]+((TANH_Q15[i+1]-TANH_Q15[i])*(a&255)>>8);
-    return x<0?-y:y;
-}
 static inline __attribute__((always_inline)) int32_t fx_reverb_ap(fx_state_t *f,int16_t *mem,uint32_t k,int32_t x,uint32_t off)
 {
     uint32_t pos=f->rev_ap[k];int32_t delayed=mem[off+pos];
     int32_t y=delayed-fx_reverb_mul(x,42598u); /* g = 0.65 */
-    mem[off+pos]=(int16_t)fx_limit(x+fx_reverb_mul(y,42598u),-32767,32767);
+    mem[off+pos]=(int16_t)clamp(x+fx_reverb_mul(y,42598u),-32767,32767);
     if(++pos>=REV_AP_LEN[k])pos=0;f->rev_ap[k]=(uint16_t)pos;
     return y;
 }
@@ -365,7 +354,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_reverb(fx_state_t 
             input+=fx_div_pow2(input-previous_input,2);
             int32_t v[8],x;uint32_t off=0;
             f->rev_dc+=((float)input-f->rev_dc)*0.006f;
-            x=fx_limit(fx_div_pow2((int32_t)((float)input-f->rev_dc),2),-16000,16000);
+            x=clamp(fx_div_pow2((int32_t)((float)input-f->rev_dc),2),-16000,16000);
             off=1610u;
             for(uint32_t k=0;k<4u;k++){x=fx_reverb_ap(f,mem,k,x,off);off+=REV_AP_LEN[k];}
             off=0;int32_t sum=0;
@@ -390,7 +379,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_reverb(fx_state_t 
             off=0;
             for(uint32_t k=0;k<8u;k++){
                 int32_t feedback=fx_reverb_mul(v[k]-shared,(uint32_t)f->rev_gain[k]);
-                mem[off+f->rev_pos[k]]=(int16_t)fx_limit(feedback+((k&1u)?-x:x),-32767,32767);
+                mem[off+f->rev_pos[k]]=(int16_t)clamp(feedback+((k&1u)?-x:x),-32767,32767);
                 if(++f->rev_pos[k]>=REV_LEN[k])f->rev_pos[k]=0;off+=REV_LEN[k];
             }
             off=1768u;
@@ -398,7 +387,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_reverb(fx_state_t 
             r=fx_reverb_ap(f,mem,6,r,off);off+=REV_AP_LEN[6];r=fx_reverb_ap(f,mem,7,r,off);
             /* Round only hot wet peaks; the dry signal remains untouched. */
             f->rev_prev_l=f->rev_l;f->rev_prev_r=f->rev_r;
-            f->rev_l=fx_reverb_softclip(fx_div_pow2(l*level,8));f->rev_r=fx_reverb_softclip(fx_div_pow2(r*level,8));
+            f->rev_l=softclip(fx_div_pow2(l*level,8));f->rev_r=softclip(fx_div_pow2(r*level,8));
         }
         int32_t l=f->rev_prev_l+fx_div_pow2((f->rev_l-f->rev_prev_l)*(phase+1u),3);
         int32_t r=f->rev_prev_r+fx_div_pow2((f->rev_r-f->rev_prev_r)*(phase+1u),3);
@@ -449,7 +438,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_up(fx_state_t *f,u
         if(!phase){
             f->rev_prev_l=f->rev_l;f->rev_prev_r=f->rev_r;
             int32_t l=fx_low_l[count],r=f->mono?l:fx_low_r[count];count++;
-            if(f->type==FX_SPIT){l=fx_reverb_softclip(fx_limit(l,-100000,100000)*drive);r=fx_reverb_softclip(fx_limit(r,-100000,100000)*drive);}
+            if(f->type==FX_SPIT){l=softclip(clamp(l,-100000,100000)*drive);r=softclip(clamp(r,-100000,100000)*drive);}
             f->rev_l=l;f->rev_r=r;
         }
         int32_t l=f->rev_prev_l+fx_div_pow2((f->rev_l-f->rev_prev_l)*(phase+1u),2);
@@ -476,16 +465,16 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_copy(fx_state_t *f
 static __attribute__((noinline,section(".dsp_text"))) void fx_pan(track_t *t,int32_t *b,uint32_t n)
 {
     if(!spread_on){
-        for(uint32_t i=0;i<n;i++)fx_left[i]=fx_right[i]=fx_limit(b[i],-65536,65536);
+        for(uint32_t i=0;i<n;i++)fx_left[i]=fx_right[i]=clamp(b[i],-65536,65536);
         return;
     }
     int32_t pan=0,s=spread_on?(t->p[P_SPRD]+1)>>1:0;
-    int32_t pa=fx_limit(pan-s,-64,63),pb=fx_limit(pan+s,-64,63);
+    int32_t pa=clamp(pan-s,-64,63),pb=clamp(pan+s,-64,63);
     int32_t gla=4096-(pa>0?pa*64:0),gra=4096+(pa<0?pa*64:0),glb=4096-(pb>0?pb*64:0),grb=4096+(pb<0?pb*64:0);
     for(uint32_t i=0;i<n;i++){
         int32_t a=spread_on?spread_buf[i]:fx_div_pow2(b[i],1),c=b[i]-a;
-        a=fx_limit(a,-262143,262143);c=fx_limit(c,-262143,262143);
-        fx_left[i]=fx_limit(fx_div_pow2(a*gla+c*glb,12),-65536,65536);fx_right[i]=fx_limit(fx_div_pow2(a*gra+c*grb,12),-65536,65536);
+        a=clamp(a,-262143,262143);c=clamp(c,-262143,262143);
+        fx_left[i]=clamp(fx_div_pow2(a*gla+c*glb,12),-65536,65536);fx_right[i]=clamp(fx_div_pow2(a*gra+c*grb,12),-65536,65536);
     }
 }
 /* Position the finished track once. A mono engine stays mono through its
@@ -522,9 +511,9 @@ typedef struct {fx_state_t *f;int16_t *mem;int32_t target;uint8_t active;} fx_pl
 static void fx_slot_prepare(fx_plan_t *plan,uint32_t si,const int16_t *p)
 {
     plan->active=0;
-    uint32_t type=(uint32_t)fx_limit(p[0],0,FX_COUNT-1);
+    uint32_t type=(uint32_t)clamp(p[0],0,FX_COUNT-1);
     fx_state_t *f=&fx_state[si];
-    int32_t amount=fx_limit(p[1],0,127);
+    int32_t amount=clamp(p[1],0,127);
     int32_t target=type?(amount+(amount==127))*256:0;
 #if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
     uint32_t slot=si%FX_SLOTS;
@@ -541,7 +530,7 @@ static void fx_slot_prepare(fx_plan_t *plan,uint32_t si,const int16_t *p)
         resource[RES_FX0+si].size=0;fx_zero(f);
         f->epoch=fx_epoch;f->type=(uint8_t)type;f->rng=(int32_t)(0x73a9825du+si*997u);
     }
-    f->rate=(int16_t)fx_limit(p[2],0,127);f->character=(int16_t)fx_limit(p[3],0,127);
+    f->rate=(int16_t)clamp(p[2],0,127);f->character=(int16_t)clamp(p[3],0,127);
 #if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
     if(profiling){f->rate=(fx_profile_control>>12u)&127u;f->character=(fx_profile_control>>19u)&127u;}
 #endif
@@ -668,7 +657,7 @@ static void fx_bus_kernel(void *unused)
             fx_bus_result|=fx_slot_run(&fx_bus_plan[slot],fx_bus_n);
             int32_t gain=fx_bus_slot_mix[slot],target=fx_bus_plan[slot].target?32768:0;
             for(uint32_t i=0;i<fx_bus_n;i++){
-                if(gain!=target)gain+=fx_limit(target-gain,-128,128);
+                if(gain!=target)gain+=clamp(target-gain,-128,128);
                 fx_bus_sum_l[i]+=fx_scale(fx_left[i],(uint32_t)gain*2u);fx_bus_sum_r[i]+=fx_scale(fx_right[i],(uint32_t)gain*2u);
             }
             fx_bus_slot_mix[slot]=gain;
@@ -705,7 +694,7 @@ static void fx_bus_start(uint32_t n)
 #endif
     for(uint32_t slot=0;slot<FX_SLOTS;slot++)fx_slot_prepare(&fx_bus_plan[slot],NPART*FX_SLOTS+slot,song.g+G_MFXTYPE+slot*FX_PARAMS);
     for(uint32_t slot=0;slot<FX_SLOTS;slot++)if(fx_bus_plan[slot].active && fx_bus_plan[slot].target){
-        int32_t amount=fx_limit(song.g[G_FXRETURN],0,127);fx_bus_target=(amount+(amount==127))*256;break;
+        int32_t amount=clamp(song.g[G_FXRETURN],0,127);fx_bus_target=(amount+(amount==127))*256;break;
     }
     if((song.g[G_FXMODE]!=0)!=fx_bus_separate)fx_bus_target=0;
     /* A later allocation may compact earlier handles; snapshot pointers only

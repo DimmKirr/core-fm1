@@ -97,24 +97,12 @@ static int audio_bench_active(void)
 #endif
 }
 #endif
-/* Engine capacity is independent of admission. Sounding voices, including
- * releases, compete in one weighted pool; idle tracks reserve no voices. */
-static uint32_t voice_contract_cap(const track_t *t)
-{
-    const engine_t *e=ENGINES[t->engine];uint32_t n=e->cap?e->cap(t):e->poly;
-    return !n?NPOLY:n<NVOICE?n:NVOICE;
-}
-
 /* voices the engine may use (POLY and UNISON): its cap, else NPOLY */
 static uint32_t trk_nvoice(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
     uint32_t c = e->cap ? e->cap(t) : e->poly;
-    uint32_t cap=!c?NPOLY:c<NVOICE?c:NVOICE;
-#if MELODEE_AUDIO_BENCH
-    if(audio_bench_active())return cap;
-#endif
-    uint32_t contract=voice_contract_cap(t);return cap<contract?cap:contract;
+    return !c ? NPOLY : c < NVOICE ? c : NVOICE;
 }
 
 /* the part's voice mode: P_VOICE, POLY for an engine of hits (engine_t.oneshot: DRUM) */

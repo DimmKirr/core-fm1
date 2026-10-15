@@ -17,6 +17,10 @@
 _Static_assert(MELODEE_LIBC_WORDS,"exercise aligned word implementation");
 int main(void)
 {
+    assert(fnv(2166136261u, "", 0) == 0x811c9dc5u);
+    assert(fnv(2166136261u, "a", 1) == 0xe40c292cu);
+    assert(fnv(2166136261u, "foobar", 6) == 0xbf9cf968u);
+    assert(fnv(fnv(2166136261u, "foo", 3), "bar", 3) == 0xbf9cf968u);
     _Alignas(8) uint8_t src[280],actual[280],expected[280];
     for(unsigned i=0;i<280;i++)src[i]=(uint8_t)(i*37u);
     for(unsigned a=0;a<8;a++)for(unsigned b=0;b<8;b++)for(unsigned n=0;n<=256;n++){
@@ -36,5 +40,5 @@ int main(void)
     }
     float f[4]={-1.0f,0.0f,0.125f,123.0f},copy[4];word_memcpy(copy,f,sizeof f);assert(!memcmp(copy,f,sizeof f));
     word_memset(copy,0,sizeof copy);for(unsigned i=0;i<4;i++)assert(copy[i]==0.0f);
-    puts("Aligned libc: every length 0..256, all alignment pairs, canaries, compare ordering and float aliasing: OK");
+    puts("Aligned libc: every length 0..256, all alignment pairs, canaries, compare ordering, float aliasing and FNV vectors: OK");
 }

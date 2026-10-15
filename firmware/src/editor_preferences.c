@@ -32,11 +32,8 @@ static void ed_ui_state(void)
 #endif
 #ifdef MELODEE_FAVORITES
     ed_b(favorites.filter);
-    sig = 2166136261u;
-    for (uint32_t i = 0; i < sizeof favorites; i++)
-        sig = (sig ^ ((const uint8_t *)&favorites)[i]) * 16777619u;
-    for (uint32_t i = 0; i < sizeof favorites_user_hi; i++)
-        sig = (sig ^ ((const uint8_t *)&favorites_user_hi)[i]) * 16777619u;
+    sig = fnv(fnv(2166136261u, &favorites, sizeof favorites),
+              &favorites_user_hi, sizeof favorites_user_hi);
 #else
     ed_b(127);
 #endif

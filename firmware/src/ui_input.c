@@ -1034,7 +1034,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
         if (slot == 0u)
-            ui.uslot = (uint16_t)clamp((int32_t)ui.uslot + list_accel(EN_K1, steps, user_limit(), 0), 0, user_limit() - 1);
+            ui.uslot = (uint16_t)clamp((int32_t)ui.uslot + list_accel(EN_K1, steps, UP_SLOTS, 0), 0, UP_SLOTS - 1);
         return;
     }
     if (pg->graph == GR_MOD && slot == 1u) {             /* MOD: KNOB 2 the route; 1 its SRC, 3 DST, 4 AMT */
@@ -1133,7 +1133,7 @@ static void act_do(void)
         return;
     if(cur_page()->scope==SC_P5STORE){
         uint32_t slot=(uint32_t)p5_store_slot-1u;
-        if(c==1u){if(transport_busy())ui_message("STOP TO SAVE");else if(user_used(slot) || user_old(slot))confirm_open(CF_OVR_USER,slot);else name_open(NK_USER_SAVE,slot);}
+        if(c==1u){if(transport_busy())ui_message("STOP TO SAVE");else if(up_used(slot) || up_old(slot))confirm_open(CF_OVR_USER,slot);else name_open(NK_USER_SAVE,slot);}
         else if(c==2u)p5_send(song.sel);
         else {load_begin(TSEL,UNDO_SOUND);panic_req|=1u<<song.sel;fm1_irq_off();p5_patch_init(p5_patch_of(TSEL));p5_track_accept(TSEL);fm1_irq_on();load_end(TSEL);ui_message("PROPHET INIT");}
         ui.act=0;return;
@@ -1168,7 +1168,7 @@ static void act_do(void)
     if (cur_page()->graph == GR_FMSTORE) {                /* FM6: 1 STORE (into fm6_bslot), 2 SEND, 3 INIT */
         if (c == 1u) {
             if (transport_busy()) ui_message("STOP TO SAVE");
-            else if (user_used(fm6_bslot) || user_old(fm6_bslot)) confirm_open(CF_OVR_USER, fm6_bslot);
+            else if (up_used(fm6_bslot) || up_old(fm6_bslot)) confirm_open(CF_OVR_USER, fm6_bslot);
             else fm6_store(fm6_bslot);
         }
         else if (c == 2u)
@@ -1181,14 +1181,14 @@ static void act_do(void)
     if (cur_page()->graph == GR_USER) {                   /* 1 LOAD, 2 ERASE, 3 SAVE (the NAME screen first) */
         if (c > 1u)
             ui.act = 0;
-        ui.uslot %= user_limit();
-        if (c == 2u && (user_used(ui.uslot) || user_old(ui.uslot)) && !transport_busy())
+        ui.uslot %= UP_SLOTS;
+        if (c == 2u && (up_used(ui.uslot) || up_old(ui.uslot)) && !transport_busy())
             confirm_open(CF_ERASE_USER, ui.uslot);        /* ERASE: the dialog first */
         else if (c != 3u)
-            user_ui_named(c - 1u, ui.uslot, 0);
+            up_ui_named(c - 1u, ui.uslot, 0);
         else if (transport_busy())
             ui_message("STOP TO SAVE");
-        else if (user_used(ui.uslot) || user_old(ui.uslot))
+        else if (up_used(ui.uslot) || up_old(ui.uslot))
             confirm_open(CF_OVR_USER, ui.uslot);
         else
             name_open(NK_USER_SAVE, ui.uslot);
@@ -1741,7 +1741,7 @@ static int bulk_jog(int32_t delta)
     if(!bulk_context()||!(fm1_in.buttons&(1u<<panel.btn[B_OCTUP])))return 0;
     uint32_t slots=slot_kind(),cur=slots?slot_cur(slots):ui.cursor;
     if(!bulk.on||bulk.on==2u){bulk.anchor=(uint16_t)cur;bulk.engine=(uint8_t)library_engine();bulk.track=song.sel;bulk.pattern=TSEL->pattern;bulk.generation=TSEL->pattern_gen;}
-    bulk.on=1;uint32_t limit=slots?user_limit():step_pattern_len(TSEL);
+    bulk.on=1;uint32_t limit=slots?UP_SLOTS:step_pattern_len(TSEL);
     uint32_t to=(uint32_t)clamp((int32_t)cur+delta,0,(int32_t)limit-1);
     if(slots==SK_FM6)fm6_bslot=(uint16_t)to;else if(slots==SK_P5)p5_store_slot=(uint16_t)(to+1u);else if(slots)ui.uslot=(uint16_t)to;else cursor_set((int32_t)to);
     bulk.end=(uint16_t)to;ui.bulk_hold=0;oct_eat|=2u;ui.oct_t0|=2u;ui.force=1;ui_message(slots?"PRESETS SELECTED":"Moving..");return 1;
@@ -1836,7 +1836,7 @@ static void ui_confirm_accept(void)
     } else if (kind == CF_OVR_USER) {
         name_open(NK_USER_SAVE, ui.confirm_trk);
     } else if (kind == CF_ERASE_USER) {
-        user_ui_named(1u, ui.confirm_trk, 0);
+        up_ui_named(1u, ui.confirm_trk, 0);
     } else if (kind == CF_ERASE_PROJ) {
         project_erase(ui.confirm_trk & 3u);
     } else if (kind == CF_CLEAR_MOTION) {                /* (playing: at the loop end, dq_defer) */

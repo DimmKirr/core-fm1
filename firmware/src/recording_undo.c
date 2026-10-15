@@ -25,21 +25,15 @@ static void recording_undo_clear(void)
     recording_undo_lost=0;
     recording_undo_active=recording_undo_skip=0;
 }
-static uint32_t recording_undo_hash(uint32_t h,const void *p,uint32_t n)
-{
-    const uint8_t *b=p;
-    while(n--)h=(h^*b++)*16777619u;
-    return h;
-}
 static uint32_t recording_undo_signature(const track_t *t)
 {
-    uint32_t h=recording_undo_hash(2166136261u,t->step,sizeof t->step),owner=recording_owner(t),k=trk_index(t);
-    h=recording_undo_hash(h,&t->p[P_SLEN],4u*sizeof(int16_t));
-    h=recording_undo_hash(h,&t->eng_req,sizeof t->eng_req);
+    uint32_t h=fnv(2166136261u,t->step,sizeof t->step),owner=recording_owner(t),k=trk_index(t);
+    h=fnv(h,&t->p[P_SLEN],4u*sizeof(int16_t));
+    h=fnv(h,&t->eng_req,sizeof t->eng_req);
     for(uint32_t i=0;i<RECORD_MAX;i++)if(recording[i].vel&&(recording[i].owner&31u)==owner)
-        h=recording_undo_hash(h,&recording[i],sizeof recording[i]);
+        h=fnv(h,&recording[i],sizeof recording[i]);
     for(uint32_t i=0;i<motion.count;i++)if((motion.event[i].place>>6)==k&&motion_pattern[i]==t->pattern)
-        h=recording_undo_hash(h,&motion.event[i],sizeof motion.event[i]);
+        h=fnv(h,&motion.event[i],sizeof motion.event[i]);
     return h^((motion.on>>k)&1u);
 }
 static int recording_undo_context(const recording_undo_t *u,const track_t *t)

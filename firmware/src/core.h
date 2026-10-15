@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include "tuning.h"
 #include "audio_profile.h"
+#include "wire_bits.h"
 
 /* ------------------------------------------------------------ sizes --- */
 #define NVOICE 16                /* voice slots per part (FM6 plays Dexed's 16) */
@@ -292,28 +293,24 @@ static int drum_patch_valid(const drum_patch_t *p)
     return 1;
 }
 #define DRUM_WIRE_BYTES 54u /* 16 voices x (6-bit tune, 7-bit decay/character/attenuation) */
-static void drum_wire_put(uint8_t *b,uint32_t *pos,uint32_t v,uint32_t n)
-{while(n--){b[*pos>>3]|=(uint8_t)((v&1u)<<(*pos&7u));v>>=1;++*pos;}}
-static uint32_t drum_wire_get(const uint8_t *b,uint32_t *pos,uint32_t n)
-{uint32_t v=0;for(uint32_t i=0;i<n;i++,++*pos)v|=(uint32_t)((b[*pos>>3]>>(*pos&7u))&1u)<<i;return v;}
 static void drum_patch_pack(uint8_t *b,const drum_patch_t *p)
 {
     memset(b,0,DRUM_WIRE_BYTES);uint32_t pos=0;
     for(uint32_t i=0;i<16;i++){
-        drum_wire_put(b,&pos,(uint32_t)(p->c[i][0]+24),6);
-        drum_wire_put(b,&pos,(uint32_t)(p->c[i][1]+64),7);
-        drum_wire_put(b,&pos,(uint32_t)(p->c[i][2]+64),7);
-        drum_wire_put(b,&pos,(uint32_t)p->c[i][3],7);
+        wire_bits_put(b,&pos,(uint32_t)(p->c[i][0]+24),6);
+        wire_bits_put(b,&pos,(uint32_t)(p->c[i][1]+64),7);
+        wire_bits_put(b,&pos,(uint32_t)(p->c[i][2]+64),7);
+        wire_bits_put(b,&pos,(uint32_t)p->c[i][3],7);
     }
 }
 static int drum_patch_unpack(drum_patch_t *p,const uint8_t *b)
 {
     uint32_t pos=0;
     for(uint32_t i=0;i<16;i++){
-        p->c[i][0]=(int8_t)((int32_t)drum_wire_get(b,&pos,6)-24);
-        p->c[i][1]=(int8_t)((int32_t)drum_wire_get(b,&pos,7)-64);
-        p->c[i][2]=(int8_t)((int32_t)drum_wire_get(b,&pos,7)-64);
-        p->c[i][3]=(int8_t)drum_wire_get(b,&pos,7);
+        p->c[i][0]=(int8_t)((int32_t)wire_bits_get(b,&pos,6)-24);
+        p->c[i][1]=(int8_t)((int32_t)wire_bits_get(b,&pos,7)-64);
+        p->c[i][2]=(int8_t)((int32_t)wire_bits_get(b,&pos,7)-64);
+        p->c[i][3]=(int8_t)wire_bits_get(b,&pos,7);
     }
     return drum_patch_valid(p);
 }

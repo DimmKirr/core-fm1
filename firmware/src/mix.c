@@ -26,13 +26,6 @@ static volatile uint8_t kb_lock;
 #define LIM_T 18000
 static int32_t lim_env = LIM_T;
 static int32_t dc_l, dc_r, dce_l, dce_r;
-static inline __attribute__((always_inline)) int32_t output_clip(int32_t x)
-{
-    int32_t a = x < 0 ? -x : x, i = a >> 8, y;
-    if (i >= 256) y = TANH_Q15[256];
-    else y = TANH_Q15[i] + (((TANH_Q15[i + 1] - TANH_Q15[i]) * (a & 255)) >> 8);
-    return x < 0 ? -y : y;
-}
 
 /* DC blocker (~2 Hz), always on: a leaky integrator of the input (Q6 state) subtracted from it.
  * The >> 12 step keeps its remainder (error feedback, 0..4095) and adds it to the next one, so no
@@ -65,8 +58,8 @@ static __attribute__((noinline,section(".dsp_text"))) void master_out(int32_t *l
         *l = ((*l >> 4) * g) >> 11;                      /* >> 4 first: |l| may be far above Q15 */
         *r = ((*r >> 4) * g) >> 11;
     }
-    *l = output_clip(*l);
-    *r = output_clip(*r);
+    *l = softclip(*l);
+    *r = softclip(*r);
 }
 
 /* length of one division (N_DIV order) in samples at the song tempo */
@@ -77,11 +70,11 @@ static uint32_t beat_samples(void)
 {
     return midi_sync_active && midi_beat_samples ? midi_beat_samples : (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM];
 }
-static uint32_t div_samples(uint32_t div)
+static uint32_t division_samples(uint32_t quarter, uint32_t div)
 {
-    uint32_t quarter = beat_samples();
     return div < 6u ? quarter / DIV_DEN[div] : div < 10u ? quarter << (div - 5u) : quarter / DIV_DEN[div % 6u];
 }
+static uint32_t div_samples(uint32_t div) { return division_samples(beat_samples(), div); }
 
 /* External sequencing uses musical units, independent of the measured tempo.
  * 24 clocks/beat and every division divide exactly; tempo estimates only set
@@ -93,8 +86,7 @@ static uint32_t seq_beat_samples(void)
 }
 static uint32_t seq_div_samples(uint32_t div)
 {
-    uint32_t quarter = seq_beat_samples();
-    return div < 6u ? quarter / DIV_DEN[div] : div < 10u ? quarter << (div - 5u) : quarter / DIV_DEN[div % 6u];
+    return division_samples(seq_beat_samples(), div);
 }
 
 
@@ -138,17 +130,14 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     }
     t->peak=pk;
 }
-static inline __attribute__((always_inline)) int32_t mix_clamp(int32_t x,int32_t lo,int32_t hi)
-{ return x<lo?lo:x>hi?hi:x; }
 static __attribute__((noinline,section(".dsp_text"))) void mix_mono_samples(track_t *t,int32_t *b,uint32_t n,const mix_cache_t *mc)
 {
-    uint32_t ti=(uint32_t)(t-trk);
     uint32_t send=fx_send_on?fx_send_gain(t):0u;
     int32_t lvl=mc->lvl,gl=mc->gl,gr=mc->gr,pk=t->peak;
     for(uint32_t i=0;i<n;i++){
-        int32_t x=mix_clamp(((mix_clamp(b[i],-884000,884000)>>2)*lvl)>>10,-524287,524287),a=x<0?-x:x;
+        int32_t x=clamp(((clamp(b[i],-884000,884000)>>2)*lvl)>>10,-524287,524287),a=x<0?-x:x;
 #if MELODEE_USB_AUDIO
-        if(track_capture_on)track_capture[i*NTRK+ti]=x;
+        if(track_capture_on)track_capture[i*NTRK+(uint32_t)(t-trk)]=x;
 #endif
         if(a>pk)pk=a;
         mix_add((x*gl)>>12,(x*gr)>>12,i,send);
@@ -174,9 +163,9 @@ static __attribute__((noinline,section(".dsp_text"))) void mix_fx_samples(track_
     uint32_t send=fx_send_on?fx_send_gain(t):0u;
     int32_t gain=solo_gain[ti],to=!t->p[P_MUTE] && (!track_solo || ((track_solo>>ti)&1u))?32768:0;
     for(uint32_t i=0;i<n;i++){
-        gain+=mix_clamp(to-gain,-256,256);
+        gain+=clamp(to-gain,-256,256);
         int32_t l=fx_scale(fx_left[i],(uint32_t)gain*2u),r=fx_scale(fx_right[i],(uint32_t)gain*2u);
-        l=mix_clamp(fx_div_pow2((l>>2)*lvl,10),-524287,524287);r=mix_clamp(fx_div_pow2((r>>2)*lvl,10),-524287,524287);
+        l=clamp(fx_div_pow2((l>>2)*lvl,10),-524287,524287);r=clamp(fx_div_pow2((r>>2)*lvl,10),-524287,524287);
         mix_add(l,r,i,send);int32_t a=l<0?-l:l,c=r<0?-r:r;if(c>a)a=c;if(a>pk)pk=a;
 #if MELODEE_USB_AUDIO
         if(track_capture_on)track_capture[i*NTRK+ti]=fx_div_pow2(l+r,1);
@@ -258,7 +247,7 @@ static __attribute__((noinline,section(".dsp_text"))) void master_samples(int32_
 {
     int32_t gain=fx_bus_mix,target=fx_bus_target;
     for(uint32_t i=0;i<n;i++){
-        if(gain!=target)gain+=mix_clamp(target-gain,-128,128);
+        if(gain!=target)gain+=clamp(target-gain,-128,128);
         int32_t l=mix_l[i],r=mix_r[i];
         if(fx_bus_result){uint32_t ret=(uint32_t)gain*2u;
             l+=((fx_scale(fx_left[i],ret)>>2)*(int32_t)song.master_q12)>>10;

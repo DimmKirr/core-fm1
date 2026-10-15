@@ -250,12 +250,6 @@ static void view_pulse(uint32_t k)
     cv_blit(PX[k], PY[k]);
 }
 
-/* the BG around the parts (a full redraw: the canvases cover the rest) */
-static void view_frame(void)
-{
-    lcd_fill(0, H_HEAD, 240, 240u - H_HEAD, T_BG);
-}
-
 /* every frame the knobs; every other frame (the scope's) the pulses, the wheel and the keys when they changed */
 static void view_draw(void)
 {

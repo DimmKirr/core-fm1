@@ -88,7 +88,7 @@ Build options (environment; most use `0` or `1`; defaults in `firmware/src/build
 | `MELODEE_USB_AUDIO` | 1 | One duplex "Melodee" device: stereo playback and stereo master recording or optional four-track mono recording (16 / 24 bit, 44.1 kHz) |
 | `MELODEE_CDC` | 0 (1 without USB audio) | USB serial console; it shares EP2 / EP3 with USB audio, so `MELODEE_USB_AUDIO=0` |
 | `MELODEE_UART` | 1 | TRS MIDI IN |
-| `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; `0` builds serial-only firmware |
+| `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; target builds require `1` |
 | `MELODEE_SLICE` | 1 | the SLICE engine |
 | `MELODEE_ICONS` | 1 | parameter icons on the knob cards |
 
@@ -166,11 +166,10 @@ Or, to install your own build from the web installer, make a local copy of the s
 (Web MIDI needs a secure context):
 
 ```
-# Build both variants from the same source; release outputs are kept separately.
+# Build the supported dual-core firmware.
 MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.3
-MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.3
 python3 web/make_site.py build/release-1.3.3/melodee-1.3.3.fwsc \
-  build/release-1.3.3-1core/melodee-1.3.3-1core.fwsc 1.3.3 /tmp/melodee-site
+  1.3.3 /tmp/melodee-site
 cd /tmp/melodee-site && python3 -m http.server 8000
 # open http://localhost:8000/webapp/installer/
 ```
@@ -333,9 +332,11 @@ Host suite, golden renders, concurrent PCM/state comparison, address/thread
 sanitizers and both serial/dual-core builds passed. The startup correction also
 passed the target budget check; the serial package remained byte-identical.
 
-`./build.sh` enables a bare-metal CPU1 worker by default. Use
-`MELODEE_DUAL_CORE=0 ./build.sh` for serial-only firmware. Application and
-assembly startup share this default in `firmware/src/build_options.h`.
+`./build.sh` enables a bare-metal CPU1 worker. Following the CPU voltage
+startup fix, this branch builds and distributes dual-core firmware only;
+`MELODEE_DUAL_CORE=0` is rejected by the target build tool. Application and
+assembly startup share the default in `firmware/src/build_options.h`.
+CPU1 fault retirement and serial host reference tests remain supported.
 There is no async runtime or RTOS dependency. Sustained musical load and
 battery impact still need device measurements.
 
@@ -523,29 +524,25 @@ release tails before adopting it in a release.
 
 ## Nightly builds from `nightly`
 
-The installer also offers the published **Release candidate** in dual- and
-single-core variants when one is available. It uses the verified GitHub release
-packages; Standard remains the stable default. `web/publish_rc.py <pages checkout>
-<release assets directory>` checks the candidate's package hashes and build
-metadata before adding it. Stable and nightly updates preserve the RC channel.
+The installer offers dual-core firmware for the stable, **Release candidate**
+and nightly channels. `web/publish_rc.py <pages checkout> <release assets
+directory>` checks the candidate's package hashes and build metadata before
+adding it. Stable and nightly updates preserve the RC channel.
 
-The web installer keeps the released standard and single-core packages and
-adds two development builds from `nightly`: dual core and single core, both with
-`MELODEE_RAM_AUDIO=1`. Both run at the boot loader's clock (above).
-Save a complete backup in the editor before trying a nightly. Selecting
+The development build from `nightly` uses `MELODEE_RAM_AUDIO=1` and both CPU
+cores. Save a complete backup in the editor before trying a nightly. Selecting
 Standard in the installer returns to the released firmware.
 
 `./build.sh --nightly` stamps the current Git commit into the firmware version
-(`next-<commit>`) and uses development identity `FM-1_900`. Build both variants
-from the same commit; `MELODEE_DUAL_CORE=0 ./build.sh --nightly` produces
-`build/melodee-nightly-1core.fwsc`, while the dual-core package is
-`build/melodee-nightly.fwsc`. The installer shows the source commit and UTC
-build time, verifies the selected channel's identity, and locks all choices
-while installing.
+(`next-<commit>`), uses development identity `FM-1_900`, and produces
+`build/melodee-nightly.fwsc`. Single-core packages are no longer built,
+checksummed, uploaded or offered by the installer. The installer shows the
+source commit and UTC build time, verifies the selected channel's identity,
+and locks all choices while installing.
 
 The Nightly builds workflow runs on pushes to `nightly`, manually, and daily at
 02:00 UTC. Its scheduled definition must also exist on GitHub's default branch.
-It checks out `nightly`, builds both variants, runs the host/web suite,
+It checks out `nightly`, builds the dual-core firmware, runs the host/web suite,
 and publishes only after successful checks. Packages, checksums and source
 metadata are available as an Actions artifact and in `gh-pages/firmware`.
 `web/publish_nightly.py` updates the existing Pages checkout while keeping its

@@ -142,7 +142,7 @@ static void fm6_store(uint32_t k)
     char nm[12];
     if (!fm6_is(song.sel) || k >= UP_SLOTS) return;
     fm6_name(nm, fm6_patch[song.sel]);
-    user_ui_named(2, k, nm);
+    up_ui_named(2, k, nm);
 }
 
 static void fm6_init_voice(void)                         /* INIT: the selected track starts from the init voice */

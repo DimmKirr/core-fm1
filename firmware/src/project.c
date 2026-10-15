@@ -104,14 +104,7 @@ static uint8_t proj_bank_slot[4][PROJ_BANK_BYTES];
 static struct { uint8_t used, old; char name[PROJ_NAME_LEN + 1u]; } proj_meta[4];   /* old: a record this firmware
                                                      * does not read (written before 1.0): shown, kept, never overwritten unasked */
 
-static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
-{
-    const uint8_t *b = (const uint8_t *)p;
-    uint32_t i, s = 0x811C9DC5u;
-    for (i = 0; i < n; i++)
-        s = (s ^ b[i]) * 16777619u;
-    return s;
-}
+static uint32_t proj_hash(const void *p, uint32_t n) { return fnv(2166136261u, p, n); }
 static uint32_t proj_sum(const project_t *p) { return proj_hash(p, sizeof *p - 4u); }
 static int proj_ok(const project_t *q)
 {
@@ -160,10 +153,6 @@ static uint32_t proj_name_get(char *d, const uint8_t *s)   /* its length */
  * np, format flags, then four byte-param tracks and nine-byte steps; FUN8: the patches at PROJ_FM6_OFF. */
 /* Grouping by bank preserves full onset/duration precision and all 1024 hits.
  * The bank directory restores owners; event indices are runtime selection only. */
-static void proj_bits_put(uint8_t *b,uint32_t *pos,uint32_t v,uint32_t n)
-{ while(n--){b[*pos>>3]|=(uint8_t)((v&1u)<<(*pos&7u));v>>=1;++*pos;} }
-static uint32_t proj_bits_get(const uint8_t *b,uint32_t *pos,uint32_t n)
-{uint32_t v=0;for(uint32_t i=0;i<n;i++,++*pos)v|=((uint32_t)((b[*pos>>3]>>(*pos&7u))&1u))<<i;return v;}
 static int proj_record_pack(uint8_t *b,const project_t *q)
 {
     uint32_t at=0;
@@ -174,12 +163,12 @@ static int proj_record_pack(uint8_t *b,const project_t *q)
             if(!r->vel || (r->owner&31u)!=owner)continue;
             if(!recording_valid(r))return 0;
             uint32_t pos=0;uint8_t *v=b+PROJ_REC_OFF+at++*8u;
-            proj_bits_put(v,&pos,r->on,16);proj_bits_put(v,&pos,r->duration,16);
-            proj_bits_put(v,&pos,r->note,7);proj_bits_put(v,&pos,r->vel,7);
-            proj_bits_put(v,&pos,r->step,8);proj_bits_put(v,&pos,r->owner>>5,3);
-            proj_bits_put(v,&pos,(uint32_t)(r->pitch+24),6);proj_bits_put(v,&pos,r->length,1);count++;
+            wire_bits_put(v,&pos,r->on,16);wire_bits_put(v,&pos,r->duration,16);
+            wire_bits_put(v,&pos,r->note,7);wire_bits_put(v,&pos,r->vel,7);
+            wire_bits_put(v,&pos,r->step,8);wire_bits_put(v,&pos,r->owner>>5,3);
+            wire_bits_put(v,&pos,(uint32_t)(r->pitch+24),6);wire_bits_put(v,&pos,r->length,1);count++;
         }
-        uint32_t dir=owner*11u;proj_bits_put(b+PROJ_REC_DIR,&dir,count,11);
+        uint32_t dir=owner*11u;wire_bits_put(b+PROJ_REC_DIR,&dir,count,11);
     }
     return 1;
 }
@@ -187,14 +176,14 @@ static int proj_record_unpack(project_t *q,const uint8_t *b)
 {
     uint32_t at=0;
     for(uint32_t owner=0;owner<NTRK*NPAT;owner++){
-        uint32_t dir=owner*11u;uint16_t count=(uint16_t)proj_bits_get(b+PROJ_REC_DIR,&dir,11);
+        uint32_t dir=owner*11u;uint16_t count=(uint16_t)wire_bits_get(b+PROJ_REC_DIR,&dir,11);
         if(count>RECORD_MAX-at)return 0;
         for(uint32_t i=0;i<count;i++){
             recorded_note_t *r=&q->recording[at];const uint8_t *v=b+PROJ_REC_OFF+at++*8u;uint32_t pos=0;
-            r->on=proj_bits_get(v,&pos,16);r->duration=proj_bits_get(v,&pos,16);
-            r->note=proj_bits_get(v,&pos,7);r->vel=proj_bits_get(v,&pos,7);
-            r->step=proj_bits_get(v,&pos,8);r->owner=owner|(proj_bits_get(v,&pos,3)<<5);
-            r->pitch=(int8_t)((int32_t)proj_bits_get(v,&pos,6)-24);r->length=proj_bits_get(v,&pos,1);
+            r->on=wire_bits_get(v,&pos,16);r->duration=wire_bits_get(v,&pos,16);
+            r->note=wire_bits_get(v,&pos,7);r->vel=wire_bits_get(v,&pos,7);
+            r->step=wire_bits_get(v,&pos,8);r->owner=owner|(wire_bits_get(v,&pos,3)<<5);
+            r->pitch=(int8_t)((int32_t)wire_bits_get(v,&pos,6)-24);r->length=wire_bits_get(v,&pos,1);
             if(!r->vel || !recording_valid(r))return 0;
         }
     }
@@ -206,18 +195,18 @@ static int proj_step_pack(uint8_t *b,const step_t *s)
 {
     if(s->n>4u || s->time>ST_REST || s->flags>7u || s->probability>101u)return 0;
     uint32_t pos=0;memset(b,0,8u);
-    for(uint32_t j=0;j<4u;j++)proj_bits_put(b,&pos,s->note[j]>127u?127u:s->note[j],7u);
-    proj_bits_put(b,&pos,(s->time==ST_NOTE?s->n:s->time==ST_TIE?5u:6u)|(s->flags&SF_RECORDED?8u:0u),4u);
-    proj_bits_put(b,&pos,s->flags&3u,2u);proj_bits_put(b,&pos,s->vel>127u?127u:s->vel,7u);proj_bits_put(b,&pos,s->hit,8u);
-    proj_bits_put(b,&pos,s->hit?s->acc&s->hit:s->time==ST_REST?0:s->acc,8u);proj_bits_put(b,&pos,s->probability,7u);return 1;
+    for(uint32_t j=0;j<4u;j++)wire_bits_put(b,&pos,s->note[j]>127u?127u:s->note[j],7u);
+    wire_bits_put(b,&pos,(s->time==ST_NOTE?s->n:s->time==ST_TIE?5u:6u)|(s->flags&SF_RECORDED?8u:0u),4u);
+    wire_bits_put(b,&pos,s->flags&3u,2u);wire_bits_put(b,&pos,s->vel>127u?127u:s->vel,7u);wire_bits_put(b,&pos,s->hit,8u);
+    wire_bits_put(b,&pos,s->hit?s->acc&s->hit:s->time==ST_REST?0:s->acc,8u);wire_bits_put(b,&pos,s->probability,7u);return 1;
 }
-static int proj_step_unpack(step_t *s,const uint8_t *b)
+static int step_wire_unpack(step_t *s,const uint8_t *b)
 {
-    uint32_t pos=0;for(uint32_t j=0;j<4u;j++)s->note[j]=(uint8_t)proj_bits_get(b,&pos,7u);
-    uint32_t meta=proj_bits_get(b,&pos,4u);
+    uint32_t pos=0;for(uint32_t j=0;j<4u;j++)s->note[j]=(uint8_t)wire_bits_get(b,&pos,7u);
+    uint32_t meta=wire_bits_get(b,&pos,4u);
     s->n=(meta&7u)<5u?meta&7u:0;s->time=(meta&7u)<5u?ST_NOTE:(meta&7u)==5u?ST_TIE:ST_REST;
-    s->flags=(uint8_t)(proj_bits_get(b,&pos,2u)|(meta&8u?SF_RECORDED:0u));s->vel=(uint8_t)proj_bits_get(b,&pos,7u);
-    s->hit=(uint8_t)proj_bits_get(b,&pos,8u);s->acc=(uint8_t)proj_bits_get(b,&pos,8u);s->probability=(uint8_t)proj_bits_get(b,&pos,7u);
+    s->flags=(uint8_t)(wire_bits_get(b,&pos,2u)|(meta&8u?SF_RECORDED:0u));s->vel=(uint8_t)wire_bits_get(b,&pos,7u);
+    s->hit=(uint8_t)wire_bits_get(b,&pos,8u);s->acc=(uint8_t)wire_bits_get(b,&pos,8u);s->probability=(uint8_t)wire_bits_get(b,&pos,7u);
     return (meta&7u)<7u && s->probability<=101u && step_acc_valid(s);
 }
 
@@ -326,7 +315,7 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         params_by_count(q->t[t].p, values, np, def);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i]; uint32_t meta;
-            if(magic==PROJ_MAGIC || magic==0x46554E46u || magic==0x46554E45u){if(!proj_step_unpack(s,b+pos))return 0;pos+=8u;continue;}
+            if(magic==PROJ_MAGIC || magic==0x46554E46u || magic==0x46554E45u){if(!step_wire_unpack(s,b+pos))return 0;pos+=8u;continue;}
             memcpy(s->note, b + pos, 4); pos += 4; meta = b[pos++];
             s->n = meta & 7u; s->time = (meta >> 3) & 3u; s->flags = (meta >> 5) & 3u;
             if (meta & 128u) s->flags |= SF_RECORDED;

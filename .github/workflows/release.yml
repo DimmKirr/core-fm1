@@ -50,16 +50,14 @@ jobs:
             git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$AC79_SDK"
           fi
           test "$(git -C "$AC79_SDK" rev-parse HEAD)" = d179b4484759423312073f5fbb232501aa491047
-      - name: Build both firmware variants and run full host suite
+      - name: Build dual-core firmware and run full host suite
         run: |
           version=$(python tools/fm1_recover.py --version | awk '{print $NF}')
           MELODEE_RAM_AUDIO=1 ./build.sh --release "$version"
           cp "build/melodee-$version.fwsc" build/melodee.fwsc
           tests/run_tests.sh
-          MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release "$version"
           mkdir -p build/release-assets
           cp "build/release-$version/"*.fwsc "build/release-$version/"*-app.bin build/release-assets/
-          cp "build/release-$version-1core/"*.fwsc "build/release-$version-1core/"*-app.bin build/release-assets/
       - uses: actions/upload-artifact@v4
         with:
           name: release-firmware
@@ -185,7 +183,7 @@ jobs:
         run: |
           version=${GITHUB_REF_NAME#v}
           python web/make_site.py "build/release-assets/melodee-$version.fwsc" \
-            "build/release-assets/melodee-$version-1core.fwsc" "$version" .nightly-pages
+            "$version" .nightly-pages
           cd .nightly-pages
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

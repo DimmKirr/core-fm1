@@ -23,10 +23,12 @@ def verify(site, build):
             metadata = json.loads(fetch("nightly.json"))
             if metadata["commit"] != commit:
                 raise ValueError("deployed nightly source commit differs")
-            for name in ("melodee-nightly.fwsc", "melodee-nightly-1core.fwsc"):
-                if hashlib.sha256(fetch(name)).digest() != hashlib.sha256((build / name).read_bytes()).digest():
-                    raise ValueError(name + ": deployed checksum differs")
-            print("Live nightly source and both package checksums verified: " + commit)
+            if set(metadata["pkg"]) != {"dual"}:
+                raise ValueError("deployed nightly must offer dual-core firmware only")
+            name = "melodee-nightly.fwsc"
+            if hashlib.sha256(fetch(name)).digest() != hashlib.sha256((build / name).read_bytes()).digest():
+                raise ValueError(name + ": deployed checksum differs")
+            print("Live nightly source and package checksum verified: " + commit)
             return
         except (OSError, ValueError, KeyError) as error:
             last_error = error

@@ -7,6 +7,9 @@
 **TL;DR:** connect your FM-1 to a computer by USB, open the
 [web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
 
+Current builds use both CPU cores. Following the CPU voltage startup fix,
+single-core packages are retired from the build, release and installer workflows.
+
 Development builds with boot protection return to USB update mode after an interrupted
 firmware write, including power loss. Switch on again, or hold **OCT− alone** while
 switching on; three short key-light flashes mean you can reconnect USB and press Install
@@ -125,8 +128,8 @@ This removes the relocation step; it does not establish the cause of the reporte
 ## What's new in 1.3.0
 
 This release adds track and shared effects, one-pass recording, selectable USB capture,
-and an optional autosave setting. Standard (dual-core) and Single core firmware are
-available in the installer and release downloads.
+and an optional autosave setting. The original release downloads included
+standard and single-core firmware; the current installer offers dual-core firmware only.
 
 - **Effects:** three inserts per track and a shared three-slot return, with independent
   sends. Choose Phaser, Width, Formant, Tape, Spit, Echo, Room, Reverb or Chorus.
@@ -143,8 +146,8 @@ available in the installer and release downloads.
   It defaults ON, remembers the choice across power-offs, and leaves manual SAVE working.
 - **Clock choice:** the HOME menu's OVERCLOCK chooses 320 MHz (default) or 360 MHz for
   the next start. A CPU fault at 360 MHz returns the device to 320 MHz.
-- **Installer options:** stable and nightly remain selectable, with Standard
-  and Single core variants for each.
+- **Installer options:** stable and nightly remain selectable. Current builds
+  use both CPU cores.
 - **Compatibility:** earlier Melodee project and template layouts load with their
   effect routing preserved. Back up before upgrading; older firmware may not reproduce
   the new effects and recording behavior.
@@ -152,8 +155,8 @@ available in the installer and release downloads.
 ## What's new in 1.2.1
 
 This release makes room for more voices. External effects are gone, the audio engine runs from fast
-internal RAM, and the firmware is about 115 KB smaller. Standard (dual-core) and Single core firmware
-are both available in the installer and release downloads.
+internal RAM, and the firmware is about 115 KB smaller. The original release downloads included
+standard and single-core firmware; the current installer offers dual-core firmware only.
 
 - **No external effects:** distortion, the SLICER, chorus, delay, reverb and the FX layer (repeat,
   reverse, filter sweeps, tape stop, freeze, harmonizer, flanger, phaser, FX LATCH and punch-in) are
@@ -180,8 +183,8 @@ are both available in the installer and release downloads.
 ## What's new in 1.1.0
 
 The minor release carries forward 1.0.2's native synth motion, pattern operations and UI fixes,
-with both Standard (dual-core) and Single core firmware available in the installer and release
-downloads. Both builds have the same features and project format.
+whose original release downloads included standard and single-core firmware
+with the same features and project format. Current builds use both cores.
 
 **On-device sound designer:** choose a sound goal or an expert synthesis path, start with INIT
 or your current tone, switch on the features the sound needs (Prophet pulse, Poly-Mod and unison,
@@ -206,11 +209,9 @@ or a sound page's action sheet. [Controls and saving](docs/SOUND_DESIGNER.md).
 
 ## What's new in 1.0.2
 
-- **Two installer builds:** Standard uses both cores. Choose **Single core** if your FM-1 crashes,
-  freezes or restarts into update mode with Standard. Single core never starts the second core;
-  PROPHET plays up to five voices instead of eight, and heavy FM6 and PROPHET sounds reach the CPU
-  limit sooner. Both builds have the same features and project format. Choose Standard and install
-  again to return to dual core.
+- **Historical installer builds:** 1.0.2 originally offered standard and single-core
+  packages with the same features and project format. Following the CPU voltage
+  startup fix, current builds and installer channels use both cores.
 - **Motion records the native synth settings:** Prophet and CZ-1 Stage knobs, their sound pages,
   and FM6 operator and voice pages now record and replay their changes. Arm REC, start playback,
   then turn a sound knob. Turning one while armed but stopped shows **PLAY TO RECORD MOTION**.

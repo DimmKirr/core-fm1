@@ -51,17 +51,9 @@ static uint32_t native_size(uint32_t e);
 static int shared_import(uint32_t e,uint32_t first,uint32_t count,const uint8_t *raw,uint32_t stride,uint32_t *saved);
 static int general_sysex_send(uint32_t k);
 static int general_sysex_save(uint32_t k,const uint8_t *raw);
-static uint32_t library_native(void);
 static void confirm_open(uint32_t kind,uint32_t track);
 static uint32_t library_engine(void);
-static uint32_t user_limit(void);
-static int user_used(uint32_t k);
-static int user_old(uint32_t k);
-static int user_old_bank(uint32_t k);
 static void preset_old_allow(uint32_t allow);
-static void user_name(uint32_t k, char *out);
-static void user_label(char *out, uint32_t k);
-static void user_ui_named(uint32_t op, uint32_t k, const char *name);
 static void slot_save_sheet(void);              /* ui_slots.c */
 static int project_save_as(uint32_t slot, const char *name);
 static int project_name(uint32_t slot, char *b);
@@ -337,7 +329,6 @@ static void chain_play_ui(void)
         ui_message(rc == 1u ? "ADD A SONG ROW" : "STOP FIRST");
     }
 }
-
 
 static uint16_t step_midi_held;                      /* physical MIDI keys held in this entry */
 static uint32_t step_midi_keys[16][4];               /* channel/source ownership, before scale and chord */
@@ -659,13 +650,6 @@ static uint32_t pat_sig[NTRK];   /* steps_sig of the pattern the last pattern lo
                                   * steps, untouched, are replaced by the next pattern without asking */
 static uint8_t pat_last[NTRK];   /* that pattern's list index + 1, 0 = none */
 
-static uint32_t fnv(uint32_t h, const void *p, uint32_t n)
-{
-    const uint8_t *b = (const uint8_t *)p;
-    while (n--)
-        h = (h ^ *b++) * 16777619u;
-    return h;
-}
 static uint32_t steps_sig(const track_t *t) { return fnv(2166136261u, t->step, sizeof t->step); }
 static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's patch too), the steps */
 {
@@ -926,12 +910,6 @@ static void scale_share(const track_t *from)
 
 #include "scale_picker.c"
 
-/* a retired preset kept as an alias, so stored preset numbers stay valid: SAMPLE 1, once TRANH, is PIANO
- * (tools/gen_samples.py SMP_SET_ORIG). It loads as the original; browsing skips it. -> the preset k stands for */
-static uint32_t preset_orig(const engine_t *e, uint32_t k) { (void)e; return k; }
-static uint32_t preset_rank(const engine_t *e, uint32_t k) { (void)e; return k; }
-#define preset_shown(e) (ENGINES[e]->npresets)
-
 
 /* preset pi of the engine the track asked for: the sound only (not the steps, not param_kept) */
 static void apply_preset_to(track_t *t, uint32_t pi)
@@ -947,7 +925,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         load_end(t);
         return;
     }
-    pi = preset_orig(e, pi % e->npresets);
+    pi %= e->npresets;
     t->preset = (uint8_t)pi;
     memset(&drum_patch[t-trk],0,sizeof(drum_patch_t));
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
@@ -1062,53 +1040,9 @@ static void preset_go(uint32_t n)                    /* load list index n into t
 
 /* The selected track's engine only: its factory presets, then the used user presets
  * made with it (slot order). List index of the current sound; *total the length */
-static uint32_t eng_list_pos(uint32_t *total)
-{
-    uint32_t e = TSEL->eng_req % NENGINES, np = ENGINES[e]->npresets, u = user_of(TSEL), k, n = 0;
-    uint32_t cur = np ? TSEL->preset % np : 0u;
-    for (k = 0; k < UP_SLOTS; k++)
-        if (up_used(k) && up_engine(k) == e) {
-            if (!TSEL->user_native && k == u)
-                cur = np + n;
-            n++;
-        }
-    *total = np + n;
-    return cur;
-}
-
-static void eng_list_step(int32_t direction)         /* the next / previous sound of the engine (wraps) */
-{
-    uint32_t total, cur = eng_list_pos(&total), e = TSEL->eng_req % NENGINES, np = ENGINES[e]->npresets, k, n;
-    if (total < 2u)
-        return;
-    n = (cur + (direction > 0 ? 1u : total - 1u)) % total;
-    if (n < np) {
-        apply_preset(n);
-    } else {
-        n -= np;
-        for (k = 0; k < UP_SLOTS; k++)
-            if (up_used(k) && up_engine(k) == e && !n--) {
-                up_load(k);
-                break;
-            }
-    }
-    recent_loaded();
-    preset_hinted();
-}
 
 /* Seven display rows. ALL is a carousel; FAV, RECENT and a category use a bounded window.
  * Return total for an empty row; a current sound not in the list shows the start. */
-static uint32_t preset_visible(uint32_t cur, uint32_t total, uint32_t row)
-{
-    uint32_t first, last;
-    if (!total || row >= 7u) return total;
-    if (list_mode() == LM_ALL)
-        return (cur + total * 4u + row - 3u) % total;
-    first = cur < total && cur > 3u ? cur - 3u : 0u;
-    last = total > 7u ? total - 7u : 0u;
-    if (first > last) first = last;
-    return first + row < total ? first + row : total;
-}
 
 /* Stage's (HOME's) four knobs: the selected track's engine's EDIT values (engine_t .knob), a native sound's own panel
  * values for PROPHET (filter, its envelope amount, the amp release) and CZ-1 (line 1's wave and DCW peak, detune,
@@ -1215,7 +1149,6 @@ static void confirm_open(uint32_t kind, uint32_t trk)
     ui.act = 0;
     ui.force = 1;
 }
-
 
 #include "sysex_library.c"                       /* staged imports and USB library exports */
 

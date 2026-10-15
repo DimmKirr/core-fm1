@@ -38,21 +38,6 @@ static void draw_rec_mark(int32_t x, uint16_t bg)
         cv_icon_mid(x, H_HEAD / 2, 16, ((song.rec & ~song.rec_wait) >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
 }
 
-/* the battery: a 24 px icon (tools/gen_icons.py). The stock thresholds give 0..3 bars of 3; the font has 0..4 bars of 4:
- * each level takes the nearest share, 0 -> battery_0 (empty), 1 (1/3) -> battery_1 (1/4), 2 (2/3) ->
- * battery_3 (3/4), 3 (full) -> battery_4 (battery_2 is not used); USB power: battery_charging.
- * Colours as the drawn battery had them: one bar left the accent, empty MID (its outline), else THEME */
-static uint32_t batt_icon(int32_t lvl)
-{
-    static const uint8_t I[5] = {ICON_X_BAT0, ICON_X_BAT1, ICON_X_BAT3, ICON_X_BAT4, ICON_X_BAT_CHG};
-    return I[clamp(lvl, 0, 4)];
-}
-static void draw_battery(int32_t bx)
-{
-    int32_t lvl = batt_shown();
-    cv_icon_mid(bx, H_HEAD / 2, 24, batt_icon(lvl), lvl == 1 ? T_ACCENT : lvl == 0 ? T_MID : T_THEME, T_BG);   /* 24 px: the glyph is wide and short */
-}
-
 /* ---------------------------------------------------- rolling digits --- */
 /* A number that changes rolls its changed digits like a slot machine; only the drawing: the value, the gauge,
  * the hot colour and the sound change at once. Up: the old digit leaves upward and the new one comes from below;
@@ -321,26 +306,16 @@ static void draw_head(void)
 }
 /* full redraw: the strips (header, cards, panel, footer; Stage: its panel and lanes) cover the rest; only the BG
  * between them is filled */
-static void stage_frame(void);
-static void view_frame(void);                           /* ui_view.c */
 static void draw_frame(int stage)
 {
     uint32_t i;
     if (stage) {                                        /* Stage, HOME's second page: their parts cover what they draw */
-        if (ui.home_pg)
-            view_frame();
-        else
-            stage_frame();
+        lcd_fill(0, H_HEAD, 240, 240u - H_HEAD, T_BG);
         return;
     }
     lcd_fill(0, H_HEAD, 240, Y_LABEL - H_HEAD, T_BG);
     lcd_fill(0, Y_SEP_END, 240, Y_GRAPH - Y_SEP_END, T_BG);
-    if (stage && ui.home_pg)
-        view_frame();
-    else if (stage)
-        stage_frame();
-    else
-        lcd_fill(0, Y_GRAPH + H_GRAPH, 240, Y_FOOT - Y_GRAPH - H_GRAPH, T_BG);
+    lcd_fill(0, Y_GRAPH + H_GRAPH, 240, Y_FOOT - Y_GRAPH - H_GRAPH, T_BG);
     lcd_fill(0, Y_LABEL, (uint32_t)CARD_X(0), CARD_H, T_BG);
     for (i = 0; i < 4u; i++)                            /* right of each card */
         lcd_fill((uint32_t)(CARD_X(i) + CARD_W), Y_LABEL, i < 3u ? (uint32_t)(CARD_X(i + 1u) - CARD_X(i) - CARD_W) :
@@ -834,7 +809,6 @@ static void draw_columns(void)
     }
 }
 
-
 /* UPDATE MODE countdown (main.c: OCT- + OCT+ held): over everything, the menu and the dialogs too */
 static void draw_uboot(void)
 {
@@ -922,11 +896,11 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "CLEAR T1 MOTION?", 24); a[7] = (char)('1' + k % NTRK);
         break;
     case CF_OVR_USER:
-        if (user_old_bank(k)) { str_cpy(a, "REPLACE OLD BANK?", 24); str_cpy(b, "All 18 old slots replaced", 32); break; }
+        if (up_old_bank(k)) { str_cpy(a, "REPLACE OLD BANK?", 24); str_cpy(b, "All 18 old slots replaced", 32); break; }
         str_cpy(a, "OVERWRITE ", 24);
-        user_label(a + str_len(a), k);
+        up_slot_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
-        user_name(k, b);                             /* the sound stored there */
+        up_name(k, b);                             /* the sound stored there */
         break;
     case CF_DISCARD_DESIGN:
         str_cpy(a, "DISCARD THE DESIGN?", 24);
@@ -944,11 +918,11 @@ static void confirm_text(char *a, char *b)
         str_cpy(a,"ERASE SELECTED PRESETS?",24);
         str_cpy(b,"Selected slots will be empty",32);break;
     case CF_ERASE_USER:
-        if (user_old_bank(k)) { str_cpy(a, "ERASE OLD BANK?", 24); str_cpy(b, "All 18 old slots erased", 32); break; }
+        if (up_old_bank(k)) { str_cpy(a, "ERASE OLD BANK?", 24); str_cpy(b, "All 18 old slots erased", 32); break; }
         str_cpy(a, "ERASE ", 24);
-        user_label(a + str_len(a), k);
+        up_slot_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
-        user_name(k, b);
+        up_name(k, b);
         break;
     case CF_OLD_SETTINGS:
         str_cpy(a, "REPLACE OLD SETTINGS?", 24);

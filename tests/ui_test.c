@@ -1463,7 +1463,7 @@ static int test_browser(void)
     for (i = 0; i < LM_N + 2u; i++)
         turn(EN_K1, 1);
     bad += check("LIST (KNOB 1): ALL FAV RECENT, the categories, stopping at OTHER", list_mode() == LM_N - 1u &&
-                 str_eq(list_name(list_mode()), "OTHER"));
+                 str_eq(browser_list_name(list_mode()), "Other"));
     for (i = 0; i < LM_N; i++)
         turn(EN_K1, -1);
     turn(EN_K1, 1);
@@ -1596,8 +1596,10 @@ static int test_favorites(void)
     bad += check("FAV and LIST mark/filter the current sound without loading or touching its steps",
                  preset_favorite() && favorites.filter && total == 1 && pos == 0 &&
                  !memcmp(TSEL, &before, sizeof before));
-    bad += check("one favorite occupies one display row, without repeated copies",
-                 preset_visible(pos, total, 0) == 0 && preset_visible(pos, total, 1) == total);
+    uint32_t slot;
+    bad += check("one favorite occupies one browser entry, without repeated copies",
+                 preset_at(pos, &slot) == ENGI_PROPHET && slot == TSEL->preset &&
+                 preset_at(total, &slot) == USER_GENERAL && slot == UP_SLOTS);
     select_engine(ENGI_DRUM);
     before = *TSEL;
     turn(EN_K3, 1);
@@ -4899,7 +4901,7 @@ static int test_prophet_pages(void)
     ui_power_on();set_engine_of(TSEL,ENGI_PROPHET);int bad=0,visible=0;
     bad+=check("selecting Prophet starts on its first factory program",!TSEL->user&&TSEL->preset==1u&&!memcmp(p5_patch_of(TSEL),p5_fac(0),sizeof(p5_patch_t)));
     uint32_t count,slot,source=preset_all_at(200u,&slot);
-    bad+=check("all 201 Prophet factory entries precede empty user slots in both browsers",eng_list_pos(&count)==1u&&count==201u&&source==ENGI_PROPHET&&slot==200u);
+    bad+=check("all 201 Prophet factory entries lead the browser",preset_all_pos(&count)==1u&&ENGINES[ENGI_PROPHET]->npresets==201u&&source==ENGI_PROPHET&&slot==200u);
     int factory=ENGINES[ENGI_PROPHET]->npresets==P5_FACTORY_N+1u;
     for(uint32_t k=1;k<=P5_FACTORY_N;k++){
         apply_preset_to(TSEL,k);char name[21];p5_patch_name(name,p5_fac(k-1u));

@@ -1459,7 +1459,7 @@ async function patternProtocol() {
 async function stockRestore() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc",single:"test-1core.fwsc"}}));
+    .replace("/*META*/", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc"}}));
   async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false} = {}) {
     const calls = [], elements = new Map();
     const element = (id) => {
@@ -1535,12 +1535,12 @@ async function installerBuilds() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",
-      pkg:{dual:"melodee-1.0.2.fwsc",single:"melodee-1.0.2-1core.fwsc"},
-      rc:{version:"1.4.0-rc.1",product:"FM-1_91040",commit:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        pkg:{dual:"melodee-1.4.0-rc.1.fwsc",single:"melodee-1.4.0-rc.1-1core.fwsc"}},
-      nightly:{version:"next-abcdef0",product:"FM-1_900",commit:"abcdef0123456789abcdef0123456789abcdef0123",builtAt:"2026-10-11T02:00:00Z",
-        pkg:{dual:"melodee-nightly.fwsc",single:"melodee-nightly-1core.fwsc"}}}));
-  const ALL = ["dual", "single", "rc-dual", "rc-single", "nightly-dual", "nightly-single"];
+      pkg:{dual:"melodee-1.0.2.fwsc"},
+      rc:{version:"1.4.0-rc.1",product:"FM-1_91040",commit:"a".repeat(40),
+        pkg:{dual:"melodee-1.4.0-rc.1.fwsc"}},
+      nightly:{version:"next-abcdef0",product:"FM-1_900",commit:"abcdef0123456789abcdef0123456789abcdef0123",builtAt:"2026-10-15T02:00:00Z",
+        pkg:{dual:"melodee-nightly.fwsc"}}}));
+  const ALL = ["dual", "rc-dual", "nightly-dual"];
   const fetched = [], installed = [], elements = new Map();
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, {checked:id === "build-dual", disabled:false, textContent:"", value:0, listeners:{}, options:[],
@@ -1559,48 +1559,35 @@ async function installerBuilds() {
   vm.runInContext(script, context);
   await new Promise(resolve => setImmediate(resolve));
   ok(fetched.join() === "melodee-1.0.2.fwsc" && element("status").textContent === "Melodee 1.0.2 (standard)"
-    && !element("go").disabled, "installer: the standard (dual-core) build is the default");
-  element("build-dual").checked = false; element("build-single").checked = true;
-  await element("build-single").listeners.change();
-  const status = element("status").textContent;
+    && !element("go").disabled, "installer: dual-core stable firmware is the default");
   await element("go").listeners.click();
-  ok(status === "Melodee 1.0.2 (single core)" && installed.length === 1 && installed[0][0] === "melodee-1.0.2-1core.fwsc"
-    && installed[0][1] === "FM-1_91002" && !element("build-dual").disabled, "installer: Single core installs the single-core package");
-  element("build-single").checked = false; element("build-dual").checked = true;
-  await element("build-dual").listeners.change();
-  await element("go").listeners.click();
-  ok(fetched.length === 2 && installed[1][0] === "melodee-1.0.2.fwsc", "installer: back to standard, each package fetched once");
-  const revision = "abcdef0123456789abcdef0123456789abcdef0123";
-  for (const [kind, file, tag] of [["nightly-dual", "melodee-nightly.fwsc", "dual core"], ["nightly-single", "melodee-nightly-1core.fwsc", "single core"]]) {
+  ok(installed[0][0] === "melodee-1.0.2.fwsc" && installed[0][1] === "FM-1_91002", "installer: stable installs its own package and identity");
+  for (const [kind, version, file, commit, product, tag] of [
+    ["nightly-dual", "next-abcdef0", "melodee-nightly.fwsc", "abcdef0123456789abcdef0123456789abcdef0123", "FM-1_900", "nightly"],
+    ["rc-dual", "1.4.0-rc.1", "melodee-1.4.0-rc.1.fwsc", "a".repeat(40), "FM-1_91040", "release candidate"],
+  ]) {
     for (const k of ALL) element("build-" + k).checked = k === kind;
     await element("build-" + kind).listeners.change();
-    ok(element("status").textContent === `Melodee next-abcdef0 (nightly, ${tag})`, "installer: nightly label uses its own source version");
+    ok(element("status").textContent === `Melodee ${version} (${tag})`, "installer: development channels report their own versions");
     await element("go").listeners.click();
-    const [image, product] = installed.at(-1);
-    ok(image === file + "?commit=" + revision && product === "FM-1_900", "installer: each nightly installs the chosen package with its own identity");
-  }
-  ok(!element("nightly-options").hidden && element("nightly-info").textContent.includes("abcdef0"), "installer: nightly source and build timestamp are visible");
-  for (const k of ALL) element("build-" + k).checked = k === "dual";
-  await element("build-dual").listeners.change();
-  await element("go").listeners.click();
-  ok(installed.at(-1)[1] === "FM-1_91002" && fetched.length === 4, "installer: returning from nightly restores release identity without refetching");
-  for (const [kind, file, tag] of [["rc-dual", "melodee-1.4.0-rc.1.fwsc", "dual core"], ["rc-single", "melodee-1.4.0-rc.1-1core.fwsc", "single core"]]) {
-    for (const k of ALL) element("build-" + k).checked = k === kind;
-    await element("build-" + kind).listeners.change();
-    ok(element("status").textContent === `Melodee 1.4.0-rc.1 (release candidate, ${tag})`, "installer: RC reports its exact version and core variant");
+    const [image, actualProduct] = installed.at(-1);
+    ok(image === file + "?commit=" + commit && actualProduct === product, "installer: development channels install their own package and identity");
+    for (const k of ALL) element("build-" + k).checked = k === "dual";
+    await element("build-dual").listeners.change();
     await element("go").listeners.click();
-    const [image, product] = installed.at(-1);
-    ok(image === file + "?commit=" + "a".repeat(40) && product === "FM-1_91040", "installer: each RC installs its published package and identity");
+    ok(installed.at(-1)[1] === "FM-1_91002", "installer: returning to stable restores its identity");
   }
+  ok(fetched.length === 3, "installer: each dual-core channel is fetched once");
+  ok(!element("nightly-options").hidden && element("nightly-info").textContent.includes("abcdef0"), "installer: nightly source and timestamp are visible");
   ok(!element("rc-options").hidden && element("rc-version").textContent === "1.4.0-rc.1", "installer: RC version is visible");
-  for (const k of ALL) element("build-" + k).checked = k === "dual";
-  await element("build-dual").listeners.change();
-  await element("go").listeners.click();
-  ok(installed.at(-1)[1] === "FM-1_91002" && fetched.length === 6, "installer: returning from RC restores stable without refetching");
+  ok(!/build-(?:rc-|nightly-)?single/.test(installer), "installer: no channel offers single-core firmware");
 }
 async function installerBuildRaces() {
   const script = readFileSync(join(HERE, "index_pkg.html"), "utf8").match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual",single:"single"}}));
+    .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual"}, releases:[
+      {version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual"}},
+      {version:"1.0.1",product:"FM-1_91001",pkg:{dual:"older"}},
+    ]}));
   const elements = new Map(), pending = new Map(); let installDone, installed;
   const element = id => {
     if (!elements.has(id)) elements.set(id, {checked:id === "build-dual",disabled:false,textContent:"",listeners:{}, options:[],
@@ -1610,7 +1597,8 @@ async function installerBuildRaces() {
   };
   const context = vm.createContext({navigator:{language:"en",requestMIDIAccess:async()=>({})},
     document:{documentElement:{},querySelectorAll:()=>[],getElementById:element,createElement:()=>({})},window:{addEventListener(){}},
-    fetch:url=>new Promise(resolve=>pending.set(url,resolve)),productOf:()=>"FM-1_91002",
+    fetch:url=>new Promise(resolve=>pending.set(url,resolve)),
+    productOf:pkg=>String.fromCharCode(...pkg)==="older"?"FM-1_91001":"FM-1_91002",
     logicalImage:pkg=>String.fromCharCode(...pkg),
     Updater:class { async find(){ return null; } async install(img){installed=img;await new Promise(resolve=>installDone=resolve);} }
   });
@@ -1618,17 +1606,17 @@ async function installerBuildRaces() {
   const tick = () => new Promise(resolve=>setImmediate(resolve));
   vm.runInContext(script, context);
   ok(element("rc-options").hidden && element("nightly-options").hidden, "installer: unavailable RC/nightly channels are hidden");
-  element("build-dual").checked=false;element("build-single").checked=true;
-  const single = element("build-single").listeners.change();
+  element("release").value="1.0.1";
+  element("release").listeners.change();
   ok(element("go").disabled,"installer: Install is disabled while the selected package loads");
-  finish("single");await single;finish("dual");await tick();
-  ok(element("status").textContent === "Melodee 1.0.2 (single core)","installer: a late standard download cannot replace the selected single-core build");
+  finish("older");await tick();finish("dual");await tick();
+  ok(element("status").textContent === "Melodee 1.0.1 (standard)","installer: a late download cannot replace the selected release");
   const flash = element("go").listeners.click();await tick();
-  ok(installed === "single" && element("build-dual").disabled && element("build-single").disabled,
-    "installer: the selected package is fixed and build selection locked throughout writing");
+  ok(installed === "older" && element("build-dual").disabled && element("release").disabled,
+    "installer: package and release selection are locked throughout writing");
   await element("build-dual").listeners.change();
   installDone();await flash;
-  ok(!element("build-dual").disabled && !element("build-single").disabled,"installer: build selection unlocks after writing");
+  ok(!element("build-dual").disabled && !element("release").disabled,"installer: selection unlocks after writing");
 }
 await stockRestore();
 await installerBuilds();

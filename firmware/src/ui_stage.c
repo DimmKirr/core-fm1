@@ -22,7 +22,6 @@
 #define ST_BAND_H 30
 #define ST_KNOB_MS 1500u                                /* the knobs stay this long after the last turn */
 #define ST_DROP 4u                                      /* .. and drop in over this many frames */
-#define ST_AREA_W 232                                   /* (MIXER's strips: x 4 .. 236) */
 #define ST_PMIN 5                                       /* the steps' smallest dot pitch (px) */
 #define ST_PMAX 12                                      /* .. and the largest */
 
@@ -32,12 +31,6 @@ static int32_t st_row_h(void)
     return (ST_ROWS_H - 2 * (n - 1)) / n;
 }
 static int32_t st_row_y(uint32_t k) { return ST_ROW_Y + (int32_t)k * (st_row_h() + 2); }
-/* MIXER's strips (ui_pages.c pv_strip): four 54 px, fewer share the place, 4 px apart (three: 74, 5 px apart) */
-static int32_t st_col_w(void)
-{
-    int32_t n = (int32_t)trk_n();
-    return n >= NTRK ? CARD_W : (ST_AREA_W - 4 * (n - 1)) / n;
-}
 /* the x of a text centred on cx in at most maxw px */
 static int32_t st_mid_x(int32_t cx, const aafont_t *f, const char *s, int32_t maxw)
 {
@@ -631,12 +624,6 @@ static void stage_knobs(void)
         return;
     }
     stage_columns();
-}
-
-/* the BG around the rows and the band (a full redraw: the canvases cover the rest) */
-static void stage_frame(void)
-{
-    lcd_fill(0, H_HEAD, 240, 240u - H_HEAD, T_BG);
 }
 
 /* every frame the knobs; every other frame (the scope's) the rows (or, the knobs out, their picture), then the band

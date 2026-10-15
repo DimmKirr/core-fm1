@@ -15,10 +15,10 @@ const elements = Object.fromEntries([...template.matchAll(/id="([^"]+)"/g)].map(
 elements["build-dual"].checked = true;
 elements.log.scrollHeight = 777;
 const releases = [
-  {version: "1.3.2", product: "new", pkg: {dual: "new-dual", single: "new-single"}},
-  {version: "1.2.1", product: "old", pkg: {dual: "old-dual", single: "old-single"}},
+  {version: "1.3.2", product: "new", pkg: {dual: "new-dual"}},
+  {version: "1.2.1", product: "old", pkg: {dual: "old-dual"}},
 ];
-const meta = {...releases[0], releases, rc: {version: "1.4.0-rc.1", product: "rc", pkg: {dual: "rc-dual", single: "rc-single"}}, nightly: null};
+const meta = {...releases[0], releases, rc: {version: "1.4.0-rc.1", product: "rc", pkg: {dual: "rc-dual"}}, nightly: null};
 const pending = [];
 const context = vm.createContext({
   document: {documentElement: {}, getElementById: id => elements[id], querySelectorAll: () => [], createElement: () => new Element()},
@@ -55,9 +55,6 @@ await finish(pending.shift(), 1, 20);
 assert.equal(vm.runInContext("image[1]", context), 20);
 assert.match(elements.status.textContent, /1\.2\.1/);
 
-selectBuild("single"); elements["build-single"].listeners.change();
-await finish(pending.shift(), 1, 21);
-assert.equal(vm.runInContext("image[1]", context), 21);
 elements.lang.listeners.click();
 assert.equal(elements.release.value, "1.2.1");
 assert.match(elements.status.textContent, /1\.2\.1/);
@@ -73,12 +70,12 @@ assert.equal(vm.runInContext("image[1]", context), 10); // stale RC fetch cannot
 
 vm.runInContext("lockInstaller(true)", context);
 assert.equal(elements.release.disabled, true);
-assert.equal(elements["build-single"].disabled, true);
+assert.equal(elements["build-rc-dual"].disabled, true);
 elements.release.listeners.change();
 assert.equal(pending.length, 0);
 vm.runInContext('log("write 123")', context);
 assert.equal(elements.log.scrollTop, 777);
 assert.match(template, /max-height: 200px; overflow-y: auto/);
 assert.doesNotMatch(template, /Melodee 1\.0/);
-assert.match(template, /<details id="fallback-options">/);
-console.log("installer: release/core selection, cache separation, fetch races, language, write lock and scrolling passed");
+assert.doesNotMatch(template, /build-(?:rc-|nightly-)?single|singleWhy|fallback-options/);
+console.log("installer: dual-core release/channel selection, cache separation, fetch races, language, write lock and scrolling passed");
