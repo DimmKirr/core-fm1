@@ -2410,6 +2410,15 @@ static int test_popups(void)
         }
         bad += check("SECTIONS: CZ map visits each category once regardless of its envelope page count", o);
         press(B_HOME);
+        ui_power_on(); set_engine_of(TSEL, ENGI_PROPHET); frame(); press(B_EDIT); press(B_EDIT);
+        uint8_t sp[8];
+        smap_pages(smap.row, sp);
+        turn(EN_K1, 1);
+        o = smap.on && str_eq(sec.name[smap.row], "Sound") && str_eq(PAGES[sp[smap.col]].title, "EDIT 2");
+        turn(EN_K1, -1); turn(EN_K2, 1);
+        bad += check("SECTIONS: Prophet map, one detent each: KNOB 1 Filter/tune -> PW/mix, KNOB 2 Sound -> Osc",
+                     o && smap.on && str_eq(sec.name[smap.row], "Osc"));
+        press(B_HOME);
         const uint32_t engines[] = {ENGI_PROPHET, ENGI_FM6, ENGI_CZ, 3u, ENGI_DRUM};
         int categories = 1, pages = 1;
         for (uint32_t e = 0; e < NELEM(engines); e++) {
@@ -2420,23 +2429,26 @@ static int test_popups(void)
                 uint8_t pp[8];
                 uint32_t count = smap_pages(r, pp);
                 for (uint32_t c = 0; c < count; c++)
-                    for (uint32_t knob = EN_K1; knob <= EN_K2; knob++)
-                        for (int32_t dir = -1; dir <= 1; dir += 2) {
+                    for (int32_t dir = -1; dir <= 1; dir += 2) {
+                        smap.row = (uint8_t)r; smap.col = (uint8_t)c; ui.force = 1; frame();
+                        turn(EN_K2, dir);
+                        categories &= smap.on && ui.page == opened &&
+                            smap.row == (uint32_t)clamp((int32_t)r + dir, 0, (int32_t)sec.n - 1);
+                        for (uint32_t k = 0; k < 2u; k++) {
                             smap.row = (uint8_t)r; smap.col = (uint8_t)c; ui.force = 1; frame();
-                            turn(knob, dir);
-                            categories &= smap.on && ui.page == opened &&
-                                smap.row == (uint32_t)clamp((int32_t)r + dir, 0, (int32_t)sec.n - 1);
+                            turn(k ? EN_SELECT : EN_K1, dir);
+                            pages &= smap.on && ui.page == opened && smap.row == r &&
+                                smap.col == (uint32_t)clamp((int32_t)c + dir, 0, (int32_t)count - 1);
                         }
+                    }
                 smap.row = (uint8_t)r; smap.col = 0; ui.force = 1; frame();
-                turn(EN_SELECT, 1);
-                pages &= smap.row == r && smap.col == (count > 1u ? 1u : 0u);
-                turn(EN_SELECT, -1);
-                pages &= smap.row == r && smap.col == 0u;
+                turn(EN_K1, (int32_t)count - 1);             /* several detents in one frame: each a page */
+                pages &= smap.row == r && smap.col == count - 1u;
             }
             press(B_HOME);
         }
-        bad += check("SECTIONS: either map knob moves one category from every page in every engine", categories);
-        bad += check("SECTIONS: SELECT chooses a page inside the map category without changing categories", pages);
+        bad += check("SECTIONS: map KNOB 2 moves one category a detent from every page in every engine", categories);
+        bad += check("SECTIONS: map KNOB 1 / SELECT move one page a detent inside the category in every engine", pages);
     }
     go_page(GR_SONG); frame();
     hold(B_OCTUP);

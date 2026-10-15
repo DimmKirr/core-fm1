@@ -2181,13 +2181,13 @@ static void ui_input(void)
         enc_drop();
         return;
     }
-    if (smap.on) {                                      /* KNOB 1 / 2 categories, SELECT pages; OCT+ opens */
+    if (smap.on) {                                      /* KNOB 1 / SELECT pages, KNOB 2 categories; OCT+ opens */
         int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);   /* closes it too (page_tap) */
-        int32_t pages = panel_enc(EN_SELECT);
+        int32_t sel = panel_enc(EN_SELECT);
         if (home == BT_TAP) {
             smap_close();
             go_home();
-        } else smap_input(k1 + k2, pages, oct);
+        } else smap_input(k1 + sel, k2, oct);
         if (lytap)
             layer_tap(lytap);
         b = ui.pg_down & ~fm1_in.buttons;
