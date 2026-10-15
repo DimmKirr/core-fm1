@@ -219,6 +219,17 @@ and this state are rendered and linted in every palette by `tests/ui_render.c`.
 
 FX SEND uses the same four-ring page with SEND for the selected track and RETURN for the shared bus. SEND FX 1–3 keep the insert page layout, show TYPE / MIX / RATE or SIZE / CHAR or DEPTH, and identify SEND / RETURN and ALL TRACKS in the footer. These controls belong to the project and track, never the instrument preset. Shared MIX defaults fully wet.
 
+For ECHO, ROOM and REVERB, SELECT reaches that slot's tone page immediately
+after its main controls: FX 1–3 TONE for inserts, SEND 1–3 EQ for shared effects.
+KNOB 1 is LO CUT (OFF, then 20–1280 Hz in 10 Hz steps); KNOB 2 is HI CUT
+(OFF, then 120–2640 Hz in 20 Hz steps). The remaining knobs are empty. A response
+curve follows both controls and identifies the effect being shaped. These pages
+are hidden for other effect types. Both smooth 6 dB/octave cuts shape the wet
+input; the original dry signal stays intact. HI CUT's range fits the common
+usable bandwidth of these deliberately reduced-rate effects.
+Each track and shared slot keeps its own cuts in projects and templates,
+independent of instrument presets. Older projects and templates load both OFF.
+
 ## Large type (2026-10-14)
 
 The 1.54" panel (27.7 mm across) needs larger text: every screen is set in four type roles, and Settings > FONT picks

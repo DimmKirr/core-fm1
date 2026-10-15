@@ -224,6 +224,29 @@ static inline __attribute__((always_inline)) void fx_return(int32_t target,uint3
     fx_left[i]=l+fx_scale(wl-l,(uint32_t)*mix*2u);
     fx_right[i]=mono?fx_left[i]:type==FX_WIDTH?r:r+fx_scale(wr-r,(uint32_t)*mix*2u);
 }
+/* Time effects reuse two idle biquads for first-order wet input tone cuts.
+ * Coefficients and bypass fades slew over 10 ms. Each section's b0/b1 hold
+ * the coefficient/fade, a1/a2 the target/cutoff cache, and z1 the integrator. */
+static float fx_cut_coefficient(int32_t hz,uint32_t div)
+{
+    uint32_t ph=(uint32_t)((uint64_t)hz*div*0x80000000ull/FS);
+    float s=(float)sine_i(ph),c=(float)sine_i(ph+0x40000000u);
+    return s/(s+c); /* prewarped bilinear integrator */
+}
+static inline __attribute__((always_inline)) float fx_tone_section(fx_bq_t *q,float x,float slew,uint32_t highpass)
+{
+    float enabled=q->a2>0?1.0f:0.0f;
+    if(!enabled && q->b1<0.000001f){q->b0=q->b1=q->z1=0;return x;}
+    q->b0+=(q->a1-q->b0)*slew;q->b1+=(enabled-q->b1)*slew;
+    float v=(x-q->z1)*q->b0,low=v+q->z1;q->z1=low+v;
+    if(q->z1>-1e-9f && q->z1<1e-9f)q->z1=0;
+    return highpass?x-low*q->b1:x+(low-x)*q->b1;
+}
+static inline __attribute__((always_inline)) int32_t fx_tone_input(fx_state_t *f,int32_t input,float slew)
+{
+    float x=fx_tone_section(&f->q[0][0],(float)input,slew,1);
+    return (int32_t)fx_tone_section(&f->q[0][1],x,slew,0);
+}
 /* Tiny time effects run at FS/4. ECHO: 10..370 ms, 8 KiB. ROOM: four
  * damped combs at 13..26 ms, 2 KiB. They are intentionally lo-fi. */
 static __attribute__((noinline,section(".dsp_text"))) void fx_time(fx_state_t *restrict f,int16_t *restrict mem,uint32_t n,int32_t target)
@@ -237,6 +260,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_time(fx_state_t *r
     for(uint32_t i=0;i<n;i++){
         int32_t mono=fx_div_pow2(fx_left[i]+fx_right[i],1);
         if(!f->decim){
+            mono=fx_tone_input(f,mono,1.0f/(0.010f*FX_RATE));
             if(f->type==FX_ECHO){
                 f->echo=mem[(f->pos+4096u-delay)&4095u];
                 mem[f->pos]=(int16_t)clamp(mono+fx_div_pow2(f->echo*feedback,15),-32767,32767);
@@ -352,6 +376,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_reverb(fx_state_t 
              * without increasing the bass return or allocating another filter. */
             int32_t previous_input=f->damp[2];f->damp[2]=input;
             input+=fx_div_pow2(input-previous_input,2);
+            input=fx_tone_input(f,input,FX_REV_DIV/(0.010f*FS));
             int32_t v[8],x;uint32_t off=0;
             f->rev_dc+=((float)input-f->rev_dc)*0.006f;
             x=clamp(fx_div_pow2((int32_t)((float)input-f->rev_dc),2),-16000,16000);
@@ -455,7 +480,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_copy(fx_state_t *f
     }
     /* Fold only equal signals AND equal histories. Panning/spread transitions
      * keep their stereo tails; returning to mono never resets a filter. */
-    for(uint32_t k=0;k<4u && mono;k++)if(f->q[0][k].z1!=f->q[1][k].z1 || f->q[0][k].z2!=f->q[1][k].z2 || f->rev_damp[k]!=f->rev_damp[4+k])mono=0;
+    for(uint32_t k=0;k<4u && mono;k++)if((f->type<FX_ECHO && (f->q[0][k].z1!=f->q[1][k].z1 || f->q[0][k].z2!=f->q[1][k].z2)) || f->rev_damp[k]!=f->rev_damp[4+k])mono=0;
     if(f->rev_bass[0]!=f->rev_bass[1] || f->rev_l!=f->rev_r || f->rev_prev_l!=f->rev_prev_r)mono=0;
 #if MELODEE_HW_EQ
     if(fx_hw_status==1)mono=0; /* hardware histories are held in its rows */
@@ -531,6 +556,18 @@ static void fx_slot_prepare(fx_plan_t *plan,uint32_t si,const int16_t *p)
         f->epoch=fx_epoch;f->type=(uint8_t)type;f->rng=(int32_t)(0x73a9825du+si*997u);
     }
     f->rate=(int16_t)clamp(p[2],0,127);f->character=(int16_t)clamp(p[3],0,127);
+    if(f->type>=FX_ECHO && f->type<=FX_REVERB){
+        uint32_t slot=si%FX_SLOTS,master=si/FX_SLOTS==NPART,div=f->type==FX_REVERB?FX_REV_DIV:4u;
+        for(uint32_t k=0;k<2u;k++){
+            uint32_t id=(master?G_MFXHP:P_FXHP)+slot+k*FX_SLOTS;
+            int32_t cut=clamp(master?song.g[id]:trk[si/FX_SLOTS].p[id],0,127);
+            fx_bq_t *q=&f->q[0][k];
+            if(q->a2!=(float)cut){
+                if(cut)q->a1=fx_cut_coefficient(k?fx_lowpass_hz(cut):fx_highpass_hz(cut),div);
+                q->a2=(float)cut;
+            }
+        }
+    }
 #if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
     if(profiling){f->rate=(fx_profile_control>>12u)&127u;f->character=(fx_profile_control>>19u)&127u;}
 #endif

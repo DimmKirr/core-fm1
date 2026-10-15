@@ -16,3 +16,9 @@ original insert, with MIX 91, TIME 83 and REPEAT 77; engine motion uses E0 ID
 and preserve the musical data above.
 
 `fun18.bin`, `fbkk18.bin`, and `tplh.bin` are frozen synthetic three-insert records from the 116-track-parameter, 27-global layout. They contain Phaser/Echo/Reverb in slots 1/2/3 and a C4 note. They verify migration to SEND/RETURN without altering the insert chain; older records have no sends or shared effects.
+
+`../fun20-split.bin` and `../tplj-split.bin` were written by unmodified
+`6e81e66` using `project_capture`/`proj_pack` and `template_save` before the low-cut
+parameters were added. They contain SPLIT routing, shared Reverb, RETURN 73,
+track 1 Echo/MIX 91, SEND 2 = 71 and engine E3 = 42. Their imports must retain
+those values and initialise every insert/shared low and high cut to OFF.

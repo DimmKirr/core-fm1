@@ -252,6 +252,15 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
 
 static int page_visible(uint32_t i)
 {
+    if(PAGES[i].fam==FAM_FX){
+        const page_t *pg=&PAGES[i];uint32_t id=pg->id[0],type;
+        if(pg->scope==SC_TRACK && param_fx_hp(id)){
+            type=TSEL->p[P_FXTYPE+(id-P_FXHP)*FX_PARAMS];return type>=FX_ECHO && type<=FX_REVERB;
+        }
+        if(pg->scope==SC_GLOBAL && id>=G_MFXHP && id<=G_MFX3HP){
+            type=song.g[G_MFXTYPE+(id-G_MFXHP)*FX_PARAMS];return type>=FX_ECHO && type<=FX_REVERB;
+        }
+    }
     if(PAGES[i].fam==FAM_FX && PAGES[i].scope==SC_TRACK && PAGES[i].id[0]==P_FXSEND)
         return song.g[G_FXMODE]!=0;
     if (list_gone(i))

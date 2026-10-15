@@ -70,7 +70,8 @@
 enum {
     F_INT, F_PCT, F_BIPCT, F_TIME, F_LFOHZ, F_CUTOFF, F_DB, F_SEMI, F_ENUM, F_BPM, F_NOTE,
     F_ONOFF, F_OCT, F_STEPS,
-    F_OFS, F_FMNOTE, F_FMFRQ    /* FM6's pages: 0 at the middle of the range, the DX7 break point, an operator's frequency */
+    F_OFS, F_FMNOTE, F_FMFRQ,   /* FM6's pages: 0 at the middle of the range, the DX7 break point, an operator's frequency */
+    F_HIGHPASS, F_LOWPASS
 };
 
 typedef struct {
@@ -112,6 +113,8 @@ enum {                          /* per-track parameters */
     P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR,
     P_FXSEND, /* post-fader chain send, or send to slot 1 in separate mode */
     P_FXSEND2, P_FXSEND3,
+    P_FXHP, P_FX2HP, P_FX3HP, /* wet low cut: appended so existing common IDs stay fixed */
+    P_FXLP, P_FX2LP, P_FX3LP, /* wet high cuts */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -119,7 +122,11 @@ enum {                          /* per-track parameters */
 #define FX_PARAMS 4u
 #define FX_CHAIN_COUNT (NPART+1u)
 #define FX_STATE_COUNT (FX_CHAIN_COUNT*FX_SLOTS)
-static int param_fx(uint32_t id) { return id>=P_FXTYPE && id<=P_FX3CHAR; }
+static int param_fx_hp(uint32_t id) { return id>=P_FXHP && id<=P_FX3HP; }
+static int param_fx_lp(uint32_t id) { return id>=P_FXLP && id<=P_FX3LP; }
+static int param_fx(uint32_t id) { return (id>=P_FXTYPE && id<=P_FX3CHAR) || param_fx_hp(id) || param_fx_lp(id); }
+static int32_t fx_highpass_hz(int32_t value) { return value>0 ? 10+10*value : 0; }
+static int32_t fx_lowpass_hz(int32_t value) { return value>0 ? 100+20*value : 0; }
 static int param_fx_send(uint32_t id) { return id>=P_FXSEND && id<=P_FXSEND3; }
 
 
@@ -140,6 +147,8 @@ enum {                          /* global parameters */
     G_FXRETURN,
     G_FXMODE, /* 0: one shared serial chain; 1: independent slot sends */
     G_BUDGET, /* device-wide shared workload allowance; appended, not a song field */
+    G_MFXHP, G_MFX2HP, G_MFX3HP,
+    G_MFXLP, G_MFX2LP, G_MFX3LP,
     G_COUNT
 };
 static int param_master_fx(uint32_t id){return id>=G_MFXTYPE && id<=G_MFX3CHAR;}

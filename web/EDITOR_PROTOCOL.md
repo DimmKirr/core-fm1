@@ -1159,3 +1159,21 @@ retain the legacy `voices_given_up` count and also increment `capacity_steals`;
 normal pool fades can be read as `voices_given_up - voices_shed`. Emergency
 CPU cuts remain `voices_shed`. Automatic settings writes wait until voices and
 USB audio streams are idle.
+
+### Adjustable FX tone cuts
+
+`P_COUNT=125`, `P_E0=117`, `G_COUNT=48`. Track IDs 111–113 and global IDs
+42–44 are the three insert/shared-slot low cuts. Format 17 (`F_HIGHPASS`)
+displays 0 as OFF and 1–127 as `10 + 10 * value` Hz (20–1280 Hz).
+Track IDs 114–116 and global IDs 45–47 are the corresponding high cuts.
+Format 18 (`F_LOWPASS`) displays 0 as OFF and 1–127 as `100 + 20 * value` Hz
+(120–2640 Hz). Echo, Room and Reverb filter their wet inputs; other effects
+ignore both cuts. The editor places each slot's tone page beside its main
+controls and hides it when that effect type does not support the cuts.
+These values belong to tracks/projects, so instrument loads and librarian capture
+preserve/exclude them like the existing insert settings. FUN21 stores the three
+shared low/high cutoffs in the six reserved bytes before `PROJ_FM6_OFF`;
+track values map by count. TPLK adds track parameters and stores shared low
+cuts in master bytes 14–16 and high cuts in bytes 17–19 of its
+20-byte master block. FUN20/TPLJ and all previously supported imports default
+cutoffs to OFF and retain their routing and engine/motion values.

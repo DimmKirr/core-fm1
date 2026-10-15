@@ -210,6 +210,12 @@ static const param_desc_t TP[P_COUNT] = {
     [P_FXSEND] = PD("SEND", F_PCT, 0, 127, 0),
     [P_FXSEND2] = PD("SEND 2", F_PCT, 0, 127, 0),
     [P_FXSEND3] = PD("SEND 3", F_PCT, 0, 127, 0),
+    [P_FXHP] = PD("LO CUT", F_HIGHPASS, 0, 127, 0),
+    [P_FXLP] = PD("HI CUT", F_LOWPASS, 0, 127, 0),
+    [P_FX2HP] = PD("LO CUT", F_HIGHPASS, 0, 127, 0),
+    [P_FX2LP] = PD("HI CUT", F_LOWPASS, 0, 127, 0),
+    [P_FX3HP] = PD("LO CUT", F_HIGHPASS, 0, 127, 0),
+    [P_FX3LP] = PD("HI CUT", F_LOWPASS, 0, 127, 0),
     [P_CHRD] = PE("CHRD", N_CHRD, 0),
     [P_VOIC] = PE("VOIC", N_VOIC, 0),
     [P_MPCDEG] = PD("DEG", F_INT, 1, 12, 1),         /* its max: the scale's notes (track_desc) */
@@ -258,6 +264,12 @@ static const param_desc_t GP[G_COUNT] = {
     [G_FXRETURN] = PD("RETURN", F_PCT, 0, 127, 100),
     [G_FXMODE] = {"MODE", F_ENUM, 0, 1, 0, (const char *const []){"CHAIN", "SPLIT"}, 0},
     [G_BUDGET] = {"BUDGET", F_INT, 8, 32, VOICE_BUDGET_DEFAULT, 0, "pts"},
+    [G_MFXHP] = PD("LO CUT", F_HIGHPASS, 0, 127, 0),
+    [G_MFXLP] = PD("HI CUT", F_LOWPASS, 0, 127, 0),
+    [G_MFX2HP] = PD("LO CUT", F_HIGHPASS, 0, 127, 0),
+    [G_MFX2LP] = PD("HI CUT", F_LOWPASS, 0, 127, 0),
+    [G_MFX3HP] = PD("LO CUT", F_HIGHPASS, 0, 127, 0),
+    [G_MFX3LP] = PD("HI CUT", F_LOWPASS, 0, 127, 0),
 
 };
 
@@ -273,7 +285,7 @@ static const param_desc_t *global_desc(uint32_t id)
 static uint32_t scale_count(const track_t *t);          /* seq.c */
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
-    if (param_fx(id) && ((id-P_FXTYPE)%FX_PARAMS)>=2u) {
+    if (param_fx(id) && !param_fx_hp(id) && !param_fx_lp(id) && ((id-P_FXTYPE)%FX_PARAMS)>=2u) {
         static param_desc_t fx_desc;
         static const char *const character[] = {"CHAR", "DEPTH", "DEPTH", "FOCUS", "JITTER", "BITE", "REPEAT", "DECAY", "DEPTH", "DEPTH"};
         uint32_t base=P_FXTYPE+(id-P_FXTYPE)/FX_PARAMS*FX_PARAMS;
@@ -376,6 +388,12 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
         *unit = "Hz";
         break;
     }
+    case F_LOWPASS:
+        if(!v){str_cpy(val,"OFF",6);break;}
+        fmt_int(val,fx_lowpass_hz(v));*unit="Hz";break;
+    case F_HIGHPASS:
+        if(!v){str_cpy(val,"OFF",6);break;}
+        fmt_int(val,fx_highpass_hz(v));*unit="Hz";break;
     case F_CUTOFF: {
         uint32_t h = CUTOFF_HZ[v & 127];
         if (h < 1000u) {
@@ -492,13 +510,19 @@ typedef struct {
 #define G_TRK_RECQ 0xFEu                                 /* a global page's column that is the selected track's P_RECQ */
 static const page_t PAGES[] = {
     {"FX 1", FAM_FX, SC_TRACK, GR_NONE, {P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR}},
+    {"FX 1 TONE", FAM_FX, SC_TRACK, GR_NONE, {P_FXHP, P_FXLP, 0xFF, 0xFF}},
     {"FX 2", FAM_FX, SC_TRACK, GR_NONE, {P_FX2TYPE, P_FX2MIX, P_FX2RATE, P_FX2CHAR}},
+    {"FX 2 TONE", FAM_FX, SC_TRACK, GR_NONE, {P_FX2HP, P_FX2LP, 0xFF, 0xFF}},
     {"FX 3", FAM_FX, SC_TRACK, GR_NONE, {P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR}},
+    {"FX 3 TONE", FAM_FX, SC_TRACK, GR_NONE, {P_FX3HP, P_FX3LP, 0xFF, 0xFF}},
     {"FX SEND", FAM_FX, SC_GLOBAL, GR_NONE, {G_TRK_SEND, G_FXRETURN, G_FXMODE, 0xFF}},
     {"FX SENDS", FAM_FX, SC_TRACK, GR_NONE, {P_FXSEND, P_FXSEND2, P_FXSEND3, 0xFF}},
     {"SEND FX 1", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFXTYPE, G_MFXMIX, G_MFXRATE, G_MFXCHAR}},
+    {"SEND 1 EQ", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFXHP, G_MFXLP, 0xFF, 0xFF}},
     {"SEND FX 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX2TYPE, G_MFX2MIX, G_MFX2RATE, G_MFX2CHAR}},
+    {"SEND 2 EQ", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX2HP, G_MFX2LP, 0xFF, 0xFF}},
     {"SEND FX 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX3TYPE, G_MFX3MIX, G_MFX3RATE, G_MFX3CHAR}},
+    {"SEND 3 EQ", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX3HP, G_MFX3LP, 0xFF, 0xFF}},
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* the former fourth slot: SEQ > TEMPO's QNT */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},

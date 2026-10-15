@@ -500,9 +500,46 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
 }
 /* FX follows R5: four rings, a rounded track-colour picture, compact labels.
  * WIDTH explicitly names its two sides and the mono tradeoff. */
+static int32_t pv_fx_tone_slot(const page_t *pg)
+{
+    uint32_t id=pg->id[0];
+    if(pg->scope==SC_TRACK && param_fx_hp(id))return (int32_t)(id-P_FXHP);
+    if(pg->scope==SC_GLOBAL && id>=G_MFXHP && id<=G_MFX3HP)return (int32_t)(id-G_MFXHP);
+    return -1;
+}
+/* Squared magnitude of the actual prewarped first-order sections. The graph
+ * follows target controls immediately; audio independently slews its state. */
+static float pv_fx_cut_power(float g,float s,float c,uint32_t highpass)
+{
+    float a=s*(1.0f-g),b=c*g,aa=a*a,bb=b*b;
+    return (highpass?aa:bb)/(aa+bb);
+}
+static void pv_fx_tone(int32_t h,uint32_t slot)
+{
+    const aafont_t *lf=TY_LB;uint32_t master=cur_page()->scope==SC_GLOBAL;
+    const int16_t *p=master?song.g:TSEL->p;
+    uint32_t type=(uint32_t)clamp(p[(master?G_MFXTYPE:P_FXTYPE)+slot*FX_PARAMS],0,FX_COUNT-1);
+    int32_t lo=p[(master?G_MFXHP:P_FXHP)+slot],hi=p[(master?G_MFXLP:P_FXLP)+slot];
+    uint32_t div=type==FX_REVERB?FX_REV_DIV:4u;
+    float lg=lo?fx_cut_coefficient(fx_highpass_hz(lo),div):0,hg=hi?fx_cut_coefficient(fx_lowpass_hz(hi),div):0;
+    cv_free_text(12,6,lf,N_FX[type],T_MID,T_PANEL,PV_PANEL_W-24);
+    int32_t top=lf->h+14,bottom=h-lf->h-13,previous=bottom*16;
+    cv_rect(16,bottom,208,1,T_LINE);
+    for(uint32_t x=0;x<208u;x++){
+        uint32_t hz=20u+x*x*2580u/(207u*207u),ph=(uint32_t)((uint64_t)hz*div*0x80000000ull/FS);
+        float s=(float)sine_i(ph),c=(float)sine_i(ph+0x40000000u),power=1;
+        if(lo)power*=pv_fx_cut_power(lg,s,c,1);
+        if(hi)power*=pv_fx_cut_power(hg,s,c,0);
+        int32_t y=bottom*16-(int32_t)(power*(float)((bottom-top)*16));
+        if(x)cv_vspan_aa(16+(int32_t)x,previous,y,T_THEME);previous=y;
+    }
+    cv_free_text(12,h-lf->h-6,lf,"20 Hz",T_DIM,T_PANEL,60);
+    cv_free_text(150,h-lf->h-6,lf,"2.6 kHz",T_DIM,T_PANEL,78);
+}
 static void pv_fx(int32_t h)
 {
     const aafont_t *lf = TY_LB;
+    int32_t tone=pv_fx_tone_slot(cur_page());if(tone>=0){pv_fx_tone(h,(uint32_t)tone);return;}
     if(cur_page()->id[0]==G_TRK_SEND || cur_page()->id[0]==P_FXSEND){
         uint32_t sends=cur_page()->id[0]==P_FXSEND;
         cv_free_text(12,6,lf,song.g[G_FXMODE]?"Independent FX sends":"Track to shared FX",T_MID,T_PANEL,PV_PANEL_W-24);
@@ -523,16 +560,18 @@ static void pv_fx(int32_t h)
         else if(type>=FX_ECHO)y+=(ph*mix*(208-x))/1900;
         y=clamp(y,(lf->h+10)*16,(h-lf->h-10)*16);cv_vspan_aa(16+x,py,y,type&&mix?T_THEME:T_DIM);py=y;
     }
-    const char *foot=fx_state[(master?NPART:song.sel%NPART)*FX_SLOTS+slot].failed?"MEMORY FULL":type==FX_WIDTH?"Mono changes the tone":type==FX_OFF || !mix?"Turn MIX to hear FX":master?"Shared by all tracks":"OCT+ sound actions";
+    const char *foot=fx_state[(master?NPART:song.sel%NPART)*FX_SLOTS+slot].failed?"MEMORY FULL":type==FX_WIDTH?"Mono changes the tone":type==FX_OFF || !mix?"Turn MIX to hear FX":type>=FX_ECHO && type<=FX_REVERB?"SELECT: tone cuts":master?"Shared by all tracks":"OCT+ sound actions";
     cv_free_text(12,h-lf->h-6,lf,foot,T_DIM,T_PANEL,PV_PANEL_W-24);
 }
 static void pv_picture(void)
 {
     int32_t cut, res, y = PV_PIC_Y + pv_tab_h, h = PV_PIC_H - pv_tab_h;
     uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u ^ (uint32_t)h * 613u, i;
+    int32_t tone=pic==9u?pv_fx_tone_slot(cur_page()):-1;
+    if(tone>=0){uint32_t master=cur_page()->scope==SC_GLOBAL;const int16_t *p=master?song.g:TSEL->p;sig^=(uint32_t)p[(master?G_MFXTYPE:P_FXTYPE)+(uint32_t)tone*FX_PARAMS]*7919u;}
     int32_t pp = pic == 6u && song.playing ? (int32_t)(TSEL->seq_idx % (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP)) : -1;
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
-    if(pic==9u && cur_page()->id[0]!=G_TRK_SEND && cur_page()->id[0]!=P_FXSEND)sig^=(uint32_t)fx_state[(cur_page()->scope==SC_GLOBAL?NPART:song.sel%NPART)*FX_SLOTS+(cur_page()->id[0]-(cur_page()->scope==SC_GLOBAL?G_MFXTYPE:P_FXTYPE))/FX_PARAMS].failed*347u;
+    if(pic==9u && cur_page()->id[0]!=G_TRK_SEND && cur_page()->id[0]!=P_FXSEND && pv_fx_tone_slot(cur_page())<0)sig^=(uint32_t)fx_state[(cur_page()->scope==SC_GLOBAL?NPART:song.sel%NPART)*FX_SLOTS+(cur_page()->id[0]-(cur_page()->scope==SC_GLOBAL?G_MFXTYPE:P_FXTYPE))/FX_PARAMS].failed*347u;
     if (pic >= 5u) {                                    /* ARP, PATTERN: the keys and steps */
         sig ^= steps_hash(TSEL) + (song.playing ? 1u + TSEL->seq_idx * 257u : 0u) * 2246822519u;
         for (i = 0; i < TSEL->nheld && i < 16u; i++)
