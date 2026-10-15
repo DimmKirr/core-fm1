@@ -366,3 +366,63 @@ Watch this number again after:
   - a third HOME bank (the pips are drawn from HOME_NBANK and will follow, but the right
     margin is hand-placed at x 218 to match the battery's 6 px on the left)
   - anything else wanting the top band, which is now spoken for
+
+THE GLOBAL ENVELOPE
+-------------------
+One linear ADSR over the whole voice, after the operators and before the mix.
+This is the first thing in this firmware that is genuinely per-sample, and it is
+the first entry here where the meter moves.
+
+  image   114784 B -> 117128 B   (+2344)
+  RAM     30744 B  -> 31064 B    (+320)
+  cpu     26 % / PK 33 %  ->  29 % / PK 33 %   while the envelope is active
+
+2026-10-14, FM-1 hardware, FM-1_970, voice 6 BRASS, 8 notes held, measured by the
+user on the device.
+
+Three points of CPU for a multiply and an add per sample per voice, and PK did
+not move at all. The arithmetic is deliberately int32 throughout --
+
+    mono[i] += ((one[i] >> 8) * (g >> DX_LG_N)) >> 4;
+
+-- with the gain carried as Q12 shifted up by DX_LG_N so the per-sample ramp step
+divides without a division. one[i] reaches +/- 33.5 M, so >> 8 leaves 18 signed
+bits and x 4096 is 31: no int64 anywhere in the block loop. The 8 bits of
+precision given away sit at 1/64 of an output LSB.
+
+The gain is interpolated across the block rather than stepped at the block edge,
+because a block is 1.45 ms and a step every 1.45 ms is audible on a fast attack.
+That is the add; the multiply is the cost.
+
+The qualifier is the whole design. genv_idle() -- attack 0, sustain 99, release
+OFF, which is where it starts -- skips the branch entirely and runs the original
+dx_compute(&dxv[v], mono, 0) straight into the mix, so an instrument nobody has
+touched this on reads the 26 % it always read. You pay the 3 % when you ask for
+it. On a device where the meter is itself a feature, that mattered more than the
+three points did.
+
+The +2344 of image is mostly two 100-entry tables (GMS and GSTEP, 600 bytes),
+draw_geg, and the K_MS / K_MSO / K_MSR printing. The +320 of RAM is genv[8] at
+64 bytes and the second DX_N scratch buffer, one[64], at 256.
+
+A trap, recorded because it cost an hour and would cost it again
+----------------------------------------------------------------
+GSTEP is a Q24 gain step per render block, so generating it needs the block
+duration. dx7_core.c sets DX_LG_N 5; fmlab.c redefines it to 6 just above the
+tables. Generated against 32 samples instead of 64, every time came out exactly
+twice what the screen said -- and nothing caught it. The graph was right, the
+cells were right, the knob felt right, and all four audio checks passed because
+every one of them was a ratio. It was found only by instrumenting the ramp and
+comparing it against a wall clock.
+
+Two lessons worth keeping: a table generated from a #define should name the
+#define in the comment above it (this one now does), and a suite of purely
+relative measurements cannot tell you that an absolute scale is wrong.
+
+Watch this number again after:
+  - NV rising (the per-sample cost is per voice, so it scales with voices, not
+    with notes)
+  - DX_LG_N changing from 6 again -- it would silently rescale every time in
+    GSTEP, and the firmware would look and feel entirely correct
+  - anything else per-sample joining app_audio: this is the first, and the 3 %
+    is the price of the first one. A filter would be the second.

@@ -271,6 +271,172 @@ static uint32_t ages;
 static volatile uint32_t v_lit;                 /* bit v: voice v sounds (the main loop reads, for the LEDs) */
 static volatile uint8_t v_last;                 /* the newest note: the one the displays follow */
 
+/* ---- the global envelope (FM Lab's; a DX7 has nothing like it)
+ *
+ * Six operator envelopes are the honest way an FM voice is shaped, and they are also six places to
+ * get one fade-in wrong. This is a single amplifier envelope over the whole voice, after the
+ * operators and before the mix. It does not touch the timbre at all, only how much of it you hear,
+ * and that difference is the thing worth learning from it: turn an operator's ATTACK up and the
+ * note arrives dull and brightens as it goes, turn this one up and the finished sound -- bright
+ * from the first instant -- fades in with its brightness intact.
+ *
+ * It is a setting of the instrument and not of the sound, for the same reason mono is: the 156
+ * bytes are a DX7 voice and have no room for it, and a bank saved here should stay a true DX7
+ * dump. So there is one of it, and it is under every sound you load.
+ *
+ * ADSR, and linear. Linear because it is drawn linear and its numbers are real milliseconds, and
+ * someone learning this should be able to predict the picture from the knobs and the sound from
+ * the picture. The operator envelopes next door are neither, and the contrast is the lesson.
+ *
+ * The times run 0 to 2 seconds over the 0..99 a knob gives, doubling about every nine clicks.
+ * Two seconds is as slow as a shape you are meant to hear as a shape can usefully get; past that
+ * you are no longer sculpting a note, you are fading one.
+ *
+ * The top of a falling stage is therefore not a very long time but OFF, and that stage then never
+ * moves: DECAY at 99 holds at full and ignores the sustain, RELEASE at 99 leaves the note where it
+ * was and the operators get to decide the tail, as they did before anyone touched this. That is
+ * where RELEASE starts, and it is what makes full attack, full sustain and no release an envelope
+ * that does nothing -- and one that does nothing is skipped outright: the multiply never happens
+ * and the meter on GLOBAL reads exactly what it read before.
+ *
+ * Switch RELEASE on and it takes the tail over entirely. See genv_rel: the engine is not told the
+ * key is up until the fade is finished, so the operators hold in sustain underneath it. Without
+ * that the knob could only ever shorten a note, because the carriers would reach the floor on
+ * their own and there would be nothing left to fade. The price is that the patch's own release is
+ * not heard while this one is on, which is the trade the OFF position exists to let you refuse. */
+enum { G_ATK = 0, G_DEC, G_SUS, G_REL, G_N };
+#define G_ONE (1 << 24)                         /* the gain, Q24, 1.0 = all of the voice */
+
+/* The time each knob value means, and the Q24 gain step that walks it in one render block. The
+ * block is DX_N samples, and DX_N here is 64 and not dx7_core.c's 32 -- fmlab.c redefines DX_LG_N
+ * to 6 just above. Generate these with the wrong block and every time is out by a factor of two
+ * while every picture and every number on the screen still reads correctly, which is a long way to
+ * go to find a bug. Anything under one block, 1.45 ms, is a step of G_ONE: instant. */
+static const uint16_t GMS[100] = {
+         0,     1,     1,     1,     1,     1,     1,     2,     2,     2,
+         2,     2,     2,     3,     3,     3,     3,     3,     4,     4,
+         4,     5,     5,     6,     6,     6,     7,     8,     8,     9,
+         9,    10,    11,    12,    13,    14,    15,    16,    18,    19,
+        21,    22,    24,    26,    28,    30,    33,    35,    38,    41,
+        45,    48,    52,    56,    61,    66,    71,    77,    83,    90,
+        97,   105,   113,   123,   132,   143,   155,   167,   181,   195,
+       211,   228,   246,   266,   288,   311,   336,   363,   392,   424,
+       458,   495,   535,   578,   625,   675,   730,   789,   852,   921,
+       995,  1075,  1162,  1256,  1357,  1467,  1585,  1713,  1851,  2000,
+};
+
+static const int32_t GSTEP[100] = {
+       16777216,   16777216,   16777216,   16777216,   16777216,   16777216,
+       16777216,   12173944,   12173944,   12173944,   12173944,   12173944,
+       12173944,    8115962,    8115962,    8115962,    8115962,    8115962,
+        6086972,    6086972,    6086972,    4869577,    4869577,    4057981,
+        4057981,    4057981,    3478270,    3043486,    3043486,    2705321,
+        2705321,    2434789,    2213444,    2028991,    1872914,    1739135,
+        1623192,    1521743,    1352660,    1281468,    1159423,    1106722,
+        1014495,     936457,     869567,     811596,     737815,     695654,
+         640734,     593851,     541064,     507248,     468229,     434784,
+         399146,     368907,     342928,     316206,     293348,     270532,
+         251009,     231885,     215468,     197950,     184454,     170265,
+         157083,     145796,     134519,     124861,     115393,     106789,
+          98975,      91533,      84541,      78289,      72464,      67074,
+          62112,      57424,      53161,      49188,      45510,      42124,
+          38957,      36071,      33353,      30859,      28577,      26436,
+          24470,      22649,      20953,      19385,      17942,      16597,
+          15361,      14214,      13154,      12174,
+};
+
+/* The main loop writes these and the ISR reads them. They are single bytes, so a read cannot catch
+ * half of a write, and the worst a race can do is apply last block's attack time to this block. */
+static volatile uint8_t gpar[G_N] = {0, 50, 99, 99};
+
+/* A falling stage at the top of its knob does not fall at all. Attack has no such need: 0 is
+ * already instant, and an attack that never arrived would simply be silence. */
+static int32_t g_fall(uint32_t v)
+{
+    return v >= 99u ? 0 : GSTEP[v];
+}
+
+/* RELEASE is off at both ends. The top is off because that is what a falling stage does there;
+ * the bottom is off because the thing it would otherwise mean -- cut the voice dead the instant
+ * the key lifts -- is a click and not a release, and because OFF is where you want to get back to
+ * in a hurry from wherever you are. DECAY keeps its 0: dropping straight to the sustain level is a
+ * shape people actually want, and it is the only way to make a note start quiet. */
+static int32_t g_rel(void)
+{
+    uint32_t v = gpar[G_REL];
+    return (v == 0u || v >= 99u) ? 0 : GSTEP[v];
+}
+
+static uint32_t genv_idle(void)                 /* straight to full, stays there, never falls */
+{
+    return gpar[G_ATK] == 0u && gpar[G_SUS] >= 99u && g_rel() == 0;
+}
+
+enum { GS_OFF = 0, GS_ATK, GS_DEC, GS_REL };    /* sustain is decay that has arrived */
+/* `hold` means the key is up but the engine has not been told. See genv_rel. */
+static struct { uint8_t st, hold; int32_t g; } genv[NV];
+
+static int32_t g_sus(void)
+{
+    return gpar[G_SUS] >= 99u ? G_ONE : (int32_t)gpar[G_SUS] * (G_ONE / 99);
+}
+
+/* One block of it. Decay and sustain are the same state: it walks towards the sustain level at the
+ * decay rate and stops when it gets there, so turning SUSTAIN up under a held note slides rather
+ * than jumps, and turning it up mid-decay is not a direction the envelope cannot go. */
+static void genv_block(uint32_t v)
+{
+    int32_t g = genv[v].g, t, d;
+    switch (genv[v].st) {
+    case GS_ATK:
+        g += GSTEP[gpar[G_ATK]];
+        if (g >= G_ONE) { g = G_ONE; genv[v].st = GS_DEC; }
+        break;
+    case GS_DEC:
+        t = g_sus();
+        d = g_fall(gpar[G_DEC]);
+        if (g > t)      { g -= d; if (g < t) g = t; }
+        else if (g < t) { g += d; if (g > t) g = t; }
+        break;
+    case GS_REL:
+        d = g_rel();
+        if (!d) {                               /* switched to OFF mid-fade: hand the note straight
+                                                 * back, or it would sustain for ever */
+            if (genv[v].hold) { genv[v].hold = 0; dx_keyup(&dxv[v]); }
+            break;
+        }
+        g -= d;
+        if (g <= 0) { g = 0; genv[v].st = GS_OFF; genv[v].hold = 0; }
+        break;
+    default:
+        break;
+    }
+    genv[v].g = g;
+}
+
+static void genv_key(uint32_t v, int again)     /* a note starts; `again` means it is not a slur */
+{
+    if (again)
+        genv[v].g = gpar[G_ATK] ? 0 : G_ONE;
+    genv[v].st = GS_ATK;
+    genv[v].hold = 0;
+}
+
+/* A key goes up. Left to itself this envelope could only ever shorten a note: the operators would
+ * reach the floor on their own release, dx_compute would be putting out silence, and fading silence
+ * is not a release anyone can hear. So when there is a global RELEASE to run, the engine is not
+ * told the key is up at all -- the operators stay in sustain underneath, and the fade on top is the
+ * whole of what you hear. The engine finds out when the voice is freed a moment later.
+ *
+ * The cost is honest and worth saying out loud: with RELEASE on, the patch's own release is not
+ * heard, because it never happens. RELEASE OFF, which is where it starts, gives it back. */
+static uint32_t genv_rel(uint32_t v)            /* 1 if the caller should release the operators */
+{
+    genv[v].st = GS_REL;
+    genv[v].hold = (uint8_t)(g_rel() > 0 && genv[v].g > 0);
+    return !genv[v].hold;
+}
+
 /* The voice's transpose, u[144], 24 = none. dx7_core.c does not read it (sloopDX did not either), so
  * it is applied here, at the one place a note reaches the engine. vst[].note stays the note that was
  * played, so the keyboard and note-off still match. */
@@ -296,6 +462,7 @@ static void v_on(uint32_t note, uint32_t vel)
     vst[pick].held = 1;
     vst[pick].age = ++ages;
     dx_init(&dxv[pick], pbuf[pcur], tnote(note), (int)vel);
+    genv_key(pick, 1);
     v_last = (uint8_t)pick;                     /* the envelope and the diagram follow the newest note */
 }
 
@@ -305,7 +472,8 @@ static void v_off(uint32_t note)
     for (v = 0; v < NV; v++)
         if (dxv[v].on && vst[v].held && vst[v].note == note) {
             vst[v].held = 0;
-            dx_keyup(&dxv[v]);
+            if (genv_rel(v))
+                dx_keyup(&dxv[v]);
         }
 }
 
@@ -344,6 +512,7 @@ static void m_follow(uint32_t note, uint32_t vel, int again)
         dx_init(&dxv[0], pbuf[pcur], tnote(note), (int)vel);
     else
         dx_retune(&dxv[0], pbuf[pcur], tnote(note), (int)vel);
+    genv_key(0, again);                         /* a slur keeps the envelope it began with */
     v_last = 0;
 }
 
@@ -368,7 +537,8 @@ static void m_off(uint32_t note)
         return;
     if (!mheld) {
         vst[0].held = 0;
-        dx_keyup(&dxv[0]);
+        if (genv_rel(0))
+            dx_keyup(&dxv[0]);
         return;
     }
     m_follow(mnote[mheld - 1u], mvel[mheld - 1u], 0);
@@ -389,11 +559,15 @@ static void ev_drain(void)                      /* audio ISR, before the render 
             break;
         case EV_MONO:                           /* the switch itself: start the new mode from silence */
             monomode = (uint8_t)e->note;
-            for (v = 0; v < NV; v++) { dxv[v].on = 0; vst[v].held = 0; }
+            for (v = 0; v < NV; v++) {
+                dxv[v].on = 0; vst[v].held = 0; genv[v].st = GS_OFF; genv[v].hold = 0;
+            }
             mheld = 0;
             break;
         case EV_PANIC:
-            for (v = 0; v < NV; v++) { dxv[v].on = 0; vst[v].held = 0; }
+            for (v = 0; v < NV; v++) {
+                dxv[v].on = 0; vst[v].held = 0; genv[v].st = GS_OFF; genv[v].hold = 0;
+            }
             mheld = 0;
             break;
         default: break;
@@ -431,9 +605,11 @@ static void v_shed(void)                        /* overloaded: lose a voice rath
 
 static void app_audio(int32_t *out, uint32_t n)
 {
-    static int32_t mono[DX_N];
+    static int32_t mono[DX_N], one[DX_N];
     static int32_t dc_x, dc_y;
     uint32_t b, v, i, lit = 0, us, t0 = fm1_ticks();
+    uint32_t ge = !genv_idle();                 /* is the global envelope worth the multiply? */
+    int32_t g0;
 
     ev_drain();
 
@@ -443,12 +619,32 @@ static void app_audio(int32_t *out, uint32_t n)
         for (v = 0; v < NV; v++) {
             if (!dxv[v].on)
                 continue;
-            if (!dx_playing(&dxv[v])) {         /* the carriers are done: the voice is free again */
+            /* the carriers are done, or the global envelope has closed over them: either way the
+             * voice is free again. The envelope is always run, even when it is doing nothing, so
+             * that turning it up under a held note finds it where the note left it. */
+            g0 = genv[v].g >> 12;               /* Q12, where the block starts */
+            genv_block(v);
+            if (!dx_playing(&dxv[v]) || genv[v].st == GS_OFF) {
                 dxv[v].on = 0;
                 continue;
             }
-            dx_compute(&dxv[v], mono, 0);
             lit |= 1u << v;
+            if (!ge) {
+                dx_compute(&dxv[v], mono, 0);
+                continue;
+            }
+            {   /* one voice on its own, then faded in as it is added. The gain is interpolated
+                 * across the block, because a block is 0.7 ms and a step every 0.7 ms is audible;
+                 * it is carried shifted up by DX_LG_N so the step divides without a division. */
+                int32_t g = g0 << DX_LG_N, dg = (genv[v].g >> 12) - g0;
+                for (i = 0; i < DX_N; i++)
+                    one[i] = 0;
+                dx_compute(&dxv[v], one, 0);
+                for (i = 0; i < DX_N; i++) {
+                    mono[i] += ((one[i] >> 8) * (g >> DX_LG_N)) >> 4;
+                    g += dg;
+                }
+            }
         }
         for (i = 0; i < DX_N; i++) {
             int32_t s = mono[i] >> OUT_SHIFT;
@@ -487,13 +683,26 @@ enum { P_G = 0, P_OP = 1, P_UI = 2 };
 enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, K_TRSP, K_SPAN,
        K_TIME,                                  /* a DX7 rate, said as the time it takes: 99 - rate */
        K_DEC,                                   /* the same, and it writes the next rate with it */
-       K_SUS };                                 /* a level, and it writes the one before it with it */
+       K_SUS,                                   /* a level, and it writes the one before it with it */
+       K_MS,                                    /* 0..99, said as the time it really is */
+       K_MSO,                                   /* the same, and 99 of it is OFF rather than 2s */
+       K_MSR };                                 /* and this one is OFF at both ends of the knob */
 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
  * opinions; they are saved with the octave and the rest. */
-enum { UI_SPAN = 0, UI_N };
-static uint8_t ui[UI_N];
+enum { UI_SPAN = 0, UI_GATK, UI_GDEC, UI_GSUS, UI_GREL, UI_N };
+static uint8_t ui[UI_N] = {2, 0, 50, 99, 99};
+
+/* The ISR's copy of the global envelope. Called once a pass rather than at each of the places a
+ * knob can reach those four bytes, because there are several and forgetting one would be a bug
+ * you could only hear. Four byte stores: it is cheaper than remembering. */
+static void glo_sync(void)
+{
+    uint32_t i;
+    for (i = 0; i < G_N; i++)
+        gpar[i] = ui[UI_GATK + i];
+}
 
 typedef struct {
     const char *name;
@@ -548,6 +757,15 @@ static const param_t PG_EG[] = {
     {"RATE 4",  0, P_OP, 3, 99, K_NUM},
     {"LEVEL 4", "LVL 4", P_OP, 7, 99, K_NUM},         /* where it goes when you let go */
 };
+/* The global envelope's four, which are the same four names in the same order as the operator
+ * envelope's -- deliberately, because the point of it is the comparison. They are not in the 156:
+ * they live in ui[], with the spectrum span and the rest of the instrument's own opinions. */
+static const param_t PG_GEG[] = {
+    {"ATTACK",  "ATK", P_UI, UI_GATK, 99, K_MS},
+    {"DECAY",   "DEC", P_UI, UI_GDEC, 99, K_MSO},
+    {"SUSTAIN", "SUS", P_UI, UI_GSUS, 99, K_NUM},
+    {"RELEASE", "REL", P_UI, UI_GREL, 99, K_MSR},
+};
 static const param_t PG_LFO[] = {
     {"SPEED",   0, P_G, 137, 99, K_NUM},
     {"DELAY",   0, P_G, 138, 99, K_NUM},
@@ -588,12 +806,28 @@ static const struct { const char *name; const param_t *p; uint8_t n, perop, rows
 #define HOME_NBANK 2u                           /* HOME's two screens: the diagram, and the spectrum */
 
 static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
+static uint8_t gsel;                            /* ..or the global envelope, which is not an operator */
 enum { FOC_OFF = 0, FOC_EDIT, FOC_ENV };        /* a tap of EDIT or ENV puts one operator under the knobs */
 static uint8_t focus;
 #define LONG_MS 400u                            /* longer than a tap, shorter than a wait */
 static const uint8_t FOC_BTN[2] = {BTN_EDIT, BTN_ENV};
 static const uint8_t FOC_MODE[2] = {FOC_EDIT, FOC_ENV};
 static const uint8_t FOC_PAGE[2] = {PAGE_OP, PAGE_EG};
+
+/* One more black key points instead of playing: the one the panel prints GLOBAL under. It picks
+ * the global envelope in place of an operator, and it does so only where there is an envelope on
+ * the screen to replace -- the ENVELOPE page, and the ENV knobs on HOME. Everywhere else it is an
+ * ordinary A#4, because a key that means something nowhere in particular means nothing. */
+#define GLO_KEY 17u                             /* A#4 */
+static uint32_t glo_point(void)
+{
+    return page == PAGE_EG || (focus == FOC_ENV && page == PAGE_HOME);
+}
+
+static uint32_t eg_glo(void)                    /* ..and it is the global envelope that is showing */
+{
+    return gsel && glo_point();
+}
 
 /* ---- a click, and what it is worth
  *
@@ -640,11 +874,13 @@ static int32_t knob_take(uint32_t e, int32_t step)
  * are what every bank walker goes through. */
 static uint32_t page_n(void)
 {
-    return PAGE[page].n;
+    return eg_glo() ? 4u : PAGE[page].n;
 }
 
 static const param_t *page_at(uint32_t want)
 {
+    if (eg_glo())                               /* the global envelope is four rows and no more */
+        return want < 4u ? &PG_GEG[want] : 0;
     return want < PAGE[page].n ? &PAGE[page].p[want] : 0;
 }
 
@@ -656,6 +892,8 @@ static const param_t *page_at(uint32_t want)
  * that walks one has to ask how long it is and where it starts. */
 static uint32_t bank_rows(uint32_t b)
 {
+    if (eg_glo())                               /* four, once: it has no raw segments underneath */
+        return 4u;
     if (page == PAGE_EG)
         return b == 0u ? 4u : 2u;
     return PAGE_ROWS;
@@ -663,6 +901,8 @@ static uint32_t bank_rows(uint32_t b)
 
 static uint32_t bank_first(uint32_t b)
 {
+    if (eg_glo())
+        return 0u;
     if (page == PAGE_EG)
         return b == 0u ? 0u : 4u + (b - 1u) * 2u;
     return b * PAGE_ROWS;
@@ -888,8 +1128,9 @@ static const param_t *focus_at(uint32_t e)
 {
     if (focus == FOC_EDIT)
         return e < 3u ? &PG_OP[e] : 0;          /* LEVEL RATIO DETUNE, and one kept for the wave */
-    if (focus == FOC_ENV)
-        return e < 4u ? &PG_EG[e] : 0;          /* ATTACK DECAY SUSTAIN RELEASE */
+    if (focus == FOC_ENV)                       /* ATTACK DECAY SUSTAIN RELEASE, of one of the
+                                                 * operators or of the whole voice */
+        return e < 4u ? (gsel ? &PG_GEG[e] : &PG_EG[e]) : 0;
     return 0;
 }
 
@@ -952,6 +1193,20 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
     case K_TRSP: s[i++] = v < 24u ? '-' : '+'; return putn(s, i, v < 24u ? 24u - v : v - 24u, 1);
     case K_TIME:
     case K_DEC:  return putn(s, i, 99u - (v < 99u ? v : 99u), 1);   /* a rate, said as a time */
+    case K_MSR:
+        if (v == 0u) return put(s, i, "OFF");    /* the short way round to the same place */
+        /* fall through */
+    case K_MSO:
+        if (v >= 99u) return put(s, i, "OFF");   /* a stage that never moves */
+        /* fall through */
+    case K_MS: {                                /* this one knows what its time actually is */
+        uint32_t ms = GMS[v < 100u ? v : 99u];
+        if (ms < 1000u) { i = putn(s, i, ms, 1); return put(s, i, "MS"); }
+        i = putn(s, i, ms / 1000u, 1);
+        s[i++] = '.';
+        s[i++] = (char)('0' + (ms / 100u) % 10u);
+        return put(s, i, "S");
+    }
     default: return putn(s, i, v, 1);
     }
 }
@@ -1347,7 +1602,7 @@ static uint16_t op_hue(uint32_t op, uint32_t t)
 static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
 {
     uint32_t off = (opmute >> op) & 1u;
-    int shape = focus != FOC_OFF && op == opsel;
+    int shape = focus != FOC_OFF && !eg_glo() && op == opsel;
     uint16_t frame = off ? RGB(70, 70, 70) : op_hue(op, 105u);
     int32_t w = a_bw - 2, c;
     char s[2];
@@ -1447,7 +1702,7 @@ static void draw_alg(void)
      * the line that says so rather than leaving you wondering what broke. */
     cv_rect(a_x0, a_ybase + 3, a_dx * (int32_t)a_ncol, 2, (cs & ~(uint32_t)opmute) ? C_OFF : RGB(130, 50, 50));
     for (op = 0; op < 6u; op++)
-        alg_box(a_bx(op), a_by(op), op, op == opsel);
+        alg_box(a_bx(op), a_by(op), op, op == opsel && !eg_glo());
     cv_blit(0, ALG_Y);
 }
 
@@ -1465,7 +1720,7 @@ static void draw_alg_levels(void)
         if (x < 0) x = 0;
         if (x + w > 240) w = 240 - x;
         cv_begin((uint32_t)w, (uint32_t)(a_bh + 6), C_BLACK);
-        alg_box(a_bx(op) - x, 3, op, op == opsel);
+        alg_box(a_bx(op) - x, 3, op, op == opsel && !eg_glo());
         cv_blit((uint32_t)x, (uint32_t)(ALG_Y + y));
     }
 }
@@ -1623,6 +1878,73 @@ static void draw_eg(const dx_env_t *e, const dx_env_t *live, uint32_t seg)
     cv_blit(0, EG_Y);
 }
 
+/* The global envelope's picture. It is not a dx_env_t and it does not share eg_y: its level is a
+ * plain amplitude and its axis is linear, where an operator's is 6 dB a unit. Drawing the two the
+ * same way would be the lie that they are the same kind of thing.
+ *
+ * The time axis is proportional to the knob rather than to the millisecond, because the knob is
+ * exponential and the milliseconds are not: two seconds of release drawn to scale beside a five
+ * millisecond attack is one line and a dot. Proportional to the knob, a turn moves the picture by
+ * as much as it moves the knob, which is the thing you are actually looking for -- and the number
+ * under each slope says what it really is. In the middle is a fixed stretch for the key being
+ * held, which is not a duration and should not be drawn as one.
+ *
+ * A stage switched off is drawn flat rather than wide: DECAY OFF stays at full and the sustain
+ * line is not where the note goes, RELEASE OFF runs level off the right-hand edge, which is the
+ * picture of a note this envelope has stopped having an opinion about. */
+static void draw_geg(int32_t y, int32_t h)
+{
+    const int32_t x0 = 4, x1 = 236, hold = 40;
+    int32_t top = 2, bot = h - 3, sy, wa, wd, wr, xa, xd, xh;
+    uint32_t ta = ui[UI_GATK], td = ui[UI_GDEC], tr = ui[UI_GREL], tot;
+    uint32_t sus = ui[UI_GSUS];
+    uint32_t dof = td >= 99u, rof = tr >= 99u || tr == 0u;   /* nowhere to fall, either end */
+
+    sy = dof ? top : bot - (int32_t)((uint32_t)(bot - top) * sus / 99u);
+    if (dof) td = 0u;
+    if (rof) tr = 0u;
+    tot = ta + td + tr;
+    if (!tot) {
+        wa = wd = wr = 2;
+    } else {
+        int32_t span = x1 - x0 - hold - 6;      /* 2 px a segment, whatever its time */
+        wa = 2 + (int32_t)((uint32_t)span * ta / tot);
+        wd = 2 + (int32_t)((uint32_t)span * td / tot);
+        wr = 2 + (int32_t)((uint32_t)span * tr / tot);
+    }
+    xa = x0 + wa;
+    xd = xa + wd;
+    xh = xd + hold;
+    if (rof) wr = x1 - xh;                      /* level, all the way out */
+
+    cv_begin(240, (uint32_t)h, C_BLACK);
+    cv_rect(0, h - 2, 240, 1, RGB(40, 40, 40));
+    cv_line(x0, bot, xa, top, C_ACC);           /* up to full */
+    cv_line(xa, top, xd, sy, C_ACC);            /* down to the sustain, or along the top */
+    cv_line(xd, sy, xh, sy, RGB(90, 95, 120));  /* held there, for as long as you hold it */
+    cv_line(xh, sy, xh + wr, rof ? sy : bot, C_ACC);   /* and away, or not */
+
+    {   /* where the newest note's own copy of it has actually got to */
+        uint32_t v = v_last;
+        if (v < NV && dxv[v].on && (v_lit >> v & 1u) && genv[v].st != GS_OFF) {
+            int32_t g = genv[v].g, py = bot - (int32_t)(((int64_t)g * (bot - top)) >> 24), px = xh;
+            if (genv[v].st == GS_ATK)
+                px = x0 + (int32_t)(((int64_t)g * wa) >> 24);
+            else if (genv[v].st == GS_DEC)
+                px = (g_sus() >= G_ONE) ? xd
+                   : xa + (int32_t)(((int64_t)(G_ONE - g) * wd) / (G_ONE - g_sus()));
+            else if (rof)
+                px = xh + wr;
+            else if (g_sus() > 0)
+                px = xh + (int32_t)(((int64_t)(g_sus() - g) * wr) / g_sus());
+            if (px < x0) px = x0;
+            if (px > x1) px = x1;
+            cv_rect(px - 1, py - 1, 3, 3, C_WHITE);
+        }
+    }
+    cv_blit(0, (uint32_t)y);
+}
+
 /* The envelope to draw: the live one if this operator is sounding, otherwise one built the way a
  * note at middle C would build it, so the page is never blank. The shape always comes from `edit`,
  * so a switched-off operator still shows the envelope it would have -- but it gets no marker,
@@ -1635,6 +1957,11 @@ static void draw_eg_now(uint32_t bank)
     uint32_t seg = EG_SEG[bank < sizeof EG_SEG ? bank : 0];
     dx_env_t scratch;
     eg_h = bank == 0u ? EG_H_TALL : EG_H;   /* the ADSR bank needs one row, so the graph gets the rest */
+    if (eg_glo()) {
+        draw_geg(EG_Y, eg_h);
+        return;
+    }
+    {
     uint32_t v = v_last;
     const uint8_t *o = &edit[opsel * 21u];
     int rs = 0, ol = dx_op_level(o, 60, 100, &rs);
@@ -1643,6 +1970,7 @@ static void draw_eg_now(uint32_t bank)
         draw_eg(&scratch, &dxv[v].env[opsel], seg);
     else
         draw_eg(&scratch, 0, seg);
+    }
 }
 
 /* ---- RATIO is two rows in one, and changes its name with the mode. So the name, the short name
@@ -1727,6 +2055,13 @@ static void draw_eg_cells(void)
         uint32_t i;
         if (!p)
             continue;
+        if (eg_glo()) {                         /* a real time needs five characters; the knob
+                                                 * legend under it is already naming the four */
+            i = putval(s, 0, p, *p_ref(p));
+            s[i] = 0;
+            draw_text_box(e * 60u + 3u, EGC_Y + 4u, 54, &FONT_S, s, C_WHITE, 1);
+            continue;
+        }
         i = put(s, 0, p_knob(p));
         s[i] = 0;
         draw_text_box(e * 60u + 3u, EGC_Y + 4u, 28, &FONT_S, s, C_LBL, 0);
@@ -1755,6 +2090,8 @@ static void draw_home_title(void)
     uint32_t i;
     if (focus == FOC_OFF)
         i = put(s, 0, APP_NAME);
+    else if (eg_glo())
+        i = put(s, 0, "ENV GLOBAL");
     else {
         i = put(s, 0, focus == FOC_EDIT ? "EDIT OP" : "ENV OP");
         i = putn(s, i, 6u - opsel, 1);
@@ -1775,6 +2112,10 @@ static void draw_head(void)
         perop = 1;
     } else
         i = put(s, 0, PAGE[page].name);
+    if (eg_glo()) {                             /* not an operator at all: the whole voice */
+        i = put(s, i, "  GLOBAL");
+        perop = 0;
+    }
     if (perop) {
         i = put(s, i, "  OP");
         i = putn(s, i, 6u - opsel, 1);
@@ -2035,7 +2376,8 @@ static void app_main(void)
 {
     /* Only ever append to this: settings_load takes a short store and leaves the rest at default,
      * so a new field costs nothing, but moving one would hand the old bytes to the wrong name. */
-    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv; } set = {0, 0, 0, 0, 2, 0};
+    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv;
+             uint8_t genv[G_N]; } set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
@@ -2044,6 +2386,7 @@ static void app_main(void)
     uint8_t held[27] = {0};
     uint16_t shown[4] = {0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu};
     uint8_t page_drawn = 255, bank_drawn = 255, bank_drawn2 = 255, op_drawn = 255, mono_drawn = 255;
+    uint8_t gsel_drawn = 255;
     uint8_t foc_drawn = 255;
     uint32_t t_hold[2] = {0, 0}, long_fired[2] = {0, 0};   /* EDIT and ENV, and how long they are down */
     uint8_t alg_drawn = 255, alg_op_drawn = 255, mute_drawn = 255, leg_drawn = 255;
@@ -2056,6 +2399,9 @@ static void app_main(void)
     if (set.span >= SP_NSPAN) set.span = 2;
     spspan = set.span;
     ui[UI_SPAN] = spspan;
+    for (k = 0; k < G_N; k++)
+        ui[UI_GATK + k] = set.genv[k] > 99u ? 99u : set.genv[k];
+    glo_sync();
     sp_init();
     set.mono = set.mono ? 1u : 0u;
     ev_push(EV_MONO, set.mono, 0);              /* the ISR owns the mode: tell it what was stored */
@@ -2072,6 +2418,7 @@ static void app_main(void)
         int32_t enc;
         uint8_t st, d1, d2;
         platform_poll();
+        glo_sync();                         /* whatever moved the four bytes, the ISR has them */
 
         keys = fm1_in.notes;                    /* bit k: key k (0 = F3 .. 26 = G5) */
         down = keys & ~prev;
@@ -2082,6 +2429,11 @@ static void app_main(void)
                 int fn = op_key(k);
                 if (fn >= 0) {
                     opsel = (uint8_t)fn;        /* pointing at an operator, not playing one */
+                    gsel = 0;
+                } else if (glo_point() && k == GLO_KEY) {
+                    gsel = 1;                   /* ..or at the envelope over all six of them */
+                    bank = 0;
+                    repaint = 1;
                 } else if (op_point() && (k == MONO_KEY || k == POLY_KEY)) {
                     set.mono = k == MONO_KEY;
                     ev_push(EV_MONO, set.mono, 0);
@@ -2243,6 +2595,15 @@ static void app_main(void)
                     continue;
                 p_turn(p, enc);
                 say_param(p);                   /* HOME has no rows, so the voice line says it */
+                if (p->where == P_UI) {         /* the global envelope is not the voice: turning it
+                                                 * must not call the sound edited */
+                    for (k = 0; k < G_N; k++)
+                        set.genv[k] = ui[UI_GATK + k];
+                    dirty = 1;
+                    eg_dirty = 1;               /* HOME is showing the shape: it just changed */
+                    t_change = fm1_ms;
+                    continue;
+                }
                 modified = 1;
                 patch_publish();
             }
@@ -2277,6 +2638,8 @@ static void app_main(void)
             if (p->where == P_UI) {                        /* a switch of the instrument, not the sound */
                 v = (int32_t)ui[p->idx] + enc;
                 ui[p->idx] = (uint8_t)(v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v);
+                for (k = 0; k < G_N; k++)
+                    set.genv[k] = ui[UI_GATK + k];
                 if (ui[UI_SPAN] != spspan) {
                     spspan = ui[UI_SPAN];
                     set.span = spspan;
@@ -2321,8 +2684,11 @@ static void app_main(void)
             int opk = (int)op_point();
             for (k = 0; k < 6u; k++)
                 fm1_led_key_glow(KEY_LED(OP_KEY[k]), opk);
-            if (opk)
+            if (opk && !eg_glo())
                 fm1_led_key(KEY_LED(OP_KEY[5u - opsel]), 1);
+            fm1_led_key_glow(KEY_LED(GLO_KEY), (int)glo_point());
+            if (eg_glo())
+                fm1_led_key(KEY_LED(GLO_KEY), 1);
             fm1_led_key_glow(KEY_LED(MONO_KEY), opk);
             fm1_led_key_glow(KEY_LED(POLY_KEY), opk);
             if (opk)                            /* and the mode you are in is the one that is lit */
@@ -2368,7 +2734,8 @@ static void app_main(void)
             repaint = 1;
         }
         if (page == PAGE_HOME) {                /* the banner, or what the knobs have become */
-            uint8_t ft = (uint8_t)(focus == FOC_OFF ? 0u : focus * 8u + opsel);
+            uint8_t ft = (uint8_t)(focus == FOC_OFF ? 0u :
+                                   gsel && focus == FOC_ENV ? 63u : focus * 8u + opsel);
             if (ft != foc_drawn || repaint) {
                 foc_drawn = ft;
                 draw_home_title();
@@ -2376,7 +2743,8 @@ static void app_main(void)
             }
         }
         {   /* the legend outlives a page, but not a change of mode: RATIO becomes FIXED HZ */
-            uint8_t leg = (uint8_t)(focus != FOC_OFF && page == PAGE_HOME ?
+            uint8_t leg = (uint8_t)(eg_glo() ? 40u :
+                                    focus != FOC_OFF && page == PAGE_HOME ?
                                         20u + focus * 2u + (*op_byte(opsel, 17) ? 1u : 0u) :
                                     page == PAGE_OP ? (*op_byte(opsel, 17) ? 2u : 1u) :
                                     page == PAGE_HOME ? 10u + homeset : 0u);
@@ -2386,9 +2754,11 @@ static void app_main(void)
             }
         }
         draw_corners();                         /* cheap unless the picture up there changed */
-        if (page != PAGE_HOME && (bank != bank_drawn || opsel != op_drawn || opmute != mute_drawn || repaint)) {
+        if (page != PAGE_HOME && (bank != bank_drawn || opsel != op_drawn || opmute != mute_drawn
+                                  || gsel != gsel_drawn || repaint)) {
             bank_drawn = bank;
             op_drawn = opsel;
+            gsel_drawn = gsel;
             draw_head();
             shown[0] = shown[1] = shown[2] = shown[3] = 0xFFFFu;
             eg_dirty = 1;
@@ -2408,11 +2778,16 @@ static void app_main(void)
 
         if (page == PAGE_HOME) {
             /* the whole diagram only when the shape of it changes: the live brightness is six
-             * small blits on the tick below, which is a great deal cheaper than 240 x 136 */
-            if (bank == 0u && (edit[134] != alg_drawn || opsel != alg_op_drawn || opmute != mute_drawn)) {
+             * small blits on the tick below, which is a great deal cheaper than 240 x 136.
+             * The ring and the curve belong to an operator, and GLOBAL is not one -- so GLOBAL
+             * gets the diagram's room instead, and the same picture the ENVELOPE page draws.
+             * Adjusting a shape you cannot see is no way to learn what the shape does. */
+            uint8_t asel = (uint8_t)(opsel | (eg_glo() ? 0x80u : 0u));
+            if (bank == 0u && (edit[134] != alg_drawn || asel != alg_op_drawn || opmute != mute_drawn)) {
                 alg_drawn = edit[134];
-                alg_op_drawn = opsel;
-                draw_alg();
+                alg_op_drawn = asel;
+                if (eg_glo()) { draw_geg(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
+                else          { draw_alg(); }
             }
         } else if (page == PAGE_EG && bank == 0u) {
             uint32_t ch = 0;                    /* the four cells are one blit, so one of them is all */
@@ -2442,7 +2817,14 @@ static void app_main(void)
         if (fm1_ms - t_live > 60u) {            /* the displays that follow the sound, ~16 times a second */
             t_live = fm1_ms;
             if (page == PAGE_HOME) {
-                if (bank == 0u) {
+                if (bank == 0u && eg_glo()) {   /* the global envelope's marker, same cadence */
+                    uint32_t snd = v_lit ? 1u : 0u;
+                    if (snd || snd != eg_live || eg_dirty) {
+                        eg_live = snd;
+                        eg_dirty = 0;
+                        draw_geg(ALG_Y, ALG_H);
+                    }
+                } else if (bank == 0u) {
                     draw_alg_levels();
                 } else {
                     sp_run();

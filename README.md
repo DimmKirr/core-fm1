@@ -188,6 +188,41 @@ saved here should still be a real DX7 dump, so it lives with the octave and the 
 in the patch. Changing it stops anything sounding, which is the honest thing to do when the voice
 allocator is being replaced underneath.
 
+## One envelope over everything
+
+Six operator envelopes are the honest way an FM voice is shaped. They are also six places to get one
+fade-in wrong, and six things to learn before you can hear what any of them does. So there is one more
+envelope that is not an operator's at all: a single ADSR over the finished voice, after the operators and
+before the mix.
+
+Press the black key marked `GLOBAL` — the one just above `OP6` — wherever `OP1` to `OP6` are already
+selecting an operator: on the OPERATOR and ENVELOPE pages, or after a tap of **ENV**. The title says
+`ENV GLOBAL`, the four knobs become `ATK` `DEC` `SUS` `REL` for the whole voice, and any `OP` key takes you
+back. On a tap of **ENV** the algorithm diagram steps aside and draws the envelope instead, because with
+`GLOBAL` selected the diagram has nothing to point at and you should be able to see the shape you are
+turning.
+
+**It does not touch the timbre, only how much of it you hear, and that is the entire lesson.** Turn an
+operator's `ATK` up and the note arrives dull and brightens as it goes. Turn this one up and the finished
+sound — bright from the first instant — fades in with its brightness intact. Hearing those two next to each
+other is the shortest route to understanding what makes FM different from a filter.
+
+Times run from instant to two seconds, doubling about every nine clicks, and the cells say the time rather
+than the byte: `45MS`, `311MS`, `1.3S`.
+
+`REL` reads `OFF` at **both** ends of its knob, and `OFF` is where it starts. There it leaves the note alone
+and the operators decide the tail, exactly as they did before this envelope existed — and with `ATK` at 0
+and `SUS` at 99 as well, the whole thing is skipped outright, so it costs nothing at all. Turn `REL` on and
+it takes the tail over instead: the operators are held in sustain underneath the fade rather than released,
+which is the only way this envelope can make a note *longer* rather than only cutting it short. The price is
+that the patch's own release is not heard while `REL` is on, and `OFF` at either end is the quick way to
+refuse it. `DEC` reads `OFF` at the top only; its 0 means "drop straight to the sustain level", which is a
+shape worth having and the only way to make a note start quiet.
+
+It is a setting of the instrument and not of the sound, for the same reason mono is: the 156 bytes are a
+DX7 voice and have no room for it, and a bank saved here should stay a real DX7 dump. So there is one of it,
+it is saved with the octave, and it is under every voice you load.
+
 ## Taking it apart
 
 You cannot hear what an operator does by reading its numbers. You hear it by taking it away and putting it
@@ -429,7 +464,7 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Eleven more scripts go with it:
+which is the thing most worth listening to. Twelve more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
@@ -444,6 +479,7 @@ tests/run_host.sh tests/env.txt           # ADSR, against the eight raw bytes it
 tests/run_host.sh tests/focus.txt         # tap and hold, and what each one does to the knobs
 tests/run_host.sh tests/fast.txt          # four clicks, against four clicks with SEL held
 tests/run_host.sh tests/corners.txt       # the battery and the HOME pips, by the pixel
+tests/run_host.sh tests/global.txt        # the envelope over the whole voice, screens and sound
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -524,6 +560,24 @@ one, presses **HOME** and confirms the lit one moved, and goes to a page to conf
 and least obvious, it changes page twice and checks the corners are still there afterwards: the drawing is
 cached behind a signature so it is cheap, and a full-screen clear has to invalidate that cache or the
 corners vanish for good. That is a whole class of bug in this firmware, so it is worth a check of its own.
+
+`tests/globalcheck.py` is the one that checks a feature it cannot see all of at once, so it argues from
+both ends. On screen: the `GLOBAL` key repaints the title and the cells and takes the page's other banks
+away; the graph's attack edge moves right as `ATK` goes up and its held stretch drops as `SUS` comes down;
+the cells say times rather than bytes; `REL` at 0 draws the same cell as `REL` at 99, because both are
+`OFF`; and on HOME the curve that marks the selected operator goes from 205 pixels to none, because the
+diagram has given its room to the envelope.
+
+In the sound: the same chord twice, once with the envelope idle and once under a 424 ms attack, measured
+as RMS 30 ms in and again at the end of the attack. Then a third chord to prove the thing the pictures
+cannot show — that with `REL` on the note is still sounding half a second after the key came up, where the
+patch's own release had finished in a third of that, and that it stops when the fade reaches the bottom
+rather than hanging a voice open.
+
+That last group is the reason the audio checks exist at all. They were green on the first run, which is
+what established the engine was right before a single pixel had been argued about — and they stayed green
+through a bug that made every time twice what the screen said, which is a fair warning about what a
+relative measurement can and cannot tell you.
 
 `tests/focuscheck.py` tests a distinction the script can only make with a stopwatch, so the host harness had
 to learn what a button is. It used to deal in edges; now `btn 4` is a fifty-millisecond tap and `btn 4 600`
