@@ -799,7 +799,11 @@ calibration; the FPU conversion does not establish hardware fidelity.
 - **CZ-1**: native Casio tones, with separate eight-point pitch, timbre and volume envelopes on each line
 - **SID**: a Commodore MOS 6581 / 8580 per note, modelled at the register level after reSID: three oscillators on the 16-bit frequency register (pulse width 12 bits, the 23-bit noise register, ring modulation, hard sync, combined waveforms sampled from real chips), the chip's envelope generator (16 rates, exponential decay, the ADSR delay), each revision's DACs and cutoff curve, the 6581's thump through the C64's output stage; 32 factory presets. MODEL C64 6581 / C64 8580 plays the track as one channel of a C64 tune: one voice, with frequency, pulse width, cutoff and resonance written once a PAL frame (50 Hz) as a player routine writes them; in POLY a held chord is arpeggiated on that voice, one note a frame, with one gate and envelope for the whole chord
 - **DRUM**: synthesized TR-808 and TR-909 kits with the General MIDI key map. Every drum has its
-  own tuning, decay, tone, attack/snappy and level controls; recorded hits can override pitch and length
+  own tuning, decay, tone, attack/snappy and level controls; recorded hits can override pitch and length.
+  KIT SID plays the track as a C64 drum routine on one 6581: its three voices take the hits, each drum a
+  50 Hz frame program (waveform, frequency slide, gate) on the chip's envelope; TONE and RES set its filter
+  for kick, snare, toms and clap; DIGI ON plays kick and snare as 4-bit samples on the volume register
+  ($D418), synthesized at build time, and the voices ringing meanwhile follow that volume as on a C64
 
 ANALOG, DIGITAL, PHASE, VOICE, NOISE, TRIO, WHEEL and PHYS are retired. Their engine IDs, saved edit
 values and favourite bits remain reserved; old tracks using these engines are silent. PROPHET replaces
