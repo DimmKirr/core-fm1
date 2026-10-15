@@ -5,7 +5,13 @@ data cable. It does not force a running device into recovery. USB identity must 
 `4c4a:8057`, with inquiry `WL82 / UBOOT1.00`. If you see a **Melodee Update** MIDI
 port, resume installation with the web installer instead.
 
-Download the archive for your computer from the Melodee 1.3.4 release and extract it.
+On Melodee 1.3.5 and later, hold **OCT− alone** while switching on to request
+the retained MIDI update loader. Three short key-light flashes signal the loader
+handover; reconnect USB and install the same package again. If the loader is
+unavailable or handover fails, the stub requests ROM UBOOT instead. Stock V15
+and Melodee through 1.3.4 do not have this rescue gesture.
+
+Download the archive for your computer from the Melodee 1.3.5 release and extract it.
 Windows and Linux builds are x64; macOS has separate Intel/x64 and Apple Silicon/arm64
 downloads. The executable includes Python, PyUSB, libusb and the RAM recovery helper.
 It does not require a Python installation or the JieLi SDK. These are unsigned CLI
@@ -78,6 +84,6 @@ is built and smoke-tested on its native OS; automated tests model interruptions 
 protected flash regions. Those checks do not establish physical USB recovery on
 every OS.
 
-Source: https://github.com/keremimo/melodee (tag v1.3.4).
+Source: https://github.com/keremimo/melodee (tag v1.3.5).
 Protocol reference: https://github.com/kurogedelic/FM-1-transporter.
 Licences and corresponding libusb source are included in the archive.
