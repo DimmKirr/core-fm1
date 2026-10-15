@@ -100,10 +100,13 @@ static uint8_t proj_p5_origin_value(const project_t *p,uint32_t track)
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(G_MFXTYPE == PROJ_GLOBALS && G_FXMODE==40u && G_BUDGET==41u && G_MFXTONE==42u && G_COUNT==45u, "old global IDs and wire header stay fixed");
 /* FUN21 / TPLK's two cuts (LO CUT 10 + 10 v Hz, HI CUT 100 + 20 v Hz, 0 OFF) -> the TONE nearest them, the low cut
- * first (TONE holds one) */
+ * first (TONE holds one); a low cut at or under 150 Hz is what the effects' own floor does now (fx_floor_hz) */
 static int16_t proj_tone_of_cuts(int32_t lo, int32_t hi)
 {
-    int32_t hz = lo > 0 ? 10 + 10 * lo : hi > 0 ? 100 + 20 * hi : 0, best = 0, err = 1 << 30, v, e;
+    int32_t hz, best = 0, err = 1 << 30, v, e;
+    if (lo > 0 && 10 + 10 * lo <= fx_tone_hz(1))
+        lo = 0;
+    hz = lo > 0 ? 10 + 10 * lo : hi > 0 ? 100 + 20 * hi : 0;
     for (v = 1; hz && v <= FX_TONE_MAX; v++) {
         e = fx_tone_hz(lo > 0 ? v : -v) - hz;
         if ((e < 0 ? -e : e) < err) { err = e < 0 ? -e : e; best = lo > 0 ? v : -v; }

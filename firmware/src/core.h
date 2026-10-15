@@ -125,13 +125,23 @@ enum {                          /* per-track parameters */
 static int param_fx_tone(uint32_t id) { return id>=P_FXTONE && id<=P_FX3TONE; }
 static int fx_has_tone(int32_t type) { return type>=6 && type<=8; }   /* fx.c FX_ECHO, FX_ROOM, FX_REVERB */
 static int param_fx(uint32_t id) { return (id>=P_FXTYPE && id<=P_FX3CHAR) || param_fx_tone(id); }
-/* TONE -63..63 -> the cut it sets (Hz), 0 = FULL (none): below 0 a high cut, 2640 Hz at -1 down to 120 Hz at -63;
- * above 0 a low cut, 20 Hz at 1 up to 1280 Hz at 63 (squared: fine steps where the ear needs them) */
+/* TONE -63..63 -> the cut it sets (Hz), 0 = FULL (none but the effect's own floor, fx_floor_hz): below 0 a high cut,
+ * 2640 Hz at -1 down to 120 Hz at -63; above 0 a low cut, 150 Hz at 1 up to 1280 Hz at 63 (squared: fine steps where
+ * the ear needs them) */
 static int32_t fx_tone_hz(int32_t v)
 {
     int32_t a = v < 0 ? -v : v;
     if (a > FX_TONE_MAX) a = FX_TONE_MAX;
-    return v > 0 ? 20 + a * a * 1260 / 3969 : v < 0 ? 120 + (64 - a) * (64 - a) * 2520 / 3969 : 0;
+    return v > 0 ? 150 + a * a * 1130 / 3969 : v < 0 ? 120 + (64 - a) * (64 - a) * 2520 / 3969 : 0;
+}
+/* the low cut ECHO (100 Hz), ROOM and REVERB (150 Hz) keep at FULL and under a high cut: what enters them never booms */
+#define FX_FLOOR_ECHO 100
+#define FX_FLOOR_SPACE 150
+static int32_t fx_floor_hz(int32_t type) { return type == 6 ? FX_FLOOR_ECHO : FX_FLOOR_SPACE; }
+static int32_t fx_low_cut_hz(int32_t type, int32_t v)   /* an ECHO / ROOM / REVERB slot's low cut at TONE v */
+{
+    int32_t f = fx_floor_hz(type), t = v > 0 ? fx_tone_hz(v) : 0;
+    return t > f ? t : f;
 }
 static int param_fx_send(uint32_t id) { return id>=P_FXSEND && id<=P_FXSEND3; }
 

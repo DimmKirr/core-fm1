@@ -771,6 +771,13 @@ static void draw_columns(void)
             draw_column(c, "FAV", scale_favorite((uint32_t)TSEL->p[P_SCALE]) ? "ON" : "OFF", "", VAL(c), -1, ICON_X_STAR);
             continue;
         }
+        if (cur_page()->graph == GR_FXRACK && c == 1u) {   /* a rack's KNOB 2: the row ("2", "Shared"; SHARED: "B") */
+            uint32_t sh = cur_page()->scope == SC_GLOBAL, r = fx_rack_row[sh] & 3u;
+            val[0] = (char)((sh ? 'A' : '1') + r);
+            val[1] = 0;
+            draw_column(c, "SLOT", r < FX_SLOTS ? val : sh ? "Return" : "Shared", "", VAL(c), -1, ICON_AUTO);
+            continue;
+        }
         const param_desc_t *d = page_desc(cur_page(), c, &vp);
         if (!d || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", T_THEME, -1, ICON_AUTO);

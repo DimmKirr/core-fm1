@@ -7,6 +7,7 @@
 #include "../hal/fm1_eq.h"
 #define FX_RATE (FS/4u)
 #define FX_REV_DIV 8u
+#define FX_REV_LOOP_SHIFT 4                      /* the reverb's round trip low cut: ~55 Hz at FS/8 */
 enum { FX_OFF, FX_PHASER, FX_WIDTH, FX_FORMANT, FX_TAPE, FX_SPIT, FX_ECHO, FX_ROOM, FX_REVERB, FX_CHORUS, FX_COUNT };
 typedef struct { float b0,b1,b2,a1,a2,z1,z2; } fx_bq_t;
 typedef struct {
@@ -248,7 +249,10 @@ static inline __attribute__((always_inline)) int32_t fx_tone_input(fx_state_t *f
     return (int32_t)fx_tone_section(&f->q[0][1],x,slew,0);
 }
 /* Tiny time effects run at FS/4. ECHO: 10..370 ms, 8 KiB. ROOM: four
- * damped combs at 13..26 ms, 2 KiB. They are intentionally lo-fi. */
+ * damped combs at 13..26 ms, 2 KiB. They are intentionally lo-fi. Each echo
+ * loses its lows too (a one-pole low cut in the loop, ~FX_RATE / (2 pi 2^shift)),
+ * so the repeats never pile up bass; ROOM's input floor (fx_floor_hz) is enough. */
+#define FX_ECHO_LOOP_SHIFT 4                    /* (~110 Hz) */
 static __attribute__((noinline,section(".dsp_text"))) void fx_time(fx_state_t *restrict f,int16_t *restrict mem,uint32_t n,int32_t target)
 {
     static const uint16_t len[4]={149,211,263,293};
@@ -263,7 +267,9 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_time(fx_state_t *r
             mono=fx_tone_input(f,mono,1.0f/(0.010f*FX_RATE));
             if(f->type==FX_ECHO){
                 f->echo=mem[(f->pos+4096u-delay)&4095u];
-                mem[f->pos]=(int16_t)clamp(mono+fx_div_pow2(f->echo*feedback,15),-32767,32767);
+                f->damp[0]=fx_div_pow2(((1<<FX_ECHO_LOOP_SHIFT)-1)*f->damp[0]+f->echo,FX_ECHO_LOOP_SHIFT);   /* (the repeat's lows:
+                                                 * not fed back; leaky, so silence stays exact) */
+                mem[f->pos]=(int16_t)clamp(mono+fx_div_pow2((f->echo-f->damp[0])*feedback,15),-32767,32767);
                 f->pos=(f->pos+1u)&4095u;
             }else{
                 int32_t sum=0;uint32_t off=0;
@@ -390,9 +396,9 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_reverb(fx_state_t 
                 uint32_t prev=read?read-1u:REV_LEN[k]-1u;
                 int32_t y=mem[off+(uint32_t)read];
                 y+=fx_div_pow2((mem[off+prev]-y)*(drift[k]&1023),10);
-                /* Remove sub-bass on each round trip so a long tail cannot
-                 * accumulate one booming low mode and duck the dry mix. */
-                f->rev_bass[k]=fx_div_pow2(63*f->rev_bass[k]+y,6);y-=f->rev_bass[k];
+                /* Remove bass on each round trip (~FS / 8 / (2 pi 2^shift)) so a
+                 * long tail cannot accumulate booming low modes and duck the dry mix. */
+                f->rev_bass[k]=fx_div_pow2(((1<<FX_REV_LOOP_SHIFT)-1)*f->rev_bass[k]+y,FX_REV_LOOP_SHIFT);y-=f->rev_bass[k];
                 f->rev_damp[k]=fx_div_pow2(f->rev_damp[k]*256+(y-f->rev_damp[k])*tone,8);
                 v[k]=f->rev_damp[k];sum+=v[k];off+=REV_LEN[k];
             }
@@ -556,15 +562,15 @@ static void fx_slot_prepare(fx_plan_t *plan,uint32_t si,const int16_t *p)
         f->epoch=fx_epoch;f->type=(uint8_t)type;f->rng=(int32_t)(0x73a9825du+si*997u);
     }
     f->rate=(int16_t)clamp(p[2],0,127);f->character=(int16_t)clamp(p[3],0,127);
-    if(fx_has_tone(f->type)){   /* TONE: above 0 the low cut (section 0), below 0 the high cut (section 1) */
+    if(fx_has_tone(f->type)){   /* the low cut (section 0: the floor, TONE above 0 higher), TONE below 0 the high cut (1) */
         uint32_t slot=si%FX_SLOTS,master=si/FX_SLOTS==NPART,div=f->type==FX_REVERB?FX_REV_DIV:4u;
         int32_t tone=clamp(master?song.g[G_MFXTONE+slot]:trk[si/FX_SLOTS].p[P_FXTONE+slot],-FX_TONE_MAX,FX_TONE_MAX);
-        for(uint32_t k=0;k<2u;k++){
-            int32_t cut=k?(tone<0?-tone:0):(tone>0?tone:0);
+        for(uint32_t k=0;k<2u;k++){   /* (a2: the cutoff now, Hz; 0 off) */
+            int32_t hz=k?(tone<0?fx_tone_hz(tone):0):fx_low_cut_hz(f->type,tone);
             fx_bq_t *q=&f->q[0][k];
-            if(q->a2!=(float)cut){
-                if(cut)q->a1=fx_cut_coefficient(fx_tone_hz(k?-cut:cut),div);
-                q->a2=(float)cut;
+            if(q->a2!=(float)hz){
+                if(hz)q->a1=fx_cut_coefficient(hz,div);
+                q->a2=(float)hz;
             }
         }
     }

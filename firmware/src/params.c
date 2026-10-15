@@ -501,7 +501,8 @@ typedef struct {
 #define G_TRK_RECQ 0xFEu                                 /* a global page's column that is the selected track's P_RECQ */
 static const page_t PAGES[] = {
     /* FX (docs/design README "FX rack"): the track's rack, its three slots (shown while they hold an effect), the
-     * shared rack, its three slots. A rack: KNOB 2 the row (fx_rack_row), 1 its effect, 4 its amount (page_desc) */
+     * shared rack, its three slots. A rack: KNOB 2 the row (fx_rack_row), 1 its effect, 4 its amount, SHARED's 3 ROUTE
+     * (page_desc) */
     {"FX", FAM_FX, SC_TRACK, GR_FXRACK, {P_FXTYPE, 0xFF, 0xFF, P_FXMIX}},
     {"FX 1", FAM_FX, SC_TRACK, GR_NONE, {P_FXMIX, P_FXRATE, P_FXCHAR, P_FXTONE}},
     {"FX 2", FAM_FX, SC_TRACK, GR_NONE, {P_FX2MIX, P_FX2RATE, P_FX2CHAR, P_FX2TONE}},
@@ -667,15 +668,30 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
 
 /* a rack's KNOB 1 (its row's effect) and KNOB 4 (the row's amount): FX's slots their MIX, its shared row the track's
  * SEND (CHAIN; in SPLIT the track's three sends are SHARED's rows); SHARED's slots their MIX (SPLIT: the track's send to
- * each), its last row RETURN */
+ * each), its last row RETURN. SHARED's KNOB 3: ROUTE (G_FXMODE) */
 static const param_desc_t *fx_rack_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t shared = pg->scope == SC_GLOBAL, r = fx_rack_row[shared] & 3u, id;
     *valp = 0;
-    if (slot == 0u && r < FX_SLOTS) {
-        id = (shared ? G_MFXTYPE : P_FXTYPE) + r * FX_PARAMS;
-        *valp = shared ? &song.g[id] : &TSEL->p[id];
-        return shared ? global_desc(id) : track_desc(TSEL, id);
+    if (slot == 0u && r < FX_SLOTS && !shared) {
+        id = P_FXTYPE + r * FX_PARAMS;
+        *valp = &TSEL->p[id];
+        return track_desc(TSEL, id);
+    }
+    if (slot == 0u && r < FX_SLOTS) {                   /* (SHARED's effect: "FX" as the track's, not TYPE) */
+        static param_desc_t type;
+        id = G_MFXTYPE + r * FX_PARAMS;
+        *valp = &song.g[id];
+        type = *global_desc(id);
+        type.label = "FX";
+        return &type;
+    }
+    if (slot == 2u && shared) {                         /* SHARED's KNOB 3: the routing, CHAIN or SPLIT (its sheet too) */
+        static param_desc_t route;
+        *valp = &song.g[G_FXMODE];
+        route = *global_desc(G_FXMODE);
+        route.label = "ROUTE";
+        return &route;
     }
     if (slot != 3u || (!shared && r == FX_SLOTS && song.g[G_FXMODE]))
         return 0;
@@ -689,6 +705,12 @@ static const param_desc_t *fx_rack_desc(const page_t *pg, uint32_t slot, int16_t
     }
     id = shared ? P_FXSEND + r : r < FX_SLOTS ? P_FXMIX + r * FX_PARAMS : P_FXSEND;
     *valp = &TSEL->p[id];
+    if (shared) {                                       /* (SPLIT: "SEND", the row says to which) */
+        static param_desc_t send;
+        send = *track_desc(TSEL, id);
+        send.label = "SEND";
+        return &send;
+    }
     return track_desc(TSEL, id);
 }
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)

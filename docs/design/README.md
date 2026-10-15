@@ -209,8 +209,8 @@ one); the shared row SHARED. OCT- goes back up a level (slot → its rack, SHARE
 rack returns to it; on the rack it turns on to the next page, as SELECT does.
 
 **SHARED** is the same rack for the shared bus: its slots A–C (KNOB 4 their MIX; SPLIT: the selected track's send to
-each) and RETURN (the four track colours as its numeral). Its sheet (OCT+ held, or OCT+ on RETURN) holds Routing
-(Chain / Split) and Clear shared FX (asks first).
+each) and RETURN (the four track colours as its numeral); KNOB 3 is ROUTE, Chain or Split (Kerem asked where it had
+gone). Its sheet (OCT+ held, or OCT+ on RETURN) holds Routing too and Clear shared FX (asks first).
 
 A **slot's page** shows while the slot holds an effect, so SELECT never stops on an empty one: FX, the slots in use,
 SHARED, its slots in use. The header names the effect ("ECHO", "REVERB"). Its four knobs are the ones played: MIX,
@@ -220,10 +220,20 @@ buffer "MEMORY FULL". No hint rows. A shared slot's footer is "All tracks" with 
 belong to the project and track, never the instrument preset; shared MIX defaults fully wet.
 
 **TONE** (ECHO, ROOM and REVERB; the knob is empty for the others) is one knob from DARK through FULL to THIN: below
-FULL a high cut from 2640 Hz down to 120 Hz, above it a low cut from 20 Hz up to 1280 Hz (core.h `fx_tone_hz`, fine
-steps where the ear needs them). One smooth 6 dB/octave cut shapes the wet input; the dry signal stays intact. Under
-the picture a strip on a log axis (20 Hz–2.6 kHz) lights, in TONE's colour, the band that reaches the effect, the cut's
-frequency under its edge; at FULL the whole strip, dimmed. Each track and shared slot keeps its TONE in projects
+FULL a high cut from 2640 Hz down to 120 Hz, above it a low cut from 150 Hz up to 1280 Hz (core.h `fx_tone_hz`, fine
+steps where the ear needs them). Smooth 6 dB/octave cuts shape the wet input; the dry signal stays intact.
+
+**No boom** (Kerem, 2026-10-15: "still some boominess" in the tails and repeats): what enters ECHO keeps a 100 Hz low
+cut, ROOM and REVERB a 150 Hz one, at FULL and under a high cut (`fx_floor_hz`; THIN starts there), and each echo
+and each reverb round trip loses its lows (a one-pole low cut in the loop: ECHO ~110 Hz, REVERB ~55 Hz; ~110 Hz
+silenced REVERB's deep tail; ROOM's short combs need only the floor), so no bass note rings out of the tail. Measured
+on sines (1/24 octave, against the 320 Hz–1 kHz band): the worst low ring of a big REVERB went from +12.9 dB to +5.8,
+a big ROOM's from +9.6 to +6.4 (both now under their loudest mid one), 40–120 Hz now 3–12 dB under the mids (it was up
+to 3.7 dB over). `tests/fx_test.c` boom_test holds it, and its opposite (Kerem): never harsh (1–2.5 kHz no louder
+than the mids on average, no high note 3 dB over the loudest mid one) nor thin (the bass within 15 dB of the mids).
+
+Under the picture a strip on a log axis (20 Hz–2.6 kHz) lights, in TONE's colour, the band that reaches the effect
+(from the effect's own low cut), the cut TONE sets under its edge; at FULL dimmed. Each track and shared slot keeps its TONE in projects
 (FUN22) and templates (TPLL). FUN21/TPLK's two cuts load as the nearest TONE (the low cut when both were set); older
 records load FULL.
 

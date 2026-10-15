@@ -998,7 +998,7 @@ function fmtValue(d, v) {
     }
     case F.LFOHZ: { const h = 0.05 * Math.pow(800, (v & 127) / 127); return [h < 10 ? h.toFixed(2) : h.toFixed(1), "Hz"]; }
     case F.TONE: {                                 /* core.h fx_tone_hz: below 0 a high cut, above a low cut */
-      const a = Math.min(63, Math.abs(v)), hz = v > 0 ? 20 + Math.floor(a * a * 1260 / 3969) : 120 + Math.floor((64 - a) * (64 - a) * 2520 / 3969);
+      const a = Math.min(63, Math.abs(v)), hz = v > 0 ? 150 + Math.floor(a * a * 1130 / 3969) : 120 + Math.floor((64 - a) * (64 - a) * 2520 / 3969);
       return v ? [`${v < 0 ? "Dark" : "Thin"} ${hz}`, "Hz"] : ["Full", ""];
     }
     case F.CUTOFF: { const h = 30 * Math.pow(16000 / 30, (v & 127) / 127); return h < 1000 ? [String(Math.round(h)), "Hz"] : [(h / 1000).toFixed(1), "kHz"]; }

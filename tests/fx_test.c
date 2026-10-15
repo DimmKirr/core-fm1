@@ -435,18 +435,20 @@ static uint64_t tone_energy(uint32_t type,int tone,uint32_t hz)
 }
 static void tone_test(void)
 {
-    /* TONE's two sides: a low cut 20 .. 1280 Hz above 0, a high cut 2640 .. 120 Hz below, FULL at 0 */
-    assert(!fx_tone_hz(0) && fx_tone_hz(1)==20 && fx_tone_hz(FX_TONE_MAX)==1280 && fx_tone_hz(-1)==2640 && fx_tone_hz(-FX_TONE_MAX)==120);
+    /* TONE's two sides: a low cut 150 .. 1280 Hz above 0, a high cut 2640 .. 120 Hz below, FULL at 0; ECHO keeps a
+     * 100 Hz low cut of its own, ROOM and REVERB 150 Hz (FULL, DARK) */
+    assert(!fx_tone_hz(0) && fx_tone_hz(1)==150 && fx_tone_hz(FX_TONE_MAX)==1280 && fx_tone_hz(-1)==2640 && fx_tone_hz(-FX_TONE_MAX)==120);
     for(int v=2;v<=FX_TONE_MAX;v++)assert(fx_tone_hz(v)>=fx_tone_hz(v-1) && fx_tone_hz(-v)<fx_tone_hz(-v+1));
-    const int thin=24,dark=-39;assert(fx_tone_hz(thin)==202 && fx_tone_hz(dark)==516);   /* ~200 Hz, ~500 Hz */
+    assert(fx_low_cut_hz(FX_ECHO,0)==100 && fx_low_cut_hz(FX_ROOM,-20)==150 && fx_low_cut_hz(FX_REVERB,1)==150 && fx_low_cut_hz(FX_ECHO,24)==313);
+    const int thin=24,edge=40,dark=-39;assert(fx_tone_hz(thin)==313 && fx_tone_hz(edge)==605 && fx_tone_hz(dark)==516);
     for(uint32_t type=FX_ECHO;type<=FX_REVERB;type++){
-        uint64_t bass=tone_energy(type,0,40),cut=tone_energy(type,thin,40);
-        uint64_t mids=tone_energy(type,0,1000),preserved=tone_energy(type,thin,1000);
-        assert(bass>100000u && cut<bass/12u); /* >10 dB less sub-bass at 200 Hz */
+        uint64_t bass=tone_energy(type,0,40),cut=tone_energy(type,edge,40);
+        uint64_t mids=tone_energy(type,0,2000),preserved=tone_energy(type,edge,2000);
+        assert(cut<bass/12u); /* >10 dB less sub-bass at 605 Hz than at the floor */
         assert(preserved>mids*8u/10u && preserved<mids*12u/10u);
-        assert(tone_energy(type,FX_TONE_MAX,40)<cut/8u);
-        uint64_t at_cut=tone_energy(type,thin,200),reference=tone_energy(type,0,200);
-        assert(at_cut>reference*4u/10u && at_cut<reference*6u/10u); /* -3 dB */
+        assert(tone_energy(type,thin,40)<bass && tone_energy(type,FX_TONE_MAX,40)<bass/32u);
+        uint64_t at_cut=tone_energy(type,edge,605),reference=tone_energy(type,0,605);
+        assert(at_cut>reference*4u/10u && at_cut<reference*6u/10u); /* -3 dB (the floor's own loss there: ~0.3 dB) */
         uint64_t bright=tone_energy(type,0,2000),darker=tone_energy(type,dark,2000);
         uint64_t body=tone_energy(type,0,200),warm=tone_energy(type,dark,200);
         assert(bright>10000u && darker<bright/10u && warm>body*7u/10u);
@@ -460,7 +462,7 @@ static void tone_test(void)
     for(uint32_t type=FX_PHASER;type<FX_COUNT;type++)if(!fx_has_tone((int32_t)type))
         assert(tone_energy(type,0,1000)==tone_energy(type,FX_TONE_MAX,1000) && tone_energy(type,0,1000)==tone_energy(type,-FX_TONE_MAX,1000));
     /* A constant input exposes discontinuities when moving the cutoff, crossing FULL from one side to the other and
-     * switching off; test both processing rates, then exact bypass. */
+     * switching the high cut off; test both processing rates. */
     for(uint32_t rev=0;rev<2;rev++)for(uint32_t sweep=0;sweep<3;sweep++){
         ui_power_on();reset_fx();int16_t p[4]={rev?FX_REVERB:FX_ECHO,127,60,64};fx_plan_t plan;
         int32_t previous=8000;uint32_t rate=FS/(rev?FX_REV_DIV:4u);
@@ -473,8 +475,8 @@ static void tone_test(void)
                 assert(abs(y-previous)<200 && abs(y)<=9000);previous=y;
             }
         }
-        for(uint32_t section=0;section<2;section++)assert(!plan.f->q[0][section].b1 && !plan.f->q[0][section].z1);
-        assert(previous==8000);
+        /* the high cut gone exactly; the low cut stays at the floor, so the constant input has died away */
+        assert(!plan.f->q[0][1].b1 && !plan.f->q[0][1].z1 && plan.f->q[0][0].a2==(float)fx_floor_hz(p[0]) && abs(previous)<100);
     }
     /* Each slot's TONE targets its own track/slot and section, shared slots too. */
     ui_power_on();reset_fx();fx_plan_t plan;
@@ -483,7 +485,7 @@ static void tone_test(void)
         uint32_t base=(ti==NPART?G_MFXTYPE:P_FXTYPE)+slot*FX_PARAMS,tone=(ti==NPART?G_MFXTONE:P_FXTONE)+slot;
         p[base]=FX_ECHO;p[base+1]=127;p[tone]=v;
         fx_slot_prepare(&plan,ti*FX_SLOTS+slot,p+base);
-        assert(plan.active && plan.f->q[0][0].a2==(v>0?v:0) && plan.f->q[0][1].a2==(v<0?-v:0));
+        assert(plan.active && plan.f->q[0][0].a2==(float)fx_low_cut_hz(FX_ECHO,v) && plan.f->q[0][1].a2==(v<0?(float)fx_tone_hz(v):0.0f));
     }
     project_t q;project_store_t wire;project_capture(&q);assert(proj_pack(&wire,&q) && proj_import(&proj_scratch,&wire,sizeof wire));
     for(uint32_t ti=0;ti<=NPART;ti++)for(uint32_t slot=0;slot<FX_SLOTS;slot++){
@@ -500,6 +502,10 @@ static void tone_test(void)
     /* the slot pages: KNOB 4 TONE (ECHO, ROOM, REVERB only), its words */
     TSEL->p[P_FXTONE]=-2;go_title("FX 1");turn(EN_K4,1);assert(TSEL->p[P_FXTONE]>-2);
     song.g[G_MFXTONE]=0;go_title("SEND FX 1");turn(EN_K4,1);assert(song.g[G_MFXTONE]>0);
+    for(uint32_t k=0;k<2;k++){                          /* the picture follows TONE while its knob turns, shared too */
+        go_title(k?"SEND FX 1":"FX 1");turn(EN_K4,1);frame();uint32_t drawn=pv.panel;
+        turn(EN_K4,1);frame();assert(pv.panel!=drawn);
+    }
     int16_t *vp;TSEL->p[P_FXTYPE]=FX_CHORUS;assert(!page_desc(&PAGES[page_titled("FX 1")],3,&vp) && !vp);
     TSEL->p[P_FXTYPE]=FX_OFF;assert(!page_visible(page_titled("FX 1")));TSEL->p[P_FXTYPE]=FX_ROOM;assert(page_visible(page_titled("FX 1")));
     char val[32];const char *unit;
@@ -523,7 +529,8 @@ static void tone_test(void)
         for(uint32_t slot=0;slot<FX_SLOTS;slot++){assert(!song.g[G_MFXTONE+slot]);for(uint32_t ti=0;ti<NPART;ti++)assert(!trk[ti].p[P_FXTONE+slot]);}
     }
     /* frozen FUN21 / TPLK (written by 201cbbd: two cuts a slot): each slot's cut becomes the TONE nearest it, the low
-     * cut when both were set; routing, the sound and engine motion (E3 shifted with P_E0) stay */
+     * cut when both were set (one at or under 150 Hz: the floor's now); routing, the sound and engine motion (E3
+     * shifted with P_E0) stay */
     const char *cuts[]={"tests/fixtures/fun21-cuts.bin","tests/fixtures/tplk-cuts.bin"};
     for(uint32_t k=0;k<2;k++){
         FILE *f=fopen(cuts[k],"rb");assert(f);uint32_t n=fread(old,1,sizeof old,f);fclose(f);ui_power_on();
@@ -531,14 +538,54 @@ static void tone_test(void)
         assert(song.g[G_FXMODE]==1 && song.g[G_MFXTYPE]==FX_REVERB && song.g[G_MFX2TYPE]==FX_ECHO && song.g[G_FXRETURN]==73);
         assert(TSEL->p[P_FXTYPE]==FX_ECHO && TSEL->p[P_FXMIX]==91 && TSEL->p[P_FX2TYPE]==FX_ROOM && TSEL->p[P_FXSEND2]==71);
         assert(TSEL->p[P_E3]==clamp(42,track_desc(TSEL,P_E3)->min,track_desc(TSEL,P_E3)->max));
-        assert(TSEL->p[P_FXTONE]==24 && fx_tone_hz(24)==202);                    /* LO CUT 200 Hz */
+        assert(TSEL->p[P_FXTONE]>0 && abs(fx_tone_hz(TSEL->p[P_FXTONE])-200)<10);     /* LO CUT 200 Hz */
         assert(TSEL->p[P_FX2TONE]<0 && abs(fx_tone_hz(TSEL->p[P_FX2TONE])-500)<20);   /* HI CUT 500 Hz */
-        assert(TSEL->p[P_FX3TONE]>0 && abs(fx_tone_hz(TSEL->p[P_FX3TONE])-80)<6);     /* both: the 80 Hz low cut */
+        assert(TSEL->p[P_FX3TONE]<0 && abs(fx_tone_hz(TSEL->p[P_FX3TONE])-1300)<40);  /* both, LO CUT 80 Hz: the floor's, HI CUT 1300 Hz */
         assert(song.g[G_MFXTONE]>0 && abs(fx_tone_hz(song.g[G_MFXTONE])-300)<10);     /* shared LO CUT 300 Hz */
         assert(song.g[G_MFX2TONE]<0 && abs(fx_tone_hz(song.g[G_MFX2TONE])-1000)<20);  /* shared HI CUT 1 kHz */
         assert(!song.g[G_MFX3TONE] && !trk[1].p[P_FXTONE]);
     }
     puts("FX tone: bass/treble rejection, -3 dB cutoffs, smooth edits across FULL, per-slot editor/routing, persistence and frozen FUN20/TPLJ, FUN21/TPLK imports: OK");
+}
+/* An effect's wet return, 1/12-octave sine sweep 40 Hz-2.5 kHz at FULL, as band averages and loudest notes (averages,
+ * not a comb's single teeth): 40-120 Hz, 40-320 Hz (its loudest), 320 Hz-1 kHz, 1-2.5 kHz */
+typedef struct { double low, mid, high, low_peak, mid_peak, high_peak; } fx_bands_t;
+static fx_bands_t fx_bands(uint32_t type,int rate,int cha)
+{
+    fx_bands_t r={0};uint32_t nl=0,nm=0,nh=0;
+    for(double hz=40;hz<2500;hz*=1.05946){
+        ui_power_on();reset_fx();track_t *t=&trk[0];
+        t->p[P_FXTYPE]=(int16_t)type;t->p[P_FXMIX]=127;t->p[P_FXRATE]=(int16_t)rate;t->p[P_FXCHAR]=(int16_t)cha;
+        int32_t b[CTL]={0};assert(fx_process(t,b,CTL));fx_state[0].mix=32768;
+        uint32_t phase=0,inc=(uint32_t)(hz*4294967296.0/FS);double e=0;
+        for(uint32_t frame=0;frame<FS*3u/2u/CTL;frame++){
+            for(uint32_t i=0;i<CTL;i++){phase+=inc;b[i]=2000*sine_i(phase)/32768;}
+            assert(fx_process(t,b,CTL));
+            if(frame>=FS/2u/CTL)for(uint32_t i=0;i<CTL;i++)e+=(double)fx_left[i]*fx_left[i]+(double)fx_right[i]*fx_right[i];
+        }
+        if(hz<120){r.low+=e;nl++;}
+        if(hz<320){if(e>r.low_peak)r.low_peak=e;}
+        else if(hz<1000){r.mid+=e;nm++;if(e>r.mid_peak)r.mid_peak=e;}
+        else{r.high+=e;nh++;if(e>r.high_peak)r.high_peak=e;}
+    }
+    assert(nl && nm && nh);r.low/=nl;r.mid/=nm;r.high/=nh;return r;
+}
+/* README "No boom": at FULL, ECHO / ROOM / REVERB (big settings) keep their 40-120 Hz wet return on average 3 dB or
+ * more under their 320 Hz-1 kHz one, and no low note (40-320 Hz) rings more than 3 dB over the loudest mid one. Before
+ * the floors and the loops' low cuts a big REVERB rang one bass note 12.9 dB over its mids' average.
+ * Its opposite (Kerem: "the exact opposite behavior"), so the cure never overshoots: not harsh, the 1-2.5 kHz return
+ * on average no louder than the mids and no high note more than 3 dB over the loudest mid one; not thin, the bass
+ * within 15 dB of the mids (now 3-12 dB under) */
+static void boom_test(void)
+{
+    static const struct { uint32_t type; int rate, cha; } c[] = {{FX_ECHO,60,72},{FX_ROOM,40,30},{FX_ROOM,110,115},{FX_REVERB,60,60},{FX_REVERB,100,110}};
+    for(uint32_t k=0;k<NELEM(c);k++){
+        fx_bands_t b=fx_bands(c[k].type,c[k].rate,c[k].cha);
+        assert(b.low<b.mid/2.0 && b.low_peak<b.mid_peak*2.0);                   /* no boom */
+        assert(b.high<b.mid && b.high_peak<b.mid_peak*2.0 && b.low>b.mid/32.0);  /* not harsh, not thin */
+    }
+    puts("No boom: ECHO, ROOM and REVERB keep their bass under their mids, no low note ringing over them: OK");
+    puts("Not harsh, not thin: their highs under the mids, no high note ringing over them, the bass within 15 dB: OK");
 }
 /* README "FX rack": FX opens the track's rack (MOD's rows: K2 the row, K1 its effect, K4 its amount), OCT+ opens a
  * row (an empty slot: its effects' list; the shared row: SHARED), OCT- goes back up, a slot's page shows while it holds
@@ -567,6 +614,9 @@ static void rack_test(void)
     fx_rack_row[1]=0;turn(EN_K1,1);assert(song.g[G_MFXTYPE]!=FX_OFF);song.g[G_MFXTYPE]=FX_REVERB;
     song.g[G_MFXMIX]=100;turn(EN_K4,-1);assert(song.g[G_MFXMIX]<100);             /* CHAIN: the slot's MIX */
     song.g[G_FXMODE]=1;TSEL->p[P_FXSEND]=30;turn(EN_K4,1);assert(TSEL->p[P_FXSEND]>30 && song.g[G_MFXMIX]<100);   /* SPLIT */
+    turn(EN_K3,-1);assert(!song.g[G_FXMODE]);turn(EN_K3,1);assert(song.g[G_FXMODE]==1);   /* KNOB 3: ROUTE */
+    {int16_t *vp;const param_desc_t *d=page_desc(cur_page(),2,&vp);assert(d && vp==&song.g[G_FXMODE] && str_eq(d->label,"ROUTE"));
+     go_title("FX");assert(!page_desc(cur_page(),2,&vp));go_title("SHARED");}                 /* (FX's KNOB 3: none) */
     press(B_OCTUP);assert(cur_page()->scope==SC_GLOBAL && cur_page()->id[0]==G_MFXMIX);head_chip_text(chip);assert(str_eq(chip,"REVERB"));
     press(B_OCTDN);assert(str_eq(cur_page()->title,"SHARED") && fx_rack_row[1]==0);
     press(B_OCTDN);assert(str_eq(cur_page()->title,"FX"));press(B_OCTDN);assert(ui.home);
@@ -580,7 +630,7 @@ static void rack_test(void)
 }
 int main(int argc,char **argv)
 {
-    legacy();frozen_three_slots();send_return();separate_sends();fx_chain_test();reverb_tail();reverb_presence();reverb_rate_conversion();rate_and_pan();tape_smooth();chorus_test();tone_test();rack_test();
+    legacy();frozen_three_slots();send_return();separate_sends();fx_chain_test();reverb_tail();reverb_presence();reverb_rate_conversion();rate_and_pan();tape_smooth();chorus_test();tone_test();boom_test();rack_test();
     uint64_t dry=fx_signal(FX_OFF,60,64,0,0);
     for(uint32_t mode=FX_PHASER;mode<FX_COUNT;mode++){
         assert(fx_signal(mode,60,64,0,0)==dry);

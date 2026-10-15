@@ -30,4 +30,5 @@ track 1 Echo/MIX 91 and Room, SEND 2 = 71, engine E3 = 42 and an E3 motion event
 Cuts: insert 1 LO CUT 19 (200 Hz), insert 2 HI CUT 20 (500 Hz), insert 3 both
 (LO CUT 7 = 80 Hz, HI CUT 60), shared 1 LO CUT 29 (300 Hz), shared 2 HI CUT 45
 (1000 Hz). Their imports must keep the rest and turn each slot's cut into the
-nearest TONE, the low cut when both are set.
+nearest TONE, the low cut when both are set; a low cut at or under 150 Hz is the
+effects' own floor now, so insert 3 keeps its high cut.

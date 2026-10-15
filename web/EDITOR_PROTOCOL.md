@@ -1166,10 +1166,11 @@ USB audio streams are idle.
 42–44 are the three insert/shared slots' TONE, −63..63, default 0. Format 17
 (`F_TONE`) displays 0 as FULL, a value below 0 as DARK (a high cut of
 `120 + (64 − |v|)² × 2520 / 3969` Hz: 2640 Hz at −1 down to 120 Hz at −63) and
-a value above 0 as THIN (a low cut of `20 + v² × 1260 / 3969` Hz: 20 Hz at 1 up
-to 1280 Hz at 63), using integer division. One cut is active at a time. Echo,
-Room and Reverb filter their wet inputs; other effects ignore TONE, and the
-device hides its knob for them. The editor places each slot's TONE on a page
+a value above 0 as THIN (a low cut of `150 + v² × 1130 / 3969` Hz: 150 Hz at 1
+up to 1280 Hz at 63), using integer division. Echo, Room and Reverb filter their
+wet inputs and always keep a low cut of their own (Echo 100 Hz, Room and Reverb
+150 Hz) at FULL and under a high cut; THIN raises it. Other effects ignore TONE,
+and the device hides its knob for them. The editor places each slot's TONE on a page
 beside its main controls and hides it when that effect type does not support it.
 These values belong to tracks/projects, so instrument loads and librarian capture
 preserve/exclude them like the existing insert settings. FUN22 stores the three
@@ -1181,5 +1182,6 @@ zero).
 The firmware before it (201cbbd, never released) had a low cut and a high cut
 per slot (`P_COUNT=125`, `P_E0=117`, `G_COUNT=48`; FUN21 and TPLK, formats 17
 `F_HIGHPASS` and 18 `F_LOWPASS`). Its records load: each slot's cut becomes the
-nearest TONE, the low cut when both were set. FUN20/TPLJ and all previously
+nearest TONE, the low cut when both were set; a low cut at or under 150 Hz counts
+as the effects' own and leaves the high cut (or FULL). FUN20/TPLJ and all previously
 supported imports load TONE FULL and retain their routing and engine/motion values.

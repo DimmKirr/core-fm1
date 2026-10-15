@@ -589,8 +589,8 @@ async function trackEffects() {
     const dump=E.parse[E.CMD.DUMP](await rq(E.req.dump()),info);
     ok(eq(dump.p.slice(96,108),fx),"FX: factory, user and librarian sound loads preserve all three track slots");
     ok(eq(dump.p.slice(111,114),[24,-21,-22]),"FX: sound loads preserve TONE");
-    ok(eq(E.fmtValue({fmt:E.F.TONE},0),["Full",""]) && eq(E.fmtValue({fmt:E.F.TONE},24),["Thin 202","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-39),["Dark 516","Hz"]) &&
-       eq(E.fmtValue({fmt:E.F.TONE},63),["Thin 1280","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-63),["Dark 120","Hz"]),"FX: TONE formats Full, Dark / Thin and the cut's frequency");
+    ok(eq(E.fmtValue({fmt:E.F.TONE},0),["Full",""]) && eq(E.fmtValue({fmt:E.F.TONE},24),["Thin 313","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-39),["Dark 516","Hz"]) &&
+       eq(E.fmtValue({fmt:E.F.TONE},63),["Thin 1280","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},1),["Thin 150","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-63),["Dark 120","Hz"]),"FX: TONE formats Full, Dark / Thin and the cut's frequency");
     const common={step:0,param:info.pe0+1,value:63},native={step:0,param:info.pe0+1,value:(3<<8)|80};
     await rq(E.req.motion(0,3,common));let m=E.parse[E.CMD.MOTION](await rq(E.req.motion(0,3,native)));
     ok(m.count===2,"motion: native and common events sharing an engine ID coexist");

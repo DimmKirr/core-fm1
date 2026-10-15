@@ -73,8 +73,8 @@ p5_mod_samples 105
 fx_filter 176
 fx_down 126
 fx_up 141
-# Two optional smoothed wet-input cuts, evaluated at quarter rate.
-fx_time 348
+# Two smoothed wet-input cuts (the low one always: the floor), evaluated at quarter rate, and the echo loop's low cut.
+fx_time 351
 fx_reverb 1016
 mix_fx_samples 82
 mix_extra_sends 94
