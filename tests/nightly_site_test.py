@@ -125,7 +125,7 @@ class NightlySite(unittest.TestCase):
             self.assertEqual((site / "firmware/melodee-1.1.0.fwsc").read_bytes(), dual.read_bytes())
             self.assertEqual((site / "firmware/melodee-1.1.0-1core.fwsc").read_bytes(), single.read_bytes())
             manifest = json.loads((site / "firmware/nightly.json").read_text())
-            self.assertEqual((manifest["product"], manifest["branch"]), ("FM-1_900", "next"))
+            self.assertEqual((manifest["product"], manifest["branch"]), ("FM-1_900", "nightly"))
             # Regenerating a release keeps both published nightly variants.
             main(dual, single, "1.1.0", site, installer_only=True)
             self.assertIn('"single": "../../firmware/melodee-nightly-1core.fwsc"', (site / "webapp/installer/index.html").read_text())
