@@ -3,8 +3,8 @@ changes since 1.3.6, including the features tested in the 1.4 release candidates
 
 - **A redesigned interface:** larger text throughout, Rubik and Melodee Pixel
   fonts, clearer lists and dialogs, coloured track rows, and pattern dots sized
-  to show the whole loop. New palettes and optional sound-reactive Stage lighting
-  give each track its own colour. Turning a Stage knob updates its cell without
+  to show the whole loop. New palettes give each track its own colour.
+  Turning a Stage knob updates its cell without
   covering the performance display.
 - **FX racks and tone shaping:** navigate three track inserts and the shared
   effects through rack views, open only the slots in use, and switch between

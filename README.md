@@ -46,7 +46,7 @@ runs Felucca.
 ## What's new in 1.4.0
 
 - **Larger, clearer UI:** Rubik or Melodee Pixel, coloured track rows, full-pattern dots,
-  new palettes, sound-reactive Stage edges and a persistent knob strip.
+  new palettes and a persistent knob strip.
 - **FX racks:** three track inserts and a shared rack, chain/split routing, and DARK–FULL–THIN
   TONE controls for ECHO, ROOM and REVERB with reduced bass buildup.
 - **C64 SID and drum kits:** frame-rate chip models, held-chord chip arpeggios, SID KIT and SID DIGI.
