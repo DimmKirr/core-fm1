@@ -166,9 +166,6 @@ static inline __attribute__((always_inline)) float fm6_sin(uint32_t ph)
     return FM6_SIN[i] + (FM6_SIN[i+1u] - FM6_SIN[i]) * f;
 }
 
-static inline __attribute__((always_inline)) int32_t fm6_clamp(int32_t x, int32_t lo, int32_t hi)
-{ return x < lo ? lo : x > hi ? hi : x; }
-
 /* -------------------------------------------------- scaling (DX7 rules) --- */
 static inline __attribute__((always_inline)) int32_t fm6_scaleout(int32_t l) { return l >= 20 ? 28 + l : FM6_LEVELLUT[l < 0 ? 0 : l]; }
 
@@ -225,12 +222,12 @@ static __attribute__((noinline,section(".dsp_text"))) void fm6_eg_go(fm6_eg_t *e
     e->ix = (uint8_t)ix;
     if (ix < 4u) {
         int32_t lv = op[FP_L1 + ix], a = ((fm6_scaleout(lv) >> 1) << 6) + ol - 4256;
-        int32_t q = fm6_clamp(((op[FP_R1 + ix] * 41) >> 6) + rs, 0, 63);
+        int32_t q = clamp(((op[FP_R1 + ix] * 41) >> 6) + rs, 0, 63);
         e->target = (a < 16 ? 16 : a) << 16;
         e->rising = e->target > e->level;
         e->hold = 0;
         if (e->target == e->level || (!ix && !lv)) {
-            int32_t r = fm6_clamp(op[FP_R1 + ix] + rs, 0, 99);
+            int32_t r = clamp(op[FP_R1 + ix] + rs, 0, 99);
             e->hold = r < 77 ? FM6_STATICS[r] : 20 * (99 - r);
             if (r < 77 && !ix && !lv)
                 e->hold /= 20;

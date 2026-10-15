@@ -8,6 +8,8 @@ static pattern_t pattern_retained[2][NPAT] __attribute__((section(".noinit")));
 static pattern_t pattern_ram[2][NPAT];
 static uint8_t chain_patterns[CHAIN_ROWS][NTRK];
 static uint8_t motion_pattern[MOTION_MAX];
+static uint16_t pattern_epoch;                          /* every pattern_init (a project loaded, a new song): edits
+                                                         * waiting for a loop end were for the old (ui_input.c dq) */
 static void seq_release(track_t *t);
 static void recording_reset(void);
 static void recording_stop(track_t *t);
@@ -40,6 +42,7 @@ static void pattern_init(void)
 {
     uint32_t k, b, i;
     recording_reset();
+    pattern_epoch++;
     memset(pattern_retained, 0, sizeof pattern_retained);
     memset(pattern_ram, 0, sizeof pattern_ram);
     memset(chain_patterns, 0, sizeof chain_patterns);

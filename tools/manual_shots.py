@@ -9,7 +9,8 @@ manual_figures). A full site publish copies that folder to webapp/manual/.
 
 The PNGs are generated, not committed. The stable publish writes them before
 publishing the site. web/quick-host.sh writes them when the manual is missing figures.
-Nightly and release-candidate publishes leave the live manual on the stable release.
+Nightlies publish a separate guide at webapp/manual/nightly/. Nightly and
+release-candidate publishes leave the stable manual in place.
 
   tools/manual_shots.py            # build/ui_new/NIGHT → web/manual/
   tools/manual_shots.py --require  # exit 0 when every figure is already present

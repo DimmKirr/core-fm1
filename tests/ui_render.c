@@ -49,13 +49,6 @@ static void hk_text(int32_t x0, int32_t y0, int32_t x1, int32_t y1, const char *
     strncpy(pend[npend].s, s, 27);
     npend++;
 }
-static void hk_scrim(int32_t x0, int32_t y0, int32_t x1, int32_t y1)   /* the hero's scrim: what is under it, covered */
-{
-    uint32_t i;
-    for (i = 0; i < npend; i++)
-        if (pend[i].x0 < x1 && x0 < pend[i].x1 && pend[i].y0 < y1 && y0 < pend[i].y1)
-            pend[i].flags |= 64u;
-}
 static void hk_cover(int32_t x0, int32_t y0, int32_t x1, int32_t y1)   /* a toast: the screen's texts under it, covered */
 {
     uint32_t i;
@@ -81,7 +74,6 @@ static void hk_whole(uint32_t x, uint32_t y, uint32_t r0, uint32_t fill);
 #define GFX_HOOK_WHOLE(x, y, r0, fill) hk_whole(x, y, r0, fill)
 #define GFX_HOOK_BEGIN() (npend = ncells = 0)
 #define GFX_HOOK_CELL(x0, y0, x1, y1) hk_cell(x0, y0, x1, y1)
-#define GFX_HOOK_SCRIM(x0, y0, x1, y1) hk_scrim(x0, y0, x1, y1)
 #define GFX_HOOK_COVER(x0, y0, x1, y1) hk_cover(x0, y0, x1, y1)
 #define GFX_HOOK_PIXELS(n) (px_visited += (n))
 #define UI_FILL_HOOK(x, y, w, h) hk_fill(x, y, w, h)
@@ -258,7 +250,7 @@ static void contain(int32_t x, int32_t y)
     for (i = 0; i < npend; i++) {
         const rbox_t *b = &pend[i];
         int32_t best = 1 << 30, gap = 99;
-        if (b->flags & 64u)                     /* (over or under the hero's scrim: drawn over the picture on purpose) */
+        if (b->flags & 64u)                     /* (under a toast: covered on purpose) */
             continue;
         for (c = 0; c < ncells && !(b->flags & 4u); c++) {   /* (texts only: an icon's box is its whole cell) */
             const int16_t *r = cells[c];
@@ -474,11 +466,11 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
 #endif
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
        S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER,
-       S_NOTES_SLIDE, S_NOTES_MIXED, S_NOTES_CHORD, S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_NOTES_REC, S_NOTES_ERASE, S_NOTES_DRUM_REC, S_NOTES_DRUM_ERASE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_MENU_CLICK, S_MENU_CLICK_LEVEL, S_MENU_COUNTIN, S_MENU_PREVIEW, S_MENU_ADD, S_MENU_AUTOSAVE_ON, S_MENU_AUTOSAVE_OFF, S_DRUM_SOUND_808, S_DRUM_SOUND_909, S_DRUM_MIX_909, S_DRUM_HIT_909, S_DRUM_HIT_FREE, S_DRUM_HIT_LONG,
+       S_NOTES_SLIDE, S_NOTES_MIXED, S_NOTES_CHORD, S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_NOTES_REC, S_NOTES_ERASE, S_NOTES_DRUM_REC, S_NOTES_DRUM_ERASE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_MENU_CLICK, S_MENU_CLICK_LEVEL, S_MENU_COUNTIN, S_MENU_PREVIEW, S_MENU_ADD, S_MENU_AUTOSAVE_ON, S_MENU_AUTOSAVE_OFF, S_DRUM_SOUND_808, S_DRUM_SOUND_909, S_DRUM_MIX_909, S_DRUM_HIT_909, S_DRUM_HIT_FREE, S_DRUM_HIT_LONG, S_DRUM_HIT_TOMS,
        S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_PATGRID, S_PATGRID_STOPPED, S_PATGRID_SHEET, S_PATGRID_COPY, S_PATGRID_REPLACE, S_PATGRID_DELETE, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES,
        S_STAGE_T1, S_STAGE_T1_ARP, S_STAGE_T1_KNOBS, S_STAGE_T1_SYNTH, S_STAGE_T1_SYNTH_ARP, S_STAGE_T2, S_STAGE_T3, S_SHEET_STAGE, S_CONFIRM_TRACK,
        S_VIEW, S_VIEW_LETGO, S_VIEW_NOTE, S_VIEW_EMPTY, S_VIEW_KNOBS, S_VIEW_SLASH, S_MENU_HOME_SEL, S_HOME_SEL_MOD, S_HOME_SEL_CHORD,
-       S_HOME_SEL_LEVEL,
+       S_HOME_SEL_LEVEL, S_PAT_DIALOG, S_STAGE_T1_REC,
        S_MIXER_T1, S_MIXER_T2, S_MIXER_T3, S_PATGRID_T2, S_SONG_T2, S_GLO_T2, S_NEW_ROLES_T1,
        S_STAGE_LONG, S_STAGE_T3_LONG, S_STAGE_T2_LONG, S_STAGE_T1_LONG,
        S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG,
@@ -486,7 +478,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_PICKER_MODE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
        S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_REF_SHEET_NOTE, S_REF_SHEET_HIT, S_REF_MOTION,
        S_REF_SHEET_MOTION, S_REF_MOD, S_REF_PICKER_MOD, S_REF_ARP, S_REF_PATTERN,
-       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_SEND, S_FX_SEPARATE, S_FX_SENDS, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_BOOT_MIGRATION, S_BOOT_UPDATE, S_BOOT_ERROR, S_BOOT_COMPLETE, S_BOOT_WIPE_CONFIRM, S_BOOT_WIPING, S_BOOT_UPDATE_ERROR, S_STAGE_LIGHT, S_VIEW_LIGHT, S_COUNT };
+       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_RACK, S_FX_RACK_SPLIT, S_FX_RACK_PICK, S_FX_RACK_LIST, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_FX_SHARED, S_FX_SHARED_SPLIT, S_FX_SHARED_SHEET, S_FX_TONE_DARK, S_FX_TONE_THIN, S_BOOT_MIGRATION, S_BOOT_UPDATE, S_BOOT_ERROR, S_BOOT_COMPLETE, S_BOOT_WIPE_CONFIRM, S_BOOT_WIPING, S_BOOT_UPDATE_ERROR, S_MAP_DRUM_KIT, S_MAP_DRUM_HIT, S_MAP_DRUM_CATEGORY, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -503,14 +495,14 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
 #endif
     "roll_empty", "roll_acid", "roll_chords", "roll_ties", "roll_len32_p2", "roll_high", "roll_low", "roll_wide", "roll_playing",
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
-    "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "menu_autosave_on", "menu_autosave_off", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long",
+    "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "menu_autosave_on", "menu_autosave_off", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long", "drum_hit_toms",
     "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "patterns", "patterns_stopped", "patterns_sheet", "patterns_copy", "patterns_replace", "patterns_delete", "project_new", "new_key", "new_roles",
     "stage_1track", "stage_1track_arp", "stage_1track_knobs", "stage_1track_synth", "stage_1track_synth_arp", "stage_2tracks", "stage_3tracks", "sheet_stage", "confirm_track",
     "view", "view_letgo", "view_note", "view_empty", "view_knobs", "view_slash", "menu_home_select", "home_select_mod", "home_select_chord",
-    "home_select_level",
+    "home_select_level", "pattern_key_dialog", "stage_1track_rec",
     "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "new_roles_1track",
     "stage_long", "stage_3tracks_long", "stage_2tracks_long", "stage_1track_long",
-    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_separate", "fx_sends", "fx_bus1", "fx_bus2", "fx_bus3", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error", "stage_light", "view_light"};
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_rack", "fx_rack_split", "fx_rack_pick", "fx_rack_list", "fx_bus1", "fx_bus2", "fx_bus3", "fx_shared", "fx_shared_split", "fx_shared_sheet", "fx_tone_dark", "fx_tone_thin", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error", "map_drum_kit", "map_drum_hit", "map_drum_category"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -913,30 +905,6 @@ static void ref_scene(int s)
     }
 }
 
-/* HOME's light (ui_glow.c) quiet: what was played before seen, nothing lit (every scene but its own) */
-static void glow_quiet(void)
-{
-    uint32_t k;
-    for (k = 0; k < NTRK; k++)
-        glow.seen[k] = glow_hit[k];
-    memset(glow.age, 255, sizeof glow.age);
-    memset(glow.env, 0, sizeof glow.env);
-    glow.ms = fm1_ms;
-}
-/* track t plays a factory sound of category c (browse.c preset_cat), the first found */
-static void cat_preset(track_t *t, uint32_t c)
-{
-    uint32_t e, k;
-    for (e = 0; e < NENGINES; e++)
-        if (eng_ok(e) && ENGINES[e] != &ENG_DRUM)
-            for (k = 0; k < ENGINES[e]->npresets; k++)
-                if (preset_cat(e, k) == c) {
-                    set_engine_of(t, e);
-                    t->preset = (uint16_t)k;
-                    t->engine = t->eng_req;
-                    return;
-                }
-}
 static void setup(int s)
 {
     memset(kb_chn, 0, sizeof kb_chn);               /* no key held (roll_playing holds one) */
@@ -947,34 +915,16 @@ static void setup(int s)
         return;
     }
     state();
-    if (s == S_STAGE_LIGHT || s == S_VIEW_LIGHT) {     /* HOME's light, each track a moment after its hit: a BASS
-                                                     * from the floor, a LEAD up the sides, a PAD held, a kit's kick,
-                                                     * snare and hat; the wheel page: a bass note, a PLUCK's ripple, a kit */
-        uint32_t k, d = s == S_VIEW_LIGHT ? 2u : 3u;
-        song.ntrk = (uint8_t)(d + 1u); song.sel = 0; song.playing = 0;
-        cat_preset(&trk[0], CAT_BASS);
-        cat_preset(&trk[1], s == S_VIEW_LIGHT ? CAT_PLUCK : CAT_LEAD);
-        if (d == 3u) cat_preset(&trk[2], CAT_PAD);
-        set_engine_of(&trk[d], ENGI_DRUM); trk[d].engine = trk[d].eng_req;
-        go_home(); ui.home_pg = s == S_VIEW_LIGHT;
-        memset(&view, 0, sizeof view);
-        if (s == S_VIEW_LIGHT) { input_on(&trk[0], 45, 100); input_on(&trk[1], 64, 100); trk[0].peak = 9000; }
-        glow_quiet();
-        for (k = 0; k < NTRK; k++) {
-            glow.vel[k] = 100;
-            glow.cat[k] = (uint8_t)glow_cat(k);
-        }
-        glow.age[0][0] = 6;                             /* (48 ms) */
-        glow.age[1][0] = s == S_VIEW_LIGHT ? 12 : 22;
-        glow.env[2] = 220;
-        glow.age[d][0] = 2; glow.age[d][1] = 2; glow.age[d][2] = 4; glow.lanes[d] = 0x0Bu;
-        return;
-    }
     if (s >= S_REF_STAGE_HELD && s <= S_REF_SCALES) {
         ref_scene(s);
         return;
     }
     switch (s) {
+    case S_MAP_DRUM_KIT: case S_MAP_DRUM_HIT: case S_MAP_DRUM_CATEGORY:
+        ui_power_on(); set_engine_of(TSEL, ENGI_DRUM); go_title("EDIT 1"); smap_open();
+        if (s != S_MAP_DRUM_KIT) smap_input(1, 0, 0);
+        if (s == S_MAP_DRUM_CATEGORY) smap_input(0, 1, 0);
+        break;
     case S_HOME: song.octave = 2; song.rec = 1; usb.config = 1; break;
     case S_HOME_IDLE: song.playing = 0; song.batt_raw = 570; ui.hot_col = 1; ui.hot_t = 30; break;
     case S_HOME_NOTE: input_on(TSEL, 61, 100); break;
@@ -1245,26 +1195,34 @@ static void setup(int s)
         song.rec = 1u | 8u; ui.hot_col = 3; ui.hot_t = 30;
         break;
     case S_FX_PHASER: case S_FX_WIDTH: case S_FX_FORMANT: case S_FX_TAPE: case S_FX_SPIT: case S_FX_ECHO: case S_FX_ROOM: case S_FX_REVERB: case S_FX_CHORUS: case S_FX_FULL:
-        go_title("FX 1");TSEL->p[P_FXTYPE]=(int16_t)(s==S_FX_FULL?FX_ECHO:s-S_FX_PHASER+1);
+        TSEL->p[P_FXTYPE]=(int16_t)(s==S_FX_FULL?FX_ECHO:s-S_FX_PHASER+1);go_title("FX 1");
         TSEL->p[P_FXMIX]=84;TSEL->p[P_FXRATE]=60;TSEL->p[P_FXCHAR]=72;
         if(s==S_FX_FULL)fx_state[(song.sel%NPART)*FX_SLOTS].failed=1;
         break;
-    case S_FX_SEND:
-        go_title("FX SEND");TSEL->p[P_FXSEND]=81;song.g[G_FXRETURN]=100;break;
-    case S_FX_SEPARATE:
-        song.g[G_FXMODE]=1;go_title("FX SEND");TSEL->p[P_FXSEND]=81;song.g[G_FXRETURN]=100;break;
-    case S_FX_SENDS:
-        song.g[G_FXMODE]=1;go_title("FX SENDS");TSEL->p[P_FXSEND]=50;TSEL->p[P_FXSEND2]=71;TSEL->p[P_FXSEND3]=99;break;
+    case S_FX_RACK: case S_FX_RACK_SPLIT: case S_FX_RACK_PICK: case S_FX_RACK_LIST: case S_FX_SHARED: case S_FX_SHARED_SPLIT: case S_FX_SHARED_SHEET:
+    case S_FX_TONE_DARK: case S_FX_TONE_THIN: {       /* the mock's chain: Echo, Room; shared Reverb, Echo */
+        static const int16_t ins[8]={FX_ECHO,84,60,72,FX_ROOM,51,70,64},bus[8]={FX_REVERB,127,90,100,FX_ECHO,51,60,72};
+        memcpy(TSEL->p+P_FXTYPE,ins,sizeof ins);memcpy(song.g+G_MFXTYPE,bus,sizeof bus);
+        TSEL->p[P_FXSEND]=81;TSEL->p[P_FXSEND2]=40;TSEL->p[P_FXSEND3]=0;song.g[G_FXRETURN]=100;
+        song.g[G_FXMODE]=s==S_FX_RACK_SPLIT || s==S_FX_SHARED_SPLIT;
+        if(s==S_FX_TONE_DARK){TSEL->p[P_FXTONE]=-30;go_title("FX 1");ui.hot_col=3;ui.hot_t=30;break;}
+        if(s==S_FX_TONE_THIN){song.g[G_MFXTONE]=40;go_title("SEND FX 1");break;}
+        go_title(s>=S_FX_SHARED?"SHARED":"FX");fx_rack_row[s>=S_FX_SHARED]=(uint8_t)(s==S_FX_RACK_PICK || s==S_FX_RACK_LIST?2:1);
+        if(s==S_FX_RACK_PICK){TSEL->p[P_FX3TYPE]=FX_TAPE;pick_touch(0);ui.hot_col=0;ui.hot_t=30;}
+        if(s==S_FX_RACK_LIST)vlist_open(ui.page,0);
+        if(s==S_FX_SHARED_SHEET)page_sheet_open();
+        break;
+    }
     case S_FX_BUS1: case S_FX_BUS2: case S_FX_BUS3:
-        go_title(s==S_FX_BUS1?"SEND FX 1":s==S_FX_BUS2?"SEND FX 2":"SEND FX 3");
-        for(uint32_t slot=0;slot<3;slot++){uint32_t b=G_MFXTYPE+slot*4;song.g[b]=slot==0?FX_REVERB:slot==1?FX_TAPE:FX_ECHO;song.g[b+1]=127;song.g[b+2]=90;song.g[b+3]=100;}break;
+        for(uint32_t slot=0;slot<3;slot++){uint32_t b=G_MFXTYPE+slot*4;song.g[b]=slot==0?FX_REVERB:slot==1?FX_TAPE:FX_ECHO;song.g[b+1]=127;song.g[b+2]=90;song.g[b+3]=100;}
+        go_title(s==S_FX_BUS1?"SEND FX 1":s==S_FX_BUS2?"SEND FX 2":"SEND FX 3");break;
     case S_FX_SLOT2: case S_FX_SLOT3:
-        go_title(s==S_FX_SLOT2?"FX 2":"FX 3");
         for(uint32_t slot=0;slot<FX_SLOTS;slot++){
             uint32_t base=P_FXTYPE+slot*FX_PARAMS;
             TSEL->p[base]=(int16_t)(slot==0?FX_PHASER:slot==1?FX_ECHO:FX_REVERB);
             TSEL->p[base+1]=84;TSEL->p[base+2]=60;TSEL->p[base+3]=72;
         }
+        go_title(s==S_FX_SLOT2?"FX 2":"FX 3");
         break;
     case S_ENV: go_title("ENV"); ui.hot_col = 2; ui.hot_t = 30; break;
     case S_ENVDEST: go_title("ENV DEST"); break;
@@ -1380,14 +1338,21 @@ static void setup(int s)
         if(s==S_DRUM_HIT_909 || s==S_DRUM_HIT_FREE || s==S_DRUM_HIT_LONG){recording_restore_note(TSEL,0,(recorded_note_t){27000,16384,38,100,(uint8_t)recording_owner(TSEL),4,7,s==S_DRUM_HIT_909});if(s==S_DRUM_HIT_LONG){recording[0].duration=65535;recording[0].owner|=224;recording[0].length=1;}ui.note_pick=1;ui.note_identity=recording[0];ui.note_generation=recording_generation;TSEL->step[4].flags|=SF_RECORDED;go_title("DRUM HIT");}
         else go_title(s==S_DRUM_MIX_909?"DRUM MIX":"DRUM SOUND");
         ui.hot_col=2;ui.hot_t=30;break;
+    case S_DRUM_HIT_TOMS:                               /* KNOB 2 on TOM M: its hits filled, TOM L's and H's hollow, the lane MT */
+        drum(DK_909);eng(ENGI_DRUM);TSEL->p[P_E0]=DK_909;TSEL->engine=TSEL->eng_req;TSEL->preset=1;song.playing=0;
+        TSEL->step[2].note[TSEL->step[2].n++]=41;TSEL->step[11].note[TSEL->step[11].n++]=50;
+        ui.drum_sound=D9_MT;ui.lane=DV_TOM;ui.cursor=7;go_title("DRUM HIT");ui.hot_col=1;ui.hot_t=30;break;
     case S_MENU_ADD: ui.menu=1;ui.menu_sel=MI_ADD;settings_chord_add=1;break;
     case S_MENU_AUTOSAVE_ON: ui.menu=1;ui.menu_sel=MI_AUTOSAVE;settings_autosave=1;break;
     /* HOME SELECT: the menu's row on MOD WHEEL; SELECT just turned on Stage (MOD WHEEL), on the chord view (LEVEL) */
-    case S_MENU_HOME_SEL: ui.menu = 1; ui.menu_sel = MI_HOME_SEL; HOME_SELECT = HS_MOD; break;
-    case S_HOME_SEL_MOD: go_home(); HOME_SELECT = HS_MOD; home_select_turn(64); HOME_SELECT = 0; break;
+    case S_MENU_HOME_SEL: ui.menu = 1; ui.menu_sel = MI_HOME_SEL; HOME_SELECT = HS_MOD; glo_select_set(HS_SWING); break;
+    case S_HOME_SEL_MOD: go_home(); HOME_SELECT = HS_MOD; select_turn(home_select(), 64); HOME_SELECT = 0; glo_select_set(0); break;
     case S_HOME_SEL_CHORD:
-        song.ntrk = 1; go_home(); HOME_SELECT = HS_CHORD; TSEL->p[P_CHRD] = 5; home_select_turn(1); HOME_SELECT = 0; break;
-    case S_HOME_SEL_LEVEL: go_home(); ui.home_pg = 1; memset(&view, 0, sizeof view); HOME_SELECT = HS_LEVEL; home_select_turn(-3); HOME_SELECT = 0; break;
+        song.ntrk = 1; go_home(); HOME_SELECT = HS_CHORD; TSEL->p[P_CHRD] = 5; select_turn(home_select(), 1); HOME_SELECT = 0; break;
+    case S_HOME_SEL_LEVEL: go_home(); ui.home_pg = 1; memset(&view, 0, sizeof view); HOME_SELECT = HS_LEVEL; select_turn(home_select(), -3); HOME_SELECT = 0; break;
+    /* SEQ + a white key held: its dialog over Stage (pattern 3 of track 1); one track armed, its row's red border */
+    case S_PAT_DIALOG: song.playing = 0; go_home(); ui.pat_dlg = 2; ui.confirm = CF_PAT_KEY; ui.confirm_trk = 0; break;
+    case S_STAGE_T1_REC: song.ntrk = 1; song.sel = 0; demo_pat16(&trk[0], DEMO_ACID); song.rec = 1u; go_home(); break;
     case S_MENU_AUTOSAVE_OFF: ui.menu=1;ui.menu_sel=MI_AUTOSAVE;settings_autosave=0;break;
     case S_MENU_HOLD: ui.menu = 1; ui.menu_sel = MI_HOLD; settings_hold = 2; break;
 #if MELODEE_USB_AUDIO
@@ -1456,8 +1421,6 @@ static void setup(int s)
 static void draw(int s)
 {
     nscr = npend = 0;
-    if (s != S_STAGE_LIGHT && s != S_VIEW_LIGHT)
-        glow_quiet();
     ntight = 0;
     tight[0] = 0;
     screen_clear();
@@ -1476,8 +1439,6 @@ static void draw(int s)
         setup_show("TURN RIGHT", "ALGORITHM");
         return;
     }
-    if (ui.hot_t && !ui.home)                     /* a knob just turned on a page: the hero over its picture */
-        hero_touch();
     ui.force = 1;
     ui_draw();
 }
@@ -1510,6 +1471,45 @@ static void sweep_screen_messages(void)
             nfind++;
         }
     }
+}
+
+/* Shared waiting status must remain in the header on every header implementation. */
+static void sweep_waiting_headers(const char *out)
+{
+    int previous_face = render_pixel;
+    static const int scenes[] = {S_HOME, S_TEMPO, S_PRESETS, S_SONG, S_PATGRID, S_SCALE_PICKER_EDO, S_MENU, S_ABOUT};
+    static uint16_t screen[240 * 240];
+    for (uint32_t face = 0; face < 2u; face++) for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++)
+    for (uint32_t s = 0; s < NELEM(scenes); s++) {
+        char name[96];
+        uint32_t seen = 0;
+        render_pixel = face;
+        setup(scenes[s]); pal(p);
+        song.rec = song.rec_wait = 1u << song.sel;
+        song.octave = 2; song.batt_raw = 520;
+        ui.msg_t = 0;
+        snprintf(name, sizeof name, "%s%s/%s/wait_loop", face ? "PIXEL " : "", UI_PALETTES[p].name, S_NAME[scenes[s]]);
+        cur_name = name;
+        draw(-1); lint();
+        for (uint32_t i = 0; i < nscr; i++)
+            seen |= !strcmp(scr[i].s, "WAIT LOOP") && scr[i].y0 >= 0 && scr[i].y1 <= H_HEAD;
+        if (!seen || toast_shown) { fprintf(rep, "MISSING %s: waiting in header without a toast\n", name); nfind++; }
+        if (!s && !p) write_ppm(out, face ? "PIXEL" : "NIGHT", "wait_loop");
+        for (uint32_t end = 0; end < 3u; end++) {
+            song.rec = song.rec_wait = 1u << song.sel;
+            ui_draw();
+            if (end == 2u) song.sel = (song.sel + 1u) % NTRK;
+            else { song.rec_wait = 0; if (end) song.rec = 0; }
+            nscr = npend = 0;
+            ui_draw(); lint();
+            memcpy(screen, host_screen, sizeof screen);
+            ui.force = 1; ui_draw();
+            if (memcmp(screen, host_screen, sizeof screen)) {
+                fprintf(rep, "STALE %s: waiting end %u differs from full redraw\n", name, end); nfind++;
+            }
+        }
+    }
+    render_pixel = previous_face;
 }
 
 /* Lists must show their labels and complete enum values, including rows scrolled off the initial screen. */
@@ -1843,25 +1843,6 @@ static void aud_page(const char *page, int playing)
     if (idle > 1000u)
         aud_note("idle, a frame", page, idle);
 }
-/* HOME's light (ui_glow.c) as a song plays: the kit every 16th, the bass every 8th, the other every quarter (120 BPM,
- * a frame 16 ms): what a frame sends, the light's part (less the same frames dark: glow_quiet each frame) */
-static void aud_light(int s, const char *page)
-{
-    uint32_t f, run, px[2], d = s == S_VIEW_LIGHT ? 2u : 3u;
-    for (run = 0; run < 2u; run++) {
-        setup(s); pal(1); glow_quiet(); cur_name = page;
-        ui.force = 1; frame(); aud_frames(2);
-        px[run] = 0;
-        for (f = 0; f < 64u; f++) {
-            if (f % 8u == 0u) { input_on(&trk[d], f % 32u ? 42 : 36, 110); drum_flash[d] |= f % 32u ? 0x08u : 0x09u; }
-            if (f % 16u == 0u) { input_off(&trk[0], 36); input_on(&trk[0], 36, 110); }
-            if (f % 32u == 0u) { input_off(&trk[1], 72); input_on(&trk[1], 72, 110); }
-            if (!run) glow_quiet();
-            px[run] += aud_frames(1);
-        }
-    }
-    aud_note("playing, a frame (the light's part)", page, px[1] > px[0] ? (px[1] - px[0]) / 64u : 0u);
-}
 static void audit_sends(FILE *rep)
 {
     uint32_t e, i, playing;
@@ -1894,8 +1875,6 @@ static void audit_sends(FILE *rep)
     state(); pal(1); drum(0); go_page(GR_ROLL); cur_name = "DRUM/NOTES grid";
     aud_page("DRUM/NOTES grid", 0);
     state(); pal(1); drum(0); go_page(GR_ROLL); aud_page("DRUM/NOTES grid", 1);
-    aud_light(S_STAGE_LIGHT, "STAGE light");
-    aud_light(S_VIEW_LIGHT, "HOME 2 light");
     aud_on = 0;
     fprintf(rep, "\nLCD load, the worst (px sent; the SPI 12 MHz: 1000 px ~ 1.3 ms; a full screen 57600 ~ 77 ms):\n");
     for (i = 0; i < naud && (i < 40u || getenv("UI_AUDIT")); i++)
@@ -2074,6 +2053,7 @@ int main(int argc, char **argv)
         lint();
         write_ppm(out, "PIXEL", S_NAME[s]);
     }
+    sweep_waiting_headers(out);
     sweep_screen_messages();
     sweep_list_rows();
     sweep_columns();
@@ -2100,6 +2080,7 @@ int main(int argc, char **argv)
         }
         if (fmp_charts - c0 != 96u) { fprintf(stderr, "ui_render: %u FM6 charts drawn of 96\n", fmp_charts - c0); return 1; }
     }
+    sweep_waiting_headers(out);
     sweep_screen_messages();
     sweep_list_rows();
     sweep_columns();

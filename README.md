@@ -7,6 +7,9 @@
 **TL;DR:** connect your FM-1 to a computer by USB, open the
 [web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
 
+Current builds use both CPU cores. Following the CPU voltage startup fix,
+single-core packages are retired from the build, release and installer workflows.
+
 Development builds with boot protection return to USB update mode after an interrupted
 firmware write, including power loss. Switch on again, or hold **OCT− alone** while
 switching on; three short key-light flashes mean you can reconnect USB and press Install
@@ -125,8 +128,8 @@ This removes the relocation step; it does not establish the cause of the reporte
 ## What's new in 1.3.0
 
 This release adds track and shared effects, one-pass recording, selectable USB capture,
-and an optional autosave setting. Standard (dual-core) and Single core firmware are
-available in the installer and release downloads.
+and an optional autosave setting. The original release downloads included
+standard and single-core firmware; the current installer offers dual-core firmware only.
 
 - **Effects:** three inserts per track and a shared three-slot return, with independent
   sends. Choose Phaser, Width, Formant, Tape, Spit, Echo, Room, Reverb or Chorus.
@@ -143,8 +146,8 @@ available in the installer and release downloads.
   It defaults ON, remembers the choice across power-offs, and leaves manual SAVE working.
 - **Clock choice:** the HOME menu's OVERCLOCK chooses 320 MHz (default) or 360 MHz for
   the next start. A CPU fault at 360 MHz returns the device to 320 MHz.
-- **Installer options:** stable and next nightly remain selectable, with Standard
-  and Single core variants for each.
+- **Installer options:** stable and nightly remain selectable. Current builds
+  use both CPU cores.
 - **Compatibility:** earlier Melodee project and template layouts load with their
   effect routing preserved. Back up before upgrading; older firmware may not reproduce
   the new effects and recording behavior.
@@ -152,8 +155,8 @@ available in the installer and release downloads.
 ## What's new in 1.2.1
 
 This release makes room for more voices. External effects are gone, the audio engine runs from fast
-internal RAM, and the firmware is about 115 KB smaller. Standard (dual-core) and Single core firmware
-are both available in the installer and release downloads.
+internal RAM, and the firmware is about 115 KB smaller. The original release downloads included
+standard and single-core firmware; the current installer offers dual-core firmware only.
 
 - **No external effects:** distortion, the SLICER, chorus, delay, reverb and the FX layer (repeat,
   reverse, filter sweeps, tape stop, freeze, harmonizer, flanger, phaser, FX LATCH and punch-in) are
@@ -180,8 +183,8 @@ are both available in the installer and release downloads.
 ## What's new in 1.1.0
 
 The minor release carries forward 1.0.2's native synth motion, pattern operations and UI fixes,
-with both Standard (dual-core) and Single core firmware available in the installer and release
-downloads. Both builds have the same features and project format.
+whose original release downloads included standard and single-core firmware
+with the same features and project format. Current builds use both cores.
 
 **On-device sound designer:** choose a sound goal or an expert synthesis path, start with INIT
 or your current tone, switch on the features the sound needs (Prophet pulse, Poly-Mod and unison,
@@ -206,11 +209,9 @@ or a sound page's action sheet. [Controls and saving](docs/SOUND_DESIGNER.md).
 
 ## What's new in 1.0.2
 
-- **Two installer builds:** Standard uses both cores. Choose **Single core** if your FM-1 crashes,
-  freezes or restarts into update mode with Standard. Single core never starts the second core;
-  PROPHET plays up to five voices instead of eight, and heavy FM6 and PROPHET sounds reach the CPU
-  limit sooner. Both builds have the same features and project format. Choose Standard and install
-  again to return to dual core.
+- **Historical installer builds:** 1.0.2 originally offered standard and single-core
+  packages with the same features and project format. Following the CPU voltage
+  startup fix, current builds and installer channels use both cores.
 - **Motion records the native synth settings:** Prophet and CZ-1 Stage knobs, their sound pages,
   and FM6 operator and voice pages now record and replay their changes. Arm REC, start playback,
   then turn a sound knob. Turning one while armed but stopped shows **PLAY TO RECORD MOTION**.
@@ -419,7 +420,9 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Stage (HOME):** the selected track's own four knobs (its engine's: the Prophet's cutoff, resonance, filter envelope
   and release, the CZ-1's wave, DCW, detune and vibrato), the notes and chord it plays in front of the live waveform
   (the last voicing stays after release; a DRUM track lights its lanes as they hit), and a lane per track: its sound,
-  its pattern (and the next one while it waits for the bar), the bar playing and its level
+  its pattern (and the next one while it waits for the bar), the bar playing and its level. An armed track's lane has a
+  soft red border: breathing while it waits, flashing on each beat while it records. A knob turning shows its value
+  in its cell, never over the picture
 - **Lights:** one grammar for keys and buttons: dark nothing there, dim something there, bright happening now,
   breathing waiting. The keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up
   while its note sounds, MIDI in too, and the idle buttons glow; REC breathes while armed and waiting for the pattern start, PLAY while
@@ -493,6 +496,7 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
   selected track's, as MIDI CC1; also sent to MIDI out), LEVEL, SWING, TRANSPOSE, CHORD (the chord its keys play:
   OFF, DIA3, DIA7, MAJ, MIN, DOM7, MAJ7, MIN7, SUS4, POW), ARP RATE, PATTERN (the selected track's next pattern) or OFF.
   The header shows the value
+- **GLO + SELECT** turns the menu's **GLO SELECT** on any page: the same choices, BPM by default
 - **Held:** GLO and SCL open their quick layers; EDIT undoes, SAVE saves the project, HOME opens the menu, SEQ the PATTERNS grid with
   the song under it, REC captures (below).
 - **Undo:** hold EDIT to undo the last sound or pattern load or Capture; hold it again to go further back (up to 8
@@ -507,10 +511,11 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
   SONG and GLO show the tracks in use; with one, Stage shows its sound across the screen in large type. Projects and
   the template keep their number of tracks; projects from before keep all four
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
-  transport. While playing, REC waits for that track's next pattern start, records one pass and
-  automatically disarms at its end while playback continues. While stopped and armed, the first
+  transport. While playing, REC waits for that track's next pattern start and keeps recording
+  across loops until tapped again or playback stops. STOP leaves the track armed for the next start.
+  SEQ + pattern-key shortcuts arm one pass and automatically disarm at its end. While stopped and armed, the first
   key or MIDI note starts playback and records from step zero, skipping count-in.
-  **REC + PLAY** arms and starts in one gesture
+  **REC + PLAY** arms and starts in one gesture, keeping recording active across loops
 - On Stage, OCT− / OCT+ shift the octave (both: reset). Everywhere else OCT+ enters, opens or
   confirms and OCT− goes back. During synth step editing they move the step cursor
 - Save a sound: stop, tap SAVE, choose USER and a slot, press OCT+ to open its sheet with
@@ -562,8 +567,15 @@ loads it at once. Hold **SAVE** to return to the sound you had before browsing.
 ### Patterns and songs
 
 Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8: the pattern playing is lit, the others
-holding notes glow, the one waiting for the loop end breathes. Hold a pattern key and press a second one to copy its
-notes, ties, timing, chance, drum hits and automation. **SEQ + SELECT** also chooses a pattern. While playing, each
+holding notes glow, the one waiting for the loop end breathes. Picking an empty pattern arms REC with it; on a
+pattern with notes, hit its key twice quickly to arm REC. These shortcuts record one pattern pass
+and automatically disarm. Selecting an empty pattern preserves existing explicit REC arming.
+Hold a pattern key alone for a second: a small dialog asks what next: press it again to delete the pattern, another
+pattern key to copy it there, OCT- to leave it. With SEQ held the first four black keys (F#, G#, A#, C#) select
+tracks 1–4 (the selected one lit, an armed one breathing). **SEQ + SELECT** also chooses a pattern. While playing,
+destructive edits wait for the track's loop end, as a pattern change does: deleting or clearing a pattern, clearing
+its motion, copying over a pattern in use or the one playing (the header says **… AT LOOP END**, the pattern's key
+breathes); STOP does them at once. Live edits (a note, a hit, ERASE, a motion lane) stay immediate. While playing, each
 track changes at its own loop end. Selecting the active pattern cancels a queued change. STOP applies pending choices.
 
 **SEQ > PATTERNS** (or hold SEQ) shows the four tracks' eight patterns at once: the one playing in the track's colour
@@ -785,9 +797,14 @@ calibration; the FPU conversion does not establish hardware fidelity.
   Each track keeps its own patch and function settings (MODERN / MARK I / OPL, pitch bend,
   portamento, wheel, foot, breath and aftertouch), saved with the project and the template
 - **CZ-1**: native Casio tones, with separate eight-point pitch, timbre and volume envelopes on each line
-- **SID**: a Commodore MOS 6581 / 8580 per note, modelled at the register level after reSID: three oscillators on the 16-bit frequency register (pulse width 12 bits, the 23-bit noise register, ring modulation, hard sync, combined waveforms sampled from real chips), the chip's envelope generator (16 rates, exponential decay, the ADSR delay), each revision's DACs and cutoff curve, the 6581's thump through the C64's output stage; 32 factory presets
+- **SID**: a Commodore MOS 6581 / 8580 per note, modelled at the register level after reSID: three oscillators on the 16-bit frequency register (pulse width 12 bits, the 23-bit noise register, ring modulation, hard sync, combined waveforms sampled from real chips), the chip's envelope generator (16 rates, exponential decay, the ADSR delay), each revision's DACs and cutoff curve, the 6581's thump through the C64's output stage; 32 factory presets. MODEL C64 6581 / C64 8580 plays the track as one channel of a C64 tune: one voice, with frequency, pulse width, cutoff and resonance written once a PAL frame (50 Hz) as a player routine writes them; in POLY a held chord is arpeggiated on that voice, one note a frame, with one gate and envelope for the whole chord
 - **DRUM**: synthesized TR-808 and TR-909 kits with the General MIDI key map. Every drum has its
-  own tuning, decay, tone, attack/snappy and level controls; recorded hits can override pitch and length
+  own tuning, decay, tone, attack/snappy and level controls; recorded hits can override pitch and length.
+  KIT SID plays the track as a C64 drum routine on one 6581: its three voices take the hits, each drum a
+  50 Hz frame program (waveform, frequency slide, gate) on the chip's envelope; TONE and RES set its filter
+  for kick, snare, toms and clap; DIGI ON plays kick and snare as 4-bit samples on the volume register
+  ($D418), synthesized at build time, and the voices ringing meanwhile follow that volume as on a C64.
+  Two factory kits: SID KIT (every drum on the chip's voices) and SID DIGI (DIGI ON)
 
 ANALOG, DIGITAL, PHASE, VOICE, NOISE, TRIO, WHEEL and PHYS are retired. Their engine IDs, saved edit
 values and favourite bits remain reserved; old tracks using these engines are silent. PROPHET replaces

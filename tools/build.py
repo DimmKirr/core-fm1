@@ -124,18 +124,9 @@ def generate():
 
 # ---- update loader
 
-def crc16(d, c=0):
-    for b in d:
-        c ^= b << 8
-        for _ in range(8):
-            c = ((c << 1) ^ 0x1021) if c & 0x8000 else c << 1
-        c &= 0xFFFF
-    return c
-
-
 def ldr_head(dcrc, a, b, attr, name):
     body = struct.pack("<HIIBBH16s", dcrc, a, b, attr, 0, 0, name)
-    return struct.pack("<H", crc16(body)) + body
+    return struct.pack("<H", fm1pkg_make.crc16(body)) + body
 
 
 def ldr_wrap(image):
@@ -148,9 +139,9 @@ def ldr_wrap(image):
         if len(c) > 4096 or lz4blk.decompress(c) != raw:
             raise SystemExit(f"loader: block {i // 4096} does not compress below 4096 B")
         blocks += struct.pack("<II", len(c), len(raw)) + c
-    inner = ldr_head(crc16(image), len(image), LOADER_LOAD, 0, LOADER_NAME)
+    inner = ldr_head(fm1pkg_make.crc16(image), len(image), LOADER_LOAD, 0, LOADER_NAME)
     body = inner + bytes(blocks)
-    return ldr_head(crc16(body), 0x20, len(body), 0x41, LOADER_NAME) + body
+    return ldr_head(fm1pkg_make.crc16(body), 0x20, len(body), 0x41, LOADER_NAME) + body
 
 
 def build_loader():
@@ -483,23 +474,25 @@ def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
     mode = ap.add_mutually_exclusive_group()
-    mode.add_argument("--nightly", action="store_true", help="development package from the current next commit")
+    mode.add_argument("--nightly", action="store_true", help="development package from the current Git commit")
     mode.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_9XY[Z], version string vX.Y[.Z]")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     name = "melodee.fwsc"
-    variant = "-1core" if os.environ.get("MELODEE_DUAL_CORE") == "0" else ""
+    if os.environ.get("MELODEE_DUAL_CORE", "1") != "1":
+        ap.error("Single-core firmware is retired; MELODEE_DUAL_CORE must be 1")
+    os.environ["MELODEE_DUAL_CORE"] = "1"
     if a.release:                   # X one digit, Y one or two (1.0: FM-1_910; 1.0.0: FM-1_91000),
         try:
             PRODUCT = fm1pkg_make.release_product(a.release)
         except ValueError as error:
             raise SystemExit(str(error)) from error
         VERSION = "v" + a.release.lower()      # e.g. v1.0, v1.1-rc1
-        name = f"melodee-{a.release}{variant}.fwsc"
+        name = f"melodee-{a.release}.fwsc"
     if a.nightly:
         revision = subprocess.check_output(["git", "rev-parse", "--short=7", "HEAD"], cwd=SRC, text=True).strip()
         VERSION = "next-" + revision
-        name = f"melodee-nightly{variant}.fwsc"
+        name = f"melodee-nightly.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
@@ -529,10 +522,10 @@ def main():
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
     print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}")
     if a.release:                   # what a release carries: the package, the app and every licence they need
-        rel = OUT / f"release-{a.release}{variant}"
+        rel = OUT / f"release-{a.release}"
         shutil.rmtree(rel, ignore_errors=True)
         (rel / "LICENSES").mkdir(parents=True)
-        app = f"melodee-{a.release}{variant}-app.bin"
+        app = f"melodee-{a.release}-app.bin"
         (rel / name).write_bytes(pkg)
         (rel / app).write_bytes(img)
         (rel / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(b).hexdigest()}  {n}\n"

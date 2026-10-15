@@ -9,11 +9,15 @@ normally, including its held-note pickup behavior.
 Arming while playing waits for that track's next pattern start; REC
 breathes while waiting and stays lit during recording. Keys and MIDI audition
 while waiting, and notes still held at the start enter the take there.
-Recording covers one complete pattern pass, then automatically disarms at its
-end while playback continues. Notes still held have their recorded lengths
-finished at that boundary; their live sound continues until release. Tap REC
-again for another pass, or tap it while waiting to cancel. Notes and knob motion
-share these boundaries, with either internal or external MIDI clock and any QNT.
+Explicit REC arming stays active across pattern loops, including notes held
+across loop zero. Tap REC again to finish the take, or tap it while waiting to
+cancel. STOP finishes the take and leaves the track armed for the next start.
+SEQ + pattern-key shortcuts still arm one complete pattern pass, then
+automatically disarm at its end while playback continues. Notes still held have
+their recorded lengths finished at that boundary; their live sound continues
+until release. Selecting an empty pattern preserves existing explicit REC
+arming. Notes and knob motion share these boundaries, with either internal or
+external MIDI clock and any QNT.
 
 Hold EDIT to undo the latest recording take in the selected pattern. Hold EDIT
 and tap OCT+ to redo it (EDIT + OCT- also undoes). One slot preserves the whole
@@ -34,8 +38,9 @@ shows the committed timing. Changing QNT later affects the next take only.
 An occupied manual step prevents the pass: the take is retained unchanged and
 the device shows **QNT STEP OCCUPIED**. Existing recorded notes and other banks
 are preserved.
-REC + PLAY arms and starts in one gesture (or waits for the next pattern start
-if already playing). Holding REC opens the mixer.
+REC + PLAY explicitly arms and starts in one gesture (or waits for the next
+pattern start if already playing), keeping recording active across loops.
+Holding REC opens the mixer.
 
 Hold HOME to open the menu. The following device preferences also appear in
 the web editor's settings and survive power-off:

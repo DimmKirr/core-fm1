@@ -7,8 +7,6 @@
   index.html                        redirect to the installer (the old URL keeps working)
   firmware/melodee-VER.fwsc         the package, both cores (+ LICENSE, LICENSING.md, LICENSES/: the
                                     packages hold JieLi SDK files under Apache-2.0, see LICENSING.md)
-  firmware/melodee-VER-1core.fwsc   the same release built with MELODEE_DUAL_CORE=0, for FM-1s that crash
-                                    with the dual-core build; the installer offers both
   firmware/melodee-nightly*.fwsc    next's development builds (nightly.json; publish_nightly.py), kept as published
   firmware/melodee-*-rc.*.fwsc      published release candidate (rc.json; publish_rc.py), kept as published
   webapp/installer/index.html       index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
@@ -17,20 +15,20 @@
                                     Nightly and release-candidate updates leave it in place.
   src/                              not touched
 
-  web/make_site.py build/melodee-X.Y.fwsc build/melodee-X.Y-1core.fwsc X.Y OUT_DIR
+  web/make_site.py build/melodee-X.Y.fwsc X.Y OUT_DIR
 
-The packages must be ones made by tools/fm1pkg_make.py (Melodee's own loader, no vendor files), from one
-release: their identity (FM-1_9xx, FM-1_9xxx from 0.10, FM-1_9xxxx for X.Y.Z) is read from them and must be
-the same; the device must report it after the install.
+Packages must be made by tools/fm1pkg_make.py (Melodee's own loader, no vendor files).
+Their identity is read from the package; the device must report it after installation.
 
 Manual screenshots are generated into web/manual/ and are not stored in git. A full
 publish and web/quick-host.sh run tools/manual_shots.py first — see BUILDING.md "Local site".
 The figure names are the <img src> values in web/manual/index.html. A full publish checks
 every one of them before it writes the output site, then replaces webapp/manual/ with the
-manual page and those screenshots. Other PNGs and older version folders are removed. An
+manual page and those screenshots. Other PNGs and older version folders are removed; nightly/ is preserved. An
 installer-only update does not read or replace the published manual.
 """
 import json
+import html as html_escape
 import re
 import shutil
 import sys
@@ -64,7 +62,7 @@ def check_package(pkg):
 
 
 def release_packages(out):
-    """A published site's release version and its two package paths."""
+    """A published site's release version and dual-core package path."""
     out = Path(out)
     manifest = out / "firmware/release.json"
     if manifest.exists():
@@ -75,7 +73,7 @@ def release_packages(out):
         if not match:
             raise SystemExit("Pages installer has no release metadata")
         release = json.loads(match[1])
-    return release["version"], {k: out / "firmware" / Path(v).name for k, v in release["pkg"].items()}
+    return release["version"], {"dual": out / "firmware" / Path(release["pkg"]["dual"]).name}
 
 
 def published(out, name):
@@ -84,32 +82,29 @@ def published(out, name):
     if not path.exists():
         return None
     spec = json.loads(path.read_text())
-    spec["pkg"] = {k: str(out / "firmware" / Path(v).name) for k, v in spec["pkg"].items()}
-    if set(spec["pkg"]) != {"dual", "single"}:      # an older manifest (the 320 MHz variant): until the next run
+    if "dual" not in spec["pkg"]:
         return None
+    spec["pkg"] = {"dual": str(out / "firmware" / Path(spec["pkg"]["dual"]).name)}
     return spec
 
 
 def channel(spec, label, stem, branch):
-    """a development channel's two packages (dual and single core) from one commit: {key: (path, bytes, identity,
-    published name)} and the installer's metadata"""
+    """Validate a dual-core development package and prepare installer metadata."""
     if not re.fullmatch(r"[0-9a-f]{40}", spec["commit"]):
         raise SystemExit(f"{label} commit must be a full Git SHA")
-    files = {}
-    for key, suffix in (("dual", ""), ("single", "-1core")):
-        path = Path(spec["pkg"][key])
-        data, identity = check_package(path)
-        files[key] = (path, data, identity, f"{stem}{suffix}.fwsc")
-    if files["dual"][2] != files["single"][2]:
-        raise SystemExit(f"{label} variants must have the same package identity")
-    if files["dual"][1] == files["single"][1]:
-        raise SystemExit(f"{label} variants must be distinct builds")
-    return files, {"version": spec["version"], "product": files["dual"][2], "branch": branch, "commit": spec["commit"],
-                   "builtAt": spec["builtAt"], "pkg": {k: "../../firmware/" + f[3] for k, f in files.items()}}
+    if set(spec["pkg"]) != {"dual"}:
+        raise SystemExit(f"{label} must offer dual-core firmware only")
+    path = Path(spec["pkg"]["dual"])
+    data, identity = check_package(path)
+    if branch == "nightly" and identity != "FM-1_900":
+        raise SystemExit("Nightly firmware must use development identity FM-1_900")
+    files = {"dual": (path, data, identity, f"{stem}.fwsc")}
+    return files, {"version": spec["version"], "product": identity, "branch": branch, "commit": spec["commit"],
+                   "builtAt": spec["builtAt"], "pkg": {"dual": "../../firmware/" + f"{stem}.fwsc"}}
 
 
 def release_history(out, current):
-    """Only validated stable package pairs are offered; keep their published bytes."""
+    """Offer validated stable dual-core packages, including historical releases."""
     releases = {current["version"]: current}
     fw = Path(out) / "firmware"
     for dual in fw.glob("melodee-*.fwsc"):
@@ -117,16 +112,9 @@ def release_history(out, current):
         if not match or int(match[1].split(".")[0]) < 1 or match[1] == current["version"]:
             continue
         version = match[1]
-        single = fw / f"melodee-{version}-1core.fwsc"
-        if not single.exists():
-            continue
         raw, product = check_package(dual)
-        raw1, product1 = check_package(single)
-        if product != product1 or raw == raw1:
-            raise SystemExit(f"{version}: historical releases need matching, distinct core builds")
         releases[version] = {"version": version, "product": product,
-                               "pkg": {"dual": "../../firmware/" + dual.name,
-                                       "single": "../../firmware/" + single.name}}
+                             "pkg": {"dual": "../../firmware/" + dual.name}}
     return [current] + [releases[v] for v in sorted(releases, key=lambda v: tuple(map(int, v.split("."))), reverse=True)
                         if v != current["version"]]
 
@@ -153,13 +141,15 @@ def require_manual(manual):
         raise SystemExit(f"{manual}: {len(missing)} screenshot(s) missing: {', '.join(missing)}")
 
 
-def publish_manual(src, dest):
-    """Replace dest with the manual page and the screenshots it embeds."""
+def publish_manual(src, dest, version=None, preserve_nightly=False):
+    """Publish the guide and embedded screenshots, optionally retaining its nightly child."""
     embedded = set(manual_figures(src))
     keep = {p.name for p in src.iterdir()
             if p.is_file() and (p.suffix.lower() != ".png" or p.name in embedded)}
     dest.mkdir(parents=True, exist_ok=True)
     for old in list(dest.iterdir()):
+        if preserve_nightly and old.name == "nightly" and old.is_dir():
+            continue
         if old.name in keep:
             continue
         if old.is_dir():
@@ -168,19 +158,24 @@ def publish_manual(src, dest):
             old.unlink()
     for name in sorted(keep):
         shutil.copy(src / name, dest / name)
+    if version is not None:
+        page = dest / "index.html"
+        text = page.read_text(encoding="utf-8").replace(
+            '<span data-firmware-version>development source</span>',
+            '<span data-firmware-version>' + html_escape.escape(version) + '</span>')
+        # A nightly guide lives one level below the stable guide.
+        if dest.name == "nightly":
+            text = text.replace('href="../editor/"', 'href="../../editor/"').replace(
+                'href="../installer/"', 'href="../../installer/"')
+        page.write_text(text, encoding="utf-8")
 
 
-def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None, manual=None):
-    pkg, single, out = Path(pkg), Path(single), Path(out)
+def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=None):
+    pkg, out = Path(pkg), Path(out)
     raw, product = check_package(pkg)
-    raw1, product1 = check_package(single)
-    if product1 != product:
-        raise SystemExit(f"{single}: identity {product1}, {pkg} is {product}: build both from one release")
-    if raw1 == raw:
-        raise SystemExit(f"{single} is {pkg}: the single-core package is built with MELODEE_DUAL_CORE=0")
     if nightly is None:
         nightly = published(out, "nightly")
-    nightly_files, nightly_meta = channel(nightly, "nightly", "melodee-nightly", "next") if nightly else ({}, None)
+    nightly_files, nightly_meta = channel(nightly, "nightly", "melodee-nightly", "nightly") if nightly else ({}, None)
     if rc is None:
         rc = published(out, "rc")
     rc_files, rc_meta = {}, None
@@ -193,9 +188,9 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None,
         strip_module((HERE / "fm1ota.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1backup.js").read_text(encoding="utf-8"))
     v = re.sub(r'[^A-Za-z0-9.-]', '-', version)
-    name, name1 = f"melodee-{v}.fwsc", f"melodee-{v}-1core.fwsc"
+    name = f"melodee-{v}.fwsc"
     release_meta = {"version": version, "product": product,
-                    "pkg": {"dual": "../../firmware/" + name, "single": "../../firmware/" + name1}}
+                    "pkg": {"dual": "../../firmware/" + name}}
     releases = release_history(out, release_meta)
     meta = json.dumps({**release_meta, "nightly": nightly_meta, "rc": rc_meta, "releases": releases})
     for mark in ("/*LIB*/", "/*META*/{}"):
@@ -208,7 +203,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None,
         require_manual(man_src)                     # before any write: a missing figure must leave the site untouched
     for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
-    keep = {name, name1, "melodee-nightly.fwsc", "melodee-nightly-1core.fwsc"}
+    keep = {name, "melodee-nightly.fwsc"}
     keep.update(file[3] for file in rc_files.values())
     keep.update(Path(path).name for release in releases for path in release["pkg"].values())
     for old in fw.glob("melodee-*.fwsc"):
@@ -219,9 +214,8 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None,
     if retired_editor.exists():
         shutil.rmtree(retired_editor)
     (inst / "index.html").write_text(html, encoding="utf-8")
-    for src, dest in ((pkg, fw / name), (single, fw / name1)):
-        if src.resolve() != dest.resolve():
-            shutil.copy(src, dest)
+    if pkg.resolve() != (fw / name).resolve():
+        shutil.copy(pkg, fw / name)
     (fw / "release.json").write_text(json.dumps(release_meta, indent=2) + "\n")
     (fw / "releases.json").write_text(json.dumps(releases, indent=2) + "\n")
     if nightly_meta:
@@ -245,7 +239,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None,
     for doc in ("LICENSE", "LICENSING.md"):
         shutil.copy(HERE.parent / doc, fw / doc)
     if not installer_only:
-        publish_manual(man_src, man)
+        publish_manual(man_src, man, version, preserve_nightly=True)
         shutil.copy(HERE / "editor.html", ed / "index.html")
         for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
             if (HERE / f).exists():
@@ -254,11 +248,10 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None,
             '<!doctype html><meta charset="utf-8"><title>Melodee</title>'
             '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
             '<a href="webapp/installer/">Melodee installer</a>\n', encoding="utf-8")
-    print(f"site: {out}: webapp/installer ({len(html)} B), webapp/editor, firmware/{name} ({len(raw)} B) and "
-          f"{name1} ({len(raw1)} B), {product}")
+    print(f"site: {out}: webapp/installer ({len(html)} B), webapp/editor, firmware/{name} ({len(raw)} B), {product}")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 5:
+    if len(sys.argv) != 4:
         sys.exit(__doc__)
-    main(*sys.argv[1:5])
+    main(*sys.argv[1:4])

@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: '0 2 * * *'
   push:
-    branches: [next]
+    branches: [nightly]
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: next
+          ref: nightly
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -56,22 +56,17 @@ jobs:
           ./build.sh --nightly
           cp build/melodee-nightly.fwsc build/melodee.fwsc
           tests/run_tests.sh
-      - name: Build single core
-        env:
-          MELODEE_DUAL_CORE: '0'
-          MELODEE_RAM_AUDIO: '1'
-        run: ./build.sh --nightly
       - name: Save build provenance and checksums
         run: |
           git rev-parse HEAD > build/nightly-commit.txt
           date -u +%Y-%m-%dT%H:%M:%SZ > build/nightly-built-at.txt
           cd build
-          sha256sum melodee-nightly.fwsc melodee-nightly-1core.fwsc > SHA256SUMS-nightly
+          sha256sum melodee-nightly.fwsc > SHA256SUMS-nightly
       - uses: actions/upload-artifact@v4
         with:
           name: melodee-nightly-${{ github.run_number }}
           path: |
-            build/melodee-nightly*.fwsc
+            build/melodee-nightly.fwsc
             build/nightly-*.txt
             build/SHA256SUMS-nightly
             LICENSE
@@ -87,19 +82,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python web/import_releases.py .nightly-pages --repo "$GITHUB_REPOSITORY"
-          # The published manual stays on the last stable release. This job updates the
-          # installer and the nightly packages only.
+          # Keep the stable guide; publish development documentation at its own path.
+          python tools/manual_shots.py
+          python tools/manual_shots.py --require
           commit=$(cat build/nightly-commit.txt)
           python web/publish_nightly.py .nightly-pages \
-            --dual build/melodee-nightly.fwsc --single build/melodee-nightly-1core.fwsc \
-            --version "next-${commit:0:7}" --commit "$commit" --built-at "$(cat build/nightly-built-at.txt)"
+            --dual build/melodee-nightly.fwsc \
+            --version "next-${commit:0:7}" --commit "$commit" --built-at "$(cat build/nightly-built-at.txt)" \
+            --manual web/manual
           cp build/SHA256SUMS-nightly .nightly-pages/firmware/SHA256SUMS-nightly
           cd .nightly-pages
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add webapp firmware
           if ! git diff --cached --quiet; then
-            git commit -m 'build: publish next nightly variants'
+            git commit -m 'build: publish nightly firmware'
             git push origin HEAD:gh-pages
           fi
       - name: Request and verify Pages publication

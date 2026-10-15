@@ -15,20 +15,19 @@ def publish(out, release_dir):
     version = info["version"]
     checksums = {name: digest for digest, name in
                  (line.split("  ", 1) for line in (release_dir / "SHA256SUMS").read_text().splitlines())}
-    packages = {}
-    for key, suffix, cores in (("dual", "", 1), ("single", "-1core", 0)):
-        name = f"melodee-{version}{suffix}.fwsc"
-        package = release_dir / name
-        data, product = check_package(package)
-        build = info["core_builds"][name]
-        if (hashlib.sha256(data).hexdigest() != checksums.get(name) or
-                checksums.get(name) != build["sha256"] or product != info["product"] or
-                build["MELODEE_DUAL_CORE"] != cores):
-            raise SystemExit(f"Release candidate package failed provenance/checksum checks: {name}")
-        packages[key] = package
+    if set(info["core_builds"]) != {f"melodee-{version}.fwsc"}:
+        raise SystemExit("Release candidates must contain dual-core firmware only")
+    name = f"melodee-{version}.fwsc"
+    package = release_dir / name
+    data, product = check_package(package)
+    build = info["core_builds"][name]
+    if (hashlib.sha256(data).hexdigest() != checksums.get(name) or
+            checksums.get(name) != build["sha256"] or product != info["product"] or
+            build["MELODEE_DUAL_CORE"] != 1):
+        raise SystemExit(f"Release candidate package failed provenance/checksum checks: {name}")
     stable, stable_packages = release_packages(out)
-    main(stable_packages["dual"], stable_packages["single"], stable, out,
-         rc={"pkg": packages, "version": version, "commit": info["commit"],
+    main(stable_packages["dual"], stable, out,
+         rc={"pkg": {"dual": package}, "version": version, "commit": info["commit"],
              "builtAt": info["builtAt"]}, installer_only=True)
 
 

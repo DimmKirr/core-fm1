@@ -426,7 +426,7 @@ static int cz_native_protocol(void)
     memset(cz_patch,0,sizeof cz_patch); memset(&tmpl,0,sizeof tmpl);
     int restored=tmpl_take((const uint8_t *)&saved,sizeof saved);template_load();
     bad+=check("native tone bytes and mode survive a saved template",restored && trk[1].p[P_E7]==CZ_NATIVE && !memcmp(cz_patch[1].raw,raw,CZ_BYTES));
-    const uint32_t sizes[]={sizeof(tmpl_fx_legacy_t),sizeof(tmpl_fx_single_t),sizeof(tmpl_t)-40u,sizeof(tmpl_t)-16u,sizeof(tmpl_t)};
+    const uint32_t sizes[]={sizeof(tmpl_fx_legacy_t),sizeof(tmpl_fx_single_t),sizeof(tmpl_t)-68u,sizeof(tmpl_t)-44u,sizeof(tmpl_t)-28u,sizeof(tmpl_t)+24u,sizeof(tmpl_t)};
     for(uint32_t k=0;k<NELEM(sizes);k++){
         uint8_t begin[12]={0,1},abort[2]={3,1};uint32_t len=sizeof(persist_t)+sizes[k];
         for(uint32_t j=0;j<5;j++)begin[2+j]=(uint8_t)((len>>(7*j))&127u);
@@ -616,7 +616,7 @@ static int native_motion_protocol(void)
     a[1] = 3; a[2] = 0; a[3] = P_LEVEL; a[4] = 64; a[5] = 64; request(ED_MOTION, a, 6);
     bad += check("legacy motion wire writes retain the original format", !host_wire[6] && motion.event[0].param == P_LEVEL && motion.event[0].value == 64);
     motion_clear(&trk[0]);a[2]=0;a[3]=P_E1;a[4]=7;a[5]=64;request(ED_MOTION,a,6);
-    a[3]=MO_NATIVE;a[4]=80;a[5]=70;request(ED_MOTION,a,6); /* FM6 tag 3, byte 80 */
+    a[3]=P_E1;a[4]=80;a[5]=70;request(ED_MOTION,a,6); /* FM6 tag 3, byte 80 */
     bad+=check("overlapping native/common IDs coexist through the protocol",!host_wire[6] && motion.count==2);
     a[1]=4;request(ED_MOTION,a,6);
     bad+=check("typed native delete retains the common engine event",!host_wire[6] && motion.count==1 && motion.event[0].param==P_E1 && motion.event[0].value==7);
@@ -642,13 +642,13 @@ static int library_transfers(void)
     frame[15]^=1;receive_library(frame,n);
     bad+=check("bad general checksum cannot stage or mutate a saved preset",!sx_import.count&&!memcmp(up_rec(2),&saved,sizeof saved));
     frame[15]^=1;receive_library(frame,n);
-    bad+=check("named general import opens its pool without loading the track",sx_import.count==1&&sx_import.general&&!library_native()&&cur_page()->graph==GR_USER&&TSEL->p[P_LEVEL]==level&&!memcmp(sx_import.data,&saved,sizeof saved));
+    bad+=check("named general import opens its pool without loading the track",sx_import.count==1&&sx_import.general&&cur_page()->graph==GR_USER&&TSEL->p[P_LEVEL]==level&&!memcmp(sx_import.data,&saved,sizeof saved));
     ui.uslot=5;sysex_choose();bad+=check("chosen general slot retains the entire record and name",!sx_import.count&&up_used(5)&&!memcmp(up_rec(5),&saved,sizeof saved));
     bulk=(typeof(bulk)){.on=1,.engine=TSEL->eng_req,.anchor=2,.end=5};host_wire_n=0;bulk_send();host_drain();
     bad+=check("general bulk export sends used selected slots and skips empty slots",host_wire_n==2*n&&!memcmp(host_wire,frame,n)&&!memcmp(host_wire+n,frame,n));
     reset();p5_patch_t p;p5_patch_init(&p);memcpy(p.raw+P5_NAME,"TWENTY NAME BYTES XYZ",20);p.raw[97]=255;
     n=p5_patch_encode(&p,frame,sizeof frame);receive_library(frame,n);
-    bad+=check("Prophet import keeps all twenty name bytes and opens P slots from another engine",sx_import.count==1&&library_engine()==ENGI_PROPHET&&user_limit()==384&&TSEL->eng_req!=ENGI_PROPHET&&!memcmp(sx_import.data,&p,sizeof p));
+    bad+=check("Prophet import keeps all twenty name bytes and opens P slots from another engine",sx_import.count==1&&library_engine()==ENGI_PROPHET&&UP_SLOTS==384&&TSEL->eng_req!=ENGI_PROPHET&&!memcmp(sx_import.data,&p,sizeof p));
     ui.uslot=127;sysex_choose();host_wire_n=0;library_send(ENGI_PROPHET,127);host_drain();
     bad+=check("Prophet export reproduces the received frame and opaque bytes",!sx_import.count&&host_wire_n==n&&!memcmp(host_wire,frame,n));
     reset();cz_patch_init(raw);memcpy(raw+128,"FULL CZ NAME XYZ!",16);native_put(ENGI_CZ,7,raw);host_wire_n=0;

@@ -240,6 +240,11 @@ static void arp_off(track_t *t)                  /* the sounding arp note ends (
 /* n and gate_n: sample time (INT), musical units (MIDI); a stopped external
  * transport uses real time converted to musical units for a tapped note's gate. */
 static volatile uint32_t beat_pos, beat_n;      /* clock units into the beat, beat of the bar (0..3) */
+/* destructive edits wait for a track's loop end while it plays (ui_input.c dq_poll): its loop ends so far; the banks one
+ * waits to destroy; the tracks kept silent from a loop end until it is done (a UI frame that missed the last step) */
+static volatile uint16_t seq_loops[NTRK];
+static volatile uint8_t seq_pend[NTRK], seq_hush;
+static const step_t SEQ_HUSH_STEP = {.time = ST_REST};
 static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
 {
     uint32_t period, cnt, list[64], len = 0, i, j, o;
@@ -613,6 +618,7 @@ static void rec_set(track_t *t, uint32_t on)
         song.rec &= (uint8_t)~bit;
         song.rec_wait &= (uint8_t)~bit;
         song.rec_pass &= (uint8_t)~bit;
+        song.rec_latch &= (uint8_t)~bit;
         recording_undo_finish(t);
     }
 }
@@ -1027,7 +1033,7 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         t->seq_idx = (uint16_t)((t->seq_idx + 1u) % (len ? len : 1u));
         if (!t->seq_idx && !starting && !chain.running) {
             uint8_t bit = (uint8_t)(1u << trk_index(t));
-            if (song.rec_pass & bit) rec_set(t, 0);
+            if (song.rec_pass & (uint8_t)~song.rec_latch & bit) rec_set(t, 0);
             else if (song.rec & song.rec_wait & bit) {
                 song.rec_wait &= (uint8_t)~bit;
                 song.rec_pass |= bit;
@@ -1039,6 +1045,13 @@ static void seq_grid_tick(track_t *t, uint32_t n)
             t->seq_idx = 0;
             period = seq_div_samples((uint32_t)t->p[P_SDIV]);
             len = (uint32_t)t->p[P_SLEN];
+        }
+        if (!t->seq_idx && !starting) {                 /* a loop end: an edit waiting on the bank now playing keeps it
+                                                         * silent until the UI has done it */
+            uint32_t k = trk_index(t);
+            seq_loops[k]++;
+            if ((seq_pend[k] >> t->pattern) & 1u)
+                seq_hush |= (uint8_t)(1u << k);
         }
         cap_step[trk_index(t)]++;
         if (!t->seq_idx && t == &trk[0] && !chain.running)
@@ -1061,6 +1074,8 @@ static void seq_grid_tick(track_t *t, uint32_t n)
                 }
                 t->rskip_n = 0;
             }
+            if ((seq_hush >> trk_index(t)) & 1u)
+                s = &SEQ_HUSH_STEP;
             seq_step(t, s, step_gate(s) ? step_samples(t, period, t->seq_idx) : period, skip);
         }
     }

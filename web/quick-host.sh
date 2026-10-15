@@ -68,7 +68,6 @@ fi
 
 "$PYTHON" "$ROOT/web/make_site.py" \
   "build/release-${VERSION}/melodee-${VERSION}.fwsc" \
-  "build/release-${VERSION}-1core/melodee-${VERSION}-1core.fwsc" \
   "$VERSION" "$SITE_DIR"
 
 "$PYTHON" -m http.server "$HOST_PORT" --directory "$SITE_DIR"

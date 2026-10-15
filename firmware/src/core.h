@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include "tuning.h"
 #include "audio_profile.h"
+#include "wire_bits.h"
 
 /* ------------------------------------------------------------ sizes --- */
 #define NVOICE 16                /* voice slots per part (FM6 plays Dexed's 16) */
@@ -69,7 +70,8 @@
 enum {
     F_INT, F_PCT, F_BIPCT, F_TIME, F_LFOHZ, F_CUTOFF, F_DB, F_SEMI, F_ENUM, F_BPM, F_NOTE,
     F_ONOFF, F_OCT, F_STEPS,
-    F_OFS, F_FMNOTE, F_FMFRQ    /* FM6's pages: 0 at the middle of the range, the DX7 break point, an operator's frequency */
+    F_OFS, F_FMNOTE, F_FMFRQ,   /* FM6's pages: 0 at the middle of the range, the DX7 break point, an operator's frequency */
+    F_TONE                      /* an FX slot's TONE: DARK (a high cut) .. FULL .. THIN (a low cut), fx_tone_hz */
 };
 
 typedef struct {
@@ -111,6 +113,7 @@ enum {                          /* per-track parameters */
     P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR,
     P_FXSEND, /* post-fader chain send, or send to slot 1 in separate mode */
     P_FXSEND2, P_FXSEND3,
+    P_FXTONE, P_FX2TONE, P_FX3TONE, /* each slot's wet-input TONE (fx_tone_hz): appended so existing common IDs stay fixed */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -118,7 +121,28 @@ enum {                          /* per-track parameters */
 #define FX_PARAMS 4u
 #define FX_CHAIN_COUNT (NPART+1u)
 #define FX_STATE_COUNT (FX_CHAIN_COUNT*FX_SLOTS)
-static int param_fx(uint32_t id) { return id>=P_FXTYPE && id<=P_FX3CHAR; }
+#define FX_TONE_MAX 63
+static int param_fx_tone(uint32_t id) { return id>=P_FXTONE && id<=P_FX3TONE; }
+static int fx_has_tone(int32_t type) { return type>=6 && type<=8; }   /* fx.c FX_ECHO, FX_ROOM, FX_REVERB */
+static int param_fx(uint32_t id) { return (id>=P_FXTYPE && id<=P_FX3CHAR) || param_fx_tone(id); }
+/* TONE -63..63 -> the cut it sets (Hz), 0 = FULL (none but the effect's own floor, fx_floor_hz): below 0 a high cut,
+ * 2640 Hz at -1 down to 120 Hz at -63; above 0 a low cut, 150 Hz at 1 up to 1280 Hz at 63 (squared: fine steps where
+ * the ear needs them) */
+static int32_t fx_tone_hz(int32_t v)
+{
+    int32_t a = v < 0 ? -v : v;
+    if (a > FX_TONE_MAX) a = FX_TONE_MAX;
+    return v > 0 ? 150 + a * a * 1130 / 3969 : v < 0 ? 120 + (64 - a) * (64 - a) * 2520 / 3969 : 0;
+}
+/* the low cut ECHO (100 Hz), ROOM and REVERB (150 Hz) keep at FULL and under a high cut: what enters them never booms */
+#define FX_FLOOR_ECHO 100
+#define FX_FLOOR_SPACE 150
+static int32_t fx_floor_hz(int32_t type) { return type == 6 ? FX_FLOOR_ECHO : FX_FLOOR_SPACE; }
+static int32_t fx_low_cut_hz(int32_t type, int32_t v)   /* an ECHO / ROOM / REVERB slot's low cut at TONE v */
+{
+    int32_t f = fx_floor_hz(type), t = v > 0 ? fx_tone_hz(v) : 0;
+    return t > f ? t : f;
+}
 static int param_fx_send(uint32_t id) { return id>=P_FXSEND && id<=P_FXSEND3; }
 
 
@@ -139,6 +163,7 @@ enum {                          /* global parameters */
     G_FXRETURN,
     G_FXMODE, /* 0: one shared serial chain; 1: independent slot sends */
     G_BUDGET, /* device-wide shared workload allowance; appended, not a song field */
+    G_MFXTONE, G_MFX2TONE, G_MFX3TONE, /* the shared slots' TONE */
     G_COUNT
 };
 static int param_master_fx(uint32_t id){return id>=G_MFXTYPE && id<=G_MFX3CHAR;}
@@ -292,28 +317,24 @@ static int drum_patch_valid(const drum_patch_t *p)
     return 1;
 }
 #define DRUM_WIRE_BYTES 54u /* 16 voices x (6-bit tune, 7-bit decay/character/attenuation) */
-static void drum_wire_put(uint8_t *b,uint32_t *pos,uint32_t v,uint32_t n)
-{while(n--){b[*pos>>3]|=(uint8_t)((v&1u)<<(*pos&7u));v>>=1;++*pos;}}
-static uint32_t drum_wire_get(const uint8_t *b,uint32_t *pos,uint32_t n)
-{uint32_t v=0;for(uint32_t i=0;i<n;i++,++*pos)v|=(uint32_t)((b[*pos>>3]>>(*pos&7u))&1u)<<i;return v;}
 static void drum_patch_pack(uint8_t *b,const drum_patch_t *p)
 {
     memset(b,0,DRUM_WIRE_BYTES);uint32_t pos=0;
     for(uint32_t i=0;i<16;i++){
-        drum_wire_put(b,&pos,(uint32_t)(p->c[i][0]+24),6);
-        drum_wire_put(b,&pos,(uint32_t)(p->c[i][1]+64),7);
-        drum_wire_put(b,&pos,(uint32_t)(p->c[i][2]+64),7);
-        drum_wire_put(b,&pos,(uint32_t)p->c[i][3],7);
+        wire_bits_put(b,&pos,(uint32_t)(p->c[i][0]+24),6);
+        wire_bits_put(b,&pos,(uint32_t)(p->c[i][1]+64),7);
+        wire_bits_put(b,&pos,(uint32_t)(p->c[i][2]+64),7);
+        wire_bits_put(b,&pos,(uint32_t)p->c[i][3],7);
     }
 }
 static int drum_patch_unpack(drum_patch_t *p,const uint8_t *b)
 {
     uint32_t pos=0;
     for(uint32_t i=0;i<16;i++){
-        p->c[i][0]=(int8_t)((int32_t)drum_wire_get(b,&pos,6)-24);
-        p->c[i][1]=(int8_t)((int32_t)drum_wire_get(b,&pos,7)-64);
-        p->c[i][2]=(int8_t)((int32_t)drum_wire_get(b,&pos,7)-64);
-        p->c[i][3]=(int8_t)drum_wire_get(b,&pos,7);
+        p->c[i][0]=(int8_t)((int32_t)wire_bits_get(b,&pos,6)-24);
+        p->c[i][1]=(int8_t)((int32_t)wire_bits_get(b,&pos,7)-64);
+        p->c[i][2]=(int8_t)((int32_t)wire_bits_get(b,&pos,7)-64);
+        p->c[i][3]=(int8_t)wire_bits_get(b,&pos,7);
     }
     return drum_patch_valid(p);
 }
@@ -424,7 +445,8 @@ typedef struct {
     uint8_t grid;                /* 1: the keys are the DRUM grid (ui.c grid_on): only the lane keys play (seq.c);
                                   * 2: NAME (ui_name.c): no key plays */
     uint8_t rec;                 /* live recording armed: bit per track */
-    uint8_t rec_wait, rec_pass;   /* waiting for loop zero, or recording one pattern pass */
+    uint8_t rec_wait, rec_pass;   /* waiting for loop zero, or recording since pattern start */
+    uint8_t rec_latch;           /* explicit REC stays armed across pattern ends: bit per track */
     uint8_t sel;                 /* selected track 0..trk_n()-1: keys, pages, editor */
     uint8_t ntrk;                /* tracks in use: 1..ntrk play, the rest wait empty and silent (0: all NTRK) */
     int8_t octave;

@@ -210,6 +210,9 @@ static const param_desc_t TP[P_COUNT] = {
     [P_FXSEND] = PD("SEND", F_PCT, 0, 127, 0),
     [P_FXSEND2] = PD("SEND 2", F_PCT, 0, 127, 0),
     [P_FXSEND3] = PD("SEND 3", F_PCT, 0, 127, 0),
+    [P_FXTONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
+    [P_FX2TONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
+    [P_FX3TONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
     [P_CHRD] = PE("CHRD", N_CHRD, 0),
     [P_VOIC] = PE("VOIC", N_VOIC, 0),
     [P_MPCDEG] = PD("DEG", F_INT, 1, 12, 1),         /* its max: the scale's notes (track_desc) */
@@ -258,6 +261,9 @@ static const param_desc_t GP[G_COUNT] = {
     [G_FXRETURN] = PD("RETURN", F_PCT, 0, 127, 100),
     [G_FXMODE] = {"MODE", F_ENUM, 0, 1, 0, (const char *const []){"CHAIN", "SPLIT"}, 0},
     [G_BUDGET] = {"BUDGET", F_INT, 8, 32, VOICE_BUDGET_DEFAULT, 0, "pts"},
+    [G_MFXTONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
+    [G_MFX2TONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
+    [G_MFX3TONE] = PD("TONE", F_TONE, -FX_TONE_MAX, FX_TONE_MAX, 0),
 
 };
 
@@ -273,7 +279,7 @@ static const param_desc_t *global_desc(uint32_t id)
 static uint32_t scale_count(const track_t *t);          /* seq.c */
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
-    if (param_fx(id) && ((id-P_FXTYPE)%FX_PARAMS)>=2u) {
+    if (param_fx(id) && !param_fx_tone(id) && ((id-P_FXTYPE)%FX_PARAMS)>=2u) {
         static param_desc_t fx_desc;
         static const char *const character[] = {"CHAR", "DEPTH", "DEPTH", "FOCUS", "JITTER", "BITE", "REPEAT", "DECAY", "DEPTH", "DEPTH"};
         uint32_t base=P_FXTYPE+(id-P_FXTYPE)/FX_PARAMS*FX_PARAMS;
@@ -376,6 +382,9 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
         *unit = "Hz";
         break;
     }
+    case F_TONE:                                      /* (the cut's frequency: the FX picture's strip) */
+        str_cpy(val, v < 0 ? "DARK" : v > 0 ? "THIN" : "FULL", 6);
+        break;
     case F_CUTOFF: {
         uint32_t h = CUTOFF_HZ[v & 127];
         if (h < 1000u) {
@@ -471,7 +480,8 @@ enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS 
                                                                   * CZ1: a native CZ-1 tone (cz_edit.h) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_MOD, GR_PATS, GR_SONG, GR_MOTION, GR_CHORD, GR_SLICES,
-       GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_CZTOOLS, GR_SCALE_PICKER, GR_DRUMHIT, GR_PATGRID }; /* NOTES shares GR_ROLL for steps and recorded events */
+       GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_CZTOOLS, GR_SCALE_PICKER, GR_DRUMHIT, GR_PATGRID,
+       GR_FXRACK }; /* NOTES shares GR_ROLL for steps and recorded events */
 
 typedef struct {
     const char *title;
@@ -488,17 +498,19 @@ typedef struct {
     {t " L5-8", FAM_EDIT, SC_CZ1, GR_NONE, {LCZ_EBASE(l, e) + 12, LCZ_EBASE(l, e) + 13, LCZ_EBASE(l, e) + 14, LCZ_EBASE(l, e) + 15}}, \
     {t " POINT", FAM_EDIT, SC_CZ1, GR_NONE, {LCZ_EBASE(l, e) + 16, LCZ_EBASE(l, e) + 17, 0xFF, 0xFF}}
 
-#define G_TRK_SEND 0xFDu
 #define G_TRK_RECQ 0xFEu                                 /* a global page's column that is the selected track's P_RECQ */
 static const page_t PAGES[] = {
-    {"FX 1", FAM_FX, SC_TRACK, GR_NONE, {P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR}},
-    {"FX 2", FAM_FX, SC_TRACK, GR_NONE, {P_FX2TYPE, P_FX2MIX, P_FX2RATE, P_FX2CHAR}},
-    {"FX 3", FAM_FX, SC_TRACK, GR_NONE, {P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR}},
-    {"FX SEND", FAM_FX, SC_GLOBAL, GR_NONE, {G_TRK_SEND, G_FXRETURN, G_FXMODE, 0xFF}},
-    {"FX SENDS", FAM_FX, SC_TRACK, GR_NONE, {P_FXSEND, P_FXSEND2, P_FXSEND3, 0xFF}},
-    {"SEND FX 1", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFXTYPE, G_MFXMIX, G_MFXRATE, G_MFXCHAR}},
-    {"SEND FX 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX2TYPE, G_MFX2MIX, G_MFX2RATE, G_MFX2CHAR}},
-    {"SEND FX 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX3TYPE, G_MFX3MIX, G_MFX3RATE, G_MFX3CHAR}},
+    /* FX (docs/design README "FX rack"): the track's rack, its three slots (shown while they hold an effect), the
+     * shared rack, its three slots. A rack: KNOB 2 the row (fx_rack_row), 1 its effect, 4 its amount, SHARED's 3 ROUTE
+     * (page_desc) */
+    {"FX", FAM_FX, SC_TRACK, GR_FXRACK, {P_FXTYPE, 0xFF, 0xFF, P_FXMIX}},
+    {"FX 1", FAM_FX, SC_TRACK, GR_NONE, {P_FXMIX, P_FXRATE, P_FXCHAR, P_FXTONE}},
+    {"FX 2", FAM_FX, SC_TRACK, GR_NONE, {P_FX2MIX, P_FX2RATE, P_FX2CHAR, P_FX2TONE}},
+    {"FX 3", FAM_FX, SC_TRACK, GR_NONE, {P_FX3MIX, P_FX3RATE, P_FX3CHAR, P_FX3TONE}},
+    {"SHARED", FAM_FX, SC_GLOBAL, GR_FXRACK, {G_MFXTYPE, 0xFF, 0xFF, G_MFXMIX}},
+    {"SEND FX 1", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFXMIX, G_MFXRATE, G_MFXCHAR, G_MFXTONE}},
+    {"SEND FX 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX2MIX, G_MFX2RATE, G_MFX2CHAR, G_MFX2TONE}},
+    {"SEND FX 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_MFX3MIX, G_MFX3RATE, G_MFX3CHAR, G_MFX3TONE}},
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* the former fourth slot: SEQ > TEMPO's QNT */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
@@ -595,6 +607,8 @@ static const page_t PAGES[] = {
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
+static uint8_t fx_rack_row[2];   /* the racks' rows KNOB 2 picks: FX's (0..2 its slots, 3 the shared FX), SHARED's
+                                  * (0..2 its slots, 3 RETURN) */
 
 /* FM6's pages: the value in column slot (a copy in fm6_cell) and its descriptor; 0 = none (not an FM6 track) */
 static const param_desc_t *fm6_page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
@@ -652,6 +666,53 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
     fm6_put_patch(tr, v, 0);
 }
 
+/* a rack's KNOB 1 (its row's effect) and KNOB 4 (the row's amount): FX's slots their MIX, its shared row the track's
+ * SEND (CHAIN; in SPLIT the track's three sends are SHARED's rows); SHARED's slots their MIX (SPLIT: the track's send to
+ * each), its last row RETURN. SHARED's KNOB 3: ROUTE (G_FXMODE) */
+static const param_desc_t *fx_rack_desc(const page_t *pg, uint32_t slot, int16_t **valp)
+{
+    uint32_t shared = pg->scope == SC_GLOBAL, r = fx_rack_row[shared] & 3u, id;
+    *valp = 0;
+    if (slot == 0u && r < FX_SLOTS && !shared) {
+        id = P_FXTYPE + r * FX_PARAMS;
+        *valp = &TSEL->p[id];
+        return track_desc(TSEL, id);
+    }
+    if (slot == 0u && r < FX_SLOTS) {                   /* (SHARED's effect: "FX" as the track's, not TYPE) */
+        static param_desc_t type;
+        id = G_MFXTYPE + r * FX_PARAMS;
+        *valp = &song.g[id];
+        type = *global_desc(id);
+        type.label = "FX";
+        return &type;
+    }
+    if (slot == 2u && shared) {                         /* SHARED's KNOB 3: the routing, CHAIN or SPLIT (its sheet too) */
+        static param_desc_t route;
+        *valp = &song.g[G_FXMODE];
+        route = *global_desc(G_FXMODE);
+        route.label = "ROUTE";
+        return &route;
+    }
+    if (slot != 3u || (!shared && r == FX_SLOTS && song.g[G_FXMODE]))
+        return 0;
+    if (shared && r == FX_SLOTS) {
+        *valp = &song.g[G_FXRETURN];
+        return global_desc(G_FXRETURN);
+    }
+    if (shared && !song.g[G_FXMODE]) {
+        *valp = &song.g[G_MFXMIX + r * FX_PARAMS];
+        return global_desc(G_MFXMIX + r * FX_PARAMS);
+    }
+    id = shared ? P_FXSEND + r : r < FX_SLOTS ? P_FXMIX + r * FX_PARAMS : P_FXSEND;
+    *valp = &TSEL->p[id];
+    if (shared) {                                       /* (SPLIT: "SEND", the row says to which) */
+        static param_desc_t send;
+        send = *track_desc(TSEL, id);
+        send.label = "SEND";
+        return &send;
+    }
+    return track_desc(TSEL, id);
+}
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
@@ -681,6 +742,8 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP)
         return fm6_page_desc(pg, slot, valp);
     if(pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT){*valp=0;return 0;}
+    if (pg->graph == GR_FXRACK)
+        return fx_rack_desc(pg, slot, valp);
     if (id == 0xFFu) {
         *valp = 0;
         return 0;
@@ -688,10 +751,6 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (pg->scope == SC_STEP || pg->scope == SC_TRK) {
         *valp = 0;
         return 0;
-    }
-    if(id==G_TRK_SEND || (pg->scope==SC_TRACK && id==P_FXSEND)){
-        static param_desc_t d;*valp=&TSEL->p[P_FXSEND];d=*track_desc(TSEL,P_FXSEND);
-        if(song.g[G_FXMODE])d.label="SEND 1";return &d;
     }
     if (id == G_TRK_RECQ) {                          /* (TEMPO's QNT: the selected track's recording quantise) */
         *valp = &TSEL->p[P_RECQ];
@@ -714,6 +773,12 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         drumch_cell = settings_drumch;                   /* (as BOOT) */
         *valp = &drumch_cell;
         return global_desc(id);
+    }
+    if ((pg->scope == SC_GLOBAL && id >= G_MFXTONE && id <= G_MFX3TONE &&    /* TONE: ECHO, ROOM and REVERB only */
+         !fx_has_tone(song.g[G_MFXTYPE + (id - G_MFXTONE) * FX_PARAMS])) ||
+        (pg->scope == SC_TRACK && param_fx_tone(id) && !fx_has_tone(TSEL->p[P_FXTYPE + (id - P_FXTONE) * FX_PARAMS]))) {
+        *valp = 0;
+        return 0;
     }
     if (pg->scope == SC_GLOBAL) {
         *valp = &song.g[id];

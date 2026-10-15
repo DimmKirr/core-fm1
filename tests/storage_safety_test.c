@@ -32,7 +32,7 @@ int main(void)
     uint32_t before = erases;
     bad += check("protocol cannot overwrite an old bank implicitly", up_put(0, &rec) == 2 && erases == before && same_object(OBJ_UPRESET0, old, sizeof old));
     set_engine(9u); user_page(); confirm_open(CF_OVR_USER, 0);
-    bad += check("device save asks about the whole old bank", ui.confirm == CF_OVR_USER && user_old_bank(0));
+    bad += check("device save asks about the whole old bank", ui.confirm == CF_OVR_USER && up_old_bank(0));
     ui.confirm = 0;
     bad += check("cancel retains old bank and no write authority", !preset_old_write && same_object(OBJ_UPRESET0, old, sizeof old));
     confirm_open(CF_OVR_USER, 0); ui.confirm = 0; ui.name_active = 1;

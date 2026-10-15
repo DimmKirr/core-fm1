@@ -27,7 +27,7 @@ static const char *const PRESET_CAT[NENGINES] = {
     [11] = "FFFF",                                      /* NOISE */
 #endif
     [3] = "OLBBBBBBLLLLLLLLPSPPGGKKUUERFFFF",          /* SID */
-    [10] = "DD",                                        /* DRUM: the kits */
+    [10] = "DDDD",                                      /* DRUM: the kits (808, 909, SID, SID DIGI) */
     [12] = "KEBRPEGUKRBEEKGSPLUEWEBEO",                 /* FM6, INIT VOICE */
     [ENGI_CZ] = "ORRRSSSSSUUUBBBBURWSWWWWUKKKKKKKKGGGGGPPPEEEEEDEESSULLLLFDDDEFFFF",   /* INIT TONE, Casio's 64 */
     [ENGI_PROPHET] =                                    /* INIT, Sequential's 200 */
@@ -230,11 +230,6 @@ static void list_set(uint32_t m)
     list_lcat = (uint8_t)(m >= LM_CAT && m < LM_N ? CAT_ORDER[m - LM_CAT] : 0u);
     brw.on = 0;
 }
-static const char *list_name(uint32_t m)
-{
-    return m == LM_ALL ? "ALL" : m == LM_FAV ? "FAV" : m == LM_RECENT ? "RECENT" :
-           CAT_NAME[m - LM_CAT < NELEM(CAT_ORDER) ? CAT_ORDER[m - LM_CAT] : CAT_OTHER];
-}
 static int list_keep(uint32_t m, uint32_t src, uint32_t k)
 {
     return m == LM_ALL ? 1 : m == LM_FAV ? favorite_has(src, k) :
@@ -246,7 +241,7 @@ static int list_keep(uint32_t m, uint32_t src, uint32_t k)
  * the user presets */
 #define LSEG_USER (2u * NENG_SHOWN)
 static uint32_t lseg_src(uint32_t seg){return seg&1u?USER_GENERAL:eng_vis(seg/2u);}
-static uint32_t lseg_len(uint32_t seg){return seg&1u?UP_SLOTS:preset_shown(eng_vis(seg/2u));}
+static uint32_t lseg_len(uint32_t seg){return seg&1u?UP_SLOTS:ENGINES[eng_vis(seg/2u)]->npresets;}
 static uint32_t list_scan(uint32_t m, uint32_t ws, uint32_t wk, uint32_t n, uint32_t *as, uint32_t *ak,
                           uint32_t *total)
 {

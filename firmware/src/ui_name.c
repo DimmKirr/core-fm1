@@ -57,8 +57,9 @@ static void name_close(void)
         ui.force = 1;
     nm.kind = NK_NONE; ui.name_active = 0;
 }
-/* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads song.grid) */
-static uint32_t keys_mode(void) { return name_on() ? 2u : designer_on() ? 0u : (uint32_t)grid_on(); }
+/* the keys: 2 = NAME's and SEQ's pattern dialog's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads
+ * song.grid) */
+static uint32_t keys_mode(void) { return name_on() || ui.confirm == CF_PAT_KEY ? 2u : designer_on() ? 0u : (uint32_t)grid_on(); }
 
 static const char *nm_group(uint32_t p)                /* white key place p's characters */
 {
@@ -129,7 +130,7 @@ static void name_rename(void)
     uint32_t k = user ? ui.uslot : (uint32_t)song.g[G_SLOT] - 1u;
     if (!user && song.g[G_SLOT] == PROJ_TMPL)
         return;                                       /* (the template has no name) */
-    if (!(user ? user_used(k) : project_used(k)))
+    if (!(user ? up_used(k) : project_used(k)))
         ui_message("EMPTY SLOT");
     else if (transport_busy())
         ui_message("STOP TO SAVE");
@@ -246,10 +247,10 @@ static void name_ok(void)
         cz_compare_take(nm.slot);memset(cz_patch[nm.slot].raw+128,' ',CZ_NAME_LEN);memcpy(cz_patch[nm.slot].raw+128,b,str_len(b));
         ui_message("TONE NAMED");break;
     case NK_USER_SAVE:
-        user_ui_named(2, nm.slot, b);
+        up_ui_named(2, nm.slot, b);
         break;
     case NK_USER_RENAME:
-        user_ui_named(3, nm.slot, b);
+        up_ui_named(3, nm.slot, b);
         break;
     case NK_PROJ_SAVE:
         project_save_as(nm.slot, b);
@@ -321,7 +322,7 @@ static void nm_title(char *b)
     str_cpy(b, nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE ? "SAVE " : "NAME ", 8);
     if(nm.kind==NK_CZ_NAME){str_cpy(b,"NAME CZ TONE",24);return;}
     if (nm.kind <= NK_USER_RENAME)
-        user_label(b + 5, nm.slot);
+        up_slot_label(b + 5, nm.slot);
     else
         str_cpy(b + 5, nm.ph, 12);                     /* "PROJECT A" */
 }

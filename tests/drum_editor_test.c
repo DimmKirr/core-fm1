@@ -89,6 +89,35 @@ static int edits_and_store(void)
     bad+=check("template restores the edited drum kit",drum_patch[0].c[D9_BD][0]==5 && drum_patch[0].c[D9_LT][3]==19);
     return bad;
 }
+static int order_and_lanes(void)
+{
+    int bad=0;
+    for(uint32_t model=DK_808;model<=DK_909;model++){
+        kit(model);scope(SC_DRUMHIT);recording_clear(TSEL);drum_pick(drum_sound_step(TSEL,0,-99));
+        uint32_t n=drum_sound_count(TSEL),seen=0,lane=0,ok=ui.drum_sound==D9_BD;
+        for(uint32_t k=0;k<n;k++){
+            uint32_t s=ui.drum_sound,l=drum_lane(drum_sound_note(TSEL,s));
+            ok&=!((seen>>s)&1u) && l>=lane && ui.lane==l;seen|=1u<<s;lane=l;
+            drum_hit_edit(1,1);
+        }
+        bad+=check("KNOB 2 walks every drum once, lane by lane in the black keys' order",ok && seen==(1u<<n)-1u);
+        drum_pick(D9_LT);drum_hit_edit(1,1);
+        bad+=check("the toms sit together, low to high",ui.drum_sound==D9_MT && ui.lane==DV_TOM && (drum_hit_edit(1,1),ui.drum_sound==D9_HT));
+        for(uint32_t k=0;k<27u;k++)if(key_black(k) && key_place(k)==DV_RIM)grid_keys(1u<<k);
+        bad+=check("a lane key picks its lane's own drum and lights its lane",ui.drum_sound==D9_RS && ui.lane==DV_RIM);
+    }
+    kit(DK_909);scope(SC_DRUMHIT);recording_clear(TSEL);cursor_set(5);
+    TSEL->step[5]=(step_t){{41,50},2,ST_NOTE,0,100,1u<<DV_TOM,0,0};
+    drum_pick(D9_LT);int lt=step_sound_note(TSEL,&TSEL->step[5],D9_LT)==41;
+    drum_pick(D9_MT);int mt=step_sound_note(TSEL,&TSEL->step[5],D9_MT)==DRUM_LANE_NOTE[DV_TOM];
+    bad+=check("each tom of a step is told apart",lt && mt && step_sound_note(TSEL,&TSEL->step[5],D9_HT)==50 && step_sound_note(TSEL,&TSEL->step[5],D9_BD)<0);
+    TSEL->step[5]=(step_t){{0},0,ST_NOTE,0,100,1u<<DV_BELL,0,0};drum_pick(D9_RD);
+    bad+=check("the 909 ride's lane hit is the ride",step_sound_note(TSEL,&TSEL->step[5],D9_RD)==DRUM_LANE_NOTE[DV_BELL] && step_sound_note(TSEL,&TSEL->step[5],D9_CR)<0);
+    drum_hit_key(0);
+    bad+=check("a white key clears the 909 ride's grid hit",!TSEL->step[5].hit && !TSEL->step[5].n);
+    step_history_end();step_history_finish();
+    return bad;
+}
 static int corners909(void)
 {
     int bad=0;kit(DK_909);TSEL->p[P_E2]=0;trk_note_on(TSEL,38,100);float dark=drum909_of(TSEL)->d.bt[D9_SD].noise_decay;TSEL->p[P_E2]=127;trk_note_on(TSEL,38,100);
@@ -128,6 +157,6 @@ static int capacity_and_controls(void)
 }
 int main(void)
 {
-    int bad=voices909()+controls()+edits_and_store()+capacity_and_controls()+corners909();
+    int bad=voices909()+controls()+edits_and_store()+capacity_and_controls()+order_and_lanes()+corners909();
     printf("DRUM EDITOR: %s\n",bad?"FAILED":"all passed");return bad!=0;
 }

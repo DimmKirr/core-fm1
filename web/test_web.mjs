@@ -31,8 +31,8 @@ const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
-   mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6,
-   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
+   mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
+   FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 {
@@ -178,6 +178,33 @@ async function czTests() {
 }
 await czTests();
 
+{
+  const engines=Array(20).fill("-");engines[12]="FM6";engines[15]="CZ-1";engines[19]="PROPHET";
+  const ctx={keys:Array.from({length:92},(_,i)=>`P${i}`),pe0:84,engines};
+  const cz=E.readSysexLibrary(readFileSync(join(HERE,"../assets/cz1-factory/cz1-factory.syx")),"factory.syx",ctx);
+  ok(cz.length===64 && cz.every(p=>p.engine===15),"Library SysEx: real Casio factory bank imports offline");
+  ok(cz.every(p=>{
+    const [one]=E.readSysexLibrary(E.CZ.sysex(p.cz),`${p.name}.SYX`,ctx);
+    const json=E.readLibraryFile(E.libraryFile("patch",[one],ctx),ctx).patches[0];
+    return eq(one.cz,p.cz)&&eq(json.cz,p.cz)&&json.name===p.name;
+  }),"Library SysEx: all 64 individual CZ tones survive SysEx import and JSON export/reimport");
+  const voices=E.FM6.FACTORY_PK.map(p=>E.FM6.unpack(p)),single=E.FM6.singleSysex(voices[3]);
+  const [one]=E.readSysexLibrary(single,"single.syx",ctx);
+  const again=E.readLibraryFile(E.libraryFile("patch",[one],ctx),ctx).patches[0];
+  ok(one.engine===12&&eq(one.fm6,E.FM6.FACTORY_PK[3])&&eq(again.fm6,one.fm6),
+     "Library SysEx: individual Yamaha voices import as FM6 and export/reimport as JSON");
+  const bank=E.readSysexLibrary(E.FM6.bankSysex(voices),"bank.syx",ctx);
+  ok(bank.length===32&&bank.slice(0,voices.length).every((p,i)=>eq(p.fm6,E.FM6.FACTORY_PK[i])),
+     "Library SysEx: Yamaha banks retain every packed voice");
+  const prophet=E.readSysexLibrary(readFileSync(join(HERE,"../assets/prophet5-factory/prophet5-v1.03.syx")),"prophet.syx",ctx);
+  ok(prophet.length===200&&prophet.every(p=>p.engine===19&&E.P5.valid(p.p5)),
+     "Library SysEx: real Prophet factory library keeps its native programs");
+  const bad=Array.from(single);bad[161]^=1;
+  let rejected=0;for(const file of [bad,single.slice(0,-1),[240,125,0,247]])
+    try{E.readSysexLibrary(file,"bad.syx",ctx);}catch{rejected++;}
+  ok(rejected===3,"Library SysEx: corrupt, truncated and unknown files are rejected");
+}
+
 async function nativeTests() {
   const m=E.makeMockDevice(), inp=[...m.access.inputs.values()][0], out=[...m.access.outputs.values()][0];
   const link=new E.Link(d=>out.send(d),{timeout:500});inp.onmidimessage=e=>link.receive(e.data);const rq=(r,o)=>link.request(r,o);
@@ -216,7 +243,7 @@ async function editorMock() {
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
   ok(info.nengines === 20 && info.engines[14] === "-" && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
- && info.engines[2] === "-" && info.engines[5] === "-" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "-" && info.engines[9] === "-" && info.engines[10] === "DRUM" && info.engines[11] === "-" && info.pcount === 119 && info.pe0 === 111 && info.engines[4] === "-",
+ && info.engines[2] === "-" && info.engines[5] === "-" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "-" && info.engines[9] === "-" && info.engines[10] === "DRUM" && info.engines[11] === "-" && info.pcount === 122 && info.pe0 === 114 && info.engines[4] === "-",
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
@@ -344,7 +371,7 @@ async function editorMock() {
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 14)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 5)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 0)));
-    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 42,
+    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 45,
       "editor: MIDI IN routing (ROUT four-channel ranges / SEL, global id 14)");
   }
   {
@@ -406,8 +433,8 @@ function mockTables() {
     ok([2,5,6,7,9,11].every((i) => m0.tables.ENG[i].name === "-" && !m0.tables.ENG[i].presets.length),
        "editor: PHASE, VOICE, TRIO, WHEEL, PHYS and NOISE retired with their original IDs reserved");
     ok(dr.name === "DRUM" && dr.edit.map((d) => d.label).join() === "KIT,TUNE,TONE,DECY,SNAP,ACC,KICK,DRV" &&
-       dr.edit[0].names.join() === "808,909" && dr.edit[0].min === 4 && dr.edit[0].max === 5 && dr.presets.length === 2 && dr.presets[0].name === "808 KIT",
-       "editor: DRUM engine 10 (KIT TUNE TONE DECY SNAP ACC KICK DRV, KIT 808), 808 and 909 kits");
+       dr.edit[0].names.join() === "808,909,SID" && dr.edit[0].min === 4 && dr.edit[0].max === 6 && dr.presets.length === 4 && dr.presets[0].name === "808 KIT" && dr.presets[2].name === "SID KIT" && dr.presets[3].name === "SID DIGI",
+       "editor: DRUM engine 10 (KIT TUNE TONE DECY SNAP ACC KICK DRV, KIT 808), 808, 909 and SID kits");
   }
   const dj = join(HERE, "../build/host/desc.json");
   if (!existsSync(dj)) { console.log("editor: mock tables == firmware (no build/host/desc.json)        skip"); return; }
@@ -578,7 +605,9 @@ async function trackEffects() {
     await rq(E.req.preset(12,0));
     const fx=[1,80,30,71,6,95,55,65,8,105,88,99];
     for(let i=0;i<fx.length;i++)await rq(E.req.set(0,96+i,fx[i]));
+    for(let i=0;i<3;i++)await rq(E.req.set(0,111+i,i?-20-i:24));
     const cap=(await E.capturePatch(rq,info,"DRY PATCH")).patch;
+    ok(eq(cap.p.slice(111,114),[0,0,0]),"FX: librarian capture excludes TONE");
     ok(eq(cap.p.slice(96,108),[0,0,60,64,0,0,60,64,0,0,60,64]),"FX: librarian capture excludes the track's chain");
     await E.bank.store(rq,30,"DRY PATCH");
     const stored=await E.bank.get(rq,info,30);
@@ -586,9 +615,12 @@ async function trackEffects() {
     await rq(E.req.preset(3,1));await E.bank.load(rq,30);await E.auditionPatch(rq,info,cap);
     const dump=E.parse[E.CMD.DUMP](await rq(E.req.dump()),info);
     ok(eq(dump.p.slice(96,108),fx),"FX: factory, user and librarian sound loads preserve all three track slots");
-    const common={step:0,param:112,value:63},native={step:0,param:112,value:(3<<8)|80};
+    ok(eq(dump.p.slice(111,114),[24,-21,-22]),"FX: sound loads preserve TONE");
+    ok(eq(E.fmtValue({fmt:E.F.TONE},0),["Full",""]) && eq(E.fmtValue({fmt:E.F.TONE},24),["Thin 313","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-39),["Dark 516","Hz"]) &&
+       eq(E.fmtValue({fmt:E.F.TONE},63),["Thin 1280","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},1),["Thin 150","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-63),["Dark 120","Hz"]),"FX: TONE formats Full, Dark / Thin and the cut's frequency");
+    const common={step:0,param:info.pe0+1,value:63},native={step:0,param:info.pe0+1,value:(3<<8)|80};
     await rq(E.req.motion(0,3,common));let m=E.parse[E.CMD.MOTION](await rq(E.req.motion(0,3,native)));
-    ok(m.count===2,"motion: native and common events sharing ID 112 coexist");
+    ok(m.count===2,"motion: native and common events sharing an engine ID coexist");
     m=E.parse[E.CMD.MOTION](await rq(E.req.motion(0,4,{...common,typed:true})));
     ok(m.count===1&&m.events[0].value===native.value,"motion: typed common deletion preserves the native event");
     await rq(E.req.motion(0,3,common));m=E.parse[E.CMD.MOTION](await rq(E.req.motion(0,4,{...native,typed:true})));
@@ -687,7 +719,7 @@ async function editorLibrarian() {
   const ctx = { keys, engines: info.engines, firmware: info.version, pe0: info.pe0 };
   const pts = [cap, { ...bass, engineName: info.engines[bass.engine], tags: ["bass", "device"] }];
   const file = JSON.parse(JSON.stringify(E.libraryFile("library", pts, ctx)));
-  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 119 && file.paramLabels.length === 119 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" && file.paramLabels[83] === "DEG" && file.paramLabels.slice(92, 96).join() === "SYNC,TRIG,POL,SPRD" && file.engines.length === 20,
+  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === info.pcount && file.paramLabels.length === info.pcount && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" && file.paramLabels[83] === "DEG" && file.paramLabels.slice(92, 96).join() === "SYNC,TRIG,POL,SPRD" && file.engines.length === 20,
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
   const oldKeys = keys.slice(); oldKeys[8] = "FX";
@@ -695,8 +727,8 @@ async function editorLibrarian() {
   ok(keys[8] === "TQNT" && keys[27] === "QNT" && oldTiming[8] === null && oldTiming[27] === cap.p[27],
     "library file: timing QNT has a separate key and preserves legacy scale QNT");
   {
-    const legacyKeys=[...keys.slice(0,96),...keys.slice(111)];
-    const legacyValues=[...cap.p.slice(0,96),...cap.p.slice(111)];
+    const legacyKeys=[...keys.slice(0,96),...keys.slice(info.pe0)];
+    const legacyValues=[...cap.p.slice(0,96),...cap.p.slice(info.pe0)];
     for (const [i,name] of [[8,"FX"],[33,"MIX"],[34,"RATE"],[35,"CHAR"]]) {legacyKeys[i]=name;legacyValues[i]=127;}
     const mapped=E.readLibraryFile({...file,pCount:104,pE0:96,paramLabels:legacyKeys,
       patches:[{...file.patches[0],params:legacyValues}]},ctx).patches[0].p;
@@ -711,40 +743,40 @@ async function editorLibrarian() {
   const eng2 = ["ANALOG", "SAMPLE", "SID"];
   const fut = E.readLibraryFile(file, { keys: keys2, engines: eng2 });
   const p0 = fut.patches[0].p;
-  ok(fut.patches.length === 2 && p0.length === 120 && p0[5] === null && p0[6] === cap.p[5] && p0[119] === cap.p[118]
+  ok(fut.patches.length === 2 && p0.length === info.pcount+1 && p0[5] === null && p0[6] === cap.p[5] && p0[info.pcount] === cap.p[info.pcount-1]
     && fut.patches[0].engine === 2 && fut.patches[1].engine === 2, "library file: other ids / engine order mapped by label and name");
   const lost = E.readLibraryFile({ ...file, patches: [{ ...file.patches[0], engineName: "WAVETABLE" }] }, ctx);
   ok(lost.patches.length === 0 && lost.skipped === 1, "library file: a patch for an unknown engine is skipped");
   const bankFile = E.libraryFile("bank", [{ ...g, engineName: "SID", slot: 10 }], ctx);
   ok(bankFile.kind === "bank" && bankFile.patches[0].slot === 10 && E.readLibraryFile(bankFile, ctx).patches[0].slot === 10, "library file: bank export keeps slot numbers");
-  {   /* files from the 69-parameter firmware (P_E0 61): the engine's 8 land on E0..E7 (96..103), FM op ENV, the
+  {   /* files from the 69-parameter firmware (P_E0 61): the engine's 8 land on E0..E7 (E0..E7), FM op ENV, the
          chord keys, the MPC degree, the lane levels, LFO 2 and SPRD stay unset */
-    const p69 = [...cap.p.slice(0, 61), ...cap.p.slice(111, 119)];
+    const p69 = [...cap.p.slice(0, 61), ...cap.p.slice(info.pe0, info.pcount)];
     const sp = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: cap.engine, engineName: info.engines[cap.engine], p: p69 }, ctx).patches[0].p;
-    const keys69 = [...keys.slice(0, 61), ...keys.slice(111)];
+    const keys69 = [...keys.slice(0, 61), ...keys.slice(info.pe0)];
     const lp = E.readLibraryFile({ ...file, pCount: 69, paramLabels: keys69, patches: [{ ...file.patches[0], params: p69 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p69 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 119 && eq(q.slice(0, 61), cap.p.slice(0, 61)) && eq(q.slice(111), cap.p.slice(111)) && q.slice(61, 111).every((v) => v === null);
-    ok(good(sp) && good(lp) && good(nk), "library file: 69-parameter files (patch, labelled, unlabelled) map the engine's 8 to 96..103");
+    const good = (q) => q.length === info.pcount && eq(q.slice(0, 61), cap.p.slice(0, 61)) && eq(q.slice(info.pe0), cap.p.slice(info.pe0)) && q.slice(61, info.pe0).every((v) => v === null);
+    ok(good(sp) && good(lp) && good(nk), "library file: 69-parameter files (patch, labelled, unlabelled) map the engine's 8 to E0..E7");
   }
-  {   /* files from the 89-parameter firmware (P_E0 81, before the chord keys): the engine's 8 land on 96..103, the FM
+  {   /* files from the 89-parameter firmware (P_E0 81, before the chord keys): the engine's 8 land on E0..E7, the FM
          op ENV in place, CHRD VOIC DEG and everything after them unset (left as the track has them) */
-    const p89 = [...cap.p.slice(0, 81), ...cap.p.slice(111, 119)];
-    const keys89 = [...keys.slice(0, 81), ...keys.slice(111)];
+    const p89 = [...cap.p.slice(0, 81), ...cap.p.slice(info.pe0, info.pcount)];
+    const keys89 = [...keys.slice(0, 81), ...keys.slice(info.pe0)];
     const sp = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: cap.engine, engineName: info.engines[cap.engine], p: p89 }, ctx).patches[0].p;
     const lp = E.readLibraryFile({ ...file, pCount: 89, pE0: 81, paramLabels: keys89, patches: [{ ...file.patches[0], params: p89 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p89 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 119 && eq(q.slice(0, 81), cap.p.slice(0, 81)) && q.slice(81, 111).every((v) => v === null) && eq(q.slice(111), cap.p.slice(111));
+    const good = (q) => q.length === info.pcount && eq(q.slice(0, 81), cap.p.slice(0, 81)) && q.slice(81, info.pe0).every((v) => v === null) && eq(q.slice(info.pe0), cap.p.slice(info.pe0));
     ok(keys89[81] === "E0" && good(sp) && good(lp) && good(nk),
-      "library file: 89-parameter files (patch, labelled, unlabelled) map the engine's 8 to 96..103, the chord keys unset");
+      "library file: 89-parameter files (patch, labelled, unlabelled) map the engine's 8 to E0..E7, the chord keys unset");
   }
-  {   /* files from Felucca 1.0 (91 parameters, P_E0 83, before the MPC degree): E0..E7 on 96..103, DEG and everything after it unset */
-    const p91 = [...cap.p.slice(0, 83), ...cap.p.slice(111, 119)];
-    const keys91 = [...keys.slice(0, 83), ...keys.slice(111)];
+  {   /* files from Felucca 1.0 (91 parameters, P_E0 83, before the MPC degree): E0..E7 on E0..E7, DEG and everything after it unset */
+    const p91 = [...cap.p.slice(0, 83), ...cap.p.slice(info.pe0, info.pcount)];
+    const keys91 = [...keys.slice(0, 83), ...keys.slice(info.pe0)];
     const lp = E.readLibraryFile({ ...file, pCount: 91, pE0: 83, paramLabels: keys91, patches: [{ ...file.patches[0], params: p91 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p91 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 119 && eq(q.slice(0, 83), cap.p.slice(0, 83)) && q.slice(83, 111).every((v) => v === null) && eq(q.slice(111), cap.p.slice(111));
-    ok(keys91[83] === "E0" && good(lp) && good(nk), "library file: Felucca 1.0 files (91 parameters) map the engine's 8 to 96..103, DEG unset");
+    const good = (q) => q.length === info.pcount && eq(q.slice(0, 83), cap.p.slice(0, 83)) && q.slice(83, info.pe0).every((v) => v === null) && eq(q.slice(info.pe0), cap.p.slice(info.pe0));
+    ok(keys91[83] === "E0" && good(lp) && good(nk), "library file: Felucca 1.0 files (91 parameters) map the engine's 8 to E0..E7, DEG unset");
   }
   const old = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 3, preset: 6, engineName: "SID", presetName: "SAW BASS", p: d2.p, steps: E.stepsFromPattern(cap.pattern) }, ctx);
   ok(old.patches.length === 1 && eq(old.patches[0].p, d2.p) && js(old.patches[0].pattern) === js(cap.pattern), "library file: reads the old \"Save to file\" format");
@@ -812,7 +844,7 @@ async function editorLive() {
   const dump = E.parse[C.DUMP](await pend, info);
   const ch = ev.pushes.find((f) => f.cmd === C.CHANGED);
   const cv = ch && E.parse[C.CHANGED](ch.a);
-  ok(dump.p.length === 119 && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
+  ok(dump.p.length === info.pcount && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
     "live: CHANGED while DUMP waits -> push handler, reply still matched");
   const rl = m.sim.reload();
   m.sim.step(3);
@@ -1238,14 +1270,15 @@ function editorTabs() {
     `editor: ${tabs.length} tabs, one panel each (${tabs.join(" ")})`);
   ok(/localStorage\.setItem\(TAB_KEY/.test(html) && /try \{ localStorage/.test(html) && /history\.replaceState\([^)]*"#" \+ name\)/.test(html)
     && /addEventListener\("hashchange"/.test(html), "editor: last tab in localStorage (try/catch) and in the URL hash");
-  /* every string key used in the UI is present */
+  /* every string key in both languages */
   const tb = html.slice(html.indexOf("const TEXT = {"), html.indexOf("\n};", html.indexOf("const TEXT = {")) + 2);
   const TEXT = vm.runInNewContext(tb.replace("const TEXT =", "(") + ")");
-  const keys = new Set(Object.keys(TEXT));
+  const ja = new Set(Object.keys(TEXT.ja)), en = new Set(Object.keys(TEXT.en));
   const used = new Set([...html.matchAll(/data-t="(\w+)"|\bt\("(\w+)"\)|sayK\("(\w+)"|hint = "(\w+)"/g)].map((x) => x[1] || x[2] || x[3] || x[4]));
   for (const k of ["needDevice", "smpNone", "bankConnect", "bankNone", "selectedTrack", "selectTrack", "notesHelp", "live", "polling"]) used.add(k);
-  const miss = [...used].filter((k) => !keys.has(k));
-  ok(!miss.length, `editor: every string key present (${used.size} used${miss.length ? ", missing " + miss : ""})`);
+  const miss = [...used].filter((k) => !ja.has(k) || !en.has(k));
+  const odd = [...ja].filter((k) => !en.has(k)).concat([...en].filter((k) => !ja.has(k)));
+  ok(!miss.length && !odd.length, `editor: every string in ja and en (${used.size} used${miss.length ? ", missing " + miss : ""}${odd.length ? ", one language only " + odd : ""})`);
   /* the page script parses (the browser's view of it) */
   const script = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
   let err = null;
@@ -1458,7 +1491,7 @@ async function patternProtocol() {
 async function stockRestore() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/{}", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc",single:"test-1core.fwsc"}}));
+    .replace("/*META*/{}", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc"}}));
   async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false} = {}) {
     const calls = [], elements = new Map();
     const element = (id) => {
@@ -1534,12 +1567,12 @@ async function installerBuilds() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace("/*META*/{}", JSON.stringify({version:"1.0.2",product:"FM-1_91002",
-      pkg:{dual:"melodee-1.0.2.fwsc",single:"melodee-1.0.2-1core.fwsc"},
-      rc:{version:"1.4.0-rc.1",product:"FM-1_91040",commit:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        pkg:{dual:"melodee-1.4.0-rc.1.fwsc",single:"melodee-1.4.0-rc.1-1core.fwsc"}},
-      nightly:{version:"next-abcdef0",product:"FM-1_900",commit:"abcdef0123456789abcdef0123456789abcdef0123",builtAt:"2026-10-11T02:00:00Z",
-        pkg:{dual:"melodee-nightly.fwsc",single:"melodee-nightly-1core.fwsc"}}}));
-  const ALL = ["dual", "single", "rc-dual", "rc-single", "nightly-dual", "nightly-single"];
+      pkg:{dual:"melodee-1.0.2.fwsc"},
+      rc:{version:"1.4.0-rc.1",product:"FM-1_91040",commit:"a".repeat(40),
+        pkg:{dual:"melodee-1.4.0-rc.1.fwsc"}},
+      nightly:{version:"next-abcdef0",product:"FM-1_900",commit:"abcdef0123456789abcdef0123456789abcdef0123",builtAt:"2026-10-15T02:00:00Z",
+        pkg:{dual:"melodee-nightly.fwsc"}}}));
+  const ALL = ["dual", "rc-dual", "nightly-dual"];
   const fetched = [], installed = [], elements = new Map();
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, {checked:id === "build-dual", disabled:false, textContent:"", value:0, listeners:{}, options:[],
@@ -1558,48 +1591,35 @@ async function installerBuilds() {
   vm.runInContext(script, context);
   await new Promise(resolve => setImmediate(resolve));
   ok(fetched.join() === "melodee-1.0.2.fwsc" && element("status").textContent === "Melodee 1.0.2 (standard)"
-    && !element("go").disabled, "installer: the standard (dual-core) build is the default");
-  element("build-dual").checked = false; element("build-single").checked = true;
-  await element("build-single").listeners.change();
-  const status = element("status").textContent;
+    && !element("go").disabled, "installer: dual-core stable firmware is the default");
   await element("go").listeners.click();
-  ok(status === "Melodee 1.0.2 (single core)" && installed.length === 1 && installed[0][0] === "melodee-1.0.2-1core.fwsc"
-    && installed[0][1] === "FM-1_91002" && !element("build-dual").disabled, "installer: Single core installs the single-core package");
-  element("build-single").checked = false; element("build-dual").checked = true;
-  await element("build-dual").listeners.change();
-  await element("go").listeners.click();
-  ok(fetched.length === 2 && installed[1][0] === "melodee-1.0.2.fwsc", "installer: back to standard, each package fetched once");
-  const revision = "abcdef0123456789abcdef0123456789abcdef0123";
-  for (const [kind, file, tag] of [["nightly-dual", "melodee-nightly.fwsc", "dual core"], ["nightly-single", "melodee-nightly-1core.fwsc", "single core"]]) {
+  ok(installed[0][0] === "melodee-1.0.2.fwsc" && installed[0][1] === "FM-1_91002", "installer: stable installs its own package and identity");
+  for (const [kind, version, file, commit, product, tag] of [
+    ["nightly-dual", "next-abcdef0", "melodee-nightly.fwsc", "abcdef0123456789abcdef0123456789abcdef0123", "FM-1_900", "nightly"],
+    ["rc-dual", "1.4.0-rc.1", "melodee-1.4.0-rc.1.fwsc", "a".repeat(40), "FM-1_91040", "release candidate"],
+  ]) {
     for (const k of ALL) element("build-" + k).checked = k === kind;
     await element("build-" + kind).listeners.change();
-    ok(element("status").textContent === `Melodee next-abcdef0 (nightly, ${tag})`, "installer: nightly label uses its own source version");
+    ok(element("status").textContent === `Melodee ${version} (${tag})`, "installer: development channels report their own versions");
     await element("go").listeners.click();
-    const [image, product] = installed.at(-1);
-    ok(image === file + "?commit=" + revision && product === "FM-1_900", "installer: each nightly installs the chosen package with its own identity");
-  }
-  ok(!element("nightly-options").hidden && element("nightly-info").textContent.includes("abcdef0"), "installer: nightly source and build timestamp are visible");
-  for (const k of ALL) element("build-" + k).checked = k === "dual";
-  await element("build-dual").listeners.change();
-  await element("go").listeners.click();
-  ok(installed.at(-1)[1] === "FM-1_91002" && fetched.length === 4, "installer: returning from nightly restores release identity without refetching");
-  for (const [kind, file, tag] of [["rc-dual", "melodee-1.4.0-rc.1.fwsc", "dual core"], ["rc-single", "melodee-1.4.0-rc.1-1core.fwsc", "single core"]]) {
-    for (const k of ALL) element("build-" + k).checked = k === kind;
-    await element("build-" + kind).listeners.change();
-    ok(element("status").textContent === `Melodee 1.4.0-rc.1 (release candidate, ${tag})`, "installer: RC reports its exact version and core variant");
+    const [image, actualProduct] = installed.at(-1);
+    ok(image === file + "?commit=" + commit && actualProduct === product, "installer: development channels install their own package and identity");
+    for (const k of ALL) element("build-" + k).checked = k === "dual";
+    await element("build-dual").listeners.change();
     await element("go").listeners.click();
-    const [image, product] = installed.at(-1);
-    ok(image === file + "?commit=" + "a".repeat(40) && product === "FM-1_91040", "installer: each RC installs its published package and identity");
+    ok(installed.at(-1)[1] === "FM-1_91002", "installer: returning to stable restores its identity");
   }
+  ok(fetched.length === 3, "installer: each dual-core channel is fetched once");
+  ok(!element("nightly-options").hidden && element("nightly-info").textContent.includes("abcdef0"), "installer: nightly source and timestamp are visible");
   ok(!element("rc-options").hidden && element("rc-version").textContent === "1.4.0-rc.1", "installer: RC version is visible");
-  for (const k of ALL) element("build-" + k).checked = k === "dual";
-  await element("build-dual").listeners.change();
-  await element("go").listeners.click();
-  ok(installed.at(-1)[1] === "FM-1_91002" && fetched.length === 6, "installer: returning from RC restores stable without refetching");
+  ok(!/build-(?:rc-|nightly-)?single/.test(installer), "installer: no channel offers single-core firmware");
 }
 async function installerBuildRaces() {
   const script = readFileSync(join(HERE, "index_pkg.html"), "utf8").match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/{}", JSON.stringify({version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual",single:"single"}}));
+    .replace("/*META*/{}", JSON.stringify({version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual"}, releases:[
+      {version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual"}},
+      {version:"1.0.1",product:"FM-1_91001",pkg:{dual:"older"}},
+    ]}));
   const elements = new Map(), pending = new Map(); let installDone, installed;
   const element = id => {
     if (!elements.has(id)) elements.set(id, {checked:id === "build-dual",disabled:false,textContent:"",listeners:{}, options:[],
@@ -1609,7 +1629,8 @@ async function installerBuildRaces() {
   };
   const context = vm.createContext({navigator:{language:"en",requestMIDIAccess:async()=>({})},
     document:{documentElement:{},querySelectorAll:()=>[],getElementById:element,createElement:()=>({})},window:{addEventListener(){}},
-    fetch:url=>new Promise(resolve=>pending.set(url,resolve)),productOf:()=>"FM-1_91002",
+    fetch:url=>new Promise(resolve=>pending.set(url,resolve)),
+    productOf:pkg=>String.fromCharCode(...pkg)==="older"?"FM-1_91001":"FM-1_91002",
     logicalImage:pkg=>String.fromCharCode(...pkg),
     Updater:class { async find(){ return null; } async install(img){installed=img;await new Promise(resolve=>installDone=resolve);} }
   });
@@ -1617,17 +1638,17 @@ async function installerBuildRaces() {
   const tick = () => new Promise(resolve=>setImmediate(resolve));
   vm.runInContext(script, context);
   ok(element("rc-options").hidden && element("nightly-options").hidden, "installer: unavailable RC/nightly channels are hidden");
-  element("build-dual").checked=false;element("build-single").checked=true;
-  const single = element("build-single").listeners.change();
+  element("release").value="1.0.1";
+  element("release").listeners.change();
   ok(element("go").disabled,"installer: Install is disabled while the selected package loads");
-  finish("single");await single;finish("dual");await tick();
-  ok(element("status").textContent === "Melodee 1.0.2 (single core)","installer: a late standard download cannot replace the selected single-core build");
+  finish("older");await tick();finish("dual");await tick();
+  ok(element("status").textContent === "Melodee 1.0.1 (standard)","installer: a late download cannot replace the selected release");
   const flash = element("go").listeners.click();await tick();
-  ok(installed === "single" && element("build-dual").disabled && element("build-single").disabled,
-    "installer: the selected package is fixed and build selection locked throughout writing");
+  ok(installed === "older" && element("build-dual").disabled && element("release").disabled,
+    "installer: package and release selection are locked throughout writing");
   await element("build-dual").listeners.change();
   installDone();await flash;
-  ok(!element("build-dual").disabled && !element("build-single").disabled,"installer: build selection unlocks after writing");
+  ok(!element("build-dual").disabled && !element("release").disabled,"installer: selection unlocks after writing");
 }
 await stockRestore();
 await installerBuilds();

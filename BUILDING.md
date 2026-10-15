@@ -88,7 +88,7 @@ Build options (environment; most use `0` or `1`; defaults in `firmware/src/build
 | `MELODEE_USB_AUDIO` | 1 | One duplex "Melodee" device: stereo playback and stereo master recording or optional four-track mono recording (16 / 24 bit, 44.1 kHz) |
 | `MELODEE_CDC` | 0 (1 without USB audio) | USB serial console; it shares EP2 / EP3 with USB audio, so `MELODEE_USB_AUDIO=0` |
 | `MELODEE_UART` | 1 | TRS MIDI IN |
-| `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; `0` builds serial-only firmware |
+| `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; target builds require `1` |
 | `MELODEE_SLICE` | 1 | the SLICE engine |
 | `MELODEE_ICONS` | 1 | parameter icons on the knob cards |
 
@@ -172,7 +172,7 @@ Or, to install your own build from the web installer, make a local copy of the s
 - `webapp/installer/` — self-contained installer
 - `webapp/editor/` — patch editor
 - `webapp/manual/` — the stable manual from `web/manual/` (HTML and screenshots), published with a full release
-- `firmware/` — both `.fwsc` packages, LICENSE texts
+- `firmware/` — the dual-core `.fwsc` package, LICENSE texts
 
 The manual’s screenshots are generated into `web/manual/` (NIGHT palette only) and
 are not committed. `build/` is gitignored, and so are those PNGs.
@@ -180,7 +180,6 @@ are not committed. `build/` is gitignored, and so are those PNGs.
 ```
 # 0) Firmware (and host-test assets under build/gen). Needed before UI renders or release packages.
 MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.3
-MELODEE_RAM_AUDIO=1 MELODEE_DUAL_CORE=0 ./build.sh --release 1.3.3
 
 # 1) Host UI renders → build/ui_new/<PALETTE>/*.png (and side folders). Needs Pillow.
 #    Supported path: the host test suite (ui_renders is one of its jobs).
@@ -195,8 +194,7 @@ python3 tools/manual_shots.py            # build/ui_new/NIGHT → web/manual/
 
 # 3) Assemble Pages layout and serve it (Web MIDI needs localhost / HTTPS).
 python3 web/make_site.py build/release-1.3.3/melodee-1.3.3.fwsc \
-  build/release-1.3.3-1core/melodee-1.3.3-1core.fwsc 1.3.3 /tmp/melodee-site
-
+  1.3.3 /tmp/melodee-site
 cd /tmp/melodee-site && python3 -m http.server 8000
 # open http://localhost:8000/webapp/installer/
 #      http://localhost:8000/webapp/manual/
@@ -210,9 +208,11 @@ screens (`UI=renders tests/run_tests.sh`) and then copies them. It replaces `SIT
 when that path is already a Melodee site (or does not exist yet).
 A stable release does the same after the host tests, before the site is published.
 Nightly and release-candidate publishes update the installer and their packages, and leave
-the live manual on the last stable release.
+the stable manual on the last stable release. Nightlies publish a separate development guide
+at `webapp/manual/nightly/`, stamped with the firmware version. Stable publishes keep that
+development guide.
 `make_site.py` publishes the manual page and the screenshots it embeds on a full publish,
-and removes anything else already in `webapp/manual/` (old PNGs and version folders). An
+and removes old PNGs and version folders from `webapp/manual/` while preserving `nightly/`. An
 installer-only update does not need the screenshots.
 
 Installing firmware is at your own risk. If an install fails and the FM-1 no longer
@@ -373,9 +373,11 @@ Host suite, golden renders, concurrent PCM/state comparison, address/thread
 sanitizers and both serial/dual-core builds passed. The startup correction also
 passed the target budget check; the serial package remained byte-identical.
 
-`./build.sh` enables a bare-metal CPU1 worker by default. Use
-`MELODEE_DUAL_CORE=0 ./build.sh` for serial-only firmware. Application and
-assembly startup share this default in `firmware/src/build_options.h`.
+`./build.sh` enables a bare-metal CPU1 worker. Following the CPU voltage
+startup fix, this branch builds and distributes dual-core firmware only;
+`MELODEE_DUAL_CORE=0` is rejected by the target build tool. Application and
+assembly startup share the default in `firmware/src/build_options.h`.
+CPU1 fault retirement and serial host reference tests remain supported.
 There is no async runtime or RTOS dependency. Sustained musical load and
 battery impact still need device measurements.
 
@@ -438,19 +440,56 @@ sides of it:
   `0x03801494` (it looks like a packed stereo sample) while `rets` still held the
   right one. No software check can catch that.
 
-What the FM-1 runs, measured (editor command 79 in a test build, below): the AC79
+Earlier Melodee builds measured (editor command 79 in a test build, below): the AC79
 at 360 MHz (M-VAVE's `isd_config` SYS_CLK; our package carries no clock key, and
 the SDK SPL runs it as fast: 329 dependent adds a microsecond), above the SDK's
 320 MHz table, on the SPL's core
-rail: SYSVDD 11 (1.26 V), VDC14 3 (1.40 V) on its LDO. The stock firmware is
-single-core: its system library says `modified #define CPU_CORE_NUM 1` (the SDK
-default is 2), so no FM-1 was validated with both cores. JieLi's own profile
+rail: SYSVDD 11 (1.26 V), VDC14 3 (1.40 V) on its LDO. This was not the stock
+application's operating supply: V15 raises both rails and enables DCDC after the SPL (below).
+The stock firmware is single-core: its system library says
+`modified #define CPU_CORE_NUM 1` (the SDK default is 2), so stock behavior
+alone does not validate dual-core operation. JieLi's own profile
 above 320 MHz (`isd_config_rule.c`, `CONFIG_OVERCLOCKING_ENABLE`, 396 MHz) sets
 DVDD 14 (1.35 V) and DCDC14 4 (1.45 V), and its notes say to raise them on chips
 that run low. One healthy unit ran both cores under an eight-voice Prophet chord
 without a misread down to SYSVDD 6 (1.11 V): the margin varies from chip to chip.
-Melodee does not change a supply rail: what an FM-1 board and its regulators take
-at other levels is unknown, so the rails stay where the boot loader sets them.
+Melodee now applies the stock supply setup in both core variants. The earlier
+CPU1 measurements do not establish behavior at that setup; hardware validation
+must check cold/soft boots, CPU1 shared-memory errors and loaded audio separately.
+
+### The stock supply setup
+
+`hal/fm1_power.h` applies the supply portion of stock V15's constant-folded
+`power_init` / `__hw_power_init` before cache setup, peripherals and CPU1, with
+interrupts off and CPU1 held. It uses Melodee's bounded P33 driver. No SDK power
+manager, sleep timers or RTOS services are linked in, and the PLL is not changed.
+
+The reference is the unmodified `FM-1_015` package with SHA-256
+`db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a`.
+Its decoded boot config contains `SYS_CLK=360000000`, `HSB_DIV=1`, `LSB_DIV=2`
+and no `DVDD`, `DCDC14` or `VDDIO`. Its SPL's default branches at
+`0x01C03E7C..0x01C03EAC` select SYSVDD 11 / VDC14 3. The application task
+`app_core` (entry `0x02004CF2`) then executes the supply sequence at
+`0x02004F90..0x0200509A`:
+
+- Enable LDO13, wait, enable DCDC13, wait, disable LDO13, wait. Each wait is
+  stock's 1,000-iteration `nop` / increment / branch loop, **not** 1,000 us.
+- Write P33 analog registers 1, 5, 6, 7, 8 with `20`, `40`, `0C`, `A5`, `96`
+  (hex), then set register 9 bit 4.
+- Select VDDIOM 4 (3.2 V), VDC14 7 (1.60 V), VDDIOW 3 (3.2 V). Retain the
+  stock reads of registers 6, 5, 5 in that order.
+- Set register 0 bit 7, clear register `16` bits 0..5, set register 2 bit 6,
+  clear register `17` bit 5 (register addresses in hex).
+- Select SYSVDD 15 (1.38 V) last. Stock calls its field helper at `0x01C0108C`
+  with `(6,0,3,7)` at `0x0200503A` and `(9,0,4,15)` at `0x0200509A`.
+
+The initializer stops on a P33 timeout, never writes a field from a failed read,
+and verifies the DCDC/LDO mode and voltage fields afterward. CPU1 starts only
+if those checks succeed; existing boot guards and worker retirement remain.
+`tests/power_test.c` checks the stock transaction trace from cold and warm states,
+every transfer timeout, and wrong final read-backs. Target disassembly checks
+the settling loops. These checks establish software behavior, not measured
+voltages or a guarantee that all instability is resolved.
 
 ### The boot clock
 
@@ -524,36 +563,35 @@ entry on hardware before enabling this in a release. The eight-voice Prophet cap
 is enabled only in this experimental build; validate worst-case patches and
 release tails before adopting it in a release.
 
-## Nightly builds from `next`
+## Nightly builds from `nightly`
 
-The installer also offers the published **Release candidate** in dual- and
-single-core variants when one is available. It uses the verified GitHub release
-packages; Standard remains the stable default. `web/publish_rc.py <pages checkout>
-<release assets directory>` checks the candidate's package hashes and build
-metadata before adding it. Stable and nightly updates preserve the RC channel.
+The installer offers dual-core firmware for the stable, **Release candidate**
+and nightly channels. `web/publish_rc.py <pages checkout> <release assets
+directory>` checks the candidate's package hashes and build metadata before
+adding it. Stable and nightly updates preserve the RC channel.
 
-The web installer keeps the released standard and single-core packages and
-adds two development builds from `next`: dual core and single core, both with
-`MELODEE_RAM_AUDIO=1`. Both run at the boot loader's clock (above).
-Save a complete backup in the editor before trying a nightly. Selecting
+The development build from `nightly` uses `MELODEE_RAM_AUDIO=1` and both CPU
+cores. Save a complete backup in the editor before trying a nightly. Selecting
 Standard in the installer returns to the released firmware.
 
 `./build.sh --nightly` stamps the current Git commit into the firmware version
-(`next-<commit>`) and uses development identity `FM-1_900`. Build both variants
-from the same commit; `MELODEE_DUAL_CORE=0 ./build.sh --nightly` produces
-`build/melodee-nightly-1core.fwsc`, while the dual-core package is
-`build/melodee-nightly.fwsc`. The installer shows the source commit and UTC
-build time, verifies the selected channel's identity, and locks all choices
-while installing.
+(`next-<commit>`), uses development identity `FM-1_900`, and produces
+`build/melodee-nightly.fwsc`. Single-core packages are no longer built,
+checksummed, uploaded or offered by the installer. The installer shows the
+source commit and UTC build time, verifies the selected channel's identity,
+and locks all choices while installing.
 
-The Nightly builds workflow runs on pushes to `next`, manually, and daily at
+The Nightly builds workflow runs on pushes to `nightly`, manually, and daily at
 02:00 UTC. Its scheduled definition must also exist on GitHub's default branch.
-It checks out `next`, builds both variants, runs the host/web suite,
+It checks out `nightly`, builds the dual-core firmware, runs the host/web suite,
 and publishes only after successful checks. Packages, checksums and source
 metadata are available as an Actions artifact and in `gh-pages/firmware`.
 `web/publish_nightly.py` updates the existing Pages checkout while keeping its
-published release packages, editor, and manual. The manual goes out with a stable
-release, not with each push to `next`.
+published release packages, editor, and stable manual. The stable manual goes out with a stable
+release. The development manual is published at `webapp/manual/nightly/` with each nightly.
+Keep experimental firmware commits on `nightly`; updating `next` alone does
+not publish a nightly. The workflow routing is also kept on `main` (the
+scheduled definition) and `next` so neither retains the old source or trigger.
 
 ## EQ accelerator experiment
 

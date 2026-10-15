@@ -195,8 +195,33 @@ static int note_capacity(void)
     bad+=check("full-pattern redo restores the replacement without losing any event",recording_history(1)&&!memcmp(&replacement,&recording[0],sizeof replacement)&&!memcmp(before+1,recording+1,sizeof before-sizeof before[0]));
     seq_stop();led_pos_init();return bad;
 }
+static int latched_take(void)
+{
+    undo_fixture(0, 3);
+    recorded_note_t before[RECORD_MAX]; memcpy(before, recording, sizeof before);
+    step_t steps[NSTEP]; memcpy(steps, TSEL->step, sizeof steps);
+    motion_store_t previous; motion_snapshot_track(TSEL, &previous);
+    press(B_REC); seq_start(); seq_advance(0);
+    input_on(TSEL, 60, 110); seq_advance(300); input_off(TSEL, 60);
+    uint32_t loop = recording_loop(TSEL, seq_div_samples(TSEL->p[P_SDIV]));
+    seq_advance(loop);
+    input_on(TSEL, 72, 94); seq_advance(300); input_off(TSEL, 72);
+    motion_capture(TSEL, P_LEVEL, 88);
+    int bad = check("latched recording keeps one undo snapshot across multiple loops",
+        rec_on(TSEL) && recording_undo_state() && recording_undo_state()->active);
+    press(B_REC);
+    bad += check("manual REC disarm finalizes the complete multi-loop undo slot",
+        !rec_on(TSEL) && recording_undo_state() && !recording_undo_state()->active);
+    int undone = recording_history(0);
+    motion_store_t actual; motion_snapshot_track(TSEL, &actual);
+    bad += check("undo restores notes and motion from before all latched loops",
+        undone && !memcmp(before, recording, sizeof before) && !memcmp(steps, TSEL->step, sizeof steps) &&
+        !memcmp(&previous, &actual, sizeof actual));
+    seq_stop(); led_pos_init(); return bad;
+}
+
 int main(void)
 {
-    int bad=whole_take()+lifecycle()+motion_only()+other_banks_and_memory()+capacity_and_edit_order()+note_capacity();
+    int bad=latched_take()+whole_take()+lifecycle()+motion_only()+other_banks_and_memory()+capacity_and_edit_order()+note_capacity();
     printf("%s\n",bad?"RECORDING UNDO TEST FAILED":"Recording undo tests passed");return !!bad;
 }
