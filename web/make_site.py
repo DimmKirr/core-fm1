@@ -131,7 +131,7 @@ def main(pkg, single, version, out, nightly=None, installer_only=False, rc=None)
         raise SystemExit(f"{single} is {pkg}: the single-core package is built with MELODEE_DUAL_CORE=0")
     if nightly is None:
         nightly = published(out, "nightly")
-    nightly_files, nightly_meta = channel(nightly, "nightly", "melodee-nightly", "next") if nightly else ({}, None)
+    nightly_files, nightly_meta = channel(nightly, "nightly", "melodee-nightly", "nightly") if nightly else ({}, None)
     if rc is None:
         rc = published(out, "rc")
     rc_files, rc_meta = {}, None
