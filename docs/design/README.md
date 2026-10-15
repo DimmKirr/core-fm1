@@ -189,8 +189,12 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
 - **Sections**: an engine's pages in sections (Prophet: Osc, Mixer, Filter, Amp, Mod, LFO, Wheel, Voice; FM6:
   Algorithm, OP1-OP6, Pitch, LFO, Controls; CZ-1 ..). PRESETS jumps a section (to its last-used page), SELECT turns the
   pages (on across the sections). The sections as tabs under the header, the pages of one as the header's dots.
-- **The map**: EDIT pressed on an EDIT page: a row a section, a tile a page (FM6: operators x their pages); KNOB 1 / 2
-  move, OCT+ opens, OCT- closes.
+- **The map**: EDIT pressed on an EDIT page: a row a section, a tile a page (FM6: operators x their pages); KNOB 1 (or
+  SELECT) moves to the next page of the category, KNOB 2 to the next category (its last-used page), one per detent,
+  every detent counted. OCT+ opens it, OCT- closes the map, HOME returns to Stage.
+  For DRUM, KNOB 1 changes Sound's Kit / Hit selection without leaving Sound. One KNOB 2 detent moves
+  directly to Drum (Drum sound / Drum mix), with Lanes below. A category starts at its first page until
+  another page has been opened there; vertical navigation recalls that last-used page.
 - **EDIT held**: undo; EDIT + OCT- / OCT+ undo/redo. Hold SAVE to save the current project. The engine is chosen
   in the browser (KNOB 4).
 - **Init sound** (Kerem 2026-10-11: sound design from scratch): the engine's own INIT, nothing changed and dry:

@@ -1904,9 +1904,13 @@ static void ui_input(void)
         enc_drop();
         return;
     }
-    if (smap.on) {                                      /* the map: KNOB 1 / 2, OCT+ / OCT- (ui_sections.c); EDIT */
+    if (smap.on) {                                      /* KNOB 1 / SELECT pages, KNOB 2 categories; OCT+ opens */
         int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);   /* closes it too (page_tap) */
-        smap_input(k1, k2, oct);
+        int32_t sel = panel_enc(EN_SELECT);
+        if (home == BT_TAP) {
+            smap_close();
+            go_home();
+        } else smap_input(k1 + sel, k2, oct);
         if (lytap)
             layer_tap(lytap);
         b = ui.pg_down & ~fm1_in.buttons;
@@ -1914,7 +1918,11 @@ static void ui_input(void)
         for (id = 0; b; id++, b >>= 1)
             if (b & 1u)
                 page_tap(panel_btn_of(id));
-        enc_drop();
+        /* The map already took these three controls. A scan interrupt can publish another detent before
+         * this cleanup; leave it queued for the next pass while the map stays open. */
+        for (k = 0; k < NE; k++)
+            if (!smap.on || (k != EN_K1 && k != EN_K2 && k != EN_SELECT))
+                panel_enc(k);
         return;
     }
     if (pop.on == POP_SHEET || pop.on == POP_LIST) {   /* an action sheet, a value's list: KNOB 1 / 2, OCT+ / OCT-
