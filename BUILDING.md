@@ -398,19 +398,56 @@ sides of it:
   `0x03801494` (it looks like a packed stereo sample) while `rets` still held the
   right one. No software check can catch that.
 
-What the FM-1 runs, measured (editor command 79 in a test build, below): the AC79
+Earlier Melodee builds measured (editor command 79 in a test build, below): the AC79
 at 360 MHz (M-VAVE's `isd_config` SYS_CLK; our package carries no clock key, and
 the SDK SPL runs it as fast: 329 dependent adds a microsecond), above the SDK's
 320 MHz table, on the SPL's core
-rail: SYSVDD 11 (1.26 V), VDC14 3 (1.40 V) on its LDO. The stock firmware is
-single-core: its system library says `modified #define CPU_CORE_NUM 1` (the SDK
-default is 2), so no FM-1 was validated with both cores. JieLi's own profile
+rail: SYSVDD 11 (1.26 V), VDC14 3 (1.40 V) on its LDO. This was not the stock
+application's operating supply: V15 raises both rails and enables DCDC after the SPL (below).
+The stock firmware is single-core: its system library says
+`modified #define CPU_CORE_NUM 1` (the SDK default is 2), so stock behavior
+alone does not validate dual-core operation. JieLi's own profile
 above 320 MHz (`isd_config_rule.c`, `CONFIG_OVERCLOCKING_ENABLE`, 396 MHz) sets
 DVDD 14 (1.35 V) and DCDC14 4 (1.45 V), and its notes say to raise them on chips
 that run low. One healthy unit ran both cores under an eight-voice Prophet chord
 without a misread down to SYSVDD 6 (1.11 V): the margin varies from chip to chip.
-Melodee does not change a supply rail: what an FM-1 board and its regulators take
-at other levels is unknown, so the rails stay where the boot loader sets them.
+Melodee now applies the stock supply setup in both core variants. The earlier
+CPU1 measurements do not establish behavior at that setup; hardware validation
+must check cold/soft boots, CPU1 shared-memory errors and loaded audio separately.
+
+### The stock supply setup
+
+`hal/fm1_power.h` applies the supply portion of stock V15's constant-folded
+`power_init` / `__hw_power_init` before cache setup, peripherals and CPU1, with
+interrupts off and CPU1 held. It uses Melodee's bounded P33 driver. No SDK power
+manager, sleep timers or RTOS services are linked in, and the PLL is not changed.
+
+The reference is the unmodified `FM-1_015` package with SHA-256
+`db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a`.
+Its decoded boot config contains `SYS_CLK=360000000`, `HSB_DIV=1`, `LSB_DIV=2`
+and no `DVDD`, `DCDC14` or `VDDIO`. Its SPL's default branches at
+`0x01C03E7C..0x01C03EAC` select SYSVDD 11 / VDC14 3. The application task
+`app_core` (entry `0x02004CF2`) then executes the supply sequence at
+`0x02004F90..0x0200509A`:
+
+- Enable LDO13, wait, enable DCDC13, wait, disable LDO13, wait. Each wait is
+  stock's 1,000-iteration `nop` / increment / branch loop, **not** 1,000 us.
+- Write P33 analog registers 1, 5, 6, 7, 8 with `20`, `40`, `0C`, `A5`, `96`
+  (hex), then set register 9 bit 4.
+- Select VDDIOM 4 (3.2 V), VDC14 7 (1.60 V), VDDIOW 3 (3.2 V). Retain the
+  stock reads of registers 6, 5, 5 in that order.
+- Set register 0 bit 7, clear register `16` bits 0..5, set register 2 bit 6,
+  clear register `17` bit 5 (register addresses in hex).
+- Select SYSVDD 15 (1.38 V) last. Stock calls its field helper at `0x01C0108C`
+  with `(6,0,3,7)` at `0x0200503A` and `(9,0,4,15)` at `0x0200509A`.
+
+The initializer stops on a P33 timeout, never writes a field from a failed read,
+and verifies the DCDC/LDO mode and voltage fields afterward. CPU1 starts only
+if those checks succeed; existing boot guards and worker retirement remain.
+`tests/power_test.c` checks the stock transaction trace from cold and warm states,
+every transfer timeout, and wrong final read-backs. Target disassembly checks
+the settling loops. These checks establish software behavior, not measured
+voltages or a guarantee that all instability is resolved.
 
 ### The boot clock
 
