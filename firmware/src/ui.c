@@ -204,7 +204,7 @@ static void (*designer_quit)(int discard);   /* designer_close while it is open 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ,
        CF_DEL_PAT, CF_PASTE_PAT, CF_DISCARD_DESIGN, CF_IMPORT, CF_BULK_ERASE, CF_OLD_SETTINGS, CF_OLD_TEMPLATE,
-       CF_DEL_TRACK, CF_PAT_KEY };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a
+       CF_DEL_TRACK, CF_PAT_KEY, CF_CLEAR_SHARED };   /* ui.confirm: REC held on SEQ / ARP, on TRACKS; SAVE over a used slot; a
                                       * pattern over the user's steps; USER ERASE; PATTERNS: Delete pattern, Copy to
                                       * over a pattern in use; SEQ + a white key held: its pattern (ui_input.c) */
 
@@ -252,17 +252,9 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
 
 static int page_visible(uint32_t i)
 {
-    if(PAGES[i].fam==FAM_FX){
-        const page_t *pg=&PAGES[i];uint32_t id=pg->id[0],type;
-        if(pg->scope==SC_TRACK && param_fx_hp(id)){
-            type=TSEL->p[P_FXTYPE+(id-P_FXHP)*FX_PARAMS];return type>=FX_ECHO && type<=FX_REVERB;
-        }
-        if(pg->scope==SC_GLOBAL && id>=G_MFXHP && id<=G_MFX3HP){
-            type=song.g[G_MFXTYPE+(id-G_MFXHP)*FX_PARAMS];return type>=FX_ECHO && type<=FX_REVERB;
-        }
-    }
-    if(PAGES[i].fam==FAM_FX && PAGES[i].scope==SC_TRACK && PAGES[i].id[0]==P_FXSEND)
-        return song.g[G_FXMODE]!=0;
+    if (PAGES[i].fam == FAM_FX && PAGES[i].graph != GR_FXRACK)   /* a slot's page (its MIX first): while it holds an
+                                                                 * effect (the rack shows it either way) */
+        return (PAGES[i].scope == SC_GLOBAL ? song.g : TSEL->p)[PAGES[i].id[0] - 1u] != FX_OFF;
     if (list_gone(i))
         return 0;
     if (PAGES[i].graph == GR_MOTION)                   /* MOTION: once there is motion (Kerem: an empty page; the one
@@ -549,7 +541,9 @@ static void open_family(uint32_t fam)
         ui.page = !ui.home && k < n ? pg[(k + 1u) % n]                 /* again: the next one; from elsewhere the */
                   : native_page(ui.fam_last[fam], fam) && fam_has(fam, ui.fam_last[fam]) ? ui.fam_last[fam] : pg[0];
                                                                         /* engine's page last used, else its first */
-    } else if (!ui.home && cur_page()->fam == fam) {   /* same button again: next page */
+    } else if (fam == FAM_FX && (ui.home || ui.page != page_first(FAM_FX))) {
+        ui.page = (uint8_t)page_first(FAM_FX);        /* FX: the track's rack (from its slots and SHARED too); */
+    } else if (!ui.home && cur_page()->fam == fam) {   /* same button again: next page (FX: on from its rack) */
         uint32_t n, i = ui.page;
         for (n = 0; n < NPAGES; n++) {
             i = (i + 1u) % NPAGES;

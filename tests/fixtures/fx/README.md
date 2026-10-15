@@ -22,3 +22,12 @@ and preserve the musical data above.
 parameters were added. They contain SPLIT routing, shared Reverb, RETURN 73,
 track 1 Echo/MIX 91, SEND 2 = 71 and engine E3 = 42. Their imports must retain
 those values and initialise every insert/shared low and high cut to OFF.
+
+`../fun21-cuts.bin` and `../tplk-cuts.bin` were written by unmodified `201cbbd`
+(the per-slot low and high cuts, never released) using `project_capture`/`proj_pack`
+and `template_save`. They contain SPLIT routing, shared Reverb/Echo, RETURN 73,
+track 1 Echo/MIX 91 and Room, SEND 2 = 71, engine E3 = 42 and an E3 motion event.
+Cuts: insert 1 LO CUT 19 (200 Hz), insert 2 HI CUT 20 (500 Hz), insert 3 both
+(LO CUT 7 = 80 Hz, HI CUT 60), shared 1 LO CUT 29 (300 Hz), shared 2 HI CUT 45
+(1000 Hz). Their imports must keep the rest and turn each slot's cut into the
+nearest TONE, the low cut when both are set.

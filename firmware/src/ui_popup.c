@@ -156,6 +156,12 @@ static void nt_quantize_v(char *b){str_cpy(b,ui.note_grid==2u?"0.25 step":ui.not
 static void nt_quantize_grid(int32_t s){ui.note_grid=(uint8_t)clamp((int32_t)ui.note_grid+s,0,2);ui.force=1;}
 static void nt_quantize(void){ui.note_copy=ui.note_move=0;note_quantize(RECORD_UNIT>>ui.note_grid);ui.force=1;}
 static const sheet_row_t SHEET_PATTERN[] = {{"Quantize",nt_quantize_v,nt_quantize_grid,nt_quantize,0}, {"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
+/* SHARED's (its rack, its slots): the routing (one chain, or each slot its own send from every track), clearing them */
+static void sh_route_v(char *b) { str_cpy(b, song.g[G_FXMODE] ? "Split" : "Chain", 8); }
+static void sh_route_turn(int32_t s) { song.g[G_FXMODE] = (int16_t)(s > 0); ui.force = 1; }
+static void sh_route(void) { sh_route_turn(!song.g[G_FXMODE]); }
+static const sheet_row_t SHEET_SHARED[] = {{"Routing", sh_route_v, sh_route_turn, sh_route, 0},
+                                           {"Clear shared FX", 0, 0, 0, CF_CLEAR_SHARED}};
 /* PATTERNS' (OCT+): the selected track's pattern; Copy to: its place picked on the grid (ui_patterns.c) */
 static const sheet_row_t SHEET_PATTERNS[] = {{"Copy to\x85", 0, 0, ptc_start, 0}, {"Delete pattern", 0, 0, 0, CF_DEL_PAT}};
 
@@ -264,7 +270,7 @@ static int step_enter(void)
     return 1;
 }
 
-/* the page's sheet: 0 none, 1 the sound's, 2 the song's, 3 the pattern's, 4 PATTERNS' */
+/* the page's sheet: 0 none, 1 the sound's, 2 the song's, 3 the pattern's, 4 PATTERNS', 5 the shared FX's */
 static uint32_t page_sheet(void)
 {
     uint32_t fam;
@@ -279,6 +285,8 @@ static uint32_t page_sheet(void)
     if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS)
         return 3;
     fam = cur_page()->fam;
+    if (fam == FAM_FX && cur_page()->scope == SC_GLOBAL)   /* SHARED, its slots */
+        return 5;
     return fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO || fam == FAM_FX ? 1u : 0u;
 }
 static void page_sheet_open(void)
@@ -310,6 +318,9 @@ static void page_sheet_open(void)
         sheet_open(t, nm, SHEET_PATTERNS, NELEM(SHEET_PATTERNS));
         break;
     }
+    case 5:
+        sheet_open("Shared FX", "All tracks", SHEET_SHARED, NELEM(SHEET_SHARED));
+        break;
     default:
         break;
     }
@@ -329,7 +340,8 @@ static int cf_refused(uint32_t cf)
              (cf == CF_DEL_PAT && pattern_empty(song.sel % NTRK, TSEL->pattern)))
         ui_message("NOTHING TO DELETE");
     else if ((cf == CF_CLEAR_SONG && !chain_config.count) || (cf == CF_CLEAR_SEQ && seq_is_empty(TSEL)) ||
-             (cf == CF_CLEAR_MOTION && !motion_count(TSEL)))
+             (cf == CF_CLEAR_MOTION && !motion_count(TSEL)) ||
+             (cf == CF_CLEAR_SHARED && !song.g[G_MFXTYPE] && !song.g[G_MFX2TYPE] && !song.g[G_MFX3TYPE]))
         ui_message("NOTHING TO CLEAR");
     else
         return 0;

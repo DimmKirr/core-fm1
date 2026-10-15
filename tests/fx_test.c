@@ -95,7 +95,8 @@ static void send_return(void)
     trk[0].p[P_FXSEND]=81;apply_preset_to(&trk[0],0);assert(trk[0].p[P_FXSEND]==81);sound_init_of(TSEL,eng_idx(TSEL->eng_req));assert(trk[0].p[P_FXSEND]==81);
     song.g[G_FXRETURN]=73;project_t q;project_capture(&q);project_store_t wire;assert(proj_pack(&wire,&q) && proj_import(&proj_scratch,&wire,sizeof wire));assert(proj_scratch.g[G_FXRETURN]==73 && proj_scratch.g[G_MFXTYPE]==FX_REVERB && proj_scratch.t[0].p[P_FXSEND]==81);
     template_save();memset(song.g+G_MFXTYPE,0,(G_COUNT-G_MFXTYPE)*sizeof *song.g);trk[0].p[P_FXSEND]=0;template_load();assert(song.g[G_FXRETURN]==73 && song.g[G_MFXTYPE]==FX_REVERB && trk[0].p[P_FXSEND]==81);
-    go_title("FX SEND");turn(EN_K1,1);assert(trk[0].p[P_FXSEND]>81);turn(EN_K2,1);assert(song.g[G_FXRETURN]>73);
+    go_title("FX");fx_rack_row[0]=3;turn(EN_K4,1);assert(trk[0].p[P_FXSEND]>81);   /* the rack's shared row: SEND */
+    go_title("SHARED");fx_rack_row[1]=3;turn(EN_K4,1);assert(song.g[G_FXRETURN]>73);  /* SHARED's last row: RETURN */
     wire.raw[PROJ_FX_WIRE_OFF+3u]=128;uint32_t hash=proj_hash(wire.raw,sizeof wire-4u);memcpy(wire.raw+sizeof wire-4u,&hash,4);assert(!proj_import(&proj_scratch,&wire,sizeof wire));
     /* OFF and a type change fade the parallel return to silence, while an
      * insert bypass stays dry. RETURN edits also ramp rather than step. */
@@ -166,8 +167,11 @@ static void separate_sends(void)
     assert(proj_scratch.g[G_FXMODE]==1 && proj_scratch.t[0].p[P_FXSEND2]==71 && proj_scratch.t[0].p[P_FXSEND3]==99);
     template_save();song.g[G_FXMODE]=0;TSEL->p[P_FXSEND2]=TSEL->p[P_FXSEND3]=0;template_load();
     assert(song.g[G_FXMODE]==1 && TSEL->p[P_FXSEND2]==71 && TSEL->p[P_FXSEND3]==99);
-    go_title("FX SENDS");turn(EN_K2,1);turn(EN_K3,-1);assert(TSEL->p[P_FXSEND2]>71 && TSEL->p[P_FXSEND3]<99);
-    go_title("FX SEND");turn(EN_K3,-1);assert(!song.g[G_FXMODE]);
+    go_title("SHARED");fx_rack_row[1]=1;turn(EN_K4,1);turn(EN_K2,1);turn(EN_K4,-1);   /* SPLIT: SHARED's rows send */
+    assert(TSEL->p[P_FXSEND2]>71 && TSEL->p[P_FXSEND3]<99 && fx_rack_row[1]==2);
+    go_title("FX");fx_rack_row[0]=3;turn(EN_K4,1);assert(TSEL->p[P_FXSEND]==20);       /* (FX's shared row: no SEND) */
+    go_title("SHARED");page_sheet_open();assert(pop.on==POP_SHEET && pop.rows==SHEET_SHARED);
+    turn(EN_K1,-1);assert(!song.g[G_FXMODE]);pop_close();                               /* the sheet's Routing */
     uint32_t inserts_epoch=fx_state[0].epoch;fx_bus_mix=32768;fx_bus_select();assert(fx_bus_separate);
     int32_t out[CTL*2];for(uint32_t k=0;k<32;k++){fx_bus_start(CTL);fx_bus_join();master_samples(out,CTL);}
     assert(!fx_bus_separate && fx_state[0].epoch==inserts_epoch && TSEL->p[P_FXSEND2]>71);
@@ -202,8 +206,9 @@ static void fx_chain_test(void)
     sound_init_of(t,t->eng_req);assert(!memcmp(t->p+P_FXTYPE,settings,sizeof settings));
     assert(!native_store(ENGI_FM6,1,0,"FX FREE") || native_used(ENGI_FM6,1));
     assert(!native_load(ENGI_FM6,1,0));assert(!memcmp(t->p+P_FXTYPE,settings,sizeof settings));
-    press(B_FX);assert(cur_page()->id[0]==P_FXTYPE);turn(EN_SELECT,1);assert(cur_page()->id[0]==P_FX2TYPE);
-    turn(EN_SELECT,1);assert(cur_page()->id[0]==P_FX2HP);turn(EN_SELECT,1);assert(cur_page()->id[0]==P_FX3TYPE);
+    press(B_FX);assert(cur_page()->graph==GR_FXRACK && cur_page()->scope==SC_TRACK);
+    turn(EN_SELECT,1);assert(cur_page()->id[0]==P_FXMIX);turn(EN_SELECT,1);assert(cur_page()->id[0]==P_FX2MIX);
+    turn(EN_SELECT,1);assert(cur_page()->id[0]==P_FX3MIX);turn(EN_SELECT,1);assert(str_eq(cur_page()->title,"SHARED"));
     t->p[P_FX2MIX]=0;for(uint32_t k=0;k<24;k++)fx_process(t,b,CTL);
     assert(!resource[RES_FX0+1].size && resource[RES_FX0+2].size==FX_REVERB_BYTES);
     puts("Three serial slots: independent bypass, live tails, preset/engine/undo/user independence, project/template and page navigation: OK");
@@ -412,10 +417,10 @@ static void chorus_test(void)
     for(uint32_t slot=0;slot<FX_SLOTS;slot++)assert(!resource[RES_FX0+slot].size && !resource[RES_FX0+NPART*FX_SLOTS+slot].size);
     puts("Chorus: full-band independent stereo, bounded hot inputs, exact silent tail, 2 KiB/slot, RATE/DEPTH, insert/send persistence and bypass release: OK");
 }
-static uint64_t tone_energy(uint32_t type,int cutoff,int highcut,uint32_t hz)
+static uint64_t tone_energy(uint32_t type,int tone,uint32_t hz)
 {
     ui_power_on();reset_fx();track_t *t=&trk[0];
-    t->p[P_FXTYPE]=type;t->p[P_FXMIX]=127;t->p[P_FXRATE]=70;t->p[P_FXCHAR]=60;t->p[P_FXHP]=cutoff;t->p[P_FXLP]=highcut;
+    t->p[P_FXTYPE]=type;t->p[P_FXMIX]=127;t->p[P_FXRATE]=70;t->p[P_FXCHAR]=60;t->p[P_FXTONE]=tone;
     int32_t b[CTL]={0};assert(fx_process(t,b,CTL));fx_state[0].mix=32768;
     uint32_t phase=0,inc=(uint32_t)((uint64_t)hz*0x100000000ull/FS);uint64_t energy=0;
     for(uint32_t frame=0;frame<3u*FS/CTL;frame++){
@@ -430,83 +435,152 @@ static uint64_t tone_energy(uint32_t type,int cutoff,int highcut,uint32_t hz)
 }
 static void tone_test(void)
 {
+    /* TONE's two sides: a low cut 20 .. 1280 Hz above 0, a high cut 2640 .. 120 Hz below, FULL at 0 */
+    assert(!fx_tone_hz(0) && fx_tone_hz(1)==20 && fx_tone_hz(FX_TONE_MAX)==1280 && fx_tone_hz(-1)==2640 && fx_tone_hz(-FX_TONE_MAX)==120);
+    for(int v=2;v<=FX_TONE_MAX;v++)assert(fx_tone_hz(v)>=fx_tone_hz(v-1) && fx_tone_hz(-v)<fx_tone_hz(-v+1));
+    const int thin=24,dark=-39;assert(fx_tone_hz(thin)==202 && fx_tone_hz(dark)==516);   /* ~200 Hz, ~500 Hz */
     for(uint32_t type=FX_ECHO;type<=FX_REVERB;type++){
-        uint64_t bass=tone_energy(type,0,0,40),cut=tone_energy(type,19,0,40);
-        uint64_t mids=tone_energy(type,0,0,1000),preserved=tone_energy(type,19,0,1000);
+        uint64_t bass=tone_energy(type,0,40),cut=tone_energy(type,thin,40);
+        uint64_t mids=tone_energy(type,0,1000),preserved=tone_energy(type,thin,1000);
         assert(bass>100000u && cut<bass/12u); /* >10 dB less sub-bass at 200 Hz */
         assert(preserved>mids*8u/10u && preserved<mids*12u/10u);
-        assert(tone_energy(type,127,0,40)<cut/8u);
-        uint64_t at_cut=tone_energy(type,19,0,200),reference=tone_energy(type,0,0,200);
+        assert(tone_energy(type,FX_TONE_MAX,40)<cut/8u);
+        uint64_t at_cut=tone_energy(type,thin,200),reference=tone_energy(type,0,200);
         assert(at_cut>reference*4u/10u && at_cut<reference*6u/10u); /* -3 dB */
-        uint64_t bright=tone_energy(type,0,0,2000),dark=tone_energy(type,0,20,2000);
-        uint64_t body=tone_energy(type,0,0,200),warm=tone_energy(type,0,20,200);
-        assert(bright>10000u && dark<bright/10u && warm>body*7u/10u);
-        assert(tone_energy(type,0,1,2000)<dark/8u);
-        uint64_t at_high=tone_energy(type,0,20,500),flat_high=tone_energy(type,0,0,500);
+        uint64_t bright=tone_energy(type,0,2000),darker=tone_energy(type,dark,2000);
+        uint64_t body=tone_energy(type,0,200),warm=tone_energy(type,dark,200);
+        assert(bright>10000u && darker<bright/10u && warm>body*7u/10u);
+        assert(tone_energy(type,-FX_TONE_MAX,2000)<darker/8u);
+        uint64_t at_high=tone_energy(type,dark,500),flat_high=tone_energy(type,0,500);
         assert(at_high>flat_high*4u/10u && at_high<flat_high*6u/10u);
-        assert(tone_energy(type,19,20,40)<bass/12u && tone_energy(type,19,20,2000)<bright/10u);
         trk[0].p[P_FXMIX]=0;reset_fx();int32_t dry[CTL];
         for(uint32_t i=0;i<CTL;i++)dry[i]=(int32_t)i*91-8000;
-        trk[0].p[P_FXHP]=trk[0].p[P_FXLP]=127;assert(!fx_process(&trk[0],dry,CTL) && !resource[RES_FX0].size);
+        trk[0].p[P_FXTONE]=FX_TONE_MAX;assert(!fx_process(&trk[0],dry,CTL) && !resource[RES_FX0].size);
     }
-    for(uint32_t type=FX_PHASER;type<FX_COUNT;type++)if(type<FX_ECHO || type>FX_REVERB)
-        assert(tone_energy(type,0,0,1000)==tone_energy(type,127,127,1000));
-    /* A constant input exposes discontinuities when moving the cutoff and
-     * switching OFF; test both processing rates, then exact bypass. */
-    for(uint32_t rev=0;rev<2;rev++)for(uint32_t section=0;section<2;section++){
+    for(uint32_t type=FX_PHASER;type<FX_COUNT;type++)if(!fx_has_tone((int32_t)type))
+        assert(tone_energy(type,0,1000)==tone_energy(type,FX_TONE_MAX,1000) && tone_energy(type,0,1000)==tone_energy(type,-FX_TONE_MAX,1000));
+    /* A constant input exposes discontinuities when moving the cutoff, crossing FULL from one side to the other and
+     * switching off; test both processing rates, then exact bypass. */
+    for(uint32_t rev=0;rev<2;rev++)for(uint32_t sweep=0;sweep<3;sweep++){
         ui_power_on();reset_fx();int16_t p[4]={rev?FX_REVERB:FX_ECHO,127,60,64};fx_plan_t plan;
         int32_t previous=8000;uint32_t rate=FS/(rev?FX_REV_DIV:4u);
         for(uint32_t block=0;block<600;block++){
-            trk[0].p[section?P_FXLP:P_FXHP]=block<100?0:block<200?19:block<300?127:block<400?1:0;
+            int16_t thin_side=(int16_t)(block<100?0:block<200?thin:block<300?FX_TONE_MAX:block<400?1:0);
+            trk[0].p[P_FXTONE]=sweep==0?thin_side:sweep==1?(int16_t)-thin_side:(int16_t)(block<100?-FX_TONE_MAX:block<300?FX_TONE_MAX:block<400?-1:0);
             fx_slot_prepare(&plan,0,p);assert(plan.active);
             for(uint32_t i=0;i<CTL;i++){
                 int32_t y=fx_tone_input(plan.f,8000,1.0f/(0.010f*rate));
                 assert(abs(y-previous)<200 && abs(y)<=9000);previous=y;
             }
         }
-        assert(previous==8000 && !plan.f->q[0][section].b1 && !plan.f->q[0][section].z1);
+        for(uint32_t section=0;section<2;section++)assert(!plan.f->q[0][section].b1 && !plan.f->q[0][section].z1);
+        assert(previous==8000);
     }
-    /* Each control targets its own track/slot, including shared SPLIT sends. */
+    /* Each slot's TONE targets its own track/slot and section, shared slots too. */
     ui_power_on();reset_fx();fx_plan_t plan;
     for(uint32_t ti=0;ti<=NPART;ti++)for(uint32_t slot=0;slot<FX_SLOTS;slot++){
-        int16_t *p=ti==NPART?song.g:trk[ti].p;
-        uint32_t base=(ti==NPART?G_MFXTYPE:P_FXTYPE)+slot*FX_PARAMS,hp=(ti==NPART?G_MFXHP:P_FXHP)+slot;
-        p[base]=FX_ECHO;p[base+1]=127;p[hp]=1+ti*3+slot;p[hp+FX_SLOTS]=31+ti*3+slot;
-        fx_slot_prepare(&plan,ti*FX_SLOTS+slot,p+base);assert(plan.active && plan.f->q[0][0].a2==p[hp] && plan.f->q[0][1].a2==p[hp+FX_SLOTS]);
+        int16_t *p=ti==NPART?song.g:trk[ti].p,v=(int16_t)((ti+slot)&1u?1+ti*3+slot:-(int)(1+ti*3+slot));
+        uint32_t base=(ti==NPART?G_MFXTYPE:P_FXTYPE)+slot*FX_PARAMS,tone=(ti==NPART?G_MFXTONE:P_FXTONE)+slot;
+        p[base]=FX_ECHO;p[base+1]=127;p[tone]=v;
+        fx_slot_prepare(&plan,ti*FX_SLOTS+slot,p+base);
+        assert(plan.active && plan.f->q[0][0].a2==(v>0?v:0) && plan.f->q[0][1].a2==(v<0?-v:0));
     }
     project_t q;project_store_t wire;project_capture(&q);assert(proj_pack(&wire,&q) && proj_import(&proj_scratch,&wire,sizeof wire));
-    for(uint32_t ti=0;ti<NPART;ti++)for(uint32_t slot=0;slot<FX_SLOTS;slot++)assert(proj_scratch.t[ti].p[P_FXHP+slot]==1+ti*3+slot && proj_scratch.t[ti].p[P_FXLP+slot]==31+ti*3+slot);
-    for(uint32_t slot=0;slot<FX_SLOTS;slot++)assert(proj_scratch.g[G_MFXHP+slot]==13+slot && proj_scratch.g[G_MFXLP+slot]==43+slot);
-    template_save();memset(trk[0].p+P_FXHP,0,12);memset(song.g+G_MFXHP,0,12);template_load();
-    for(uint32_t slot=0;slot<FX_SLOTS;slot++)assert(trk[0].p[P_FXHP+slot]==1+slot && trk[0].p[P_FXLP+slot]==31+slot && song.g[G_MFXHP+slot]==13+slot && song.g[G_MFXLP+slot]==43+slot);
-    apply_preset_to(TSEL,0);sound_init_of(TSEL,eng_idx(TSEL->eng_req));undo_swap();
-    for(uint32_t slot=0;slot<FX_SLOTS;slot++)assert(TSEL->p[P_FXHP+slot]==1+slot && TSEL->p[P_FXLP+slot]==31+slot);
-    go_title("FX 1");turn(EN_SELECT,1);assert(cur_page()->id[0]==P_FXHP && cur_page()->id[1]==P_FXLP);
-    turn(EN_K1,1);turn(EN_K2,1);assert(TSEL->p[P_FXHP]>1 && TSEL->p[P_FXLP]>31);
-    go_title("SEND 1 EQ");turn(EN_K1,1);turn(EN_K2,1);assert(song.g[G_MFXHP]>13 && song.g[G_MFXLP]>43);
-    for(uint32_t i=0;i<NELEM(PAGES);i++)if(PAGES[i].scope==SC_TRACK && param_fx_hp(PAGES[i].id[0])){
-        uint32_t slot=PAGES[i].id[0]-P_FXHP;assert(page_visible(i));TSEL->p[P_FXTYPE+slot*FX_PARAMS]=FX_CHORUS;assert(!page_visible(i));
+    for(uint32_t ti=0;ti<=NPART;ti++)for(uint32_t slot=0;slot<FX_SLOTS;slot++){
+        int16_t v=(int16_t)((ti+slot)&1u?1+ti*3+slot:-(int)(1+ti*3+slot));
+        assert((ti==NPART?proj_scratch.g[G_MFXTONE+slot]:proj_scratch.t[ti].p[P_FXTONE+slot])==v);
     }
-    char val[32];const char *unit;param_format(track_desc(TSEL,P_FXHP),0,val,&unit);assert(str_eq(val,"OFF"));
-    param_format(track_desc(TSEL,P_FXHP),127,val,&unit);assert(str_eq(val,"1280") && str_eq(unit,"Hz"));
-    param_format(track_desc(TSEL,P_FXLP),0,val,&unit);assert(str_eq(val,"OFF"));
-    param_format(track_desc(TSEL,P_FXLP),127,val,&unit);assert(str_eq(val,"2640") && str_eq(unit,"Hz"));
-    wire.raw[PROJ_HP_WIRE]=128;uint32_t hash=proj_hash(wire.raw,sizeof wire-4u);memcpy(wire.raw+sizeof wire-4u,&hash,4);assert(!proj_import(&proj_scratch,&wire,sizeof wire));
-    wire.raw[PROJ_HP_WIRE]=13;wire.raw[PROJ_LP_WIRE]=128;hash=proj_hash(wire.raw,sizeof wire-4u);memcpy(wire.raw+sizeof wire-4u,&hash,4);assert(!proj_import(&proj_scratch,&wire,sizeof wire));
-    tmpl.master[17]=128;assert(!tmpl_blob_valid((const uint8_t *)&tmpl,sizeof tmpl));
+    template_save();memset(trk[0].p+P_FXTONE,0,6);memset(song.g+G_MFXTONE,0,6);template_load();
+    for(uint32_t slot=0;slot<FX_SLOTS;slot++){
+        assert(trk[0].p[P_FXTONE+slot]==(slot&1u?1+(int)slot:-(1+(int)slot)));
+        assert(song.g[G_MFXTONE+slot]==((NPART+slot)&1u?1+NPART*3+(int)slot:-(int)(1+NPART*3+slot)));
+    }
+    int16_t kept[FX_SLOTS];memcpy(kept,TSEL->p+P_FXTONE,sizeof kept);
+    apply_preset_to(TSEL,0);sound_init_of(TSEL,eng_idx(TSEL->eng_req));undo_swap();assert(!memcmp(TSEL->p+P_FXTONE,kept,sizeof kept));
+    /* the slot pages: KNOB 4 TONE (ECHO, ROOM, REVERB only), its words */
+    TSEL->p[P_FXTONE]=-2;go_title("FX 1");turn(EN_K4,1);assert(TSEL->p[P_FXTONE]>-2);
+    song.g[G_MFXTONE]=0;go_title("SEND FX 1");turn(EN_K4,1);assert(song.g[G_MFXTONE]>0);
+    int16_t *vp;TSEL->p[P_FXTYPE]=FX_CHORUS;assert(!page_desc(&PAGES[page_titled("FX 1")],3,&vp) && !vp);
+    TSEL->p[P_FXTYPE]=FX_OFF;assert(!page_visible(page_titled("FX 1")));TSEL->p[P_FXTYPE]=FX_ROOM;assert(page_visible(page_titled("FX 1")));
+    char val[32];const char *unit;
+    param_format(track_desc(TSEL,P_FXTONE),0,val,&unit);assert(str_eq(val,"FULL"));
+    param_format(track_desc(TSEL,P_FXTONE),-5,val,&unit);assert(str_eq(val,"DARK"));
+    param_format(global_desc(G_MFX3TONE),5,val,&unit);assert(str_eq(val,"THIN"));
+    /* corrupt records */
+    wire.raw[PROJ_TONE_WIRE]=0;uint32_t hash=proj_hash(wire.raw,sizeof wire-4u);memcpy(wire.raw+sizeof wire-4u,&hash,4);assert(!proj_import(&proj_scratch,&wire,sizeof wire));
+    wire.raw[PROJ_TONE_WIRE]=128;hash=proj_hash(wire.raw,sizeof wire-4u);memcpy(wire.raw+sizeof wire-4u,&hash,4);assert(!proj_import(&proj_scratch,&wire,sizeof wire));
+    wire.raw[PROJ_TONE_WIRE]=64;wire.raw[PROJ_LP_WIRE]=1;hash=proj_hash(wire.raw,sizeof wire-4u);memcpy(wire.raw+sizeof wire-4u,&hash,4);assert(!proj_import(&proj_scratch,&wire,sizeof wire));
+    template_save();assert(tmpl_blob_valid((const uint8_t *)&tmpl,sizeof tmpl));
+    tmpl.master[14]=0;assert(!tmpl_blob_valid((const uint8_t *)&tmpl,sizeof tmpl));
+    tmpl.master[14]=64;tmpl.master[17]=1;assert(!tmpl_blob_valid((const uint8_t *)&tmpl,sizeof tmpl));
+    /* frozen FUN20 / TPLJ (before the cuts): TONE FULL everywhere */
     const char *paths[]={"tests/fixtures/fun20-split.bin","tests/fixtures/tplj-split.bin"};uint8_t old[PROJ_STORE_SIZE];
     for(uint32_t k=0;k<2;k++){
         FILE *f=fopen(paths[k],"rb");assert(f);uint32_t n=fread(old,1,sizeof old,f);fclose(f);ui_power_on();
         if(k){assert(tmpl_take(old,n));template_load();}else{assert(proj_import(&proj_scratch,old,n));assert(!project_restore_runtime(&proj_scratch));}
         assert(song.g[G_FXMODE]==1 && song.g[G_MFXTYPE]==FX_REVERB && song.g[G_FXRETURN]==73 && TSEL->p[P_FXTYPE]==FX_ECHO && TSEL->p[P_FXMIX]==91 && TSEL->p[P_FXSEND2]==71);
         assert(TSEL->p[P_E3]==clamp(42,track_desc(TSEL,P_E3)->min,track_desc(TSEL,P_E3)->max));
-        for(uint32_t slot=0;slot<FX_SLOTS;slot++){assert(!song.g[G_MFXHP+slot] && !song.g[G_MFXLP+slot]);for(uint32_t ti=0;ti<NPART;ti++)assert(!trk[ti].p[P_FXHP+slot] && !trk[ti].p[P_FXLP+slot]);}
+        for(uint32_t slot=0;slot<FX_SLOTS;slot++){assert(!song.g[G_MFXTONE+slot]);for(uint32_t ti=0;ti<NPART;ti++)assert(!trk[ti].p[P_FXTONE+slot]);}
     }
-    puts("FX tone: bass/treble rejection, -3 dB cutoffs, smooth edits/OFF, per-slot editor/routing, persistence and frozen FUN20/TPLJ imports: OK");
+    /* frozen FUN21 / TPLK (written by 201cbbd: two cuts a slot): each slot's cut becomes the TONE nearest it, the low
+     * cut when both were set; routing, the sound and engine motion (E3 shifted with P_E0) stay */
+    const char *cuts[]={"tests/fixtures/fun21-cuts.bin","tests/fixtures/tplk-cuts.bin"};
+    for(uint32_t k=0;k<2;k++){
+        FILE *f=fopen(cuts[k],"rb");assert(f);uint32_t n=fread(old,1,sizeof old,f);fclose(f);ui_power_on();
+        if(k){assert(tmpl_take(old,n));template_load();}else{assert(proj_import(&proj_scratch,old,n));assert(proj_scratch.motion.count==1 && proj_scratch.motion.event[0].param==P_E3);assert(!project_restore_runtime(&proj_scratch));}
+        assert(song.g[G_FXMODE]==1 && song.g[G_MFXTYPE]==FX_REVERB && song.g[G_MFX2TYPE]==FX_ECHO && song.g[G_FXRETURN]==73);
+        assert(TSEL->p[P_FXTYPE]==FX_ECHO && TSEL->p[P_FXMIX]==91 && TSEL->p[P_FX2TYPE]==FX_ROOM && TSEL->p[P_FXSEND2]==71);
+        assert(TSEL->p[P_E3]==clamp(42,track_desc(TSEL,P_E3)->min,track_desc(TSEL,P_E3)->max));
+        assert(TSEL->p[P_FXTONE]==24 && fx_tone_hz(24)==202);                    /* LO CUT 200 Hz */
+        assert(TSEL->p[P_FX2TONE]<0 && abs(fx_tone_hz(TSEL->p[P_FX2TONE])-500)<20);   /* HI CUT 500 Hz */
+        assert(TSEL->p[P_FX3TONE]>0 && abs(fx_tone_hz(TSEL->p[P_FX3TONE])-80)<6);     /* both: the 80 Hz low cut */
+        assert(song.g[G_MFXTONE]>0 && abs(fx_tone_hz(song.g[G_MFXTONE])-300)<10);     /* shared LO CUT 300 Hz */
+        assert(song.g[G_MFX2TONE]<0 && abs(fx_tone_hz(song.g[G_MFX2TONE])-1000)<20);  /* shared HI CUT 1 kHz */
+        assert(!song.g[G_MFX3TONE] && !trk[1].p[P_FXTONE]);
+    }
+    puts("FX tone: bass/treble rejection, -3 dB cutoffs, smooth edits across FULL, per-slot editor/routing, persistence and frozen FUN20/TPLJ, FUN21/TPLK imports: OK");
+}
+/* README "FX rack": FX opens the track's rack (MOD's rows: K2 the row, K1 its effect, K4 its amount), OCT+ opens a
+ * row (an empty slot: its effects' list; the shared row: SHARED), OCT- goes back up, a slot's page shows while it holds
+ * an effect and is named after it */
+static void rack_test(void)
+{
+    ui_power_on();char chip[16];
+    press(B_FX);assert(!ui.home && cur_page()->graph==GR_FXRACK && cur_page()->scope==SC_TRACK && str_eq(cur_page()->title,"FX"));
+    for(uint32_t i=0;i<NPAGES;i++)if(PAGES[i].fam==FAM_FX && PAGES[i].graph!=GR_FXRACK)assert(!page_visible(i));   /* (all empty) */
+    fx_rack_row[0]=0;turn(EN_K1,1);assert(TSEL->p[P_FXTYPE]!=FX_OFF);turn(EN_K4,5);assert(TSEL->p[P_FXMIX]>0);
+    for(uint32_t k=0;k<6;k++)turn(EN_K2,1);
+    assert(fx_rack_row[0]==3);for(uint32_t k=0;k<6;k++)turn(EN_K2,-1);
+    assert(fx_rack_row[0]==0);
+    TSEL->p[P_FXTYPE]=FX_ECHO;press(B_OCTUP);assert(cur_page()->id[0]==P_FXMIX);
+    head_chip_text(chip);assert(str_eq(chip,"ECHO"));
+    press(B_OCTDN);assert(str_eq(cur_page()->title,"FX") && fx_rack_row[0]==0);
+    turn(EN_K2,1);press(B_OCTUP);assert(pop.on==POP_LIST);                         /* an empty slot: the list */
+    turn(EN_K2,1);turn(EN_K2,1);press(B_OCTUP);assert(pop.on==POP_NONE && TSEL->p[P_FX2TYPE]==FX_WIDTH);
+    press(B_OCTUP);assert(cur_page()->id[0]==P_FX2MIX);head_chip_text(chip);assert(str_eq(chip,"WIDTH"));
+    press(B_FX);assert(str_eq(cur_page()->title,"FX"));                            /* FX from a slot: the rack */
+    turn(EN_SELECT,1);assert(cur_page()->id[0]==P_FXMIX);turn(EN_SELECT,1);assert(cur_page()->id[0]==P_FX2MIX);
+    turn(EN_SELECT,1);assert(str_eq(cur_page()->title,"SHARED"));                  /* (slot 3 empty: none) */
+    press(B_OCTDN);assert(str_eq(cur_page()->title,"FX") && fx_rack_row[0]==3);
+    TSEL->p[P_FXSEND]=10;turn(EN_K4,1);assert(TSEL->p[P_FXSEND]>10);              /* the shared row: SEND */
+    press(B_OCTUP);assert(str_eq(cur_page()->title,"SHARED"));
+    fx_rack_row[1]=0;turn(EN_K1,1);assert(song.g[G_MFXTYPE]!=FX_OFF);song.g[G_MFXTYPE]=FX_REVERB;
+    song.g[G_MFXMIX]=100;turn(EN_K4,-1);assert(song.g[G_MFXMIX]<100);             /* CHAIN: the slot's MIX */
+    song.g[G_FXMODE]=1;TSEL->p[P_FXSEND]=30;turn(EN_K4,1);assert(TSEL->p[P_FXSEND]>30 && song.g[G_MFXMIX]<100);   /* SPLIT */
+    press(B_OCTUP);assert(cur_page()->scope==SC_GLOBAL && cur_page()->id[0]==G_MFXMIX);head_chip_text(chip);assert(str_eq(chip,"REVERB"));
+    press(B_OCTDN);assert(str_eq(cur_page()->title,"SHARED") && fx_rack_row[1]==0);
+    press(B_OCTDN);assert(str_eq(cur_page()->title,"FX"));press(B_OCTDN);assert(ui.home);
+    /* SHARED's sheet: Clear asks, then every shared slot is off */
+    press(B_FX);fx_rack_row[0]=3;press(B_OCTUP);fx_rack_row[1]=3;press(B_OCTUP);assert(pop.on==POP_SHEET && pop.rows==SHEET_SHARED);
+    turn(EN_K2,1);press(B_OCTUP);assert(ui.confirm==CF_CLEAR_SHARED);ui_confirm_accept();
+    assert(!song.g[G_MFXTYPE] && !song.g[G_MFX2TYPE] && !song.g[G_MFX3TYPE] && song.g[G_MFXMIX]==GP[G_MFXMIX].def);
+    /* the editor empties the slot shown: its rack */
+    TSEL->p[P_FXTYPE]=FX_ECHO;go_title("FX 1");TSEL->p[P_FXTYPE]=FX_OFF;frame();assert(str_eq(cur_page()->title,"FX"));
+    puts("FX rack: rows, effect list, slot pages named after their effect, OCT+/OCT-/FX/SELECT navigation, SHARED, SPLIT sends and its sheet: OK");
 }
 int main(int argc,char **argv)
 {
-    legacy();frozen_three_slots();send_return();separate_sends();fx_chain_test();reverb_tail();reverb_presence();reverb_rate_conversion();rate_and_pan();tape_smooth();chorus_test();tone_test();
+    legacy();frozen_three_slots();send_return();separate_sends();fx_chain_test();reverb_tail();reverb_presence();reverb_rate_conversion();rate_and_pan();tape_smooth();chorus_test();tone_test();rack_test();
     uint64_t dry=fx_signal(FX_OFF,60,64,0,0);
     for(uint32_t mode=FX_PHASER;mode<FX_COUNT;mode++){
         assert(fx_signal(mode,60,64,0,0)==dry);
@@ -536,11 +610,11 @@ int main(int argc,char **argv)
     }
     for(uint32_t id=0;id<RES_COUNT;id++)resource_release(id);
     ui_power_on();press(B_FX);assert(!ui.home && cur_page()->fam==FAM_FX && !ui.layer);
-    turn(EN_K1,2);assert(TSEL->p[P_FXTYPE]==FX_WIDTH);turn(EN_K2,50);assert(TSEL->p[P_FXMIX]>0);
+    fx_rack_row[0]=0;turn(EN_K1,2);assert(TSEL->p[P_FXTYPE]==FX_WIDTH);turn(EN_K4,50);assert(TSEL->p[P_FXMIX]>0);
     project_t q;project_capture(&q);project_store_t p;assert(proj_pack(&p,&q));
     assert(proj_import(&proj_scratch,&p,sizeof p));assert(proj_scratch.t[0].p[P_FXTYPE]==FX_WIDTH);
-    frames(400);press(B_OCTUP);assert(pop.on==POP_SHEET);press(B_OCTDN);assert(!pop.on);
-    press(B_OCTDN);assert(ui.home);
+    frames(400);press(B_OCTUP);assert(cur_page()->id[0]==P_FXMIX);press(B_OCTUP);assert(pop.on==POP_SHEET);
+    press(B_OCTDN);assert(!pop.on);press(B_OCTDN);assert(str_eq(cur_page()->title,"FX"));press(B_OCTDN);assert(ui.home);
     /* Four live tracks through the actual mixer, then mute a sounding insert. */
     ui_power_on();int32_t out[CTL*2];
     for(uint32_t k=0;k<NPART;k++){

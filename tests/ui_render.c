@@ -478,7 +478,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_PICKER_MODE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
        S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_REF_SHEET_NOTE, S_REF_SHEET_HIT, S_REF_MOTION,
        S_REF_SHEET_MOTION, S_REF_MOD, S_REF_PICKER_MOD, S_REF_ARP, S_REF_PATTERN,
-       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_SEND, S_FX_SEPARATE, S_FX_SENDS, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_FX_LOW_CUT, S_FX_SEND_LOW_CUT, S_FX_TONE2, S_FX_TONE3, S_FX_SEND_TONE2, S_FX_SEND_TONE3, S_BOOT_MIGRATION, S_BOOT_UPDATE, S_BOOT_ERROR, S_BOOT_COMPLETE, S_BOOT_WIPE_CONFIRM, S_BOOT_WIPING, S_BOOT_UPDATE_ERROR, S_COUNT };
+       S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_FX_PHASER, S_FX_WIDTH, S_FX_FORMANT, S_FX_TAPE, S_FX_SPIT, S_FX_ECHO, S_FX_ROOM, S_FX_REVERB, S_FX_CHORUS, S_FX_FULL, S_FX_SLOT2, S_FX_SLOT3, S_FX_RACK, S_FX_RACK_SPLIT, S_FX_RACK_PICK, S_FX_RACK_LIST, S_FX_BUS1, S_FX_BUS2, S_FX_BUS3, S_FX_SHARED, S_FX_SHARED_SPLIT, S_FX_SHARED_SHEET, S_FX_TONE_DARK, S_FX_TONE_THIN, S_BOOT_MIGRATION, S_BOOT_UPDATE, S_BOOT_ERROR, S_BOOT_COMPLETE, S_BOOT_WIPE_CONFIRM, S_BOOT_WIPING, S_BOOT_UPDATE_ERROR, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -502,7 +502,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "home_select_level", "pattern_key_dialog", "stage_1track_rec",
     "mixer_1track", "mixer_2tracks", "mixer_3tracks", "patterns_2tracks", "song_2tracks", "layer_glo_2tracks", "new_roles_1track",
     "stage_long", "stage_3tracks_long", "stage_2tracks_long", "stage_1track_long",
-    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_send", "fx_separate", "fx_sends", "fx_bus1", "fx_bus2", "fx_bus3", "fx_low_cut", "fx_send_low_cut", "fx_tone2", "fx_tone3", "fx_send_tone2", "fx_send_tone3", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error"};
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_picker_mode", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_fmeg", "ref_grid", "ref_scales", "fx_phaser", "fx_width", "fx_formant", "fx_tape", "fx_spit", "fx_echo", "fx_room", "fx_reverb", "fx_chorus", "fx_full", "fx_slot2", "fx_slot3", "fx_rack", "fx_rack_split", "fx_rack_pick", "fx_rack_list", "fx_bus1", "fx_bus2", "fx_bus3", "fx_shared", "fx_shared_split", "fx_shared_sheet", "fx_tone_dark", "fx_tone_thin", "boot_migration", "boot_update", "boot_error", "boot_complete", "boot_wipe_confirm", "boot_wiping", "boot_update_error"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -1190,35 +1190,34 @@ static void setup(int s)
         song.rec = 1u | 8u; ui.hot_col = 3; ui.hot_t = 30;
         break;
     case S_FX_PHASER: case S_FX_WIDTH: case S_FX_FORMANT: case S_FX_TAPE: case S_FX_SPIT: case S_FX_ECHO: case S_FX_ROOM: case S_FX_REVERB: case S_FX_CHORUS: case S_FX_FULL:
-        go_title("FX 1");TSEL->p[P_FXTYPE]=(int16_t)(s==S_FX_FULL?FX_ECHO:s-S_FX_PHASER+1);
+        TSEL->p[P_FXTYPE]=(int16_t)(s==S_FX_FULL?FX_ECHO:s-S_FX_PHASER+1);go_title("FX 1");
         TSEL->p[P_FXMIX]=84;TSEL->p[P_FXRATE]=60;TSEL->p[P_FXCHAR]=72;
         if(s==S_FX_FULL)fx_state[(song.sel%NPART)*FX_SLOTS].failed=1;
         break;
-    case S_FX_LOW_CUT: case S_FX_SEND_LOW_CUT: case S_FX_TONE2: case S_FX_TONE3: case S_FX_SEND_TONE2: case S_FX_SEND_TONE3: {
-        uint32_t slot=s==S_FX_TONE2 || s==S_FX_SEND_TONE2?1u:s==S_FX_TONE3 || s==S_FX_SEND_TONE3?2u:0u;
-        uint32_t master=s==S_FX_SEND_LOW_CUT || s==S_FX_SEND_TONE2 || s==S_FX_SEND_TONE3;
-        int16_t *p=master?song.g:TSEL->p;
-        p[(master?G_MFXTYPE:P_FXTYPE)+slot*FX_PARAMS]=(int16_t)(FX_ECHO+slot);
-        p[(master?G_MFXHP:P_FXHP)+slot]=slot==0?0:slot==1?19:127;
-        p[(master?G_MFXLP:P_FXLP)+slot]=slot==0?0:slot==1?35:127;
-        go_title(master?(slot==0?"SEND 1 EQ":slot==1?"SEND 2 EQ":"SEND 3 EQ"):(slot==0?"FX 1 TONE":slot==1?"FX 2 TONE":"FX 3 TONE"));break;
+    case S_FX_RACK: case S_FX_RACK_SPLIT: case S_FX_RACK_PICK: case S_FX_RACK_LIST: case S_FX_SHARED: case S_FX_SHARED_SPLIT: case S_FX_SHARED_SHEET:
+    case S_FX_TONE_DARK: case S_FX_TONE_THIN: {       /* the mock's chain: Echo, Room; shared Reverb, Echo */
+        static const int16_t ins[8]={FX_ECHO,84,60,72,FX_ROOM,51,70,64},bus[8]={FX_REVERB,127,90,100,FX_ECHO,51,60,72};
+        memcpy(TSEL->p+P_FXTYPE,ins,sizeof ins);memcpy(song.g+G_MFXTYPE,bus,sizeof bus);
+        TSEL->p[P_FXSEND]=81;TSEL->p[P_FXSEND2]=40;TSEL->p[P_FXSEND3]=0;song.g[G_FXRETURN]=100;
+        song.g[G_FXMODE]=s==S_FX_RACK_SPLIT || s==S_FX_SHARED_SPLIT;
+        if(s==S_FX_TONE_DARK){TSEL->p[P_FXTONE]=-30;go_title("FX 1");ui.hot_col=3;ui.hot_t=30;break;}
+        if(s==S_FX_TONE_THIN){song.g[G_MFXTONE]=40;go_title("SEND FX 1");break;}
+        go_title(s>=S_FX_SHARED?"SHARED":"FX");fx_rack_row[s>=S_FX_SHARED]=(uint8_t)(s==S_FX_RACK_PICK || s==S_FX_RACK_LIST?2:1);
+        if(s==S_FX_RACK_PICK){TSEL->p[P_FX3TYPE]=FX_TAPE;pick_touch(0);ui.hot_col=0;ui.hot_t=30;}
+        if(s==S_FX_RACK_LIST)vlist_open(ui.page,0);
+        if(s==S_FX_SHARED_SHEET)page_sheet_open();
+        break;
     }
-    case S_FX_SEND:
-        go_title("FX SEND");TSEL->p[P_FXSEND]=81;song.g[G_FXRETURN]=100;break;
-    case S_FX_SEPARATE:
-        song.g[G_FXMODE]=1;go_title("FX SEND");TSEL->p[P_FXSEND]=81;song.g[G_FXRETURN]=100;break;
-    case S_FX_SENDS:
-        song.g[G_FXMODE]=1;go_title("FX SENDS");TSEL->p[P_FXSEND]=50;TSEL->p[P_FXSEND2]=71;TSEL->p[P_FXSEND3]=99;break;
     case S_FX_BUS1: case S_FX_BUS2: case S_FX_BUS3:
-        go_title(s==S_FX_BUS1?"SEND FX 1":s==S_FX_BUS2?"SEND FX 2":"SEND FX 3");
-        for(uint32_t slot=0;slot<3;slot++){uint32_t b=G_MFXTYPE+slot*4;song.g[b]=slot==0?FX_REVERB:slot==1?FX_TAPE:FX_ECHO;song.g[b+1]=127;song.g[b+2]=90;song.g[b+3]=100;}break;
+        for(uint32_t slot=0;slot<3;slot++){uint32_t b=G_MFXTYPE+slot*4;song.g[b]=slot==0?FX_REVERB:slot==1?FX_TAPE:FX_ECHO;song.g[b+1]=127;song.g[b+2]=90;song.g[b+3]=100;}
+        go_title(s==S_FX_BUS1?"SEND FX 1":s==S_FX_BUS2?"SEND FX 2":"SEND FX 3");break;
     case S_FX_SLOT2: case S_FX_SLOT3:
-        go_title(s==S_FX_SLOT2?"FX 2":"FX 3");
         for(uint32_t slot=0;slot<FX_SLOTS;slot++){
             uint32_t base=P_FXTYPE+slot*FX_PARAMS;
             TSEL->p[base]=(int16_t)(slot==0?FX_PHASER:slot==1?FX_ECHO:FX_REVERB);
             TSEL->p[base+1]=84;TSEL->p[base+2]=60;TSEL->p[base+3]=72;
         }
+        go_title(s==S_FX_SLOT2?"FX 2":"FX 3");
         break;
     case S_ENV: go_title("ENV"); ui.hot_col = 2; ui.hot_t = 30; break;
     case S_ENVDEST: go_title("ENV DEST"); break;

@@ -16,7 +16,7 @@
  * the selected track's lifted, the knob just turned (its control) in text.
  * Each part remembers what it drew. draw_column draws the knobs in the style col_style asks. Included by
  * ui_draw.c */
-enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES, PV_MOD, PV_GRID };
+enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES, PV_MOD, PV_GRID, PV_RACK };
 #define PV_GRID_Y Y_GRAPH                               /* the drum grid: its panel, rows 84 .. 237 (under the strip) */
 #define PV_GRID_H 154
 static void list_words(char *d, const char *label, uint32_t n);   /* ui_list.c */
@@ -57,6 +57,8 @@ static uint32_t pv_kind(void)
         return PV_NOTES;
     if (pg->graph == GR_MOD)
         return PV_MOD;
+    if (pg->graph == GR_FXRACK)
+        return PV_RACK;
     return PV_NONE;
 }
 
@@ -121,6 +123,94 @@ static void pv_mod_rows(void)
     }
 }
 
+/* FX's racks (README "FX rack"; MOD's rows): FX: the track's three slots and the shared FX; SHARED: its three slots
+ * and RETURN. A row: its number (A-C on SHARED; the shared FX an arrow, RETURN the four tracks' colours), the effect
+ * ("--" none; the shared row: "Shared" and the shared effects in order), the amount's bar and value (a slot's MIX, the
+ * track's SEND; SPLIT: SHARED's slots the track's send to each, FX's shared row none); the row KNOB 2 is on outlined
+ * and tinted in its colour, the word turning (KNOB 1 its effect, 4 its amount) in it; empty slots dim */
+static void pv_rack_rows(void)
+{
+    static uint32_t sig;
+    const page_t *pg = cur_page();
+    uint32_t sh = pg->scope == SC_GLOBAL, k, j, hot = ui.hot_t ? ui.hot_col + 1u : 0u, keep = fx_rack_row[sh];
+    const int16_t *fx = sh ? song.g + G_MFXTYPE : TSEL->p + P_FXTYPE, *bus = song.g + G_MFXTYPE;
+    uint32_t sg = keep * 7u + ux.gen * 977u + ux.pal * 31u + song.sel * 13u + hot * 101u + sh * 5003u +
+                  (uint32_t)song.g[G_FXMODE] * 7907u;
+    for (k = 0; k < FX_SLOTS * FX_PARAMS; k++)
+        sg = (sg ^ (uint16_t)fx[k] ^ (uint32_t)(uint16_t)bus[k] << 16) * 16777619u;
+    for (k = 0; k < FX_SLOTS; k++)
+        sg = (sg ^ (uint16_t)TSEL->p[P_FXSEND + k]) * 16777619u;
+    sg = (sg ^ (uint16_t)song.g[G_FXRETURN]) * 16777619u;
+    if (!ui.force && sg == sig)
+        return;
+    sig = sg;
+    for (k = 0; k < 4u; k++) {
+        int sel = k == keep, on = k == FX_SLOTS || fx[k * FX_PARAMS] != FX_OFF;
+        uint16_t kc = T_KNOB(k), bg = sel ? ux_mix(T_BG, kc, 18) : T_BG, wc = on ? (sel ? T_TEXT : T_SEC) : T_DIM;
+        const param_desc_t *d;
+        int16_t *vp;
+        const char *unit;
+        char nm[16], b[16];
+        int32_t x;
+        fx_rack_row[sh] = (uint8_t)k;                   /* (the row's KNOB 4, as if it were picked) */
+        d = page_desc(pg, 3u, &vp);
+        fx_rack_row[sh] = (uint8_t)keep;
+        cv_begin(240, PV_MOD_H, T_BG);
+        if (sel) {
+            cv_rrect(BOX_X, 1, BOX_W, PV_MOD_H - 4, 8, kc, T_BG);
+            cv_rrect(BOX_X + 2, 3, BOX_W - 4, PV_MOD_H - 8, 6, bg, kc);
+        }
+        if (k < FX_SLOTS) {
+            b[0] = (char)((sh ? 'A' : '1') + k);
+            b[1] = 0;
+            cv_text_on(10, ty_y(17, TY_TX), TY_TX, b, on || sel ? kc : T_MID, bg);
+            menu_words(nm, on ? N_FX[clamp(fx[k * FX_PARAMS], 0, FX_COUNT - 1)] : "--", sizeof nm);
+            cv_free_text(30, ty_y(17, TY_TX), TY_TX, nm, sel && hot == 1u ? kc : wc, bg, 198);
+        } else if (sh) {                                /* RETURN: every track's */
+            for (j = 0; j < 4u; j++)
+                cv_rrect(9 + (int32_t)(j & 1u) * 8, 10 + (int32_t)(j >> 1) * 8, 7, 7, 2, T_TRK(j), bg);
+            cv_text_on(30, ty_y(17, TY_TX), TY_TX, "Return", wc, bg);
+        } else {                                        /* the shared FX: an arrow, its effects in order */
+            uint32_t n = 0;
+            cv_rect(9, 16, 11, 2, kc);
+            cv_line(15, 12, 19, 16, kc);
+            cv_line(15, 21, 19, 17, kc);
+            x = cv_text_on(30, ty_y(17, TY_TX), TY_TX, "Shared", wc, bg) + 8;
+            for (j = 0; j < FX_SLOTS && x < 220; j++) {
+                if (bus[j * FX_PARAMS] == FX_OFF)
+                    continue;
+                if (n++) {                              /* (a chain: an arrow between; SPLIT: a comma) */
+                    if (song.g[G_FXMODE]) {
+                        x = cv_text_on(x - 7, ty_y(18, TY_LB), TY_LB, ",", T_MID, bg) + 6;
+                    } else {
+                        cv_rect(x, 18, 7, 2, T_MID);
+                        cv_line(x + 4, 15, x + 7, 18, T_MID);
+                        cv_line(x + 4, 22, x + 7, 19, T_MID);
+                        x += 13;
+                    }
+                }
+                menu_words(nm, N_FX[clamp(bus[j * FX_PARAMS], 0, FX_COUNT - 1)], sizeof nm);
+                x = cv_free_text(x, ty_y(18, TY_LB), TY_LB, nm, T_MID, bg, 228 - x) + 8;
+            }
+            if (!n)
+                cv_text_on(x, ty_y(18, TY_LB), TY_LB, "--", T_DIM, bg);
+        }
+        if (d && vp) {                                  /* the amount: "66 %", its bar from the left */
+            int32_t a = clamp(*vp, d->min, d->max);
+            param_format(d, a, b, &unit);
+            if (unit[0] && str_len(b) + str_len(unit) + 2u < sizeof b) {
+                str_cpy(b + str_len(b), " ", 2);
+                str_cpy(b + str_len(b), unit, 8);
+            }
+            x = cv_text_r(228, ty_y(36, TY_LB), TY_LB, b, sel && hot == 4u ? kc : wc, bg);
+            cv_rect(30, 35, x - 38, 3, T_LINE);
+            if (a > d->min)
+                cv_rect(30, 35, (a - d->min) * (x - 38) / (d->max - d->min), 3, on ? (sel ? kc : ux_mix(bg, kc, 60)) : T_DIM);
+        }
+        cv_blit(0, (uint32_t)(PV_MOD_Y + (int32_t)k * PV_MOD_H));
+    }
+}
+
 /* ---------------------------------------------------------- knobs --- */
 /* a knob's words as the mockups write them: a name value in sentence case ("SAW" -> "Saw"; numbers and notes as they
  * are), a unit in lower case ("STEP" -> "steps"); its label as the page has it */
@@ -160,14 +250,23 @@ static void pv_sound(void)
     uint32_t sig;
     if (designer_on() && designer_foot())                /* the sound designer: its keys (ui_designer.c) */
         return;
-    if(cur_page()->fam==FAM_FX && cur_page()->scope==SC_GLOBAL && cur_page()->id[0]!=G_TRK_SEND){en="FX";memcpy(nm,"SEND / RETURN",14);}
+    uint32_t all = cur_page()->fam == FAM_FX && cur_page()->scope == SC_GLOBAL;   /* a shared FX slot: every track's */
+    if (all) nm[0] = 0;
     else sound_name(TSEL, nm);
-    sig = str_hash(str_hash(song.sel * 7u + ux.gen * 977u + ux.pal * 31u, en), nm);
+    sig = str_hash(str_hash(song.sel * 7u + ux.gen * 977u + ux.pal * 31u + all * 4099u, en), nm);
     if (!ui.force && sig == pv.sound)
         return;
     pv.sound = sig;
     cv_begin(240, 240 - PV_SOUND_Y, T_BG);
-    pv_sound_bar(0, song.sel, en, nm, T_THEME, T_BG);
+    if (all) {                                          /* the four tracks' colours for the numeral */
+        int32_t cy = H_FOOT / 2;
+        uint32_t k;
+        for (k = 0; k < 4u; k++)
+            cv_rrect(4 + (int32_t)(k & 1u) * 12, cy - 11 + (int32_t)(k >> 1) * 12, 10, 10, 3, T_TRK(k), T_BG);
+        cv_free_text(34, ty_y(cy, TY_TX), TY_TX, "All tracks", T_SEC, T_BG, 236 - 34);
+    } else {
+        pv_sound_bar(0, song.sel, en, nm, T_THEME, T_BG);
+    }
     cv_blit(0, PV_SOUND_Y);
 }
 /* a panel h rows tall at y, drawn by fn in slices (fn draws in panel coordinates; pv.slice0: the slice's first row) */
@@ -498,80 +597,73 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
     }
     return *cut >= 0 ? 3u : 0u;
 }
-/* FX follows R5: four rings, a rounded track-colour picture, compact labels.
- * WIDTH explicitly names its two sides and the mono tradeoff. */
-static int32_t pv_fx_tone_slot(const page_t *pg)
+/* FX (README "FX rack"): an effect slot's page (FX 1-3, SEND FX 1-3: MIX, TIME or RATE, its DEPTH, TONE): what the
+ * effect does, its sound as a curve in the track's colour and, for ECHO, ROOM and REVERB, TONE as a strip under it:
+ * the band that reaches the effect lit in TONE's colour (all of it at FULL), the cut's frequency under its edge. WIDTH
+ * says what mono does; a time effect without its buffer says MEMORY FULL. No hints */
+static int32_t pv_hz_x(int32_t hz)                       /* 20 Hz .. 2.64 kHz, a log scale: x 16 .. 223 */
 {
-    uint32_t id=pg->id[0];
-    if(pg->scope==SC_TRACK && param_fx_hp(id))return (int32_t)(id-P_FXHP);
-    if(pg->scope==SC_GLOBAL && id>=G_MFXHP && id<=G_MFX3HP)return (int32_t)(id-G_MFXHP);
-    return -1;
-}
-/* Squared magnitude of the actual prewarped first-order sections. The graph
- * follows target controls immediately; audio independently slews its state. */
-static float pv_fx_cut_power(float g,float s,float c,uint32_t highpass)
-{
-    float a=s*(1.0f-g),b=c*g,aa=a*a,bb=b*b;
-    return (highpass?aa:bb)/(aa+bb);
-}
-static void pv_fx_tone(int32_t h,uint32_t slot)
-{
-    const aafont_t *lf=TY_LB;uint32_t master=cur_page()->scope==SC_GLOBAL;
-    const int16_t *p=master?song.g:TSEL->p;
-    uint32_t type=(uint32_t)clamp(p[(master?G_MFXTYPE:P_FXTYPE)+slot*FX_PARAMS],0,FX_COUNT-1);
-    int32_t lo=p[(master?G_MFXHP:P_FXHP)+slot],hi=p[(master?G_MFXLP:P_FXLP)+slot];
-    uint32_t div=type==FX_REVERB?FX_REV_DIV:4u;
-    float lg=lo?fx_cut_coefficient(fx_highpass_hz(lo),div):0,hg=hi?fx_cut_coefficient(fx_lowpass_hz(hi),div):0;
-    cv_free_text(12,6,lf,N_FX[type],T_MID,T_PANEL,PV_PANEL_W-24);
-    int32_t top=lf->h+14,bottom=h-lf->h-13,previous=bottom*16;
-    cv_rect(16,bottom,208,1,T_LINE);
-    for(uint32_t x=0;x<208u;x++){
-        uint32_t hz=20u+x*x*2580u/(207u*207u),ph=(uint32_t)((uint64_t)hz*div*0x80000000ull/FS);
-        float s=(float)sine_i(ph),c=(float)sine_i(ph+0x40000000u),power=1;
-        if(lo)power*=pv_fx_cut_power(lg,s,c,1);
-        if(hi)power*=pv_fx_cut_power(hg,s,c,0);
-        int32_t y=bottom*16-(int32_t)(power*(float)((bottom-top)*16));
-        if(x)cv_vspan_aa(16+(int32_t)x,previous,y,T_THEME);previous=y;
-    }
-    cv_free_text(12,h-lf->h-6,lf,"20 Hz",T_DIM,T_PANEL,60);
-    cv_free_text(150,h-lf->h-6,lf,"2.6 kHz",T_DIM,T_PANEL,78);
+    uint32_t v = (uint32_t)clamp(hz, 20, 2640) * 16u / 20u, o = 4;   /* (v 16 .. 2112: its log2 4 .. 11.04) */
+    while (v >> (o + 1u))
+        o++;
+    return 16 + (int32_t)((o - 4u) * 256u + ((v << 8) >> o) - 256u) * 208 / 1803;   /* (log2 132 = 1803 / 256) */
 }
 static void pv_fx(int32_t h)
 {
     const aafont_t *lf = TY_LB;
-    int32_t tone=pv_fx_tone_slot(cur_page());if(tone>=0){pv_fx_tone(h,(uint32_t)tone);return;}
-    if(cur_page()->id[0]==G_TRK_SEND || cur_page()->id[0]==P_FXSEND){
-        uint32_t sends=cur_page()->id[0]==P_FXSEND;
-        cv_free_text(12,6,lf,song.g[G_FXMODE]?"Independent FX sends":"Track to shared FX",T_MID,T_PANEL,PV_PANEL_W-24);
-        cv_free_text(12,h/2-lf->h,lf,sends?"One level per effect":song.g[G_FXMODE]?"SEND 1: this track":"SEND: this track",T_THEME,T_PANEL,PV_PANEL_W-24);
-        cv_free_text(12,h/2+4,lf,sends?"Returns join the dry mix":"RETURN: all tracks",T_THEME,T_PANEL,PV_PANEL_W-24);return;
-    }
-    uint32_t base=cur_page()->id[0],master=cur_page()->scope==SC_GLOBAL,slot=(base-(master?G_MFXTYPE:P_FXTYPE))/FX_PARAMS;
-    const int16_t *values=master?song.g:TSEL->p;uint32_t type=(uint32_t)clamp(values[base],0,FX_COUNT-1);
+    const page_t *pg = cur_page();
+    uint32_t master = pg->scope == SC_GLOBAL, slot = (pg->id[0] - (master ? G_MFXMIX : P_FXMIX)) / FX_PARAMS;
+    const int16_t *p = (master ? song.g : TSEL->p) + pg->id[0] - 1u;   /* TYPE MIX RATE CHAR */
+    uint32_t type = (uint32_t)clamp(p[0], 0, FX_COUNT - 1), failed = fx_state[(master ? NPART : song.sel % NPART) * FX_SLOTS + slot].failed;
     static const char *const hint[FX_COUNT]={"Dry signal","Moving notches","All-pass L / dry R","Random vowels","Phase / crossover jitter","Jumping resonance","Short lo-fi echoes","Small lo-fi space","Diffused stereo reverb","Stereo pitch shimmer"};
-    int32_t mix=values[base+1u],cha=values[base+3u],cy=h/2+2,py=cy*16;
-    cv_free_text(12,6,lf,hint[type],T_MID,T_PANEL,PV_PANEL_W-24);
-    for(int32_t x=0;x<208;x++){
-        int32_t ph=(int32_t)(sine_i((uint32_t)x*0x06000000u)>>10);
-        int32_t y=cy*16;
-        if(type==FX_PHASER || type==FX_WIDTH || type==FX_CHORUS)y+=ph*mix/9;
-        else if(type==FX_FORMANT)y-=((ph+32)*mix)/15;
-        else if(type==FX_TAPE || type==FX_SPIT)y+=(ph*((x*(cha+1)/32)%32))/4;
-        else if(type>=FX_ECHO)y+=(ph*mix*(208-x))/1900;
-        y=clamp(y,(lf->h+10)*16,(h-lf->h-10)*16);cv_vspan_aa(16+x,py,y,type&&mix?T_THEME:T_DIM);py=y;
+    int32_t mix = p[1], cha = p[3], tone = master ? song.g[G_MFXTONE + slot] : TSEL->p[P_FXTONE + slot];
+    int32_t ly = h - lf->h - 4, sy = ly - 9, low = (fx_has_tone((int32_t)type) && !failed ? sy - 6 : h - lf->h - 10) * 16;
+    int32_t top = (lf->h + 10) * 16, cy = (top + low) / 32, py = cy * 16;
+    cv_free_text(12, 6, lf, hint[type], T_MID, T_PANEL, PV_PANEL_W - 24);
+    for (int32_t x = 0; x < 208; x++) {
+        int32_t ph = (int32_t)(sine_i((uint32_t)x * 0x06000000u) >> 10), y = cy * 16;
+        if (type == FX_PHASER || type == FX_WIDTH || type == FX_CHORUS) y += ph * mix / 9;
+        else if (type == FX_FORMANT) y -= ((ph + 32) * mix) / 15;
+        else if (type == FX_TAPE || type == FX_SPIT) y += (ph * ((x * (cha + 1) / 32) % 32)) / 4;
+        else if (type >= FX_ECHO) y += (ph * mix * (208 - x)) / 1900;
+        y = clamp(y, top, low);
+        cv_vspan_aa(16 + x, py, y, type && mix ? T_THEME : T_DIM);
+        py = y;
     }
-    const char *foot=fx_state[(master?NPART:song.sel%NPART)*FX_SLOTS+slot].failed?"MEMORY FULL":type==FX_WIDTH?"Mono changes the tone":type==FX_OFF || !mix?"Turn MIX to hear FX":type>=FX_ECHO && type<=FX_REVERB?"SELECT: tone cuts":master?"Shared by all tracks":"OCT+ sound actions";
-    cv_free_text(12,h-lf->h-6,lf,foot,T_DIM,T_PANEL,PV_PANEL_W-24);
+    if (failed || type == FX_WIDTH) {
+        cv_free_text(12, h - lf->h - 6, lf, failed ? "MEMORY FULL" : "Mono changes the tone", T_DIM, T_PANEL, PV_PANEL_W - 24);
+    } else if (fx_has_tone((int32_t)type)) {             /* TONE: what passes, lit */
+        int32_t hz = fx_tone_hz(tone), x = tone ? pv_hz_x(hz) : 224, a = tone > 0 ? x : 16, b = tone < 0 ? x : 224;
+        uint16_t kc = T_KNOB(3);
+        char t[12];
+        cv_rrect(16, sy, 208, 5, 2, T_LINE, T_PANEL);
+        cv_rrect(a, sy, b - a > 5 ? b - a : 5, 5, 2, tone ? kc : ux_mix(T_LINE, kc, 45), T_LINE);   /* (FULL: calm) */
+        if (tone) {                                     /* "320 Hz", "1.2 kHz" under the edge */
+            fmt_int(t, hz < 1000 ? hz : hz / 1000);
+            if (hz >= 1000) {
+                uint32_t n = str_len(t);
+                t[n] = '.';
+                t[n + 1u] = (char)('0' + hz % 1000 / 100);
+                t[n + 2u] = 0;
+            }
+            str_cpy(t + str_len(t), hz < 1000 ? " Hz" : " kHz", 6);
+            if (x < 16 + text_w(lf, t) / 2) cv_text_on(16, ty_y(ly + lf->h / 2, lf), lf, t, kc, T_PANEL);
+            else if (x > 224 - text_w(lf, t) / 2) cv_text_r(224, ty_y(ly + lf->h / 2, lf), lf, t, kc, T_PANEL);
+            else cv_text_c(x, ty_y(ly + lf->h / 2, lf), lf, t, kc, T_PANEL);
+        }
+    }
 }
 static void pv_picture(void)
 {
     int32_t cut, res, y = PV_PIC_Y + pv_tab_h, h = PV_PIC_H - pv_tab_h;
     uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u ^ (uint32_t)h * 613u, i;
-    int32_t tone=pic==9u?pv_fx_tone_slot(cur_page()):-1;
-    if(tone>=0){uint32_t master=cur_page()->scope==SC_GLOBAL;const int16_t *p=master?song.g:TSEL->p;sig^=(uint32_t)p[(master?G_MFXTYPE:P_FXTYPE)+(uint32_t)tone*FX_PARAMS]*7919u;}
     int32_t pp = pic == 6u && song.playing ? (int32_t)(TSEL->seq_idx % (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP)) : -1;
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
-    if(pic==9u && cur_page()->id[0]!=G_TRK_SEND && cur_page()->id[0]!=P_FXSEND && pv_fx_tone_slot(cur_page())<0)sig^=(uint32_t)fx_state[(cur_page()->scope==SC_GLOBAL?NPART:song.sel%NPART)*FX_SLOTS+(cur_page()->id[0]-(cur_page()->scope==SC_GLOBAL?G_MFXTYPE:P_FXTYPE))/FX_PARAMS].failed*347u;
+    if (pic == 9u) {                                    /* FX: the slot's effect (no column) and its buffer */
+        uint32_t m = cur_page()->scope == SC_GLOBAL, id = cur_page()->id[0];
+        sig ^= (uint32_t)(m ? song.g : TSEL->p)[id - 1u] * 7919u +
+               (uint32_t)fx_state[(m ? NPART : song.sel % NPART) * FX_SLOTS + (id - (m ? G_MFXMIX : P_FXMIX)) / FX_PARAMS].failed * 347u;
+    }
     if (pic >= 5u) {                                    /* ARP, PATTERN: the keys and steps */
         sig ^= steps_hash(TSEL) + (song.playing ? 1u + TSEL->seq_idx * 257u : 0u) * 2246822519u;
         for (i = 0; i < TSEL->nheld && i < 16u; i++)
@@ -757,11 +849,14 @@ static void pv_draw(void)
         }
         return;
     }
-    if (kind == PV_MOD) {
+    if (kind == PV_MOD || kind == PV_RACK) {
         if (ui.force)
             lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
         draw_head();
-        pv_mod_rows();                                  /* (the routes say what the knobs turn: no strip) */
+        if (kind == PV_MOD)
+            pv_mod_rows();                              /* (the routes say what the knobs turn: no strip) */
+        else
+            pv_rack_rows();                             /* (as MOD's) */
         return;
     }
     if (kind == PV_MIXER) {

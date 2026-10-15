@@ -556,14 +556,14 @@ static void fx_slot_prepare(fx_plan_t *plan,uint32_t si,const int16_t *p)
         f->epoch=fx_epoch;f->type=(uint8_t)type;f->rng=(int32_t)(0x73a9825du+si*997u);
     }
     f->rate=(int16_t)clamp(p[2],0,127);f->character=(int16_t)clamp(p[3],0,127);
-    if(f->type>=FX_ECHO && f->type<=FX_REVERB){
+    if(fx_has_tone(f->type)){   /* TONE: above 0 the low cut (section 0), below 0 the high cut (section 1) */
         uint32_t slot=si%FX_SLOTS,master=si/FX_SLOTS==NPART,div=f->type==FX_REVERB?FX_REV_DIV:4u;
+        int32_t tone=clamp(master?song.g[G_MFXTONE+slot]:trk[si/FX_SLOTS].p[P_FXTONE+slot],-FX_TONE_MAX,FX_TONE_MAX);
         for(uint32_t k=0;k<2u;k++){
-            uint32_t id=(master?G_MFXHP:P_FXHP)+slot+k*FX_SLOTS;
-            int32_t cut=clamp(master?song.g[id]:trk[si/FX_SLOTS].p[id],0,127);
+            int32_t cut=k?(tone<0?-tone:0):(tone>0?tone:0);
             fx_bq_t *q=&f->q[0][k];
             if(q->a2!=(float)cut){
-                if(cut)q->a1=fx_cut_coefficient(k?fx_lowpass_hz(cut):fx_highpass_hz(cut),div);
+                if(cut)q->a1=fx_cut_coefficient(fx_tone_hz(k?-cut:cut),div);
                 q->a2=(float)cut;
             }
         }

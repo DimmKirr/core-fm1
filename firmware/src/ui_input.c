@@ -1041,6 +1041,11 @@ static void edit_param(uint32_t slot, int32_t steps)
         mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
         return;
     }
+    if (pg->graph == GR_FXRACK && slot == 1u) {          /* a rack: KNOB 2 the row; 1 its effect, 4 its amount */
+        uint32_t sh = pg->scope == SC_GLOBAL;
+        fx_rack_row[sh] = (uint8_t)clamp((int32_t)fx_rack_row[sh] + (steps > 0 ? 1 : -1), 0, (int32_t)FX_SLOTS);
+        return;
+    }
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
@@ -1087,7 +1092,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         settings_save();
         return;
     }
-    if ((pg->scope != SC_GLOBAL || pg->id[slot]==G_TRK_SEND) && !momentary.active && !designer_on()) {
+    if (vp >= TSEL->p && vp < TSEL->p + P_COUNT && !momentary.active && !designer_on()) {   /* (a track's value) */
         motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
         if (motion_param((uint32_t)(vp - TSEL->p)))
             motion_unplayed();
@@ -1693,13 +1698,66 @@ static void seq_erase_update(uint32_t pressed)
     if (!(fm1_in.buttons & ed)) { ui.erase_gesture = ui.erase_owner = 0; }
 }
 
+/* FX (docs/design README "FX rack"): a rack's slot r's page (shared: SHARED's), NPAGES none */
+static uint32_t fx_slot_page(uint32_t shared, uint32_t r)
+{
+    uint32_t i, id = (shared ? G_MFXMIX : P_FXMIX) + r * FX_PARAMS;
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].fam == FAM_FX && PAGES[i].graph == GR_NONE && (PAGES[i].scope == SC_GLOBAL) == (shared != 0u) &&
+            PAGES[i].id[0] == id)
+            return i;
+    return NPAGES;
+}
+static void fx_go(uint32_t page)
+{
+    if (page < NPAGES) {
+        ui.page = (uint8_t)page;
+        ui.fam_last[FAM_FX] = ui.page;
+        page_entered();
+    }
+}
+/* OCT+ on a rack: the row's slot page; an empty slot: its effects (the list, OCT+ takes one); FX's last row: SHARED.
+ * 0: nothing here (SHARED's RETURN: the sheet) */
+static int fx_rack_enter(void)
+{
+    const page_t *pg = cur_page();
+    uint32_t sh = pg->scope == SC_GLOBAL, r = fx_rack_row[sh] & 3u;
+    int16_t *vp;
+    if (ui.home || pg->graph != GR_FXRACK || (sh && r == FX_SLOTS))
+        return 0;
+    if (r == FX_SLOTS) {
+        fx_go(page_titled("SHARED"));
+    } else if (page_desc(pg, 0, &vp) && vp && *vp == FX_OFF) {
+        vlist_open(ui.page, 0);
+    } else {
+        fx_go(fx_slot_page(sh, r));
+    }
+    return 1;
+}
+/* OCT- on a slot's page: its rack, on its row; on SHARED: FX's, on its shared row. 0: elsewhere */
+static int fx_rack_back(void)
+{
+    const page_t *pg = cur_page();
+    uint32_t sh = pg->scope == SC_GLOBAL;
+    if (ui.home || pg->fam != FAM_FX || (pg->graph == GR_FXRACK && !sh))
+        return 0;
+    if (pg->graph == GR_FXRACK) {
+        fx_rack_row[0] = FX_SLOTS;
+        fx_go(page_titled("FX"));
+    } else {
+        fx_rack_row[sh] = (uint8_t)((pg->id[0] - (sh ? G_MFXMIX : P_FXMIX)) / FX_PARAMS);
+        fx_go(page_titled(sh ? "SHARED" : "FX"));
+    }
+    return 1;
+}
+
 /* KNOB k turned s on the page shown (the sound designer's pages too): what it edits there, its card hot */
 static void page_knob(uint32_t k, int32_t s)
 {
     const page_t *pg = cur_page();
     int16_t *hv;
     if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || ((pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
-        (pg->graph == GR_USER && k == 0u) || (pg->graph == GR_MOD && k == 1u)
+        (pg->graph == GR_USER && k == 0u) || ((pg->graph == GR_MOD || pg->graph == GR_FXRACK) && k == 1u)
         || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
         || (pg->graph == GR_SLICES && k < 2u)) {       /* (not an empty column) */
         ui.hot_col = (uint8_t)k;
@@ -1839,6 +1897,12 @@ static void ui_confirm_accept(void)
         up_ui_named(1u, ui.confirm_trk, 0);
     } else if (kind == CF_ERASE_PROJ) {
         project_erase(ui.confirm_trk & 3u);
+    } else if (kind == CF_CLEAR_SHARED) {                /* the shared slots as a new project's */
+        for (uint32_t i = G_MFXTYPE; i <= G_MFX3CHAR; i++)
+            song.g[i] = GP[i].def;
+        for (uint32_t i = G_MFXTONE; i <= G_MFX3TONE; i++)
+            song.g[i] = 0;
+        ui_message("SHARED FX CLEARED");
     } else if (kind == CF_CLEAR_MOTION) {                /* (playing: at the loop end, dq_defer) */
         uint32_t k = ui.confirm_trk % NTRK;
         if (!chain_busy() && !dq_defer(kind, k, trk[k].pattern, 0))
@@ -2245,6 +2309,8 @@ static void ui_input(void)
             motion_enter();
         else if (cur_page()->graph == GR_SCALE_PICKER)  /* SCALES: done, SCL's list */
             scales_back();
+        else if (fx_rack_enter())
+            ;
         else if (step_enter())
             ;
         else if (page_sheet())
@@ -2254,6 +2320,7 @@ static void ui_input(void)
         if (str_eq(cur_page()->title, "SCALES") && p < NPAGES) {
             ui.page = (uint8_t)p;
             page_entered();
+        } else if (fx_rack_back()) {                    /* an FX slot: its rack; SHARED: FX's */
         } else if (ptc_on()) {                          /* PATTERNS' Copy to: left, the page stays */
             ui.ptc_on = 0;
             ui.force = 1;

@@ -198,37 +198,37 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   factory's numbers); DRUM its 808 kit. The browser's KNOB 4 (the engine) loads the engine's INIT, and each engine's
   INIT comes first in its sounds there; Init sound (the sound's sheet) the engine's own.
 
-## FX inserts (2026-10-12)
+## FX rack (2026-10-15)
 
-FX opens the selected track's insert family. SELECT moves between FX 1, FX 2
-and FX 3, using the existing page dots; all three slots can run together. Each
-is an R5 knob page: four rings over a
-rounded picture, the existing track palette, Rubik faces, sound bar and footer.
-KNOB 1: the effect-name picker; KNOB 2: MIX; KNOB 3: RATE (ECHO: TIME, ROOM / REVERB: SIZE);
-KNOB 4: DEPTH / FOCUS / JITTER / BITE / REPEAT / DECAY. OCT+ opens the sound's
-actions, OCT- returns to Stage. FX held opens no keyboard layer. WIDTH says
-“All-pass L / dry R” and “Mono changes the tone”. MEMORY FULL appears in the
-picture when that slot's time-effect buffer cannot be allocated. REVERB says
-“Diffused stereo reverb”; ROOM keeps its existing character and picture.
-Reverb's fourth knob is DEPTH, combining wet body
-and longer sustain; MIX and SIZE stay separate. Effects
-belong to the track: preset loads, engine changes, Init sound and sound undo keep
-them. Projects and templates save the chain. Reduced processing rates apply
-only to effects, with no change to synth rendering. Screens for every effect
-and this state are rendered and linted in every palette by `tests/ui_render.c`.
+FX opens the selected track's **rack**, laid out like MOD's rows: its three insert slots (1–3) and a fourth row for
+the shared FX (an arrow, "Shared", the shared effects in order: a chain arrow between them, a comma in SPLIT). KNOB 2
+picks the row (outlined and tinted in its knob colour), KNOB 1 its effect (the name picker), KNOB 4 its amount: a
+slot's MIX, the shared row the track's SEND (in SPLIT the track's sends are SHARED's rows; the shared row then has no
+amount). Empty slots read "--", dim. OCT+ opens the row: a slot's page; an empty slot its effects' list (OCT+ takes
+one); the shared row SHARED. OCT- goes back up a level (slot → its rack, SHARED → FX, FX → Stage). FX pressed off the
+rack returns to it; on the rack it turns on to the next page, as SELECT does.
 
-FX SEND uses the same four-ring page with SEND for the selected track and RETURN for the shared bus. SEND FX 1–3 keep the insert page layout, show TYPE / MIX / RATE or SIZE / CHAR or DEPTH, and identify SEND / RETURN and ALL TRACKS in the footer. These controls belong to the project and track, never the instrument preset. Shared MIX defaults fully wet.
+**SHARED** is the same rack for the shared bus: its slots A–C (KNOB 4 their MIX; SPLIT: the selected track's send to
+each) and RETURN (the four track colours as its numeral). Its sheet (OCT+ held, or OCT+ on RETURN) holds Routing
+(Chain / Split) and Clear shared FX (asks first).
 
-For ECHO, ROOM and REVERB, SELECT reaches that slot's tone page immediately
-after its main controls: FX 1–3 TONE for inserts, SEND 1–3 EQ for shared effects.
-KNOB 1 is LO CUT (OFF, then 20–1280 Hz in 10 Hz steps); KNOB 2 is HI CUT
-(OFF, then 120–2640 Hz in 20 Hz steps). The remaining knobs are empty. A response
-curve follows both controls and identifies the effect being shaped. These pages
-are hidden for other effect types. Both smooth 6 dB/octave cuts shape the wet
-input; the original dry signal stays intact. HI CUT's range fits the common
-usable bandwidth of these deliberately reduced-rate effects.
-Each track and shared slot keeps its own cuts in projects and templates,
-independent of instrument presets. Older projects and templates load both OFF.
+A **slot's page** shows while the slot holds an effect, so SELECT never stops on an empty one: FX, the slots in use,
+SHARED, its slots in use. The header names the effect ("ECHO", "REVERB"). Its four knobs are the ones played: MIX,
+TIME or RATE (ECHO: TIME, ROOM and REVERB: SIZE), the effect's DEPTH / FOCUS / JITTER / BITE / REPEAT / DECAY, and TONE.
+The picture says what the effect does and draws its sound; WIDTH says "Mono changes the tone", a time effect without its
+buffer "MEMORY FULL". No hint rows. A shared slot's footer is "All tracks" with the four track colours. These controls
+belong to the project and track, never the instrument preset; shared MIX defaults fully wet.
+
+**TONE** (ECHO, ROOM and REVERB; the knob is empty for the others) is one knob from DARK through FULL to THIN: below
+FULL a high cut from 2640 Hz down to 120 Hz, above it a low cut from 20 Hz up to 1280 Hz (core.h `fx_tone_hz`, fine
+steps where the ear needs them). One smooth 6 dB/octave cut shapes the wet input; the dry signal stays intact. Under
+the picture a strip on a log axis (20 Hz–2.6 kHz) lights, in TONE's colour, the band that reaches the effect, the cut's
+frequency under its edge; at FULL the whole strip, dimmed. Each track and shared slot keeps its TONE in projects
+(FUN22) and templates (TPLL). FUN21/TPLK's two cuts load as the nearest TONE (the low cut when both were set); older
+records load FULL.
+
+Screens for every effect, the racks (picker, list, SPLIT), SHARED's sheet and TONE's two sides are rendered and linted
+in every palette by `tests/ui_render.c` (fx_*).
 
 ## Large type (2026-10-14)
 

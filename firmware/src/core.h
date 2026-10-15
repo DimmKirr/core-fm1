@@ -71,7 +71,7 @@ enum {
     F_INT, F_PCT, F_BIPCT, F_TIME, F_LFOHZ, F_CUTOFF, F_DB, F_SEMI, F_ENUM, F_BPM, F_NOTE,
     F_ONOFF, F_OCT, F_STEPS,
     F_OFS, F_FMNOTE, F_FMFRQ,   /* FM6's pages: 0 at the middle of the range, the DX7 break point, an operator's frequency */
-    F_HIGHPASS, F_LOWPASS
+    F_TONE                      /* an FX slot's TONE: DARK (a high cut) .. FULL .. THIN (a low cut), fx_tone_hz */
 };
 
 typedef struct {
@@ -113,8 +113,7 @@ enum {                          /* per-track parameters */
     P_FX3TYPE, P_FX3MIX, P_FX3RATE, P_FX3CHAR,
     P_FXSEND, /* post-fader chain send, or send to slot 1 in separate mode */
     P_FXSEND2, P_FXSEND3,
-    P_FXHP, P_FX2HP, P_FX3HP, /* wet low cut: appended so existing common IDs stay fixed */
-    P_FXLP, P_FX2LP, P_FX3LP, /* wet high cuts */
+    P_FXTONE, P_FX2TONE, P_FX3TONE, /* each slot's wet-input TONE (fx_tone_hz): appended so existing common IDs stay fixed */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -122,11 +121,18 @@ enum {                          /* per-track parameters */
 #define FX_PARAMS 4u
 #define FX_CHAIN_COUNT (NPART+1u)
 #define FX_STATE_COUNT (FX_CHAIN_COUNT*FX_SLOTS)
-static int param_fx_hp(uint32_t id) { return id>=P_FXHP && id<=P_FX3HP; }
-static int param_fx_lp(uint32_t id) { return id>=P_FXLP && id<=P_FX3LP; }
-static int param_fx(uint32_t id) { return (id>=P_FXTYPE && id<=P_FX3CHAR) || param_fx_hp(id) || param_fx_lp(id); }
-static int32_t fx_highpass_hz(int32_t value) { return value>0 ? 10+10*value : 0; }
-static int32_t fx_lowpass_hz(int32_t value) { return value>0 ? 100+20*value : 0; }
+#define FX_TONE_MAX 63
+static int param_fx_tone(uint32_t id) { return id>=P_FXTONE && id<=P_FX3TONE; }
+static int fx_has_tone(int32_t type) { return type>=6 && type<=8; }   /* fx.c FX_ECHO, FX_ROOM, FX_REVERB */
+static int param_fx(uint32_t id) { return (id>=P_FXTYPE && id<=P_FX3CHAR) || param_fx_tone(id); }
+/* TONE -63..63 -> the cut it sets (Hz), 0 = FULL (none): below 0 a high cut, 2640 Hz at -1 down to 120 Hz at -63;
+ * above 0 a low cut, 20 Hz at 1 up to 1280 Hz at 63 (squared: fine steps where the ear needs them) */
+static int32_t fx_tone_hz(int32_t v)
+{
+    int32_t a = v < 0 ? -v : v;
+    if (a > FX_TONE_MAX) a = FX_TONE_MAX;
+    return v > 0 ? 20 + a * a * 1260 / 3969 : v < 0 ? 120 + (64 - a) * (64 - a) * 2520 / 3969 : 0;
+}
 static int param_fx_send(uint32_t id) { return id>=P_FXSEND && id<=P_FXSEND3; }
 
 
@@ -147,8 +153,7 @@ enum {                          /* global parameters */
     G_FXRETURN,
     G_FXMODE, /* 0: one shared serial chain; 1: independent slot sends */
     G_BUDGET, /* device-wide shared workload allowance; appended, not a song field */
-    G_MFXHP, G_MFX2HP, G_MFX3HP,
-    G_MFXLP, G_MFX2LP, G_MFX3LP,
+    G_MFXTONE, G_MFX2TONE, G_MFX3TONE, /* the shared slots' TONE */
     G_COUNT
 };
 static int param_master_fx(uint32_t id){return id>=G_MFXTYPE && id<=G_MFX3CHAR;}

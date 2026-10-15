@@ -168,6 +168,8 @@ static void head_chip_text(char *b)
     } else if (pg->graph == GR_FMEG) {                  /* FM6's EG RATE / LVL: "OP3 EG" */
         str_cpy(b, "OP1 EG", 16);
         b[2] = (char)('1' + fm6_opsel % 6u);
+    } else if (pg->fam == FAM_FX && pg->graph == GR_NONE) {   /* an FX slot: its effect ("ECHO") */
+        str_cpy(b, N_FX[clamp((pg->scope == SC_GLOBAL ? song.g : TSEL->p)[pg->id[0] - 1u], 0, FX_COUNT - 1)], 16);
     } else if (pg->scope != SC_ENGINE && sec_on()) {   /* an engine in sections: the page's name in its section */
         sec_chip(ui.page, b, 16);
     } else {
@@ -363,7 +365,6 @@ static void pv_words(const char *label, const char *val, const char *unit, char 
 static void pv_value_c(uint32_t c, int32_t xc, int32_t y, const char *val, const char *unit, uint16_t vc, uint16_t bg, int32_t room);
 /* a label as its cell shows it: in full when it fits (55 px), else its short form */
 static const struct { const char *k, *s; } CELL_SHORT[] = {
-    {"LO CUT", "LOCUT"},
     {"PRIORITY", "PRIO"}, {"VEL AMP", "V.AMP"}, {"VEL FLT", "V.FLT"}, {"RELEASE", "REL"}, {"ENV AMT", "ENV"},
     {"VINTAGE", "VINT"}, {"PULSE A", "PLS A"}, {"PULSE B", "PLS B"}, {"WIDTH A", "WID A"}, {"WIDTH B", "WID B"},
     {"INITIAL", "INIT"}, {"SQUARE", "SQR"}, {"VOICES", "VOICE"}, {"BUDGET", "BUDG"}, {"RETURN", "RET"},
@@ -896,6 +897,10 @@ static void confirm_text(char *a, char *b)
     case CF_CLEAR_MOTION:
         str_cpy(a, "CLEAR T1 MOTION?", 24); a[7] = (char)('1' + k % NTRK);
         break;
+    case CF_CLEAR_SHARED:                               /* SHARED's sheet */
+        str_cpy(a, "CLEAR SHARED FX?", 24);
+        str_cpy(b, "All tracks \xB7 three slots off", 32);
+        break;
     case CF_OVR_USER:
         if (up_old_bank(k)) { str_cpy(a, "REPLACE OLD BANK?", 24); str_cpy(b, "All 18 old slots replaced", 32); break; }
         str_cpy(a, "OVERWRITE ", 24);
@@ -1031,8 +1036,9 @@ static int own_screen(void)                             /* a page drawn whole by
 /* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
 static void draw_page(void)
 {
-    if (!ui.home && !page_visible(ui.page)) {          /* an OP page (DIGITAL's, retired): EDIT 1 */
-        ui.page = (uint8_t)page_first(FAM_EDIT);
+    if (!ui.home && !page_visible(ui.page)) {          /* an OP page (DIGITAL's, retired): EDIT 1; an FX slot
+                                                         * emptied (the editor): its rack */
+        ui.page = (uint8_t)page_first(cur_page()->fam == FAM_FX ? FAM_FX : FAM_EDIT);
         page_entered();
     }
     cursor_fix();

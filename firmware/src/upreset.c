@@ -167,7 +167,7 @@ static int up_valid(const up_rec_t *r)
         return r->packed[133]==128u || r->packed[133]==133u;
 #endif
     }
-    if ((r->used & ~UP_STAR) == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==108u || r->np==119u || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
+    if ((r->used & ~UP_STAR) == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==108u || r->np==119u || r->np==125u /* (the FX cuts) */ || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
     if (!((r->used & ~UP_STAR) == UP_USED && (r->ver == UP_VER || r->ver == UP_VER_GRID || (r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= UP_PMAX * 2u && r->name[0])) return 0;
     for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;

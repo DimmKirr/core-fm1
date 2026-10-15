@@ -216,7 +216,7 @@ async function editorMock() {
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
   ok(info.nengines === 20 && info.engines[14] === "-" && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
- && info.engines[2] === "-" && info.engines[5] === "-" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "-" && info.engines[9] === "-" && info.engines[10] === "DRUM" && info.engines[11] === "-" && info.pcount === 125 && info.pe0 === 117 && info.engines[4] === "-",
+ && info.engines[2] === "-" && info.engines[5] === "-" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "-" && info.engines[9] === "-" && info.engines[10] === "DRUM" && info.engines[11] === "-" && info.pcount === 122 && info.pe0 === 114 && info.engines[4] === "-",
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
@@ -344,7 +344,7 @@ async function editorMock() {
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 14)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 5)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 0)));
-    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 48,
+    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 45,
       "editor: MIDI IN routing (ROUT four-channel ranges / SEL, global id 14)");
   }
   {
@@ -578,9 +578,9 @@ async function trackEffects() {
     await rq(E.req.preset(12,0));
     const fx=[1,80,30,71,6,95,55,65,8,105,88,99];
     for(let i=0;i<fx.length;i++)await rq(E.req.set(0,96+i,fx[i]));
-    for(let i=0;i<6;i++)await rq(E.req.set(0,111+i,19+i));
+    for(let i=0;i<3;i++)await rq(E.req.set(0,111+i,i?-20-i:24));
     const cap=(await E.capturePatch(rq,info,"DRY PATCH")).patch;
-    ok(eq(cap.p.slice(111,117),[0,0,0,0,0,0]),"FX: librarian capture excludes tone cuts");
+    ok(eq(cap.p.slice(111,114),[0,0,0]),"FX: librarian capture excludes TONE");
     ok(eq(cap.p.slice(96,108),[0,0,60,64,0,0,60,64,0,0,60,64]),"FX: librarian capture excludes the track's chain");
     await E.bank.store(rq,30,"DRY PATCH");
     const stored=await E.bank.get(rq,info,30);
@@ -588,9 +588,9 @@ async function trackEffects() {
     await rq(E.req.preset(3,1));await E.bank.load(rq,30);await E.auditionPatch(rq,info,cap);
     const dump=E.parse[E.CMD.DUMP](await rq(E.req.dump()),info);
     ok(eq(dump.p.slice(96,108),fx),"FX: factory, user and librarian sound loads preserve all three track slots");
-    ok(eq(dump.p.slice(111,117),[19,20,21,22,23,24]),"FX: sound loads preserve tone cuts");
-    ok(eq(E.fmtValue({fmt:E.F.HIGHPASS},0),["OFF",""]) && eq(E.fmtValue({fmt:E.F.HIGHPASS},19),["200","Hz"]),"FX: low cut formats OFF and frequency");
-    ok(eq(E.fmtValue({fmt:E.F.LOWPASS},0),["OFF",""]) && eq(E.fmtValue({fmt:E.F.LOWPASS},20),["500","Hz"]),"FX: high cut formats OFF and frequency");
+    ok(eq(dump.p.slice(111,114),[24,-21,-22]),"FX: sound loads preserve TONE");
+    ok(eq(E.fmtValue({fmt:E.F.TONE},0),["Full",""]) && eq(E.fmtValue({fmt:E.F.TONE},24),["Thin 202","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-39),["Dark 516","Hz"]) &&
+       eq(E.fmtValue({fmt:E.F.TONE},63),["Thin 1280","Hz"]) && eq(E.fmtValue({fmt:E.F.TONE},-63),["Dark 120","Hz"]),"FX: TONE formats Full, Dark / Thin and the cut's frequency");
     const common={step:0,param:info.pe0+1,value:63},native={step:0,param:info.pe0+1,value:(3<<8)|80};
     await rq(E.req.motion(0,3,common));let m=E.parse[E.CMD.MOTION](await rq(E.req.motion(0,3,native)));
     ok(m.count===2,"motion: native and common events sharing an engine ID coexist");
