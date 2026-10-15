@@ -1,10 +1,16 @@
-# FM Lab -- the operator boxes on HOME, filling with how loud each operator is.
+# FM Lab -- the operator boxes on HOME: five bars and, while you are editing one, a curve.
 #
 #   build/host/fmlab build/host/levels tests/levels.txt
 #
-# The claim the drawing makes is that you can watch an envelope move. So: pick an algorithm with a
-# deep stack and a pair beside it, hold a note, and take the picture several times on the way down.
-# A modulator and a carrier with different envelopes have to come apart, or the picture is lying.
+# Most of the time a box is a bar that fills from the left with how loud that operator is at this
+# instant, and the claim that makes is about time: a plucked voice has to empty its boxes as it
+# decays, and letting go has to take all of them with it.
+#
+# The operator the knobs are on is the exception. Tap EDIT and that one box draws its envelope
+# instead -- solid, so a box that small still reads, ending in the bottom right-hand corner, and
+# without its number, which the white ring round it has already made unnecessary. That one is
+# worth a shape because it is the one you are looking at; the rest stay bars, which is what makes
+# it stand out.
 
 # A plucked voice, so there is a decay to watch rather than a flat hold. The preset comes first:
 # loading one brings its own algorithm with it, and would undo the choice below.
@@ -13,26 +19,39 @@
 # Algorithm 1: 6>5>4>3 on one side, 2>1 on the other, feedback on OP6.
 100 enc 1 -31
 
-300 keys 0x80
-450 shot
-900 shot
-1700 shot
+# Nothing playing: six outlines with their numbers in them, and nothing filled in anywhere.
+400 shot
+
+# Now hold it, and take the picture on the way down.
+700 keys 0x80
+820 shot
+1400 shot
+2400 shot
 
 # Let go, and let it die away properly: the boxes have to empty, not freeze where they were.
-2400 keys 0
+3000 keys 0
 3400 shot
 
 # The selected operator switched off: struck through, and contributing nothing.
-3600 btn 10
-3800 keys 0x80
-4000 shot
-4200 keys 0
-4400 btn 10
+3700 btn 10
+3900 keys 0x80
+4100 shot
+4300 keys 0
+4500 btn 10
 
 # Algorithm 32 is six carriers side by side -- the tightest the boxes ever pack, and the case where
 # one box's live redraw could reach into the next one.
-4600 enc 1 31
-4800 keys 0x80
-5000 shot
-5200 keys 0
-5600 end
+4700 enc 1 31
+4900 keys 0x80
+5100 shot
+5300 keys 0
+
+# And the one box that is not a bar. Back to algorithm 1, tap EDIT to put LEVEL under KNOB1 without
+# leaving the diagram, and look at a screen with nothing sounding on it at all: one box has to have
+# grown a curve, and turning LEVEL has to visibly lower it. A bar would have been empty in both.
+5600 enc 1 -31
+5900 btn 6
+6200 shot
+6400 enc 2 -70
+6700 shot
+7000 end

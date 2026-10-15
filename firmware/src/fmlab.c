@@ -1101,6 +1101,93 @@ static void alg_layout(uint32_t alg)
     a_nrow = (uint8_t)(maxrow + 1u);
 }
 
+/* ---- the shape of an envelope, worked out by stepping it the way the engine does
+ *
+ * A DX7 envelope is four (rate, level) pairs. The level is where the segment is heading and the
+ * rate is how fast it gets there, so the same rate gives a different *time* depending on how far
+ * it has to travel -- which is the single most confusing thing about programming a DX7, and the
+ * reason it is drawn to scale rather than as four equal slopes.
+ *
+ * The maths below is dx_env_advance and dx_env_sample, solved for the segment length instead of
+ * run one block at a time: falling is linear, and rising is linear within each octave of level,
+ * so a handful of exact steps covers it.
+ *
+ * It is worked out once and drawn at two sizes: the width of the screen on the ENVELOPE page, and
+ * thumbnail-sized inside every operator's box on the algorithm diagram. */
+#define EG_FULL (16 << 24)                      /* the level the engine saturates at */
+
+static int32_t eg_target(const dx_env_t *e, uint32_t i)
+{
+    int32_t a = (int32_t)(dx_scaleoutlevel(e->levels[i]) >> 1);
+    a = (a << 6) + e->outlevel - 4256;
+    return (a < 16 ? 16 : a) << 16;
+}
+
+static int32_t eg_inc(const dx_env_t *e, uint32_t i)
+{
+    int32_t q = ((int32_t)e->rates[i] * 41) >> 6;
+    q += e->rate_scaling;
+    if (q > 63) q = 63;
+    return (4 + (q & 3)) << (2 + DX_LG_N + (q >> 2));
+}
+
+/* how many blocks dx_env_sample would need to walk from `from` to `to` */
+static uint32_t eg_blocks(int32_t from, int32_t to, int32_t inc)
+{
+    uint32_t n = 0;
+    if (inc <= 0) return 1u;
+    if (to <= from) {                           /* falling is linear, and the last step overshoots */
+        uint32_t d = (uint32_t)((from - to + inc - 1) / inc);
+        return d ? d : 1u;
+    }
+    if (from < (1716 << 16)) from = 1716 << 16; /* the jump a rising segment starts with */
+    while (from < to && n < 1000000u) {
+        int32_t band = (((from >> 24) + 1) << 24);
+        int32_t step = (((17 << 24) - from) >> 24) * inc;   /* the shift floors: this is the factor dx_env_sample uses */
+        int32_t lim = to < band ? to : band;
+        uint32_t k;
+        if (step <= 0) break;
+        k = (uint32_t)((lim - from + step - 1) / step);
+        if (!k) k = 1u;
+        n += k;
+        from += (int32_t)k * step;
+    }
+    return n ? n : 1u;            /* the block that jumps to 1716 also takes a step */
+}
+
+/* The six corners of the drawn envelope: the four segments, with a flat stretch between the third
+ * and the fourth for as long as the key is held. x gets the horizontal position of each corner and
+ * lvl the level there, so corners 3 and 4 share a level and are the ends of the flat. `hold` is how
+ * wide that stretch is drawn and `minw` the narrowest a segment may be, since a segment too fast to
+ * see still has to be wide enough to point at. */
+static void eg_shape(const dx_env_t *e, int32_t x0, int32_t x1, int32_t hold, int32_t minw,
+                     int32_t *x, int32_t *lvl)
+{
+    int32_t t[4], span, acc;
+    uint32_t b[4], i, tot = 0;
+
+    lvl[0] = 0;
+    for (i = 0; i < 4u; i++) {
+        t[i] = eg_target(e, i);
+        b[i] = eg_blocks(lvl[i], t[i], eg_inc(e, i));
+        if (b[i] > 60000u) b[i] = 60000u;       /* a 90 s segment must not squash the other three */
+        lvl[i + 1] = t[i];
+        tot += b[i];
+    }
+    if (!tot) tot = 1u;
+
+    span = x1 - x0 - hold;
+    acc = 0;
+    x[0] = x0;
+    for (i = 0; i < 4u; i++) {                  /* widths in proportion to real time */
+        acc += (int32_t)b[i];
+        x[i + 1] = x0 + (int32_t)(((int64_t)acc * span) / (int32_t)tot);
+        if (x[i + 1] < x[i] + minw) x[i + 1] = x[i] + minw;
+        if (i == 2) x[3] += hold;               /* the key is held here, for as long as you hold it */
+    }
+    if (x[4] > x1) x[4] = x1;
+}
+
 /* where the diagram lives, and how big a box is */
 #define ALG_Y 64
 #define ALG_H 136
@@ -1144,6 +1231,52 @@ static uint32_t op_now(uint32_t op)
     return l >= 4080 ? 255u : (uint32_t)l * 255u / 4080u;
 }
 
+/* The envelope the ISR is actually running for this operator, or 0 if nothing is sounding. */
+static const dx_env_t *op_live(uint32_t op)
+{
+    uint32_t v = v_last;
+    if (v >= NV || !dxv[v].on || !(v_lit >> v & 1u) || (opmute >> op & 1u))
+        return 0;
+    return &dxv[v].env[op];
+}
+
+/* A level as a row inside a box `h` tall: zero sits on the floor, full scale just under the lid.
+ * The level is already logarithmic -- one unit is 6 dB -- which is the useful thing to see, and is
+ * how a DX7 envelope is specified in the first place. */
+static int32_t alg_ey(int32_t level, int32_t h)
+{
+    if (level < 0) level = 0;
+    if (level > EG_FULL) level = EG_FULL;
+    return (h - 2) - (int32_t)(((int64_t)level * (h - 3)) / EG_FULL);
+}
+
+/* How wide the held stretch is drawn in a box. Small, because a box has no room to spare and the
+ * flat is the one part of the picture that means "for as long as you like" rather than a duration. */
+static int32_t alg_hold(void) { int32_t h = (a_bw - 2) / 8; return h < 2 ? 2 : h; }
+
+/* The curve for the one operator that gets one, worked out only when it changes. It depends on
+ * nothing but that operator's bytes, which one it is and how wide a box is, so a checksum over all
+ * three is enough to know -- cheaper than finding every place that writes `edit`, and unlike a
+ * dirty flag it cannot go stale. */
+static int32_t alg_ex[5], alg_el[5];
+static uint32_t alg_esig;
+
+static void alg_eg_build(void)
+{
+    const uint8_t *o = &edit[opsel * 21u];
+    uint32_t i, sig = (uint32_t)a_bw * 2654435761u + opsel;
+    dx_env_t e;
+    int rs = 0, ol;
+    for (i = 0; i < 21u; i++)
+        sig = sig * 31u + o[i];
+    if (sig == alg_esig)
+        return;
+    alg_esig = sig;
+    ol = dx_op_level(o, 60, 100, &rs);          /* middle C, as the ENVELOPE page reckons it */
+    dx_env_init(&e, o, o + 4, ol, rs);
+    eg_shape(&e, 0, a_bw - 3, alg_hold(), 1, alg_ex, alg_el);
+}
+
 /* The operator's colour at brightness t (0..255). Warm if it is in the feedback loop, so the one
  * operator that is modulating itself stands out from the ones that are not. */
 static uint16_t op_hue(uint32_t op, uint32_t t)
@@ -1157,25 +1290,71 @@ static uint16_t op_hue(uint32_t op, uint32_t t)
  * how loud that operator is right now. Carriers used to be drawn solid and modulators hollow, but
  * the diagram already says which is which -- a carrier is the one with a wire down to the output
  * bus -- so the fill is free to mean something you cannot otherwise see. Watch a four-operator
- * stack and the modulators empty out before the carrier does, which is why the timbre moves. */
+ * stack and the modulators empty out before the carrier does, which is why the timbre moves.
+ *
+ * Except for one box. Tap EDIT or ENV and the operator those knobs are on swaps its bar for its
+ * envelope -- time left to right, level upwards, the shape filled in solid so that a box this
+ * small still reads. The whole shape is scaled by that operator's output LEVEL, so turning LEVEL
+ * raises or collapses the entire curve with no note held at all, which a bar could never show;
+ * and while a note is held the part of it already walked is drawn bright, so the boundary between
+ * the two is the point the envelope has reached. It is the one operator you are looking at, so it
+ * is the one that can afford the detail -- the other five stay bars, which is what makes it stand
+ * out -- and it gives its number up to make room, which the white ring round it has already said.
+ *
+ * a_bh is never less than fifteen -- six operators is the deepest a column can go, and the metrics
+ * give even that fifteen rows -- so there is always room for a curve. */
 static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
 {
     uint32_t off = (opmute >> op) & 1u;
-    uint32_t lev = off ? 0u : op_now(op);
-    int32_t w = (a_bw - 2) * (int32_t)lev / 255;
+    int shape = focus != FOC_OFF && op == opsel;
     uint16_t frame = off ? RGB(70, 70, 70) : op_hue(op, 105u);
+    int32_t w = a_bw - 2, c;
     char s[2];
 
     cv_rect(x, y, a_bw, 1, frame);
     cv_rect(x, y + a_bh - 1, a_bw, 1, frame);
     cv_rect(x, y, 1, a_bh, frame);
     cv_rect(x + a_bw - 1, y, 1, a_bh, frame);
-    /* The body of the fill is kept dim and the level itself drawn as a bright edge on top of it.
-     * That leaves the number legible wherever the edge happens to be, and it is easier to read a
-     * line than the end of a block when you are trying to see two operators differ by a little. */
-    if (w > 0) {
-        cv_rect(x + 1, y + 1, w, a_bh - 2, op_hue(op, 140u));
-        cv_rect(x + w - 1, y + 1, 2, a_bh - 2, op_hue(op, 255u));
+
+    if (shape) {
+        const dx_env_t *live = off ? 0 : op_live(op);
+        uint16_t solid = off ? RGB(56, 56, 56) : op_hue(op, 140u);
+        uint16_t walked = off ? RGB(84, 84, 84) : op_hue(op, 255u);
+        int32_t cx[6], cyv[6], cy[40], k, px = -1;
+
+        /* the polyline: the four segments, with the held stretch spliced in between the third
+         * corner and the fourth, and the release landing in the bottom right-hand corner */
+        cx[0] = alg_ex[0]; cx[1] = alg_ex[1]; cx[2] = alg_ex[2];
+        cx[3] = alg_ex[3] - alg_hold(); cx[4] = alg_ex[3]; cx[5] = w - 1;
+        if (cx[3] < cx[2]) cx[3] = cx[2];
+        for (k = 0; k < 5; k++)
+            cyv[k] = alg_ey(alg_el[k < 4 ? k : 3], a_bh);
+        cyv[5] = a_bh - 2;
+        for (c = 0, k = 0; c < w; c++) {        /* the curve as one height per column */
+            int32_t dx;
+            while (k < 4 && c >= cx[k + 1]) k++;
+            dx = cx[k + 1] - cx[k];
+            cy[c] = dx <= 0 ? cyv[k + 1] : cyv[k] + (cyv[k + 1] - cyv[k]) * (c - cx[k]) / dx;
+        }
+        if (live) {                             /* how far along it the envelope has got */
+            uint32_t ix = live->ix < 4u ? live->ix : 3u;
+            int32_t a = ix == 3u ? cx[4] : cx[ix], b = ix == 3u ? cx[5] : cx[ix + 1];
+            int32_t lo = alg_el[ix], hi = alg_el[ix + 1];
+            px = hi == lo ? b : a + (int32_t)(((int64_t)(live->level - lo) * (b - a)) / (hi - lo));
+            if (px < 0) px = 0;
+            if (px > w) px = w;
+        }
+        for (c = 0; c < w; c++)
+            cv_rect(x + 1 + c, y + cy[c], 1, a_bh - 1 - cy[c], c < px ? walked : solid);
+    } else {
+        int32_t fw = w * (int32_t)(off ? 0u : op_now(op)) / 255;
+        /* The body of the fill is kept dim and the level itself drawn as a bright edge on top of
+         * it. That leaves the number legible wherever the edge happens to be, and it is easier to
+         * read a line than the end of a block when two operators differ by a little. */
+        if (fw > 0) {
+            cv_rect(x + 1, y + 1, fw, a_bh - 2, op_hue(op, 140u));
+            cv_rect(x + fw - 1, y + 1, 2, a_bh - 2, op_hue(op, 255u));
+        }
     }
     if (a_fb >> op & 1u) {                      /* the feedback loop, round the right-hand side */
         uint16_t fc = off ? RGB(60, 45, 35) : RGB(200, 150, 90);
@@ -1191,7 +1370,7 @@ static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
     }
     s[0] = (char)('0' + (6u - op));
     s[1] = 0;
-    if (a_bh >= 14)
+    if (!shape && a_bh >= 14)                   /* the curve needs the room more than the number */
         cv_text(x + (a_bw - 5) / 2, y + (a_bh - 13) / 2, &FONT_S, s, off ? RGB(110, 110, 110) : C_WHITE);
     if (off)                                    /* struck through: switched off */
         cv_line(x + 1, y + a_bh - 2, x + a_bw - 2, y + 1, RGB(190, 85, 85));
@@ -1203,6 +1382,7 @@ static void draw_alg(void)
     alg_layout(edit[134]);
     alg_metrics();
     cs = carriers(edit[134]);
+    alg_eg_build();
     cv_begin(240, ALG_H, C_BLACK);
     for (op = 0; op < 6u; op++) {               /* the wires first, so the boxes sit on top of them */
         int32_t cx = a_bx(op) + a_bw / 2, ty = a_by(op) + a_bh;
@@ -1237,6 +1417,7 @@ static void draw_alg(void)
 static void draw_alg_levels(void)
 {
     uint32_t op;
+    alg_eg_build();
     for (op = 0; op < 6u; op++) {
         int32_t x = a_bx(op) - 3, y = a_by(op) - 3, w = a_bw + 13;
         if (w > a_dx + 3) w = a_dx + 3;         /* never reach into the next column's box */
@@ -1343,62 +1524,12 @@ static void draw_spectrum(void)
     cv_blit(0, SP_Y);
 }
 
-/* ---- the envelope, drawn by stepping it the way the engine does
- *
- * A DX7 envelope is four (rate, level) pairs. The level is where the segment is heading and the
- * rate is how fast it gets there, so the same rate gives a different *time* depending on how far
- * it has to travel -- which is the single most confusing thing about programming a DX7, and the
- * reason this is drawn to scale rather than as four equal slopes.
- *
- * The maths below is dx_env_advance and dx_env_sample, solved for the segment length instead of
- * run one block at a time: falling is linear, and rising is linear within each octave of level,
- * so a handful of exact steps covers it. */
+/* ---- the envelope on the page it has to itself */
 #define EG_Y 44
 #define EG_H 72                                 /* beside the two raw rows; ADSR needs only one */
 #define EG_H_TALL 104
 #define EGC_Y 152u                              /* where the row of four ADSR cells sits */
 static int32_t eg_h = EG_H;                     /* how tall the graph is on the bank being shown */
-#define EG_FULL (16 << 24)                      /* the level the engine saturates at */
-
-static int32_t eg_target(const dx_env_t *e, uint32_t i)
-{
-    int32_t a = (int32_t)(dx_scaleoutlevel(e->levels[i]) >> 1);
-    a = (a << 6) + e->outlevel - 4256;
-    return (a < 16 ? 16 : a) << 16;
-}
-
-static int32_t eg_inc(const dx_env_t *e, uint32_t i)
-{
-    int32_t q = ((int32_t)e->rates[i] * 41) >> 6;
-    q += e->rate_scaling;
-    if (q > 63) q = 63;
-    return (4 + (q & 3)) << (2 + DX_LG_N + (q >> 2));
-}
-
-/* how many blocks dx_env_sample would need to walk from `from` to `to` */
-static uint32_t eg_blocks(int32_t from, int32_t to, int32_t inc)
-{
-    uint32_t n = 0;
-    if (inc <= 0) return 1u;
-    if (to <= from) {                           /* falling is linear, and the last step overshoots */
-        uint32_t d = (uint32_t)((from - to + inc - 1) / inc);
-        return d ? d : 1u;
-    }
-    if (from < (1716 << 16)) from = 1716 << 16; /* the jump a rising segment starts with */
-    while (from < to && n < 1000000u) {
-        int32_t band = (((from >> 24) + 1) << 24);
-        int32_t step = (((17 << 24) - from) >> 24) * inc;   /* the shift floors: this is the factor dx_env_sample uses */
-        int32_t lim = to < band ? to : band;
-        uint32_t k;
-        if (step <= 0) break;
-        k = (uint32_t)((lim - from + step - 1) / step);
-        if (!k) k = 1u;
-        n += k;
-        from += (int32_t)k * step;
-    }
-    return n ? n : 1u;            /* the block that jumps to 1716 also takes a step */
-}
-
 static int32_t eg_y(int32_t level)              /* level is already logarithmic: 1 unit = 6 dB */
 {
     if (level < 0) level = 0;
@@ -1414,34 +1545,13 @@ static int32_t eg_y(int32_t level)              /* level is already logarithmic:
 #define EG_ALL 31u
 static void draw_eg(const dx_env_t *e, const dx_env_t *live, uint32_t seg)
 {
-    int32_t t[4], x[5], lvl[5];
-    uint32_t b[4], i, tot = 0;
-    const int32_t x0 = 4, x1 = 236, hold = 22;
-    int32_t span, acc;
+    int32_t x[5], lvl[5];
+    uint32_t i;
+    const int32_t x0 = 4, x1 = 236;
 
-    lvl[0] = 0;
-    for (i = 0; i < 4u; i++) {
-        t[i] = eg_target(e, i);
-        b[i] = eg_blocks(lvl[i], t[i], eg_inc(e, i));
-        if (b[i] > 60000u) b[i] = 60000u;       /* a 90 s segment must not squash the other three */
-        lvl[i + 1] = t[i];
-        tot += b[i];
-    }
-    if (!tot) tot = 1u;
-
+    eg_shape(e, x0, x1, 22, 3, x, lvl);
     cv_begin(240, (uint32_t)eg_h, C_BLACK);
     cv_rect(0, eg_h - 2, 240, 1, RGB(40, 40, 40));
-
-    span = x1 - x0 - hold;
-    acc = 0;
-    x[0] = x0;
-    for (i = 0; i < 4u; i++) {                  /* widths in proportion to real time */
-        acc += (int32_t)b[i];
-        x[i + 1] = x0 + (int32_t)(((int64_t)acc * span) / (int32_t)tot);
-        if (x[i + 1] < x[i] + 3) x[i + 1] = x[i] + 3;
-        if (i == 2) { x[3] += hold; }           /* the key is held here, for as long as you hold it */
-    }
-    if (x[4] > x1) x[4] = x1;
 
     for (i = 0; i < 4u; i++) {
         uint32_t on = seg >> i & 1u;

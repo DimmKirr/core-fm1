@@ -275,3 +275,36 @@ Watch this number again after:
   - the fourth EDIT cell gaining a WAVE parameter
   - LONG_MS being changed (400 ms is comfortably past a deliberate tap and comfortably
     short of a wait, but it has only been judged by one pair of hands)
+
+ENVELOPES IN THE BOXES
+----------------------
+The operator boxes on HOME filled from the left already, and that fill was only ever worth anything
+while a note was sounding. The gap was the screen you are actually looking at while you edit: nothing
+playing, and six empty outlines. So the operator the knobs are on draws its envelope instead.
+
+It gets the picture for free. eg_target() already folds the operator's output LEVEL into every
+segment target -- which is why the ENVELOPE page's curve rises and falls as you turn LEVEL -- so the
+same curve shows level and shape together with no new meaning invented, and the axes stop fighting
+(x is time, y is level, exactly as on the page). The maths was pulled out of draw_eg into eg_shape(),
+parametrised by width and hold, so the page and the thumbnail cannot drift apart.
+
+  image   113232 B -> 114060 B   (+828)
+  RAM     30664 B -> 30712 B     (+48)
+  cpu     unchanged
+
+The +48 is the cache: five x, five levels, and a checksum. A checksum rather than a dirty flag,
+because `edit` is written from a dozen places and a checksum cannot go stale -- it is a hash of the
+selected operator's twenty-one bytes plus the box width plus which operator it is. alg_eg_build()
+runs at the top of both draw_alg and draw_alg_levels, and draw_alg_levels runs sixteen times a
+second, so the check has to be the cheap path and the rebuild the rare one.
+
+No audio cost at all: this is drawing. The rebuild itself walks eight envelope segments in integer
+arithmetic and only happens on a knob turn or a voice load.
+
+Only one box is ever a curve. The other five stay bars, which is what makes the curve read as "this
+is the one you are editing" without a second cue -- and it is why the cost is five values and not
+thirty.
+
+Watch this number again after:
+  - non-sine operators (the shape of the wave would want to show in the box too)
+  - any new page that wants eg_shape() at a third size

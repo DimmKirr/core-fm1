@@ -214,6 +214,15 @@ Which boxes are carriers is left to the wires: a carrier is one with a line runn
 along the bottom. The fill is worth more than the shading it replaced, because routing is a thing you can
 read off the diagram at leisure and level is a thing that is gone in a second.
 
+**One box is not a bar.** Tap **EDIT** or **ENV** and the operator the knobs land on draws its *envelope*
+instead — the same curve the ENVELOPE page draws, shrunk into the box, ending in the bottom right-hand
+corner. It is filled in solid rather than traced, because a shape thirty pixels wide does not read any
+other way, and the part already played is the bright half, so the join between the two brightnesses is the
+playhead. It gives up its number while it is doing this; the white ring has already said which operator it
+is. That curve has LEVEL baked into it the same way the ENVELOPE page's does, so turning LEVEL with nothing
+playing at all visibly collapses the shape — which is the one thing the bar could never show you, because
+with no note held a bar is empty.
+
 **HOME again draws the spectrum.** This is the one screen here purely to teach, and it is worth the stare.
 
 <p align="center"><img src="docs/spectrum.png" width="240" alt="FM Lab drawing the spectrum of BRASS held at C4 over 0 to 5 kHz: a row of bars falling away to the right, each one standing under a tick of the harmonic ruler along the top edge"></p>
@@ -391,7 +400,7 @@ tests/run_host.sh tests/operators.txt     # the operator switches and the A/B co
 tests/run_host.sh tests/bank.txt          # saving, and .syx in and out, data and sound checked
 tests/run_host.sh tests/panel.txt         # the pages and the operator keys, screens and MIDI checked
 tests/run_host.sh tests/spectrum.txt      # the analyser, against where the partials belong
-tests/run_host.sh tests/levels.txt        # the operator boxes, against the envelopes behind them
+tests/run_host.sh tests/levels.txt        # the operator boxes: five bars, and one envelope
 tests/run_host.sh tests/edit.txt          # RATIO, against the two bytes underneath it
 tests/run_host.sh tests/home.txt          # HOME's four knobs, against the bytes they move
 tests/run_host.sh tests/env.txt           # ADSR, against the eight raw bytes it is a view of
@@ -447,7 +456,11 @@ pixels is enough to say what every box is doing. Hold a plucked note and the fil
 shot; let go and every box has to empty while staying drawn, which is also the proof that a carrier is an
 outline now rather than a solid block. It checks that the feedback operator keeps its warm colour and its
 loop, and that six boxes side by side under algorithm 32 stay six separate boxes of equal width — the live
-redraw patches one box at a time, and that is what would break first if a patch grew.
+redraw patches one box at a time, and that is what would break first if a patch grew. Then the box that is
+not a bar: tap **EDIT** with nothing sounding, and exactly one box may have anything in it. That one has to
+be filled solid to the floor in every column it occupies, has to reach the bottom right-hand pixel, has to
+have lost its number while the other five keep theirs — and turning **LEVEL** alone has to lower its crest.
+Every one of those is a claim a bar could not make, since a bar with no note held is empty.
 
 `tests/editcheck.py` reads a number off every parameter row. The bar under a value is its amount drawn as a
 width in pixels, so a screenshot of a page is four numbers, and the claims about **RATIO** can be arithmetic
