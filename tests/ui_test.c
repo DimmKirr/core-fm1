@@ -42,6 +42,9 @@ static uint8_t fm1_led[FM1_NCOL];
 static uint8_t fm1_led_dim[3][FM1_NCOL], fm1_led_dim_mask[3];   /* (hal/fm1_input.h: the dim planes) */
 #define FM1_TICKS_PER_US 1u
 static uint32_t host_ticks, host_pressed, host_notes;
+static int host_draw_deferred;
+#define UI_DRAW_BEGIN() ((void)0)
+#define UI_DRAW_END() host_draw_deferred
 static int32_t host_enc[7];
 static uint32_t fm1_ticks(void) { return host_ticks; }
 static uint32_t fm1_input_edges(int x) { uint32_t p = host_pressed; (void)x; host_pressed = 0; return p; }
@@ -5190,6 +5193,15 @@ int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     int bad = test_boot_maintenance();
+    ui_power_on();
+    host_draw_deferred = 1;
+    ui_draw();
+    uint32_t cached = 0;
+    for (uint32_t i = 0; i < DF_N; i++) cached += df_key[i].on;
+    bad += check("input interrupts drawing: force redraw and discard all skipped pixel hashes", ui.force && !cached);
+    host_draw_deferred = 0;
+    ui_draw();
+    bad += check("the frame after input completes its redraw", !ui.force);
     bad += test_prophet_pages();
     bad += test_large_face();
     bad += test_home_notes();

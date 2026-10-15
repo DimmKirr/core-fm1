@@ -240,6 +240,7 @@ static void fm1_main(void)
     for (;;) {
         uint32_t m = fm1_ms;
         fm1_wdt_feed();
+        ui_input();                                    /* controls before services and display work */
         usb_retry(fm1_ms);
 #if MELODEE_USB_AUDIO
         if (ua_off_apply(fm1_ms)) {                     /* USB direction or capture mode changed: the host re-reads */
@@ -332,6 +333,7 @@ static void fm1_main(void)
         ui_leds();
         ui_draw();
         melodee_dbg.stage = 9;
+        ui_input();                                    /* also after a long/deferred frame, with no idle time left */
         while (fm1_ms - m < 15u) {                               /* ~60 UI frames/s at most */
             ui_input();
 #if MELODEE_OTA

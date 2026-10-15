@@ -65,7 +65,11 @@
 
 /* ----------------------------------------------------- base, display --- */
 #include "libc.c"
+#define LCD_INPUT_SERIAL() fm1_in.activity
+#define LCD_INPUT_PENDING(serial) fm1_input_pending(serial)
 #include "lcd.c"
+#define UI_DRAW_BEGIN() lcd_input_begin()
+#define UI_DRAW_END() lcd_input_end()
 #include "gfx.c"
 
 /* ----------------------------------------------------------- sound --- */

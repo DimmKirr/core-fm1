@@ -88,6 +88,7 @@ static volatile struct {
     uint32_t buttons;            /* debounced: bit i = button i (0..13) */
     uint32_t pressed, released;  /* button edges since the last fm1_input_edges() */
     uint32_t notes_pressed;      /* note-key press edges since the last fm1_input_note_edges() */
+    uint32_t activity;           /* debounced edges / knob detents: display interruption serial */
     uint8_t raw[FM1_NCOL];       /* last frame, packed rows, 1 = closed */
     uint8_t cnt[FM1_NKEY];       /* frames in a row against the debounced state */
     uint32_t note_t0[27];        /* TIMER4 tick of the first scan that saw note key n closed */
@@ -231,6 +232,7 @@ static void fm1__key(uint32_t id, uint32_t closed)
     if (++*c < (on ? FM1_DEB_RELEASE : FM1_DEB_PRESS))
         return;
     *c = 0;
+    fm1_in.activity++;
     if (note) {
         if (!on) {
             uint32_t d = FM1_INPUT_NOW() - fm1_in.note_t0[id - 14u];
@@ -327,6 +329,8 @@ static void fm1__frame(void)
             int32_t n = *sub < 0 ? -*sub : *sub;   /* or two forgiven (one click = 4 transitions) */
             n = n >= 2 ? (n + 2) / 4 : 0;
             fm1_in.enc_steps[e] = (int16_t)(fm1_in.enc_steps[e] + (*sub < 0 ? -n : n));
+            if (n)
+                fm1_in.activity++;
             *sub = 0;
         }
     }
@@ -404,6 +408,15 @@ static uint32_t fm1_input_note_edges(void)
     fm1_in.notes_pressed = 0;
     fm1__unlock(k);
     return p;
+}
+
+/* Non-consuming hint for foreground display work. An IRQ arriving after a
+ * read is caught at the next transfer boundary; only the main loop takes edges. */
+static int fm1_input_pending(uint32_t activity)
+{
+    /* Some dialogs leave unused knobs queued. Only new detents interrupt a
+     * frame; old unused steps must not starve the screen. */
+    return fm1_in.activity != activity || fm1_in.pressed || fm1_in.released || fm1_in.notes_pressed;
 }
 
 /* LED of key id (button 0..13 or note key 14..40) */
