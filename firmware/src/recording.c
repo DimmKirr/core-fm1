@@ -308,7 +308,7 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     recorded_note_t *r = &recording[i];
     if (recording_flags[i] & 4u) return;
     recording_flags[i] |= 4u;
-    if ((recording_flags[i] & 1u)) return;
+    if ((recording_flags[i] & 1u) || ((seq_hush >> trk_index(t)) & 1u)) return;   /* (an edit waiting: seq.c) */
     uint32_t chance = step_chance(&t->step[recording_view(t, r)]);
     if (chance < 100u && rng() % 100u >= chance) return;
     uint32_t gate = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);

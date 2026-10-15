@@ -105,8 +105,9 @@ static uint32_t arp_led(void)
 }
 
 /* SEQ held: the white keys F3 .. F4 are the selected track's eight patterns, the first four black keys (F# G# A# C#,
- * as GLO's mutes) the tracks. A white key tapped switches to its pattern (playing: at the bar), hit again at once
- * (PAT_DTAP_MS) arms REC as REC's tap does; held with another pressed, copies it there; held alone PAT_HOLD_MS, its
+ * as GLO's mutes) the tracks. A white key tapped switches to its pattern (playing: at the bar); an empty one arms REC
+ * with it, one with notes when hit again at once (PAT_DTAP_MS: REC's tap, on or off); held with another pressed,
+ * copies it there; held alone PAT_HOLD_MS, its
  * dialog (CF_PAT_KEY): the key again deletes it, another white key copies it there, OCT- leaves it as it is */
 static const uint8_t PAT_KEY[NPAT] = {0, 2, 4, 6, 7, 9, 11, 12};
 static const uint8_t TRK_KEY[NTRK] = {1, 3, 5, 8};
@@ -131,11 +132,134 @@ static uint32_t pattern_leds(uint32_t *dim, uint32_t *breath)
         if ((song.rec >> b) & 1u) *breath |= 1u << TRK_KEY[b];
         else *dim |= 1u << TRK_KEY[b];
     if (TSEL->pattern_next < NPAT) *breath |= 1u << PAT_KEY[TSEL->pattern_next];
+    for (b = 0; b < NPAT; b++)                          /* (an edit waiting for the loop end: waiting too) */
+        if ((seq_pend[song.sel % NTRK] >> b) & 1u) *breath |= 1u << PAT_KEY[b];
     if (ui.pat_key) m |= 1u << PAT_KEY[ui.pat_key - 1u];
     if (ui.confirm == CF_PAT_KEY) m |= 1u << PAT_KEY[ui.pat_dlg % NPAT];   /* (its dialog: the one held) */
     *dim &= ~(m | *breath);
     *breath &= ~m;
     return m;
+}
+/* Destructive edits of what a track plays (delete or clear a pattern, clear its motion, copy over a pattern in use or
+ * the one playing) wait for the track's loop end while the transport runs, as a pattern switch does (Kerem
+ * 2026-10-15): queued here (dq_defer, "DELETE AT LOOP END"), done by dq_poll every frame once the track is on its last
+ * step (nothing more of the loop to play) or, a frame having missed it, its loop has ended (seq.c then keeps the bank
+ * silent: seq_hush); stopped (STOP too) at once. Live edits (a note, a hit, a motion lane, ERASE) stay live */
+#define DQ_N 8u
+static struct { uint8_t cf, trk, a, b; uint16_t loop, epoch; } dq[DQ_N];   /* cf: CF_DEL_PAT, CF_CLEAR_SEQ,
+                                                                            * CF_CLEAR_TRK (bank a), CF_CLEAR_MOTION (a),
+                                                                            * CF_PASTE_PAT (b over a); epoch: its
+                                                                            * project's (pattern_epoch) */
+static uint8_t dq_n;
+/* the pattern playing on track k cleared (its notes, motion, the latched chord), undoably */
+static void seq_clear_now(uint32_t kind, uint32_t k)
+{
+    track_t *t = &trk[k % NTRK];
+    if (recording_head[recording_owner(t)] < RECORD_MAX) {
+        if (!note_clear_pattern(t)) return;
+    } else {
+        load_begin(t, UNDO_PAT);
+        track_defaults_steps(t);
+        load_end(t);
+    }
+    t->nheld = 0;                                       /* and the latched arp chord */
+    t->arp_phys = 0;
+    if (kind == CF_CLEAR_TRK) {
+        char b[12] = "1 CLEARED";
+        b[0] = (char)('1' + k % NTRK);
+        ui_say("TRACK ", b);
+    } else {
+        ui_message(kind == CF_DEL_PAT ? "PATTERN DELETED" : "PATTERN CLEARED");
+    }
+}
+static void dq_do(uint32_t cf, uint32_t k, uint32_t a, uint32_t b)
+{
+    track_t *t = &trk[k % NTRK];
+    int rc;
+    ui.force = 1;
+    if (chain_busy()) {
+        ui_message("STOP TO EDIT");
+    } else if (cf == CF_CLEAR_MOTION) {
+        load_begin(t, UNDO_PAT);
+        motion_clear_bank(t, a);
+        load_end(t);
+        ui_message("MOTION CLEARED");
+    } else if (cf == CF_PASTE_PAT) {
+        rc = pattern_copy_at(t, b, a, 1);
+        ui_message(rc == 2 ? "PATTERN DATA FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
+    } else if (a == t->pattern) {
+        seq_clear_now(cf, k);
+    } else if (pattern_clear(t, a)) {
+        ui_message("STOP TO EDIT");
+    } else {
+        ui_message(cf == CF_DEL_PAT ? "PATTERN DELETED" : "PATTERN CLEARED");
+    }
+}
+static void dq_pend(uint32_t k)                         /* (seq.c: the banks still waiting on track k) */
+{
+    uint32_t i, m = 0;
+    for (i = 0; i < dq_n; i++)
+        if (dq[i].trk == k && dq[i].cf != CF_CLEAR_MOTION)
+            m |= 1u << dq[i].a;
+    fm1_irq_off();
+    seq_pend[k] = (uint8_t)m;
+    if (!m) seq_hush &= (uint8_t)~(1u << k);
+    fm1_irq_on();
+}
+/* the edit now, or (playing) at track k's loop end: 1 = queued (or refused: the queue full) */
+static int dq_defer(uint32_t cf, uint32_t k, uint32_t a, uint32_t b)
+{
+    uint32_t i;
+    if (!song.playing || chain_busy())
+        return 0;
+    for (i = 0; i < dq_n; i++)
+        if (dq[i].cf == cf && dq[i].trk == k && dq[i].a == a && dq[i].b == b)
+            break;
+    if (i == dq_n) {
+        if (dq_n == DQ_N) {
+            ui_message("WAIT FOR LOOP END");
+            return 1;
+        }
+        dq[dq_n].cf = (uint8_t)cf; dq[dq_n].trk = (uint8_t)k; dq[dq_n].a = (uint8_t)a; dq[dq_n].b = (uint8_t)b;
+        dq[dq_n].epoch = pattern_epoch;
+        dq[dq_n++].loop = seq_loops[k];
+        dq_pend(k);
+    }
+    ui_message(cf == CF_PASTE_PAT ? "COPY AT LOOP END" : cf == CF_DEL_PAT ? "DELETE AT LOOP END" : "CLEAR AT LOOP END");
+    ui.force = 1;
+    return 1;
+}
+/* every frame: the edits whose track is on its last step, has looped, or stopped (another project since: dropped) */
+static void dq_poll(void)
+{
+    uint32_t i = 0;
+    while (i < dq_n) {
+        uint32_t k = dq[i].trk % NTRK, len = (uint32_t)trk[k].p[P_SLEN];
+        if (dq[i].epoch == pattern_epoch && song.playing && seq_loops[k] == dq[i].loop &&
+            trk[k].seq_idx + 1u < (len ? len : 1u)) {
+            i++;
+            continue;
+        }
+        {
+            uint32_t cf = dq[i].cf, a = dq[i].a, b = dq[i].b, mine = dq[i].epoch == pattern_epoch, j;
+            dq_n--;
+            for (j = i; j < dq_n; j++)                  /* (in order: the firmware has no memmove) */
+                dq[j] = dq[j + 1u];
+            if (mine)
+                dq_do(cf, k, a, b);
+            dq_pend(k);
+        }
+    }
+}
+/* track k's pattern src copied to dst: over one in use or the one playing, while playing: at the loop end */
+static void pattern_copy_ui(uint32_t k, uint32_t src, uint32_t dst)
+{
+    int rc;
+    if (src != dst && (dst == trk[k].pattern || !pattern_empty(k, dst)) && dq_defer(CF_PASTE_PAT, k, dst, src))
+        return;
+    rc = pattern_copy(&trk[k], src, dst);
+    ui_message(rc == 2 ? "PATTERN DATA FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
+    ui.force = 1;
 }
 static void rec_tap(void);
 static void pattern_keys(uint32_t notes)
@@ -158,10 +282,8 @@ static void pattern_keys(uint32_t notes)
                 }
                 ui.pat_tap = 0;
             } else if (ui.pat_key != b + 1u) {
-                int rc = pattern_copy(TSEL, ui.pat_key - 1u, b);
                 ui.pat_copy = 1;
-                ui_message(rc == 2 ? "PATTERN DATA FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
-                ui.force = 1;
+                pattern_copy_ui(song.sel, ui.pat_key - 1u, b);
             }
         }
         if (ui.pat_key && !ui.pat_copy && (fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])) &&
@@ -177,53 +299,49 @@ static void pattern_keys(uint32_t notes)
     }
     if (ui.pat_key && (!pattern_keys_on() || !(fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])))) {
         if (!ui.pat_copy) {
-            uint32_t bank = ui.pat_key - 1u;
+            uint32_t bank = ui.pat_key - 1u, armed = 0;
             if (pattern_request(TSEL, bank)) ui_message("STOP SONG TO SWITCH");
-            else { char m[12] = "PATTERN "; m[8] = (char)('1' + bank); m[9] = 0; ui_message(m); }
+            else {
+                char m[12] = "PATTERN ";
+                m[8] = (char)('1' + bank); m[9] = 0; ui_message(m);
+                if (pattern_empty(song.sel, bank)) {    /* an empty one: REC armed with it (as REC's tap) */
+                    armed = 1;
+                    if (!((song.rec >> song.sel) & 1u)) rec_tap();
+                }
+            }
             ui.entry_open = 0; cursor_set(0); ui.force = 1;
-            ui.pat_tap = ui.pat_key;                    /* (hit again at once: REC) */
+            ui.pat_tap = armed ? 0u : ui.pat_key;       /* (one with notes, hit again at once: REC) */
             ui.pat_tap_ms = fm1_ms;
         }
         ui.pat_key = ui.pat_copy = 0;
     }
 }
-/* SEQ's pattern dialog (CF_PAT_KEY): pattern b of track k deleted: the one playing as SEQ > PATTERNS' Delete pattern
- * (EDIT held undoes it), another emptied in its bank */
-static void ui_confirm_accept(void);
+/* SEQ's pattern dialog (CF_PAT_KEY): pattern b of track k deleted (playing: at its loop end): the one playing as SEQ >
+ * PATTERNS' Delete pattern (EDIT held undoes it), another emptied in its bank */
 static void pattern_key_delete(uint32_t k, uint32_t b)
 {
-    if (chain_busy()) {
+    if (chain_busy())
         ui_message("STOP TO EDIT");
-    } else if (pattern_empty(k, b)) {
+    else if (pattern_empty(k, b))
         ui_message("NOTHING TO DELETE");
-    } else if (b == trk[k].pattern) {
-        ui.confirm = CF_DEL_PAT;
-        ui.confirm_trk = (uint8_t)k;
-        ui_confirm_accept();
-    } else if (pattern_clear(&trk[k], b)) {
-        ui_message("STOP TO EDIT");
-    } else {
-        ui_message("PATTERN DELETED");
-    }
+    else if (!dq_defer(CF_DEL_PAT, k, b, 0))
+        dq_do(CF_DEL_PAT, k, b, 0);
     ui.force = 1;
 }
 /* .. a white key pressed: its own again deletes the pattern, another copies it there; 1 = taken */
 static int pattern_key_dialog(uint32_t notes)
 {
     uint32_t b, k = ui.confirm_trk % NTRK, src = ui.pat_dlg % NPAT;
-    int rc;
     for (b = 0; b < NPAT && !(notes & (1u << PAT_KEY[b])); b++)
         ;
     if (b == NPAT)
         return 0;
     ui.confirm = 0;
     ui.force = 1;
-    if (b == src) {
+    if (b == src)
         pattern_key_delete(k, b);
-        return 1;
-    }
-    rc = pattern_copy(&trk[k], src, b);
-    ui_message(rc == 2 ? "PATTERN DATA FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
+    else
+        pattern_copy_ui(k, src, b);
     return 1;
 }
 /* key k of track t as the keys play now (LIGHTS): bright while it sounds (pressed, or its note held on the track by
@@ -1719,9 +1837,10 @@ static void ui_confirm_accept(void)
         user_ui_named(1u, ui.confirm_trk, 0);
     } else if (kind == CF_ERASE_PROJ) {
         project_erase(ui.confirm_trk & 3u);
-    } else if (kind == CF_CLEAR_MOTION) {
-        track_t *t = &trk[ui.confirm_trk % NTRK];
-        if (!chain_busy()) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); ui_message("MOTION CLEARED"); }
+    } else if (kind == CF_CLEAR_MOTION) {                /* (playing: at the loop end, dq_defer) */
+        uint32_t k = ui.confirm_trk % NTRK;
+        if (!chain_busy() && !dq_defer(kind, k, trk[k].pattern, 0))
+            dq_do(kind, k, trk[k].pattern, 0);
     } else if (kind == CF_DEL_ROW) {
         uint32_t r = ui.confirm_trk;
         if (!chain_busy() && r < chain_config.count) {
@@ -1750,24 +1869,10 @@ static void ui_confirm_accept(void)
         if (!chain_busy()) { sound_init_of(TSEL, TSEL->eng_req); ui_message("SOUND INIT"); }
     } else if (kind == CF_PAT_KEY) {            /* SEQ's pattern dialog: OCT+ as its key again */
         pattern_key_delete(ui.confirm_trk % NTRK, ui.pat_dlg % NPAT);
-    } else {
-        track_t *t = &trk[ui.confirm_trk % NTRK];
-        if(recording_head[recording_owner(t)]<RECORD_MAX){
-            if(!note_clear_pattern(t))return;
-        }else{
-            load_begin(t, UNDO_PAT);
-            track_defaults_steps(t);
-            load_end(t);
-        }
-        t->nheld = 0;                           /* and the latched arp chord */
-        t->arp_phys = 0;
-        if (kind == CF_CLEAR_TRK) {
-            char b[12] = "1 CLEARED";
-            b[0] = (char)('1' + ui.confirm_trk);
-            ui_say("TRACK ", b);
-        } else {
-            ui_message(kind == CF_DEL_PAT ? "PATTERN DELETED" : "PATTERN CLEARED");
-        }
+    } else {                                    /* CF_DEL_PAT, CF_CLEAR_SEQ, CF_CLEAR_TRK (playing: at the loop end) */
+        uint32_t k = ui.confirm_trk % NTRK;
+        if (!dq_defer(kind, k, trk[k].pattern, 0))
+            dq_do(kind, k, trk[k].pattern, 0);
     }
 }
 
@@ -1775,6 +1880,7 @@ static void ui_confirm_accept(void)
 static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
+    dq_poll();                                          /* (destructive edits waiting for their loop end) */
     if (boot_work.state) {
         for (k = 0; k < NE; k++) (void)panel_enc(k);
         panel_moved = 0;

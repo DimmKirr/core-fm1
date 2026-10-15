@@ -19,6 +19,7 @@
  * Each part remembers what it drew. Included by ui_draw.c */
 
 static int ptc_on(void);                                /* PATTERNS' Copy to (below) */
+static int dq_defer(uint32_t cf, uint32_t k, uint32_t a, uint32_t b);   /* ui_input.c: playing, at the loop end */
 static uint32_t ptc_next(uint32_t from, int32_t dir);
 
 /* ------------------------------------------------------------ shared --- */
@@ -301,12 +302,18 @@ static void ptc_start(void)                             /* the pattern sheet's C
     ui.ptc_dst = (uint8_t)b;
     ui.force = 1;
 }
-static void ptc_paste(int asked)                        /* OCT+: copy it there (over one in use: asked first) */
+static void ptc_paste(int asked)                        /* OCT+: copy it there (over one in use: asked first;
+                                                         * that or the one playing, playing: at its loop end) */
 {
     uint32_t k = ui.ptc_trk % NTRK;
     int rc;
     if (!asked && !pattern_empty(k, ui.ptc_dst)) {
         confirm_open(CF_PASTE_PAT, k);
+        return;
+    }
+    if (ui.ptc_src != ui.ptc_dst && (ui.ptc_dst == trk[k].pattern || !pattern_empty(k, ui.ptc_dst)) &&
+        dq_defer(CF_PASTE_PAT, k, ui.ptc_dst, ui.ptc_src)) {
+        ui.ptc_on = 0;
         return;
     }
     rc = pattern_copy(&trk[k], ui.ptc_src, ui.ptc_dst);

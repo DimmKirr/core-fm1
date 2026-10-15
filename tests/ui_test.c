@@ -4953,9 +4953,59 @@ static int test_boot_maintenance(void)
     bad+=check("update cleanup errors do not offer a preset wipe",boot_work.state==2u && !boot_work.presets);
     press(B_OCTUP);ui_power_on();return bad;
 }
-/* SEQ held: the black keys 1..4 pick the tracks; a white key hit twice arms REC (as REC's tap), held alone 1 s its
- * dialog: the key again deletes the pattern, another white key copies it there, OCT- leaves it; GLO + SELECT: the
- * menu's GLO SELECT on any page; an armed track's row: its red border's level */
+/* Destructive edits while playing wait for the track's loop end (Kerem 2026-10-15): done in its last step; a frame
+ * that missed it: the loop's first step kept silent until done; a copy into the pattern playing too; STOP: at once */
+static int test_loop_end_edits(void)
+{
+    int bad = 0;
+    uint32_t step, loop;
+    track_t *t;
+    ui_power_on();
+    t = TSEL;
+    stop_transport();
+    pattern_switch(t, 2); my_steps(t); pattern_switch(t, 0);
+    my_steps(t);
+    seq_start(); seq_advance(0); seq_advance(1);
+    step = seq_div_samples(t->p[P_SDIV]);
+    loop = recording_loop(t, step);
+    confirm_open(CF_DEL_PAT, 0); frame();
+    press(B_OCTUP);
+    bad += check("playing: Delete pattern waits for the loop end, says so", !seq_is_empty(t) &&
+                 msg_is("DELETE AT LOOP END") && (seq_pend[0] & 1u) && !ui.confirm);
+    seq_advance(step * 2u); frame();
+    bad += check("  .. mid-loop: the pattern still plays", !seq_is_empty(t));
+    seq_advance(loop - step * 2u - step / 2u - 1u); frame();
+    bad += check("  .. its last step: deleted (nothing more of the loop to play)", seq_is_empty(t) &&
+                 msg_is("PATTERN DELETED") && !seq_pend[0]);
+    seq_advance(step * 2u); frame();                /* (into the next loop) */
+    my_steps(t);
+    confirm_open(CF_CLEAR_SEQ, 0); frame();
+    press(B_OCTUP);
+    seq_advance(loop);                              /* (no frame in its last step) */
+    bad += check("  a frame missed the last step: the loop's first step silent, the edit still waits",
+                 !seq_is_empty(t) && (seq_hush & 1u) && !gates());
+    frame();
+    bad += check("  .. the next frame does it, the track plays again", seq_is_empty(t) && !(seq_hush & 1u) &&
+                 msg_is("PATTERN CLEARED"));
+    pattern_copy_ui(0, 2, 0);
+    bad += check("a copy into the pattern playing: at the loop end (was refused)", seq_is_empty(t) &&
+                 msg_is("COPY AT LOOP END"));
+    stop_transport(); frame();
+    bad += check("  .. STOP: done at once", !seq_is_empty(t) && msg_is("PATTERN COPIED") && !dq_n);
+    seq_start(); seq_advance(0); seq_advance(1);
+    confirm_open(CF_DEL_PAT, 0); frame();
+    press(B_OCTUP);
+    stop_transport();
+    pattern_init();                                 /* (a project loaded meanwhile) */
+    my_steps(t);
+    frame();
+    bad += check("  another project loaded meanwhile: the edit dropped", !seq_is_empty(t) && !dq_n && !seq_pend[0]);
+    ui_power_on();
+    return bad;
+}
+/* SEQ held: the black keys 1..4 pick the tracks; a white key tapped on an empty pattern arms REC, on one with notes
+ * hit twice (as REC's tap), held alone 1 s its dialog: the key again deletes the pattern, another white key copies it
+ * there, OCT- leaves it; GLO + SELECT: the menu's GLO SELECT on any page; an armed track's row: its red border's level */
 static void seq_hold_key(uint32_t k, uint32_t ms)  /* key k held ms (SEQ as it is), then let go */
 {
     key_down(k);
@@ -4990,7 +5040,15 @@ static int test_seq_keys(void)
     my_steps(TSEL); pattern_switch(TSEL, 2); my_steps(TSEL); pattern_switch(TSEL, 0);
     song.rec = 0;
     tap_key(w2);
-    bad += check("  white key 2 tapped: pattern 2, REC as it was", TSEL->pattern == 1u && !song.rec);
+    bad += check("  white key 2 tapped, an empty pattern: pattern 2, REC armed with it", TSEL->pattern == 1u &&
+                 (song.rec & 1u));
+    tap_key(w2);
+    bad += check("  .. hit again at once: still armed", (song.rec & 1u) != 0u);
+    song.rec = 0;
+    my_steps(TSEL);
+    fm1_ms += 400u;
+    tap_key(w2);
+    bad += check("  .. now with notes: tapped, REC as it was", TSEL->pattern == 1u && !song.rec);
     tap_key(w2);
     bad += check("  .. hit again at once: REC armed, still pattern 2", (song.rec & 1u) && TSEL->pattern == 1u);
     fm1_ms += 400u;
@@ -5117,6 +5175,7 @@ int main(void)
     bad += test_home_view_release();
     bad += test_home_select();
     bad += test_seq_keys();
+    bad += test_loop_end_edits();
     bad += test_grid();
     bad += test_screen();
     bad += test_favorites();

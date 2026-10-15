@@ -433,13 +433,15 @@ static int pattern_request(track_t *t, uint32_t bank)
     motion_unguard(f);
     return 0;
 }
-static int pattern_copy(track_t *t, uint32_t source, uint32_t dest)
+/* track t's pattern source copied over dest; live: even over the one playing (the UI does that at its loop end, as it
+ * waits there: ui_input.c dq_poll). 1 = refused, 2 = no room */
+static int pattern_copy_at(track_t *t, uint32_t source, uint32_t dest, int live)
 {
     uint32_t k = trk_index(t), i, n = 0, f, extra = 0;
     if (source >= NPAT || dest >= NPAT) return 1;
     if (source == dest) return 0;
     f = motion_guard();
-    if (chain.running || chain.armed || (song.playing && dest == t->pattern)) { motion_unguard(f); return 1; }
+    if (chain.running || chain.armed || (song.playing && dest == t->pattern && !live)) { motion_unguard(f); return 1; }
     for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) == k) {
         if (motion_pattern[i] == source) extra++;
         if (motion_pattern[i] == dest) n++;
@@ -461,6 +463,20 @@ static int pattern_copy(track_t *t, uint32_t source, uint32_t dest)
     if (dest == t->pattern) pattern_apply(t, dest);
     motion_unguard(f);
     return 0;
+}
+static int pattern_copy(track_t *t, uint32_t source, uint32_t dest) { return pattern_copy_at(t, source, dest, 0); }
+/* track t's motion on pattern bank b gone (the one playing: motion_clear) */
+static void motion_clear_bank(track_t *t, uint32_t b)
+{
+    uint32_t k = trk_index(t), i, n = 0, f;
+    if (b == t->pattern) { motion_clear(t); return; }
+    f = motion_guard();
+    for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) != k || motion_pattern[i] != b) {
+        motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
+    }
+    motion.count = (uint8_t)n;
+    motion.rsv[0] = 1;
+    motion_unguard(f);
 }
 /* track t's pattern bank emptied, not the one playing (ui_input.c deletes that one as SEQ > PATTERNS does, undoably):
  * its steps, recorded notes and motion; its length and division stay. 1 = refused (a song running) */
