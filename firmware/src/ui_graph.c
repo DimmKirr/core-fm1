@@ -338,22 +338,26 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
  * underlaid RAISE, the cursor framed in TEXT; a TEXT bar over the step playing */
 static void graph_grid(const track_t *t, uint16_t c)
 {
-    uint32_t l, i, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u;
+    uint32_t l, i, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u, sound = ui.drum_sound % drum_sound_count(t);
     int32_t y0 = 6;
     for (l = 0; l < NLANE; l++) {
         int32_t y = y0 + 4 + (int32_t)l * 14;
         int sel = l == ui.lane;
+        int pick = sel && cur_page()->scope == SC_DRUMHIT && drum_lane(drum_sound_note(t, sound)) == l;   /* (as pv_grid) */
         uint16_t row = sel ? T_RAISE : T_SURF;
         if (sel)
             cv_rrect(6, y, 226, 14, 3, T_RAISE, T_SURF);
-        cv_text_on(10, ty_y(y + 7, TY_LB), TY_LB, drum_lane_abbr(t, l), sel ? T_ACCENT : T_MID, row);
+        cv_text_on(10, ty_y(y + 7, TY_LB), TY_LB, pick ? drum_sound_abbr(t, sound) : drum_lane_abbr(t, l), sel ? T_ACCENT : T_MID, row);
         for (i = 0; i < 16u && base + i < len; i++) {
             const step_t *st = &seq_steps(t)[base + i];
             uint32_t b = 1u << l;
             int32_t x = 44 + (int32_t)i * 12;
-            if (step_lanes(st) & b)
-                cv_rrect(x, y + 2, 10, 10, 2, (step_accents(st) & b) ? T_ACCENT : c, row);
-            else
+            if (step_lanes(st) & b) {
+                uint16_t col = (step_accents(st) & b) ? T_ACCENT : c;
+                cv_rrect(x, y + 2, 10, 10, 2, col, row);
+                if (pick && step_sound_note(t, st, sound) < 0)
+                    cv_rrect(x + 2, y + 4, 6, 6, 1, row, col);
+            } else
                 cv_rect(x + 4, y + 6, 2, 2, i % 4u == 0u || sel ? T_MID : T_DIM);
             if (sel && base + i == ui.cursor)          /* the cursor: a 1 px frame */
                 cv_frame(x - 1, y + 1, 12, 12, T_TEXT);
@@ -784,6 +788,8 @@ static uint32_t graph_sig(int play)
         if (pg->graph != GR_STEPS && (ph / 16u != ui.bank || (!play && pg->graph == GR_ROLL)))
             ph = 0xFFFFu;                            /* the roll shows the cursor's bank only */
         h ^= steps_hash(t) + ph * 31u + ui.cursor * 7919u + ui.lane * 104723u + ui.bank * 613u;
+        if (pg->graph == GR_DRUMHIT)                 /* (the lane shows KNOB 2's drum) */
+            h ^= (ui.drum_sound + 1u) * 2654435761u;
     }
     return h;
 }

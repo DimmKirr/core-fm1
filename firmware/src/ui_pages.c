@@ -447,16 +447,19 @@ static void pv_grid_mark(void)                          /* (rows 1 .. 3, over th
 static void pv_grid(int32_t h)
 {
     const track_t *t = TSEL;
-    uint32_t l, i, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u;
+    uint32_t l, i, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u, sound = ui.drum_sound % drum_sound_count(t);
     (void)h;
     pv_grid_mark();
     for (l = 0; l < NLANE; l++) {                       /* (lanes 18 apart from row 6: the name in the label face) */
         int32_t y = 6 + (int32_t)l * 18;
         int sel = l == ui.lane;
+        int pick = sel && cur_page()->scope == SC_DRUMHIT && drum_lane(drum_sound_note(t, sound)) == l;   /* DRUM HIT:
+                                                         * the lane is KNOB 2's drum, named; its other drums hollow */
         uint16_t row = sel ? T_LIFT : T_PANEL;
         if (sel)
             cv_rrect(2, y, PV_PANEL_W - 4, 17, 4, T_LIFT, T_PANEL);
-        cv_text_on(6, ty_y(y + 8, TY_LB), TY_LB, drum_lane_abbr(t, l), sel ? T_KNOB(l) : ux_mix(T_PANEL, T_KNOB(l), 70), row);
+        cv_text_on(6, ty_y(y + 8, TY_LB), TY_LB, pick ? drum_sound_abbr(t, sound) : drum_lane_abbr(t, l),
+                   sel ? T_KNOB(l) : ux_mix(T_PANEL, T_KNOB(l), 70), row);
         for (i = 0; i < 16u && base + i < len; i++) {
             const step_t *st = &seq_steps(t)[base + i];
             uint32_t b = 1u << l;
@@ -465,9 +468,12 @@ static void pv_grid(int32_t h)
                 cv_rrect(x - 2, y, 13, 17, 4, T_SEC, row);
                 cv_rrect(x - 1, y + 1, 11, 15, 3, row, T_SEC);
             }
-            if (step_lanes(st) & b)
-                cv_rrect(x, y + 2, 9, 13, 3, (step_accents(st) & b) ? T_TEXT : T_KNOB(l), row);   /* (each lane a colour) */
-            else
+            if (step_lanes(st) & b) {
+                uint16_t col = (step_accents(st) & b) ? T_TEXT : T_KNOB(l);   /* (each lane a colour) */
+                cv_rrect(x, y + 2, 9, 13, 3, col, row);
+                if (pick && step_sound_note(t, st, sound) < 0)
+                    cv_rrect(x + 2, y + 4, 5, 9, 2, row, col);
+            } else
                 cv_disc(x + 4, y + 8, i % 4u == 0u || sel ? 4 : 3, i % 4u == 0u || sel ? T_MID : T_DIM, 0);
         }
     }

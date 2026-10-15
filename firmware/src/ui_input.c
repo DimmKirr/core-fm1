@@ -733,13 +733,27 @@ static void page_go(int32_t d)
     cursor_set((int32_t)(b * 16u + ui.cursor % 16u < len ? b * 16u + ui.cursor % 16u : len - 1u));
 }
 
+/* the drum DRUM HIT's KNOB 2 (DRUM SOUND / MIX: KNOB 1) picks and the grid's lane, together: the lane key lit, the
+ * band and the DRUM shown agree. A lane key, the grid's LANE: the lane's own drum */
+static void drum_pick(uint32_t sound)
+{
+    ui.drum_sound = (uint8_t)sound;
+    ui.lane = (uint8_t)drum_lane(drum_sound_note(TSEL, sound));
+    ui.force = 1;
+}
+static void drum_pick_lane(uint32_t lane)
+{
+    drum_pick(drum_sound_of(TSEL, DRUM_LANE_NOTE[lane]));
+    ui.lane = (uint8_t)lane;
+}
+
 /* the grid's knobs: 1 STEP (the cursor), 2 LANE, 3 HIT and 4 ACC of the lane at the cursor (right on, left off) */
 static void grid_edit(uint32_t slot, int32_t steps)
 {
     if (slot == 0u)
         cursor_set(ui.cursor + steps);
     else if (slot == 1u)
-        ui.lane = (uint8_t)clamp((int32_t)ui.lane + (steps > 0 ? 1 : -1), 0, NLANE - 1);
+        drum_pick_lane((uint32_t)clamp((int32_t)ui.lane + (steps > 0 ? 1 : -1), 0, NLANE - 1));
     else if (slot == 2u)
         grid_hit(TSEL, ui.cursor, ui.lane, steps > 0);
     else
@@ -768,8 +782,8 @@ static void grid_keys(uint32_t pressed)
                 grid_hit(TSEL, i, ui.lane, 2);
             cursor_set((int32_t)i);
         } else if (p < NLANE) {
-            ui.lane = (uint8_t)p;
-            if(cur_page()->scope==SC_DRUMHIT){ui.drum_sound=(uint8_t)drum_sound_of(TSEL,DRUM_LANE_NOTE[p]);ui.note_pick=0;}
+            drum_pick_lane(p);
+            if(cur_page()->scope==SC_DRUMHIT)ui.note_pick=0;
         } else if (p != GK_ACC) {
             page_go(p == GK_PGUP ? 1 : -1);
         }
@@ -794,7 +808,7 @@ static void drum_sound_edit(uint32_t slot,int32_t delta)
 {
     ui.drum_sound%=drum_sound_count(TSEL);
     uint32_t field=cur_page()->id[slot];
-    if(!field){ui.drum_sound=(uint8_t)clamp(ui.drum_sound+delta,0,drum_sound_count(TSEL)-1);ui.force=1;return;}
+    if(!field){drum_pick(drum_sound_step(TSEL,ui.drum_sound,delta));return;}
     if(field==255)return;
     fm1_irq_off();
     if(field==4){int8_t *p=&drum_patch[song.sel].c[ui.drum_sound][3];*p=(int8_t)clamp(*p-delta,0,127);}
@@ -806,7 +820,7 @@ static void drum_hit_edit(uint32_t slot,int32_t delta)
 {
     ui.drum_sound%=drum_sound_count(TSEL);
     if(!slot){drum_hit_jog(delta);return;}         /* KNOB 1: the hits one by one, the steps */
-    if(slot==1){ui.drum_sound=(uint8_t)clamp(ui.drum_sound+delta,0,drum_sound_count(TSEL)-1);ui.lane=(uint8_t)drum_lane(drum_sound_note(TSEL,ui.drum_sound));ui.note_pick=0;ui.force=1;notes_preview();return;}
+    if(slot==1){drum_pick(drum_sound_step(TSEL,ui.drum_sound,delta));ui.note_pick=0;notes_preview();return;}
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
     step_history_end();step_history_finish();fm1_irq_off();step_history_sync_locked();
     uint32_t i=drum_hit_selected(), created=i>=RECORD_MAX;
@@ -820,7 +834,7 @@ static void drum_hit_edit(uint32_t slot,int32_t delta)
     }
     note_assign(&after,&before);
     if(created){after.note=(uint8_t)drum_sound_note(TSEL,ui.drum_sound);after.vel=96;after.owner=(uint8_t)(recording_owner(TSEL)|(1u<<5));after.duration=32768;after.step=ui.cursor;
-        const step_t *st=&TSEL->step[ui.cursor];for(uint32_t j=0;j<st->n;j++)if(drum_sound_of(TSEL,st->note[j])==ui.drum_sound){after.note=st->note[j];break;}after.vel=(uint8_t)(step_accents(st)&(1u<<drum_lane(after.note))?127:st->vel?st->vel:96);}
+        const step_t *st=&TSEL->step[ui.cursor];int32_t had=step_sound_note(TSEL,st,ui.drum_sound);if(had>=0)after.note=(uint8_t)had;after.vel=(uint8_t)(step_accents(st)&(1u<<drum_lane(after.note))?127:st->vel?st->vel:96);}
     if(slot==2)after.pitch=(int8_t)clamp(after.pitch+delta,-24,24);
     else {
         int32_t duration=(int32_t)after.duration*(1u<<(after.owner>>5));
@@ -852,8 +866,8 @@ static void drum_hit_delete(void)
 {
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
     step_history_end();step_history_finish();fm1_irq_off();step_history_sync_locked();
-    uint32_t i=drum_hit_selected(),note=drum_sound_note(TSEL,ui.drum_sound%drum_sound_count(TSEL));
-    if(i>=RECORD_MAX)for(uint32_t j=0;j<TSEL->step[ui.cursor].n;j++)if(drum_sound_of(TSEL,TSEL->step[ui.cursor].note[j])==ui.drum_sound%drum_sound_count(TSEL)){note=TSEL->step[ui.cursor].note[j];break;}
+    uint32_t i=drum_hit_selected(),sound=ui.drum_sound%drum_sound_count(TSEL);int32_t had=step_sound_note(TSEL,&TSEL->step[ui.cursor],sound);
+    uint32_t note=had>=0?(uint32_t)had:drum_sound_note(TSEL,sound);
     if(i<RECORD_MAX){note=recording[i].note;step_history.removed=recording_snapshot(i);memset(&step_history.replacement,0,sizeof step_history.replacement);step_history.removed_index=(uint16_t)i;step_history.has_removed=1;recording_remove(TSEL,i);}
     uint32_t remain=0,same=0;
     for(uint32_t j=recording_head[recording_owner(TSEL)];j<RECORD_MAX;j=recording_next[j])if(recording_active(TSEL,j) && recording_view(TSEL,&recording[j])==ui.cursor){remain++;same|=recording[j].note==note;}
@@ -867,10 +881,8 @@ static void drum_hit_delete(void)
 static void drum_hit_key(uint32_t accent)
 {
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
-    uint32_t note=drum_sound_note(TSEL,ui.drum_sound%drum_sound_count(TSEL)),lane=drum_lane(note),present=drum_hit_selected()<RECORD_MAX;
-    const step_t *st=&TSEL->step[ui.cursor];present|=note==DRUM_LANE_NOTE[lane] && ((st->hit>>lane)&1u);
-    for(uint32_t j=0;j<st->n;j++)present|=drum_sound_of(TSEL,st->note[j])==ui.drum_sound%drum_sound_count(TSEL);
-    if(present && !accent){drum_hit_delete();return;}
+    uint32_t sound=ui.drum_sound%drum_sound_count(TSEL),lane=drum_lane(drum_sound_note(TSEL,sound));
+    if((drum_hit_selected()<RECORD_MAX || step_sound_note(TSEL,&TSEL->step[ui.cursor],sound)>=0) && !accent){drum_hit_delete();return;}
     drum_hit_edit(2,0);
     if(accent){uint32_t i=drum_hit_selected();if(i<RECORD_MAX){fm1_irq_off();recording[i].vel=127;note_assign(&step_history.replacement,&recording[i]);TSEL->step[ui.cursor].acc|=(uint8_t)(1u<<lane);fm1_irq_on();}}
     notes_preview();

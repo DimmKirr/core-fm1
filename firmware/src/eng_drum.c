@@ -62,11 +62,28 @@ static const char *const DRUM_SOUND_NAME[16]={"KICK","SNARE","TOM L","TOM M","TO
 static uint32_t drum_sound_count(const track_t *t){return drum_is909(t)?D9_NUM:16u;}
 static uint32_t drum_sound_note(const track_t *t,uint32_t sound){return !drum_is909(t) && sound==D9_RD?56u:DRUM_SOUND_NOTE[sound];}
 static const char *drum_sound_name(const track_t *t,uint32_t sound){return !drum_is909(t) && sound==D9_RD?"BELL":!drum_is909(t) && sound==D9_CR?"CYMB":DRUM_SOUND_NAME[sound];}
+/* .. in two letters, as on the 808's panel (DRUM HIT: the picked lane's name, which of its drums) */
+static const char *drum_sound_abbr(const track_t *t,uint32_t sound)
+{
+    static const char *const N[16]={"BD","SD","LT","MT","HT","RS","CP","CH","OH","CR","RD","LC","MC","HC","CL","MA"};
+    return !drum_is909(t) && sound==D9_RD?"CB":!drum_is909(t) && sound==D9_CR?"CY":N[sound&15u];
+}
 static uint32_t drum_sound_of(const track_t *t,uint32_t note)
 {
     if(drum_is909(t))return drum909_ins(note);
     static const uint8_t map[DR_N]={D9_BD,D9_SD,D9_LT,D9_MT,D9_HT,11,12,13,D9_RS,14,D9_CP,15,D9_RD,D9_CR,D9_OH,D9_CH};
     int32_t st;uint32_t role=drum_gm(t->p,note,&st);return map[dr8_ins(note,role)];
+}
+/* the drums in the black keys' order, lane by lane (KICK SNARE CLAP HATCL HATOP TOM RIM BELL), a lane's drums
+ * together (the toms and congas low to high, the lane's own drum before the cymbal): KNOB 2 on DRUM HIT and
+ * KNOB 1 on DRUM SOUND / MIX step through them so */
+static const uint8_t DRUM_ORDER_808[16]={D9_BD,D9_SD,D9_CP,D9_CH,15,D9_OH,D9_LT,D9_MT,D9_HT,11,12,13,D9_RS,14,D9_RD,D9_CR};
+static const uint8_t DRUM_ORDER_909[D9_NUM]={D9_BD,D9_SD,D9_CP,D9_CH,D9_OH,D9_LT,D9_MT,D9_HT,D9_RS,D9_RD,D9_CR};
+static uint32_t drum_sound_step(const track_t *t,uint32_t sound,int32_t delta)
+{
+    const uint8_t *o=drum_is909(t)?DRUM_ORDER_909:DRUM_ORDER_808;int32_t n=(int32_t)drum_sound_count(t),r=0;
+    while(r<n-1 && o[r]!=sound%(uint32_t)n)r++;
+    return o[clamp(r+delta,0,n-1)];
 }
 static const char *drum_character(uint32_t sound)
 {return sound==D9_SD?"SNAPPY":sound<=D9_HT?"ATTACK":"TONE";}
@@ -189,6 +206,17 @@ static uint32_t step_lanes(const step_t *s)
 
 /* .. and which of them are accented */
 static uint32_t step_accents(const step_t *s) { return s->flags & SF_ACCENT ? step_lanes(s) : s->hit ? s->acc & step_lanes(s) : 0u; }
+
+/* the note step s strikes drum `sound` with (DRUM HIT): one of its notes, else its lane's hit when the lane's own
+ * drum is that sound (the 909 ride's lane note is not its sound note); -1: none */
+static int32_t step_sound_note(const track_t *t, const step_t *s, uint32_t sound)
+{
+    uint32_t i, l = drum_lane(drum_sound_note(t, sound));
+    for (i = 0; i < s->n && i < 4u; i++)
+        if (drum_sound_of(t, s->note[i]) == sound)
+            return s->note[i];
+    return (s->hit >> l) & 1u && drum_sound_of(t, DRUM_LANE_NOTE[l]) == sound ? DRUM_LANE_NOTE[l] : -1;
+}
 
 /* a step's notes that are a lane's note become that lane's hits (the same note, the same velocity: nothing
  * sounds different). Other notes (a low tom 41, a crash 49) stay notes, shown on their lane. A step accent
