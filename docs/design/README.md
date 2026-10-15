@@ -155,6 +155,31 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   it comes with every turn of such a knob, and dimming sent the whole screen twice). SCALES keeps its own list page
   (Kerem: the list is intuitive), no picker.
 
+## Status indicators (2026-10-15)
+
+Ongoing device and transport state belongs in the **header, rows 0–29**. Draw it from the current state, keep it
+visible while that state applies, and remove it immediately when the state ends. Do not use timed messages or
+place status cards over knobs, lists, waveforms, or notes.
+
+- **Left:** transport, BPM, then the REC mark. A filled REC mark means the selected track is ready/recording;
+  an outline means it is waiting or another track is armed.
+- **Right:** the active transport status replaces the page/engine title and optional navigation marks. Priority:
+  `ERASING`, then `WAIT LOOP` (waiting for the selected track's loop boundary), then brief action feedback, then
+  the normal context. Keep transport, BPM, and REC visible. Use REC colour for recording states.
+- **Optional context:** octave, song row, page dots, and the low-battery glyph use the remaining header space in
+  the normal layout. Never overlap or truncate a status to preserve optional context. Use a concise, documented
+  label that fits both Rubik and Melodee Pixel; `WAIT LOOP` is the header label for “waiting for loop”.
+- **Screens with their own headers:** while waiting, use the shared transport header; restore the screen's header
+  on start, cancel, or a change to a track that is not waiting. Dialogs and pickers retain the header above them.
+
+Brief action results (saved, copied, invalid action) use the existing header-message area; a long explanation may
+wrap in a temporary toast. A question requiring a decision uses a dialog; a value being edited stays at its
+control. These are feedback and interaction, rather than ongoing state indicators.
+
+For each new indicator, specify its state, lifetime, priority, and compact label here, and extend the shared
+header renderer instead of choosing a new position in a page. Verify both fonts, crowded headers, persistence,
+and incremental redraws when the state ends or the selected track changes (`tests/ui_test.c`, `tests/ui_render.c`).
+
 ## Drawing and the LCD (2026-10-10)
 
 - The SPI to the LCD (12 MHz) is the UI's bottleneck: the whole screen takes ~77 ms, 1000 px ~1.3 ms. gfx.c sends a

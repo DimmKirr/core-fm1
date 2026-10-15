@@ -276,7 +276,8 @@ static int pattern_passes(void)
         ui_notices();
         bad += check("INT/USB/TRS punch-in at swung loop zero retains a held note's original velocity",
             rec_on(t) && !song.rec_wait && song.rec_pass == 1 && t->seq_idx == 0 && !t->seq_pos &&
-            recording[0].note == 60 && recording[0].vel == 83 && !recording[0].on && !(recording[0].step & 63u) && !recording[1].vel && msg_is("RECORDING"));
+            recording[0].note == 60 && recording[0].vel == 83 && !recording[0].on && !(recording[0].step & 63u) && !recording[1].vel);
+        bad += check("punch-in clears the persistent waiting header", !head_waiting());
         ui_leds();
         bad += check("REC becomes steady when the pattern pass starts", !pass_led(2, panel.btn[B_REC]) && pass_led(0, panel.btn[B_REC]));
         motion_capture(t, P_LEVEL, 78);

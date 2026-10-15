@@ -1468,6 +1468,45 @@ static void sweep_screen_messages(void)
     }
 }
 
+/* Shared waiting status must remain in the header on every header implementation. */
+static void sweep_waiting_headers(const char *out)
+{
+    int previous_face = render_pixel;
+    static const int scenes[] = {S_HOME, S_TEMPO, S_PRESETS, S_SONG, S_PATGRID, S_SCALE_PICKER_EDO, S_MENU, S_ABOUT};
+    static uint16_t screen[240 * 240];
+    for (uint32_t face = 0; face < 2u; face++) for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++)
+    for (uint32_t s = 0; s < NELEM(scenes); s++) {
+        char name[96];
+        uint32_t seen = 0;
+        render_pixel = face;
+        setup(scenes[s]); pal(p);
+        song.rec = song.rec_wait = 1u << song.sel;
+        song.octave = 2; song.batt_raw = 520;
+        ui.msg_t = 0;
+        snprintf(name, sizeof name, "%s%s/%s/wait_loop", face ? "PIXEL " : "", UI_PALETTES[p].name, S_NAME[scenes[s]]);
+        cur_name = name;
+        draw(-1); lint();
+        for (uint32_t i = 0; i < nscr; i++)
+            seen |= !strcmp(scr[i].s, "WAIT LOOP") && scr[i].y0 >= 0 && scr[i].y1 <= H_HEAD;
+        if (!seen || toast_shown) { fprintf(rep, "MISSING %s: waiting in header without a toast\n", name); nfind++; }
+        if (!s && !p) write_ppm(out, face ? "PIXEL" : "NIGHT", "wait_loop");
+        for (uint32_t end = 0; end < 3u; end++) {
+            song.rec = song.rec_wait = 1u << song.sel;
+            ui_draw();
+            if (end == 2u) song.sel = (song.sel + 1u) % NTRK;
+            else { song.rec_wait = 0; if (end) song.rec = 0; }
+            nscr = npend = 0;
+            ui_draw(); lint();
+            memcpy(screen, host_screen, sizeof screen);
+            ui.force = 1; ui_draw();
+            if (memcmp(screen, host_screen, sizeof screen)) {
+                fprintf(rep, "STALE %s: waiting end %u differs from full redraw\n", name, end); nfind++;
+            }
+        }
+    }
+    render_pixel = previous_face;
+}
+
 /* Lists must show their labels and complete enum values, including rows scrolled off the initial screen. */
 static void sweep_list_rows(void)
 {
@@ -2009,6 +2048,7 @@ int main(int argc, char **argv)
         lint();
         write_ppm(out, "PIXEL", S_NAME[s]);
     }
+    sweep_waiting_headers(out);
     sweep_screen_messages();
     sweep_list_rows();
     sweep_columns();
@@ -2035,6 +2075,7 @@ int main(int argc, char **argv)
         }
         if (fmp_charts - c0 != 96u) { fprintf(stderr, "ui_render: %u FM6 charts drawn of 96\n", fmp_charts - c0); return 1; }
     }
+    sweep_waiting_headers(out);
     sweep_screen_messages();
     sweep_list_rows();
     sweep_columns();

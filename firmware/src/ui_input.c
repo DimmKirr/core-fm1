@@ -521,7 +521,7 @@ static void rec_toggle(uint32_t latch)
     fm1_irq_on();
     ui.force = 1;                                     /* also refresh the status on MENU / ABOUT */
     if (song.rec_wait & bit)
-        ui_message("WAITING FOR LOOP");
+        ui.msg_t = 0;                                 /* persistent WAIT LOOP is drawn from rec_wait */
     else if ((song.rec & bit) && grid_on())
         ui_message("LANE KEYS RECORD");               /* (the white keys stay the steps) */
     else if ((song.rec & bit) && !ui.home && cur_page()->graph == GR_ROLL)
@@ -553,7 +553,10 @@ static void rec_play(void)
     if (!song.playing && !seq_counting())
         transport_req = 1;
     ui.force = 1;
-    ui_message(song.rec_wait & bit ? "WAITING FOR LOOP" : "RECORDING");
+    if (song.rec_wait & bit)
+        ui.msg_t = 0;
+    else
+        ui_message("RECORDING");
 }
 
 /* SAVE + REC (either pressed while the other is held): the project back to its slot (project.c project_quick_save);
@@ -1644,8 +1647,6 @@ static void page_tap(uint32_t b)
 static void ui_notices(void)
 {
     static uint32_t midi_t, midi_last;
-    if (ui.msg_t && str_eq(ui.msg, "WAITING FOR LOOP") && !(song.rec_wait & (1u << song.sel)))
-        ui_message(rec_on(TSEL) ? "RECORDING" : "REC OFF");
     if (motion_full) { motion_full = 0; ui_message("MOTION FULL"); }
     if (recording_quant_blocked) { recording_quant_blocked = 0; ui_message("QNT STEP OCCUPIED"); }
     if (midi_hint) {                                    /* MIDI notes into a track that is not selected */

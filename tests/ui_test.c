@@ -512,31 +512,29 @@ static int test_rec(void)
     return bad;
 }
 
-/* A toast must return the pixels it covered, even when the page's values have
- * not changed. Compare the normal frame with a complete redraw of that state. */
-static int test_recording_toast(void)
+/* Waiting is persistent transport state, confined to the header. */
+static int test_recording_header(void)
 {
     int bad = 0;
-    uint16_t covered[240 * 70];
-    for (uint32_t page = 0; page < 2u; page++) for (uint32_t expire = 0; expire < 2u; expire++) {
+    uint16_t screen[240 * 240];
+    for (uint32_t page = 0; page < 2u; page++) for (uint32_t chord = 0; chord < 2u; chord++)
+    for (uint32_t cancel = 0; cancel < 2u; cancel++) {
         ui_power_on();
         if (page) open_family(FAM_SEQ);
         seq_start(); seq_advance(0); seq_advance(1);
-        rec_tap(); frame();
-        bad += check("queued recording draws the waiting toast", song.rec_wait == 1u && toast_shown);
-        if (expire) {
-            while (ui.msg_t) frame();
-            frame();
-        } else {
-            seq_advance(recording_loop(TSEL, seq_div_samples(TSEL->p[P_SDIV])) - 1u);
-            frame();
-            bad += check("loop zero replaces waiting with recording", rec_on(TSEL) && msg_is("RECORDING"));
-        }
-        memcpy(covered, host_screen + H_HEAD * 240, sizeof covered);
+        if (chord) rec_play(); else rec_tap();
+        frame();
+        bad += check("queued recording uses the header without a toast or timed message",
+                     song.rec_wait == 1u && head_waiting() && !toast_shown && !ui.msg_t);
+        for (uint32_t i = 0; i < 80u; i++) frame();
+        bad += check("waiting survives the old message timeout", head_waiting() && !toast_shown);
+        if (cancel) rec_tap();
+        else seq_advance(recording_loop(TSEL, seq_div_samples(TSEL->p[P_SDIV])) - 1u);
+        frame();
+        bad += check("start or cancel removes the waiting status", !head_waiting() && (cancel || rec_on(TSEL)));
+        memcpy(screen, host_screen, sizeof screen);
         ui.force = 1; ui_draw();
-        bad += check(expire ? "expired waiting toast restores the unchanged page" :
-                     "recording start restores the page under the waiting toast",
-                     !toast_shown && !memcmp(covered, host_screen + H_HEAD * 240, sizeof covered));
+        bad += check("leaving waiting matches a complete redraw", !toast_shown && !memcmp(screen, host_screen, sizeof screen));
     }
     return bad;
 }
@@ -5212,7 +5210,7 @@ int main(void)
     bad += test_sound_loads();
     bad += test_no_phrases();
     bad += test_rec();
-    bad += test_recording_toast();
+    bad += test_recording_header();
     bad += test_midi();
     bad += test_save();
     bad += test_actions();

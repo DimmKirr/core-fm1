@@ -379,6 +379,7 @@ static void sg_lines(int32_t y, int32_t h)              /* the sections' rules a
 }
 static void sg_head(void)
 {
+    if (head_waiting()) { draw_head(); return; }
     char b[24], t[12];
     uint32_t secs = sg.bars * 240u / (uint32_t)(song.g[G_BPM] > 0 ? song.g[G_BPM] : 120), jam_on = song.playing && !chain.running;
     uint32_t sig = secs * 7u + jam.n * 131u + jam_on * 3u + (uint32_t)(ui.act == 4u) * 5u + ux.gen * 977u + ux.pal * 31u +

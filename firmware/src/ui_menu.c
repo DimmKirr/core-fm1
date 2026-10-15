@@ -179,6 +179,7 @@ static int32_t menu_scroll_max(void)
 /* the menu's header (0..24): its title, the REC mark, the way back */
 static void menu_head(void)
 {
+    if (head_waiting()) { draw_head(); return; }
     cv_begin(240, MENU_HEAD, T_BG);
     cv_text(8, ty_y(MENU_HEAD / 2, TY_TX), TY_TX, ui.menu == 2 ? "About" : "Settings", T_THEME);
     if (ui.menu >= 2) {                               /* the way back at the right, the REC mark before it (then */
@@ -229,8 +230,10 @@ static void draw_menu(void)
 #endif
                             song.rec * 65537u + song.sel * 13u +
                             (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u);
-    if (!ui.force && sig == ui.menu_sig)
+    if (!ui.force && sig == ui.menu_sig) {
+        if (head_waiting()) draw_head();
         return;
+    }
     ui.menu_sig = sig;
     menu_head();
     if (ui.menu >= 2) {

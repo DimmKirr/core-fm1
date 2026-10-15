@@ -211,6 +211,9 @@ static void head_pages(int32_t x, int32_t x1)          /* (x: after the transpor
 }
 /* the message (or the layer's name) does not fit the header from x: it goes under it as a toast (draw_toast) */
 static uint8_t toast_shown;                             /* the toast drawn (its place to give back when it goes) */
+/* Ongoing transport states belong in the header, never in timed messages.
+ * Placement and priority: docs/design/README.md "Status indicators". */
+static int head_waiting(void) { return (song.rec_wait >> song.sel) & 1u; }
 static const char *head_msg(void) { return ui.msg_t ? ui.msg : ui.layer ? layer_head() : ""; }
 static int head_toast(int32_t x)
 {
@@ -267,6 +270,8 @@ static void draw_head(void)
         msg = 0;
     if (seq_erase_active(TSEL)) {
         cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX, "ERASING", T_REC, T_BG);
+    } else if (head_waiting()) {
+        cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX, "WAIT LOOP", T_REC, T_BG);
     } else if (msg) {                                   /* a message, or the layer's name (may hold a keycap) */
         cv_free_hint(x + 6, ty_y(H_HEAD / 2, TY_TX), ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - x - 6);
     } else {
@@ -1136,6 +1141,10 @@ static void ui_draw_frame(void)
         return;
     }
     if (!scr_frame()) return;
+    if (ui.waiting_shown != head_waiting()) {
+        ui.waiting_shown = (uint8_t)head_waiting();
+        ui.force = 1;                                  /* restore custom headers on start/cancel/track change */
+    }
     ui.frame++;
     if (palette_track(song.sel))                       /* THEME is the selected track's colour */
         ui.force = 1;
