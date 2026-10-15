@@ -1,0 +1,39 @@
+# FM Lab -- SEL as a fast-adjust shift.
+#
+#   build/host/fmlab build/host/fast tests/fast.txt
+#
+# A click is a click, which is the right amount when you are landing on a value and the wrong one
+# when you want to know what is at the other end of the range. Hold SEL and a click counts for
+# five. The claim is arithmetic: the same four clicks have to move a parameter four with SEL up and
+# twenty with SEL down.
+#
+# The other half is that SEL gets to keep its old job. It still steps to the next four things on a
+# plain tap -- but not on the tap you were using as a shift, which is the case that would otherwise
+# dump you on a different bank every time you went looking for the end of a range.
+
+# The OPERATOR page, which draws every value as a bar: hold EDIT to get there.
+0 btn 6 600
+
+# LEVEL to the bottom, so the sums start from a known place.
+800 enc 2 -99
+900 shot
+
+# Four clicks, as the knobs have always worked.
+1000 enc 2 4
+1100 shot
+
+# Back to the bottom, and the same four clicks with SEL held down.
+1200 enc 2 -99
+1300 btn 3 900
+1400 shot
+1500 enc 2 4
+1600 shot
+
+# SEL let go. The knobs cool off -- and the page has to be the page it was, because the turn
+# spoke for the press.
+2300 shot
+
+# A plain tap, though, is the shortcut it always was.
+2400 btn 3
+2600 shot
+2900 end

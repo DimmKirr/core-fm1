@@ -67,6 +67,24 @@ than list it (the spectrum, the envelope) it is the only label there is. Six cha
 which is why some of the names are squeezed: `RT SCL` is the rate scaling, `PMSENS` the LFO's pitch mod
 sensitivity, `P LVL1` the first level of the pitch envelope.
 
+### What a click is worth
+
+Almost every number on a DX7 is a byte from 0 to 99, and one click of one of those is not a thing you can
+hear. At a click a detent that is a hundred clicks of wrist to cross a range, which is the wrong resolution
+for the question you actually ask most of the time while you are still learning — *what is down the other
+end of this?* So a click is worth **five**, and **SEL** is a shift key: hold it and you get the single step
+back for landing on a value. The knob names at the bottom of the screen go lilac while it is held, so the
+fine step is something you can see rather than something you have to remember.
+
+Only the 0–99 bytes move in fives. Everything else on the instrument is a list of choices rather than a
+range — the thirty-two algorithms, the ratios, the curves, **DETUNE**, **TRANSPOSE**, the switches — and a
+click there is already worth exactly one meaningful thing, so it stays one. Jumping five algorithms at a
+time would not be faster, only harder to aim.
+
+**SEL** keeps its old job. It still steps to the next four things on a plain tap — but the tap you were
+using as a shift does not count, because the knob you turned under it has spoken for the press. Otherwise
+every reach for a precise value would dump you on a different bank.
+
 ### The knobs on HOME
 
 HOME has no parameters to list, but it is the screen you are looking at while you are actually listening, so
@@ -392,7 +410,7 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Nine more scripts go with it:
+which is the thing most worth listening to. Ten more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
@@ -405,6 +423,7 @@ tests/run_host.sh tests/edit.txt          # RATIO, against the two bytes underne
 tests/run_host.sh tests/home.txt          # HOME's four knobs, against the bytes they move
 tests/run_host.sh tests/env.txt           # ADSR, against the eight raw bytes it is a view of
 tests/run_host.sh tests/focus.txt         # tap and hold, and what each one does to the knobs
+tests/run_host.sh tests/fast.txt          # four clicks, against four clicks with SEL held
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -470,6 +489,13 @@ frequency steps — coarse 31, of which the engine reads only the low two bits, 
 Then the claim that matters. It drives **RATIO** to each end of its list and goes and reads `COARSE` and
 `FINE` directly, two banks along: `x0.50` has to be 0 and 0, `x31.00` has to be 31 and 0. If **RATIO** were
 anything other than those two bytes, that is where it would show.
+
+`tests/fastcheck.py` reads the same bars to do arithmetic on a feel: four clicks move **LEVEL** by twenty,
+and the same four with **SEL** held move it by four, which is a fifth and not merely less. That the coarse
+step is kept off the lists is proved next door rather than here — `tests/edit.txt` walks **RATIO** one
+entry a click with **SEL** nowhere near it, and would fail outright if fives had been applied to a list. It
+also checks the two halves of **SEL** not colliding: letting go after a turn leaves the page alone, and
+letting go without one still steps the bank.
 
 `tests/focuscheck.py` tests a distinction the script can only make with a stopwatch, so the host harness had
 to learn what a button is. It used to deal in edges; now `btn 4` is a fifty-millisecond tap and `btn 4 600`

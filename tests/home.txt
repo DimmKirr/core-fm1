@@ -30,9 +30,10 @@
 3500 keys 0
 3700 shot
 
-# KNOB1 on HOME is OP1's level: thirty steps down, which is 69 pixels of bar.
+# KNOB1 on HOME is OP1's level: six clicks down, which is thirty steps of the byte -- a click of
+# a 0..99 parameter is worth five -- and so 69 pixels of bar.
 3900 btn 8
-4100 enc 2 -30
+4100 enc 2 -6
 4300 shot
 4500 btn 6 600
 5400 shot

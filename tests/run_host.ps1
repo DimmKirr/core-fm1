@@ -68,3 +68,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'focus.txt') {
     python tests\focuscheck.py $out          # and a tap of EDIT or ENV against a hold of it
     if ($LASTEXITCODE) { throw 'a tap and a hold are not telling themselves apart' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'fast.txt') {
+    python tests\fastcheck.py $out           # and four clicks against four clicks with SEL held
+    if ($LASTEXITCODE) { throw 'SEL is not shifting the knobs' }
+}

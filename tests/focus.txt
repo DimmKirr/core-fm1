@@ -19,9 +19,10 @@
 300 btn 6
 500 shot
 
-# KNOB1 is now OP1's level, and nothing else's. Drive it to a number we can check for: 50.
+# KNOB1 is now OP1's level, and nothing else's. Drive it to a number we can check for: 50, which
+# is ten clicks, because a click of a 0..99 parameter is worth five.
 700 enc 2 -99
-800 enc 2 50
+800 enc 2 10
 
 # The sixth black key is OP6. While focused it points at an operator instead of sounding, so this
 # must send no MIDI at all -- and must move the knobs onto OP6.
@@ -49,9 +50,9 @@
 3700 btn 4
 3900 shot
 
-# KNOB1 is ATTACK. 40 of it, which is rate 1 of 59 underneath.
+# KNOB1 is ATTACK. Eight clicks is 40 of it, which is rate 1 of 59 underneath.
 4100 enc 2 -99
-4200 enc 2 40
+4200 enc 2 8
 
 # Held, ENV opens on the ADSR bank: the attack cell has to read 40.
 4400 btn 4 600

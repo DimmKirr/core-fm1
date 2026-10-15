@@ -36,6 +36,7 @@ case "$script" in                                           # while the screens 
 */home.txt)   python3 tests/homecheck.py "$out" ;;          # HOME's knobs, against the bytes they move
 */env.txt)    python3 tests/envcheck.py "$out" ;;           # ADSR, against the segments underneath it
 */focus.txt)  python3 tests/focuscheck.py "$out" ;;         # a tap of EDIT or ENV, against a hold
+*/fast.txt)   python3 tests/fastcheck.py "$out" ;;          # four clicks, against four with SEL held
 esac
 OUT="$out" python3 - <<'PY'
 import os

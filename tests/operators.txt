@@ -54,10 +54,10 @@
 5500 shot
 5800 keys 0
 
-# now change one thing on B: OP1's level down 20
+# now change one thing on B: OP1's level down 20, which is four clicks
 5900 btn 6 600
 6000 enc 0 -1
-6100 enc 2 -20
+6100 enc 2 -4
 6200 keys 0x4880
 6500 shot
 6800 keys 0

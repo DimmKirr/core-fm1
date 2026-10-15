@@ -308,3 +308,35 @@ thirty.
 Watch this number again after:
   - non-sine operators (the shape of the wave would want to show in the box too)
   - any new page that wants eg_shape() at a third size
+A CLICK IS WORTH FIVE
+---------------------
+Crossing a 0..99 byte was a hundred clicks of wrist, which is the right resolution for landing on a
+value and the wrong one for finding out what is at the other end of a range -- and the second is
+most of what you do while you are still learning what a parameter does. So a click is worth five,
+and SEL held is the fine-adjust shift that gives the single step back.
+
+Only the 0..99 bytes, which is p->max == 99 and nothing cleverer. Everything else is a list of
+choices rather than a range -- 32 algorithms, the ratio list, the curves, the switches, DETUNE,
+TRANSPOSE -- and one click is already one meaningful thing there. p_step() is the whole rule.
+
+Every knob read goes through knob_take(e, step), so there is one place the shift can be applied
+and one place to get it wrong. ALGORITHM and SELECT have their own encoders and do not go through
+it at all.
+
+  image   114060 B -> 114268 B   (+208)
+  RAM     30712 B                (unchanged)
+  cpu     unchanged
+
+SEL's own job moved to the release edge, because while it is down it is the shift and a knob
+turned under it has spoken for the press. That is the only way the two can share a button without
+a reach for a precise value also stepping the bank every time. The legend is repainted on both
+edges so the lilac names say when the fine step is live; it is a 240x16 blit and it already
+happens on every page change.
+
+This rescaled four test scripts that had been clicking raw units -- home, env, focus and operators
+all drive a parameter to a known number by counting clicks, and those counts are now a fifth of
+the values they land on. The scripts say so where they do it.
+
+Watch this number again after:
+  - any new parameter whose range is 0..99 but which is really a list (there are none today)
+  - SEL growing a third job

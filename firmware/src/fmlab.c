@@ -595,6 +595,47 @@ static const uint8_t FOC_BTN[2] = {BTN_EDIT, BTN_ENV};
 static const uint8_t FOC_MODE[2] = {FOC_EDIT, FOC_ENV};
 static const uint8_t FOC_PAGE[2] = {PAGE_OP, PAGE_EG};
 
+/* ---- a click, and what it is worth
+ *
+ * Almost everything here is a 0..99 byte, and one of those on its own is not a thing you can hear.
+ * At a click a detent that is a hundred clicks of wrist to cross a range, which is the wrong
+ * resolution for the question you ask most of the time while you are learning -- what is down the
+ * other end of this? So a click of those is worth five, and SEL is a shift key the other way: hold
+ * it and you get the single step back for landing on a value.
+ *
+ * Only the 0..99 bytes. Everything else on the instrument is a list of choices rather than a range
+ * -- thirty-two algorithms, the ratios, the curves, the switches -- and there a click is already
+ * worth exactly one meaningful thing, so it stays one.
+ *
+ * SEL is the right button for it because it already sits under the thumb while the other hand is
+ * on the knobs, and because its own job (step to the next four things) is instant and so has
+ * nothing to lose by waiting for the release. A knob moved while it was down cancels that job, so
+ * the shift and the step never both happen on the one press. */
+#define COARSE 5
+static uint8_t sel_used;                        /* a knob moved while SEL was down */
+
+static int sel_fine(void)
+{
+    return (fm1_in.buttons & (1u << BTN_SEL)) != 0;
+}
+
+static int32_t p_step(const param_t *p)
+{
+    return p && p->max == 99 ? COARSE : 1;
+}
+
+/* Every knob read goes through here, so the step applies to the parameter knobs and only to them:
+ * ALGORITHM has its own encoder and a list of 32, and SELECT has six operators. */
+static int32_t knob_take(uint32_t e, int32_t step)
+{
+    int32_t d = fm1_enc_take(ENC_KNOB1 + e);
+    if (d && sel_fine()) {
+        sel_used = 1;
+        step = 1;
+    }
+    return d * step;
+}
+
 /* A page is a flat list of parameters; these two just save repeating the table lookup, and they
  * are what every bank walker goes through. */
 static uint32_t page_n(void)
@@ -1793,7 +1834,7 @@ static void draw_legend(void)
         }
         if (s) {
             uint32_t w = text_w(&FONT_S, s), pad = w + 6u < 60u ? (60u - w) / 2u : 3u;
-            cv_text((int32_t)(e * 60u + pad), 0, &FONT_S, s, C_OFF);
+            cv_text((int32_t)(e * 60u + pad), 0, &FONT_S, s, sel_fine() ? C_ACC : C_OFF);
         }
     }
     cv_blit(0, LEGEND_Y);
@@ -2060,13 +2101,23 @@ static void app_main(void)
                 t_hold[k] = 0;
             }
         }
-        if (b & (1u << BTN_SEL)) {                         /* the next four things under the knobs */
-            if (focus != FOC_OFF && page == PAGE_HOME)
-                opsel = (uint8_t)((opsel + 5u) % 6u);      /* or, focused, the next operator */
-            else if (page == PAGE_HOME)
-                homeset = (uint8_t)((homeset + 1u) % HSET_N);
-            else
-                page_to(page);
+        /* SEL waits for the release, because while it is down it is the fine-adjust shift and a
+         * knob turned under it has spoken for the press. Letting go without having turned one is
+         * still the plain tap it always was. */
+        if (b & (1u << BTN_SEL)) {
+            sel_used = 0;
+            draw_legend();                                 /* the names go bright: a click is one */
+        }
+        if (rel & (1u << BTN_SEL)) {
+            draw_legend();
+            if (!sel_used) {                               /* the next four things under the knobs */
+                if (focus != FOC_OFF && page == PAGE_HOME)
+                    opsel = (uint8_t)((opsel + 5u) % 6u);  /* or, focused, the next operator */
+                else if (page == PAGE_HOME)
+                    homeset = (uint8_t)((homeset + 1u) % HSET_N);
+                else
+                    page_to(page);
+            }
         }
         if (b & (1u << BTN_SAVE)) {                        /* press to pick a slot, press again to write */
             if (!saving) {
@@ -2136,7 +2187,7 @@ static void app_main(void)
         if (page == PAGE_HOME && focus != FOC_OFF) {   /* focused: four things about one operator */
             for (e = 0; e < 4u; e++) {
                 const param_t *p = focus_at(e);
-                if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || !p)
+                if ((enc = knob_take(e, p_step(p))) == 0 || !p)
                     continue;
                 p_turn(p, enc);
                 say_param(p);                   /* HOME has no rows, so the voice line says it */
@@ -2146,7 +2197,7 @@ static void app_main(void)
         } else if (page == PAGE_HOME) {         /* the four knobs are four operators, either screen */
             for (e = 0; e < 4u; e++) {
                 uint32_t n = home_op(e), op;
-                if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || !n)
+                if ((enc = knob_take(e, HSET[homeset].what == HK_LVL ? COARSE : 1)) == 0 || !n)
                     continue;
                 op = 6u - n;                    /* the panel counts OP1 first, the voice OP6 */
                 if (HSET[homeset].what == HK_LVL) {
@@ -2163,7 +2214,7 @@ static void app_main(void)
             uint32_t pi = bank_first(bank) + e;
             const param_t *p;
             int32_t v;
-            if ((enc = fm1_enc_take(ENC_KNOB1 + e)) == 0 || (p = page_at(pi)) == 0)
+            if ((p = page_at(pi)) == 0 || (enc = knob_take(e, p_step(p))) == 0)
                 continue;
             if (p->kind == K_RAT) {
                 rat_turn(opsel, enc);
