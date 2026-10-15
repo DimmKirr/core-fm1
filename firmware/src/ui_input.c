@@ -2183,7 +2183,10 @@ static void ui_input(void)
     }
     if (smap.on) {                                      /* the map: KNOB 1 / 2, OCT+ / OCT- (ui_sections.c); EDIT */
         int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);   /* closes it too (page_tap) */
-        smap_input(k1, k2, oct);
+        if (home == BT_TAP) {
+            smap_close();
+            go_home();
+        } else smap_input(k1, k2, oct);
         if (lytap)
             layer_tap(lytap);
         b = ui.pg_down & ~fm1_in.buttons;

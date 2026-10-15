@@ -2372,6 +2372,32 @@ static int test_popups(void)
                      o && !smap.on && str_eq(sec.name[sec_of(ui.page)], "Amp"));
         press(B_EDIT); press(B_EDIT);
         bad += check("SECTIONS: EDIT again closes the map", !smap.on);
+        press(B_EDIT);
+        uint32_t row = smap.row;
+        turn(EN_K2, 3);
+        o = smap.row == row + 3u;
+        turn(EN_K2, -3);
+        bad += check("SECTIONS: map KNOB 2 counts categories, including several detents in one frame",
+                     o && smap.row == row);
+        turn(EN_K2, -1);                              /* Filter remembers FLT ENV, not Amp's page column */
+        uint8_t pg[8];
+        smap_pages(smap.row, pg);
+        bad += check("SECTIONS: a category selects its remembered page independently of the previous category",
+                     str_eq(sec.name[smap.row], "Filter") && pg[smap.col] == f);
+        press(B_HOME);
+        bad += check("SECTIONS: HOME leaves the category map immediately", ui.home && !smap.on);
+        set_engine_of(TSEL, ENGI_CZ); go_title("C1 PIT R1-4"); frame(); press(B_EDIT);
+        row = smap.row; o = 1;
+        for (uint32_t k = row; k + 1u < sec.n; k++) {
+            turn(EN_K2, 1);
+            o &= smap.row == k + 1u;
+        }
+        for (uint32_t k = smap.row; k > 0u; k--) {
+            turn(EN_K2, -1);
+            o &= smap.row == k - 1u;
+        }
+        bad += check("SECTIONS: CZ map visits each category once regardless of its envelope page count", o);
+        press(B_HOME);
     }
     go_page(GR_SONG); frame();
     hold(B_OCTUP);

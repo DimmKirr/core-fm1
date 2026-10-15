@@ -222,10 +222,16 @@ static void smap_close(void)
 static void smap_input(int32_t k1, int32_t k2, uint32_t oct)
 {
     uint8_t pg[8];
-    uint32_t n;
+    uint32_t n, row = smap.row;
     if (k2)
-        smap.row = (uint8_t)clamp((int32_t)smap.row + (k2 > 0 ? 1 : -1), 0, (int32_t)sec.n - 1);
+        smap.row = (uint8_t)clamp((int32_t)smap.row + k2, 0, (int32_t)sec.n - 1);
     n = smap_pages(smap.row, pg);
+    if (smap.row != row) {                             /* KNOB 2 moves categories, independent of their page counts */
+        uint32_t c;
+        for (c = 0; c < n && pg[c] != sec.last[smap.row]; c++)
+            ;
+        smap.col = (uint8_t)(c < n ? c : 0u);
+    }
     if (k1)
         smap.col = (uint8_t)clamp((int32_t)smap.col + (k1 > 0 ? 1 : -1), 0, (int32_t)n - 1);
     if (smap.col >= n)
