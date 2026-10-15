@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: '0 2 * * *'
   push:
-    branches: [next]
+    branches: [nightly]
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: next
+          ref: nightly
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -97,7 +97,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add webapp firmware
           if ! git diff --cached --quiet; then
-            git commit -m 'build: publish next nightly variants'
+            git commit -m 'build: publish nightly variants'
             git push origin HEAD:gh-pages
           fi
       - name: Request and verify Pages publication

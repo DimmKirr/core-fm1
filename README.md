@@ -143,7 +143,7 @@ available in the installer and release downloads.
   It defaults ON, remembers the choice across power-offs, and leaves manual SAVE working.
 - **Clock choice:** the HOME menu's OVERCLOCK chooses 320 MHz (default) or 360 MHz for
   the next start. A CPU fault at 360 MHz returns the device to 320 MHz.
-- **Installer options:** stable and next nightly remain selectable, with Standard
+- **Installer options:** stable and nightly remain selectable, with Standard
   and Single core variants for each.
 - **Compatibility:** earlier Melodee project and template layouts load with their
   effect routing preserved. Back up before upgrading; older firmware may not reproduce
