@@ -4,8 +4,8 @@
  * Mixer, Filter ..; FM6's Algo, OP1 .. OP6 (the operator pages, once per operator: fm6_opsel), Pitch, LFO, Ctrl; CZ-1's
  * Line, Line 1, Pitch 1 ..; Store and Tools last. PRESETS jumps a section (to the page last used in it), SELECT turns
  * the pages (on across the sections, as ever); the sections as tabs under the header, a section's pages as the
- * header's dots. EDIT pressed on an EDIT page: the map, a row a section, a tile a page (KNOB 1 across, KNOB 2 down,
- * OCT+ opens, OCT- or EDIT closes). EDIT held: the sections on the white keys (ui_layer.c).
+ * header's dots. EDIT pressed on an EDIT page: the map, a row a section, a tile a page (KNOB 1 or KNOB 2 changes
+ * category, SELECT chooses its page, OCT+ opens, OCT- or EDIT closes).
  * Included by ui_draw.c */
 #define SEC_MAX 16
 #define SEC_TAB_H 26                                    /* the tabs: rows 30 .. 55 (a pill 24 tall at 31) */
@@ -218,22 +218,22 @@ static void smap_close(void)
     smap.on = 0;
     ui.force = 1;
 }
-/* KNOB 1 across, KNOB 2 down; OCT+ opens the page, OCT- closes (oct: bit 0 OCT-, bit 1 OCT+) */
-static void smap_input(int32_t k1, int32_t k2, uint32_t oct)
+/* Both map knobs change categories; SELECT chooses a page. OCT+ opens, OCT- closes. */
+static void smap_input(int32_t categories, int32_t pages, uint32_t oct)
 {
     uint8_t pg[8];
     uint32_t n, row = smap.row;
-    if (k2)
-        smap.row = (uint8_t)clamp((int32_t)smap.row + k2, 0, (int32_t)sec.n - 1);
+    if (categories)
+        smap.row = (uint8_t)clamp((int32_t)smap.row + categories, 0, (int32_t)sec.n - 1);
     n = smap_pages(smap.row, pg);
-    if (smap.row != row) {                             /* KNOB 2 moves categories, independent of their page counts */
+    if (smap.row != row) {                             /* category movement is independent of its page count */
         uint32_t c;
         for (c = 0; c < n && pg[c] != sec.last[smap.row]; c++)
             ;
         smap.col = (uint8_t)(c < n ? c : 0u);
     }
-    if (k1)
-        smap.col = (uint8_t)clamp((int32_t)smap.col + (k1 > 0 ? 1 : -1), 0, (int32_t)n - 1);
+    if (pages)
+        smap.col = (uint8_t)clamp((int32_t)smap.col + pages, 0, (int32_t)n - 1);
     if (smap.col >= n)
         smap.col = (uint8_t)(n ? n - 1u : 0u);
     if (oct & 1u) {

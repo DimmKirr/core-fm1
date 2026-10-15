@@ -215,7 +215,8 @@ and incremental redraws when the state ends or the selected track changes (`test
   Algorithm, OP1-OP6, Pitch, LFO, Controls; CZ-1 ..). PRESETS jumps a section (to its last-used page), SELECT turns the
   pages (on across the sections). The sections as tabs under the header, the pages of one as the header's dots.
 - **The map**: EDIT pressed on an EDIT page: a row a section, a tile a page (FM6: operators x their pages); KNOB 1 / 2
-  move, OCT+ opens, OCT- closes.
+  each move directly between categories, one category per detent. SELECT chooses a page inside the selected
+  category, OCT+ opens it, OCT- closes the map, HOME returns to Stage.
 - **EDIT held**: undo; EDIT + OCT- / OCT+ undo/redo. Hold SAVE to save the current project. The engine is chosen
   in the browser (KNOB 4).
 - **Init sound** (Kerem 2026-10-11: sound design from scratch): the engine's own INIT, nothing changed and dry:

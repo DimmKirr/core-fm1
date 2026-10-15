@@ -2410,6 +2410,33 @@ static int test_popups(void)
         }
         bad += check("SECTIONS: CZ map visits each category once regardless of its envelope page count", o);
         press(B_HOME);
+        const uint32_t engines[] = {ENGI_PROPHET, ENGI_FM6, ENGI_CZ, 3u, ENGI_DRUM};
+        int categories = 1, pages = 1;
+        for (uint32_t e = 0; e < NELEM(engines); e++) {
+            ui_power_on(); set_engine_of(TSEL, engines[e]); frame(); press(B_EDIT); press(B_EDIT);
+            categories &= smap.on;
+            uint8_t opened = ui.page;
+            for (uint32_t r = 0; r < sec.n; r++) {
+                uint8_t pp[8];
+                uint32_t count = smap_pages(r, pp);
+                for (uint32_t c = 0; c < count; c++)
+                    for (uint32_t knob = EN_K1; knob <= EN_K2; knob++)
+                        for (int32_t dir = -1; dir <= 1; dir += 2) {
+                            smap.row = (uint8_t)r; smap.col = (uint8_t)c; ui.force = 1; frame();
+                            turn(knob, dir);
+                            categories &= smap.on && ui.page == opened &&
+                                smap.row == (uint32_t)clamp((int32_t)r + dir, 0, (int32_t)sec.n - 1);
+                        }
+                smap.row = (uint8_t)r; smap.col = 0; ui.force = 1; frame();
+                turn(EN_SELECT, 1);
+                pages &= smap.row == r && smap.col == (count > 1u ? 1u : 0u);
+                turn(EN_SELECT, -1);
+                pages &= smap.row == r && smap.col == 0u;
+            }
+            press(B_HOME);
+        }
+        bad += check("SECTIONS: either map knob moves one category from every page in every engine", categories);
+        bad += check("SECTIONS: SELECT chooses a page inside the map category without changing categories", pages);
     }
     go_page(GR_SONG); frame();
     hold(B_OCTUP);
