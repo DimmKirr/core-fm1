@@ -82,10 +82,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python web/import_releases.py .nightly-pages --repo "$GITHUB_REPOSITORY"
+          # Keep the stable guide; publish development documentation at its own path.
+          python tools/manual_shots.py
+          python tools/manual_shots.py --require
           commit=$(cat build/nightly-commit.txt)
           python web/publish_nightly.py .nightly-pages \
             --dual build/melodee-nightly.fwsc \
-            --version "next-${commit:0:7}" --commit "$commit" --built-at "$(cat build/nightly-built-at.txt)"
+            --version "next-${commit:0:7}" --commit "$commit" --built-at "$(cat build/nightly-built-at.txt)" \
+            --manual web/manual
           cp build/SHA256SUMS-nightly .nightly-pages/firmware/SHA256SUMS-nightly
           cd .nightly-pages
           git config user.name 'github-actions[bot]'

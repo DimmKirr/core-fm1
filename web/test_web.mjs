@@ -1491,7 +1491,7 @@ async function patternProtocol() {
 async function stockRestore() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc"}}));
+    .replace("/*META*/{}", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc"}}));
   async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false} = {}) {
     const calls = [], elements = new Map();
     const element = (id) => {
@@ -1566,7 +1566,7 @@ async function stockRestore() {
 async function installerBuilds() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",
+    .replace("/*META*/{}", JSON.stringify({version:"1.0.2",product:"FM-1_91002",
       pkg:{dual:"melodee-1.0.2.fwsc"},
       rc:{version:"1.4.0-rc.1",product:"FM-1_91040",commit:"a".repeat(40),
         pkg:{dual:"melodee-1.4.0-rc.1.fwsc"}},
@@ -1616,7 +1616,7 @@ async function installerBuilds() {
 }
 async function installerBuildRaces() {
   const script = readFileSync(join(HERE, "index_pkg.html"), "utf8").match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-    .replace("/*META*/", JSON.stringify({version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual"}, releases:[
+    .replace("/*META*/{}", JSON.stringify({version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual"}, releases:[
       {version:"1.0.2",product:"FM-1_91002",pkg:{dual:"dual"}},
       {version:"1.0.1",product:"FM-1_91001",pkg:{dual:"older"}},
     ]}));

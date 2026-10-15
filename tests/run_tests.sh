@@ -6,6 +6,7 @@
 #   tests/run_tests.sh               everything
 #   SOUND=0 tests/run_tests.sh       everything but the sound tests
 #   SOUND=only tests/run_tests.sh    the sound tests alone
+#   UI=renders tests/run_tests.sh    UI screenshots only (build/ui_new), for the web manual
 # Sound tests: the regression suite, the DSP render and TRACKS, and every test of an engine's or an effect's rendered
 #   signal (native fp32, Prophet, SPEAKER, MOD, SLICER, the FX layer, REVERB, DELAY, MOD / SPREAD, CZ, SID,
 #   CZ-1 knobs, PHYS, DRUM, NOISE, FM6, the dual-core pairing). The rest (storage, UI, MIDI, USB, editor, web) always runs.
@@ -90,10 +91,19 @@ P5=build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03
 SOUND=${SOUND:-1}
 PARALLEL=${PARALLEL:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 case $SOUND in 0 | 1 | only) ;; *) echo "SOUND=0, 1 or only"; exit 2 ;; esac
+UI=${UI:-}
+case $UI in "" | renders) ;; *) echo "UI=renders or empty"; exit 2 ;; esac
+if [ "$UI" = renders ]; then
+    python3 -c "import PIL" 2>/dev/null || { echo "UI renders need Pillow (python3 -m pip install Pillow)" >&2; exit 1; }
+fi
 [ "$PARALLEL" -ge 1 ] 2>/dev/null || { echo "PARALLEL=n, n >= 1"; exit 2; }
 python3 tools/gen_scales.py --check || exit 1
 python3 tools/audio_contract.py --check || exit 1
-[ -f build/melodee.fwsc ] || { echo "run ./build.sh first"; exit 1; }
+if [ "$UI" = renders ]; then
+    [ -f build/gen/melodee_tables.h ] || { echo "run ./build.sh first"; exit 1; }
+else
+    [ -f build/melodee.fwsc ] || { echo "run ./build.sh first"; exit 1; }
+fi
 TABLES=0; [ -f build/gen/melodee_tables.h ] && TABLES=1
 PIL=0; python3 -c "import PIL" 2>/dev/null && PIL=1
 mkdir -p "$OUT" "$LOG"
@@ -186,6 +196,20 @@ ui_renders() {
         python3 tools/ui_mockcmp.py build/ui_new build/ui_mock || fail "tools/ui_mockcmp.py" # redesign parity (docs/design): a report, no gate yet
     fi
 }
+if [ "$UI" = renders ]; then
+    ui_renders || true
+    if [ -s "$LOG/$n.fail" ]; then
+        echo "UI RENDERS FAILED"
+        cat "$LOG/$n.fail"
+        exit 1
+    fi
+    if [ ! -f build/ui_new/NIGHT/home.png ]; then
+        echo "UI renders produced no NIGHT screenshots" >&2
+        exit 1
+    fi
+    echo "UI RENDERS PASSED in $(($(date +%s) - start)) s"
+    exit 0
+fi
 dsp_tracks() {
     build hostsim hostsim -O2 $FW || return
     step "DSP render (CZ-1 preset 0)" "$OUT/hostsim" 15 0 1 "$OUT/render.wav"

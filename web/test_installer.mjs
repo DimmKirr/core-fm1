@@ -30,7 +30,7 @@ const context = vm.createContext({
   Uint8Array,
 });
 const script = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-  .replace("/*LIB*/", "").replace("/*META*/", JSON.stringify(meta));
+  .replace("/*LIB*/", "").replace("/*META*/{}", JSON.stringify(meta));
 vm.runInContext(script, context);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function finish(request, product, marker) {

@@ -5,6 +5,7 @@
 import hashlib
 import io
 import json
+import shutil
 import os
 import subprocess
 import sys
@@ -14,7 +15,9 @@ from pathlib import Path
 from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
-from make_site import main
+from make_site import main, manual_figures
+sys.path.insert(0, str(ROOT / "tools"))
+import manual_shots
 from publish_nightly import publish
 from publish_rc import publish as publish_rc
 from import_releases import verify_release
@@ -31,13 +34,31 @@ def package(path, product, variant):
 
 
 class NightlySite(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # A temp copy: a killed run must not leave screenshot stubs in web/manual/.
+        cls._scratch = tempfile.TemporaryDirectory()
+        cls.manual = Path(cls._scratch.name) / "manual"
+        cls.manual.mkdir()
+        shutil.copy(ROOT / "web" / "manual" / "index.html", cls.manual / "index.html")
+        for name in manual_figures(cls.manual):
+            (cls.manual / name).write_bytes(b"png")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._scratch.cleanup()
+
+    def build_site(self, pkg, version, out, **kwargs):
+        kwargs.setdefault("manual", self.manual)
+        main(pkg, version, out, **kwargs)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.site = self.root / "site"
         self.dual = package(self.root / "release.fwsc", "FM-1_91032", 1)
         self.normal = package(self.root / "next.fwsc", "FM-1_900", 3)
-        main(self.dual, "1.3.2", self.site)
+        self.build_site(self.dual, "1.3.2", self.site)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -48,7 +69,7 @@ class NightlySite(unittest.TestCase):
     def test_history_preserves_dual_core_releases_without_requiring_pairs(self):
         old = package(self.site / "firmware/melodee-1.2.1.fwsc", "FM-1_91021", 2)
         original = old.read_bytes()
-        main(self.dual, "1.3.2", self.site)
+        self.build_site(self.dual, "1.3.2", self.site)
         releases = json.loads((self.site / "firmware/releases.json").read_text())
         self.assertEqual([r["version"] for r in releases], ["1.3.2", "1.2.1"])
         self.assertTrue(all(set(r["pkg"]) == {"dual"} for r in releases))
@@ -79,7 +100,7 @@ class NightlySite(unittest.TestCase):
         self.nightly()
         publish_rc(self.site, assets)
         self.nightly()
-        main(self.dual, "1.3.2", self.site, installer_only=True)
+        self.build_site(self.dual, "1.3.2", self.site, installer_only=True)
         self.assertEqual(editor.read_text(), "existing published editor")
         self.assertEqual((self.site / "firmware" / candidate.name).read_bytes(), candidate.read_bytes())
         rc = json.loads((self.site / "firmware/rc.json").read_text())
@@ -112,7 +133,7 @@ class NightlySite(unittest.TestCase):
         legacy["pkg"]["single"] = "../../firmware/melodee-nightly-1core.fwsc"
         nightly_manifest.write_text(json.dumps(legacy))
         (self.site / "firmware/melodee-nightly-1core.fwsc").write_bytes(b"retired nightly")
-        main(self.dual, "1.3.2", self.site, installer_only=True)
+        self.build_site(self.dual, "1.3.2", self.site, installer_only=True)
         self.assertEqual(editor.read_text(), "existing published editor")
         for name in ("release", "nightly"):
             self.assertEqual(set(json.loads((self.site / f"firmware/{name}.json").read_text())["pkg"]), {"dual"})
@@ -164,7 +185,7 @@ class NightlySite(unittest.TestCase):
 
     def test_retired_synth_is_removed(self):
         self.nightly()
-        for update in (self.nightly, lambda: main(self.dual, "1.3.2", self.site, installer_only=True)):
+        for update in (self.nightly, lambda: self.build_site(self.dual, "1.3.2", self.site, installer_only=True)):
             (self.site / "firmware/synth.json").write_text("retired metadata")
             for filename in ("melodee-synth.fwsc", "melodee-synth-1core.fwsc"):
                 (self.site / "firmware" / filename).write_bytes(b"retired firmware")
@@ -181,6 +202,109 @@ class NightlySite(unittest.TestCase):
                                 env={**os.environ, "MELODEE_DUAL_CORE": "0"}, capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn("Single-core firmware is retired", result.stderr)
+
+    def test_manual_publish_drops_older_versions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dual = package(root / "release.fwsc", "FM-1_91010", 1)
+            site = root / "site"
+            self.build_site(dual, "1.1.0", site)
+            manual = site / "webapp/manual"
+            text = (manual / "index.html").read_text()
+            self.assertIn("<h1>Manual</h1>", text)
+            self.assertNotIn('id="manual-ver"', text)
+            self.assertFalse((manual / "versions.json").exists())
+            self.assertFalse(any(p.is_dir() and p.name.startswith("v") for p in manual.iterdir()))
+            retired = manual / "v1.0.0"
+            retired.mkdir()
+            (retired / "index.html").write_text("old")
+            (manual / "versions.json").write_text("[]\n")
+            (manual / "gone.png").write_bytes(b"stale")
+            (self.manual / "orphan.png").write_bytes(b"orphan")
+            try:
+                self.build_site(dual, "1.1.0", site)
+            finally:
+                (self.manual / "orphan.png").unlink(missing_ok=True)
+            self.assertFalse(retired.exists())
+            self.assertFalse((manual / "versions.json").exists())
+            self.assertFalse((manual / "gone.png").exists())
+            self.assertFalse((manual / "orphan.png").exists())
+            self.assertTrue((manual / "home.png").is_file())
+            self.assertIn("<h1>Manual</h1>", (manual / "index.html").read_text())
+
+    def test_manual_figure_list_comes_from_the_html(self):
+        self.assertEqual(manual_shots.figure_names(self.manual), manual_figures(self.manual))
+        self.assertIn("home.png", manual_shots.figure_names(self.manual))
+
+    def test_nightly_manual_tracks_build_and_survives_stable_publish(self):
+        stable = self.site / "webapp/manual/index.html"
+        before = stable.read_bytes()
+        publish(self.site, self.normal, "next-abcdef0", "b" * 40, "2026-10-15T16:00:00Z", manual=self.manual)
+        nightly = self.site / "webapp/manual/nightly"
+        text = (nightly / "index.html").read_text()
+        self.assertIn('<span data-firmware-version>next-abcdef0</span>', text)
+        self.assertIn('href="../../installer/"', text)
+        self.assertIn('href="../../editor/"', text)
+        self.assertTrue((nightly / "fx_rack.png").is_file())
+        self.assertEqual(stable.read_bytes(), before)
+        self.build_site(self.dual, "1.3.2", self.site)
+        self.assertEqual((nightly / "index.html").read_text(), text)
+        self.assertIn('<span data-firmware-version>1.3.2</span>', stable.read_text())
+
+    def test_first_nightly_manual_has_a_landing_page(self):
+        shutil.rmtree(self.site / "webapp/manual")
+        publish(self.site, self.normal, "next-abcdef0", "b" * 40, "2026-10-15T16:00:00Z", manual=self.manual)
+        self.assertIn('href="nightly/"', (self.site / "webapp/manual/index.html").read_text())
+
+    def test_missing_nightly_figure_leaves_site_untouched(self):
+        missing = self.root / "missing-manual"
+        missing.mkdir()
+        (missing / "index.html").write_text('<img src="missing.png">')
+        before = {p.relative_to(self.site): p.read_bytes() for p in self.site.rglob('*') if p.is_file()}
+        with self.assertRaises(SystemExit):
+            publish(self.site, self.normal, "next-abcdef0", "b" * 40, "2026-10-15T16:00:00Z", manual=missing)
+        self.assertEqual(before, {p.relative_to(self.site): p.read_bytes() for p in self.site.rglob('*') if p.is_file()})
+
+    def test_installer_only_leaves_the_manual(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dual = package(root / "release.fwsc", "FM-1_91010", 1)
+            site = root / "site"
+            self.build_site(dual, "1.1.0", site)
+            manual = site / "webapp/manual"
+            (manual / "index.html").write_text("stable manual")
+            (manual / "retired.png").write_bytes(b"stay")
+            editor = site / "webapp/editor/index.html"
+            editor.write_text("existing published editor")
+            empty = root / "empty-manual"
+            empty.mkdir()
+            (empty / "index.html").write_text('<img src="missing.png">')
+            self.build_site(dual, "1.1.0", site, installer_only=True, manual=empty)
+            self.assertEqual((manual / "index.html").read_text(), "stable manual")
+            self.assertEqual((manual / "retired.png").read_bytes(), b"stay")
+            self.assertEqual(editor.read_text(), "existing published editor")
+            fresh = root / "fresh"
+            self.build_site(dual, "1.1.0", fresh, installer_only=True, manual=empty)
+            self.assertFalse((fresh / "webapp/manual").exists())
+
+    def test_missing_screenshot_does_not_write_the_site(self):
+        shot = self.manual / "home.png"
+        saved = shot.read_bytes()
+        shot.unlink()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                dual = package(root / "release.fwsc", "FM-1_91010", 1)
+                site = root / "site"
+                site.mkdir()
+                (site / "sentinel").write_text("keep")
+                with self.assertRaises(SystemExit) as caught:
+                    self.build_site(dual, "1.1.0", site)
+                self.assertIn("home.png", str(caught.exception))
+                self.assertEqual([p.name for p in site.iterdir()], ["sentinel"])
+                self.assertEqual((site / "sentinel").read_text(), "keep")
+        finally:
+            shot.write_bytes(saved)
 
 
 if __name__ == "__main__":

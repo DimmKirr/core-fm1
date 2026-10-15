@@ -11,14 +11,24 @@
   firmware/melodee-*-rc.*.fwsc      published release candidate (rc.json; publish_rc.py), kept as published
   webapp/installer/index.html       index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
   webapp/editor/index.html          editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
+  webapp/manual/                    web/manual/ on a full publish (the stable manual: HTML and screenshots).
+                                    Nightly and release-candidate updates leave it in place.
   src/                              not touched
 
   web/make_site.py build/melodee-X.Y.fwsc X.Y OUT_DIR
 
 Packages must be made by tools/fm1pkg_make.py (Melodee's own loader, no vendor files).
 Their identity is read from the package; the device must report it after installation.
+
+Manual screenshots are generated into web/manual/ and are not stored in git. A full
+publish and web/quick-host.sh run tools/manual_shots.py first — see BUILDING.md "Local site".
+The figure names are the <img src> values in web/manual/index.html. A full publish checks
+every one of them before it writes the output site, then replaces webapp/manual/ with the
+manual page and those screenshots. Other PNGs and older version folders are removed; nightly/ is preserved. An
+installer-only update does not read or replace the published manual.
 """
 import json
+import html as html_escape
 import re
 import shutil
 import sys
@@ -29,6 +39,7 @@ BLOCKS, BLK, KEEP = 20, 0x30, 0x2F
 
 
 def strip_module(src):
+    """drop ES module import/export so the script can be inlined into index_pkg.html"""
     src = re.sub(r"^export\s+", "", src, flags=re.M)
     return re.sub(r"^import .*?;\n", "", src, flags=re.M)
 
@@ -108,7 +119,58 @@ def release_history(out, current):
                         if v != current["version"]]
 
 
-def main(pkg, version, out, nightly=None, installer_only=False, rc=None):
+def manual_figures(manual):
+    """PNG names embedded in the manual, in order; each src is a file name beside index.html"""
+    page = manual / "index.html"
+    if not page.is_file():
+        raise SystemExit(f"{page} is missing")
+    names = []
+    for name in re.findall(r'<img\b[^>]*\bsrc="([^"]*)"', page.read_text(encoding="utf-8")):
+        if name in names:
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+\.png", name):
+            raise SystemExit(f"{page}: screenshot src {name!r} must name a PNG beside the manual")
+        names.append(name)
+    return names
+
+
+def require_manual(manual):
+    """every embedded screenshot exists; called before a full publish writes the output site"""
+    missing = [name for name in manual_figures(manual) if not (manual / name).is_file()]
+    if missing:
+        raise SystemExit(f"{manual}: {len(missing)} screenshot(s) missing: {', '.join(missing)}")
+
+
+def publish_manual(src, dest, version=None, preserve_nightly=False):
+    """Publish the guide and embedded screenshots, optionally retaining its nightly child."""
+    embedded = set(manual_figures(src))
+    keep = {p.name for p in src.iterdir()
+            if p.is_file() and (p.suffix.lower() != ".png" or p.name in embedded)}
+    dest.mkdir(parents=True, exist_ok=True)
+    for old in list(dest.iterdir()):
+        if preserve_nightly and old.name == "nightly" and old.is_dir():
+            continue
+        if old.name in keep:
+            continue
+        if old.is_dir():
+            shutil.rmtree(old)
+        else:
+            old.unlink()
+    for name in sorted(keep):
+        shutil.copy(src / name, dest / name)
+    if version is not None:
+        page = dest / "index.html"
+        text = page.read_text(encoding="utf-8").replace(
+            '<span data-firmware-version>development source</span>',
+            '<span data-firmware-version>' + html_escape.escape(version) + '</span>')
+        # A nightly guide lives one level below the stable guide.
+        if dest.name == "nightly":
+            text = text.replace('href="../editor/"', 'href="../../editor/"').replace(
+                'href="../installer/"', 'href="../../installer/"')
+        page.write_text(text, encoding="utf-8")
+
+
+def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=None):
     pkg, out = Path(pkg), Path(out)
     raw, product = check_package(pkg)
     if nightly is None:
@@ -131,11 +193,14 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None):
                     "pkg": {"dual": "../../firmware/" + name}}
     releases = release_history(out, release_meta)
     meta = json.dumps({**release_meta, "nightly": nightly_meta, "rc": rc_meta, "releases": releases})
-    for mark in ("/*LIB*/", "/*META*/"):
+    for mark in ("/*LIB*/", "/*META*/{}"):
         if html.count(mark) != 1:
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
-    html = html.replace("/*LIB*/", lib).replace("/*META*/", meta)
-    inst, ed, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "firmware"
+    html = html.replace("/*LIB*/", lib).replace("/*META*/{}", meta)
+    inst, ed, man, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "webapp" / "manual", out / "firmware"
+    man_src = Path(manual) if manual is not None else HERE / "manual"
+    if not installer_only:
+        require_manual(man_src)                     # before any write: a missing figure must leave the site untouched
     for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
     keep = {name, "melodee-nightly.fwsc"}
@@ -174,11 +239,11 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None):
     for doc in ("LICENSE", "LICENSING.md"):
         shutil.copy(HERE.parent / doc, fw / doc)
     if not installer_only:
+        publish_manual(man_src, man, version, preserve_nightly=True)
         shutil.copy(HERE / "editor.html", ed / "index.html")
-    for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
-        if not installer_only and (HERE / f).exists():
-            shutil.copy(HERE / f, ed / f)
-    if not installer_only:
+        for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
+            if (HERE / f).exists():
+                shutil.copy(HERE / f, ed / f)
         (out / "index.html").write_text(
             '<!doctype html><meta charset="utf-8"><title>Melodee</title>'
             '<meta http-equiv="refresh" content="0; url=webapp/installer/">'

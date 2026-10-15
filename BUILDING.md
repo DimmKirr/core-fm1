@@ -163,16 +163,57 @@ python3 tools/fm1_install.py --info          # identity of the connected FM-1
 ```
 
 Or, to install your own build from the web installer, make a local copy of the site and open it from `localhost`
-(Web MIDI needs a secure context):
+(Web MIDI needs a secure context). See [Local site](#local-site) below.
+
+## Local site
+
+`web/make_site.py` assembles GitHub Pages layout under an output directory:
+
+- `webapp/installer/` — self-contained installer
+- `webapp/editor/` — patch editor
+- `webapp/manual/` — the stable manual from `web/manual/` (HTML and screenshots), published with a full release
+- `firmware/` — the dual-core `.fwsc` package, LICENSE texts
+
+The manual’s screenshots are generated into `web/manual/` (NIGHT palette only) and
+are not committed. `build/` is gitignored, and so are those PNGs.
 
 ```
-# Build the supported dual-core firmware.
+# 0) Firmware (and host-test assets under build/gen). Needed before UI renders or release packages.
 MELODEE_RAM_AUDIO=1 ./build.sh --release 1.3.3
+
+# 1) Host UI renders → build/ui_new/<PALETTE>/*.png (and side folders). Needs Pillow.
+#    Supported path: the host test suite (ui_renders is one of its jobs).
+tests/run_tests.sh
+#    SOUND=0 tests/run_tests.sh   # skip the long sound tests if you only need UI/screenshots
+
+# 2) Copy the NIGHT frames named in web/manual/index.html into the manual.
+python3 tools/manual_shots.py            # build/ui_new/NIGHT → web/manual/
+# python3 tools/manual_shots.py --require  # succeed when every figure is already present
+# python3 tools/manual_shots.py --sources  # succeed when every source render exists
+# python3 tools/manual_shots.py --check    # report missing/stale without writing
+
+# 3) Assemble Pages layout and serve it (Web MIDI needs localhost / HTTPS).
 python3 web/make_site.py build/release-1.3.3/melodee-1.3.3.fwsc \
   1.3.3 /tmp/melodee-site
 cd /tmp/melodee-site && python3 -m http.server 8000
 # open http://localhost:8000/webapp/installer/
+#      http://localhost:8000/webapp/manual/
+#      http://localhost:8000/webapp/editor/
 ```
+
+`web/quick-host.sh` can be run from any directory. `VERSION` defaults to the firmware
+version in `tools/fm1_recover.py`. It runs step 2 only when the manual is missing figures.
+If any frame named in the manual is missing from `build/ui_new/NIGHT/`, it renders those
+screens (`UI=renders tests/run_tests.sh`) and then copies them. It replaces `SITE_DIR` only
+when that path is already a Melodee site (or does not exist yet).
+A stable release does the same after the host tests, before the site is published.
+Nightly and release-candidate publishes update the installer and their packages, and leave
+the stable manual on the last stable release. Nightlies publish a separate development guide
+at `webapp/manual/nightly/`, stamped with the firmware version. Stable publishes keep that
+development guide.
+`make_site.py` publishes the manual page and the screenshots it embeds on a full publish,
+and removes old PNGs and version folders from `webapp/manual/` while preserving `nightly/`. An
+installer-only update does not need the screenshots.
 
 Installing firmware is at your own risk. If an install fails and the FM-1 no longer
 starts, identify its recovery mode using the steps below.
@@ -546,7 +587,8 @@ It checks out `nightly`, builds the dual-core firmware, runs the host/web suite,
 and publishes only after successful checks. Packages, checksums and source
 metadata are available as an Actions artifact and in `gh-pages/firmware`.
 `web/publish_nightly.py` updates the existing Pages checkout while keeping its
-published release packages and editor.
+published release packages, editor, and stable manual. The stable manual goes out with a stable
+release. The development manual is published at `webapp/manual/nightly/` with each nightly.
 Keep experimental firmware commits on `nightly`; updating `next` alone does
 not publish a nightly. The workflow routing is also kept on `main` (the
 scheduled definition) and `next` so neither retains the old source or trigger.

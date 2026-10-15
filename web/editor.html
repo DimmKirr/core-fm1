@@ -14,7 +14,7 @@
   /* Fukiai: Hügelton Instruments' icon font (MIT, FUKIAI-LICENSE.txt). Icons are text in .ic spans;
      they stay hidden until the face has loaded (html.fk), so a missing font never shows boxes. */
   @font-face { font-family: "Fukiai"; src: url("fukiai.ttf") format("truetype"); font-display: block; unicode-range: U+EA00-EB09; }
-  :root { --bg: #fff; --fg: #000; --dim: #777; --line: #ccc; }
+  :root { --bg: #fff; --fg: #000; --dim: #666; --line: #ccc; }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) { --bg: #000; --fg: #fff; --dim: #888; --line: #444; }
   }
@@ -161,13 +161,26 @@
   .strip button.selb:disabled { opacity: 1; background: none; color: var(--dim); }
   #sysinfo th { padding-right: 16px; }
   [hidden] { display: none !important; }
+  .site { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .site .brand { font-size: 18px; font-weight: 600; }
+  .site .links { display: flex; gap: 16px; }
+  .site .links a { color: var(--dim); text-decoration: none; }
+  .site .links a:hover { color: var(--fg); }
+  .site .links a[aria-current="page"] { color: var(--fg); }
 </style>
 </head>
 <body>
 <main>
   <button class="lang" id="lang"></button>
-  <h1>Melodee Editor</h1>
-  <p class="dim"><a href="../installer/" style="color:inherit" data-t="installer"></a></p>
+  <nav class="site">
+    <span class="brand">Melodee</span>
+    <div class="links">
+      <a href="../editor/" aria-current="page">Patch Editor</a>
+      <a href="../installer/">Installer</a>
+      <a href="../manual/">Manual</a>
+    </div>
+  </nav>
+  <h1>Editor</h1>
   <!-- always visible: connection, version, sync mode, the tabs and (Sound / Sequencer / Tracks) the track selector -->
   <header class="top">
     <div class="bar">
