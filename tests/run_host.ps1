@@ -72,3 +72,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'fast.txt') {
     python tests\fastcheck.py $out           # and four clicks against four clicks with SEL held
     if ($LASTEXITCODE) { throw 'SEL is not shifting the knobs' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'corners.txt') {
+    python tests\cornercheck.py $out         # and the battery and the pips at the top
+    if ($LASTEXITCODE) { throw 'the corners are not saying what they should' }
+}

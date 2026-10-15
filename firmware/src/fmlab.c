@@ -1840,6 +1840,58 @@ static void draw_legend(void)
     cv_blit(0, LEGEND_Y);
 }
 
+/* ---- the two corners
+ *
+ * Sixteen pixels across the top of every screen that nothing else ever wanted: the page title sits
+ * at 24 and HOME's banner at 18. Two things go in it, one at each end, and neither is worth a word.
+ *
+ * Left, the battery. Three bars, because three is all the precision there is to have -- the
+ * divider on PB1 and the SARADC's reference are both undocumented, so the thresholds below are
+ * measurements rather than arithmetic, taken from dxsloop (GPL-3.0, Leo Kuroshita) which arrived
+ * at them on real hardware. The whole useful span is about sixty counts wide, which is why the
+ * reading is smoothed over thirty-two samples before it gets here. Plugged into a host the bars
+ * cycle instead: there is no charger status line on this chip, so a host being there is the only
+ * evidence of charging available, and an animation says "being charged" without claiming to know
+ * how far along it is.
+ *
+ * Right, which of HOME's two screens you are on. The screen itself tells you which one you are
+ * looking at; what it cannot tell you is that there is another, which is the whole job of a pair
+ * of pips. Pages other than HOME already say 1/4 in their title, so they get none. */
+#define BATT_1 531                              /* raw counts: anything under this is the last bar */
+#define BATT_2 561
+#define BATT_3 591
+
+static uint32_t corner_sig = 1;
+
+static uint32_t batt_bars(void)
+{
+    return batt_raw >= BATT_3 ? 3u : batt_raw >= BATT_2 ? 2u : batt_raw >= BATT_1 ? 1u : 0u;
+}
+
+static void draw_corners(void)
+{
+    uint32_t charging = fm1_usb_host() != 0, lvl = batt_bars(), pips, k, sig;
+    uint16_t c = charging ? C_ACC : lvl == 0u ? RGB(255, 90, 90) : lvl == 1u ? RGB(235, 170, 60) : C_OFF;
+    if (charging)
+        lvl = 1u + (fm1_ms / 600u) % 3u;        /* filling, over and over, while a host is there */
+    pips = page == PAGE_HOME ? HOME_NBANK : 0u;
+    sig = lvl * 7u + charging * 97u + pips * 1013u + (uint32_t)bank * 31u + c;
+    if (sig == corner_sig)
+        return;
+    corner_sig = sig;
+    cv_begin(240, 16, C_BLACK);
+    cv_rect(6, 3, 17, 1, c);                    /* the cell: a box, and the nub on its end */
+    cv_rect(6, 11, 17, 1, c);
+    cv_rect(6, 3, 1, 9, c);
+    cv_rect(22, 3, 1, 9, c);
+    cv_rect(23, 5, 2, 5, c);
+    for (k = 0; k < lvl; k++)
+        cv_rect(8 + (int32_t)k * 5, 5, 3, 5, c);
+    for (k = 0; k < pips; k++)
+        cv_rect(218 + (int32_t)k * 10, 5, 6, 6, k == bank ? C_ACC : RGB(56, 56, 64));
+    cv_blit(0, 0);
+}
+
 static void draw_status(int32_t oct, uint32_t nv, uint32_t cpu, uint32_t pk)
 {
     char s[32];
@@ -2311,6 +2363,7 @@ static void app_main(void)
             for (k = 0; k < 240u; k++)
                 sp_pk[k] = 0;
             lcd_fill(0, 0, 240, 240, C_BLACK);  /* all of it: the meter is only on one page now */
+            corner_sig = 0xFFFFFFFFu;           /* the clear took the corners with it */
             foc_drawn = 255;
             repaint = 1;
         }
@@ -2332,6 +2385,7 @@ static void app_main(void)
                 draw_legend();
             }
         }
+        draw_corners();                         /* cheap unless the picture up there changed */
         if (page != PAGE_HOME && (bank != bank_drawn || opsel != op_drawn || opmute != mute_drawn || repaint)) {
             bank_drawn = bank;
             op_drawn = opsel;

@@ -54,6 +54,10 @@ static void fm1_led_key_glow(uint32_t id, int on) { (void)id; (void)on; }
 #define FM1_ADC_MASTER 0u
 #define FM1_ADC_BATT 1u
 static int32_t fm1_adc_read(uint32_t ch) { return ch == FM1_ADC_MASTER ? 1023 : 800; }
+/* The battery and the USB host, which on the device live in platform.c. 800 counts is a full
+ * battery and no host is there, so a run draws the three bars and never the charging animation. */
+static int32_t batt_raw = 800;
+static int fm1_usb_host(void) { return 0; }
 #define FM1_TICKS_PER_US 24u
 /* On the device this is TIMER4, free-running off the 24 MHz crystal. Here it is *this computer's*
  * clock, scaled to the same 24 MHz: it makes the load meter compile and move, but the number it shows
@@ -123,8 +127,8 @@ static void app_main(void);
 
 /* the script: at t ms, keys down (bit k = key k, 0 = F3), a button edge, an encoder's detents, a MIDI
  * message. A script file (the second argument) replaces it, a line each: "T keys MASK" (hex or decimal),
- * "T btn ID", "T enc ID STEPS", "T midi ST D1 D2", "T end" */
-typedef struct { uint32_t t, keys; int btn, enc, encd; uint8_t st, d1, d2; const char *syx; uint32_t hold; } host_ev_t;
+ * "T btn ID", "T enc ID STEPS", "T midi ST D1 D2", "T batt COUNTS", "T end" */
+typedef struct { uint32_t t, keys; int btn, enc, encd; uint8_t st, d1, d2; const char *syx; uint32_t hold; int batt; } host_ev_t;
 static const host_ev_t SCRIPT0[] = {
     {200, 1u << 7, -1, -1, 0, 0, 0, 0},                                 /* C4 */
     {700, 1u << 7 | 1u << 11 | 1u << 14, -1, -1, 0, 0, 0, 0},           /* + E4 G4: a chord */
@@ -174,7 +178,7 @@ static void read_script(const char *path)
     uint32_t n = 0, ns = 0;
     if (!f) { perror(path); exit(1); }
     while (fgets(line, sizeof line, f) && n < 4096u) {
-        host_ev_t e = {0, 0, -1, -1, 0, 0, 0, 0, 0, 0};
+        host_ev_t e = {0, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0};
         unsigned a = 0, b = 0, c = 0;
         if (line[0] == '#' || sscanf(line, "%u %15s", &e.t, what) != 2) continue;
         if (!strcmp(what, "end")) { end_ms = e.t; continue; }
@@ -182,6 +186,7 @@ static void read_script(const char *path)
         if (!strcmp(what, "keys")) { sscanf(line, "%*u %*s %i", (int *)&e.keys); }
         else if (!strcmp(what, "btn")) { sscanf(line, "%*u %*s %d %u", &e.btn, &e.hold); }
         else if (!strcmp(what, "enc")) { sscanf(line, "%*u %*s %d %d", &e.enc, &e.encd); }
+        else if (!strcmp(what, "batt")) { sscanf(line, "%*u %*s %d", &e.batt); }   /* raw ADC counts */
         else if (!strcmp(what, "midi")) { sscanf(line, "%*u %*s %i %u %u", (int *)&a, &b, &c); e.st = (uint8_t)a; e.d1 = (uint8_t)b; e.d2 = (uint8_t)c; }
         else if (!strcmp(what, "syx")) {        /* a .syx file, as if the host had sent it */
             static char pool[32][256];
@@ -320,6 +325,8 @@ static void platform_poll(void)                 /* one call = one millisecond */
         else if (script[step].st) {
             mq[mq_w % 64u][0] = script[step].st; mq[mq_w % 64u][1] = script[step].d1; mq[mq_w % 64u][2] = script[step].d2;
             mq_w++;
+        } else if (script[step].batt) {
+            batt_raw = script[step].batt;       /* the divider, said in counts: see draw_corners */
         } else if (script[step].btn >= 0 && script[step].btn < 14) {
             uint32_t n = (uint32_t)script[step].btn;
             host_edges |= 1u << n;

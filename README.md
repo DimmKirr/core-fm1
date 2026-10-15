@@ -368,6 +368,25 @@ It lives on **GLOBAL** alone, so that it is out of the way while you are playing
 until you clear it, so to measure something you cannot watch at the same time — the spectrum screen, say —
 press **FX**, do the thing, then come to **GLOBAL** and read it.
 
+## The two corners
+
+The top sixteen pixels belong to nothing else, so two small things live up there on every screen.
+
+Top left is a battery, three bars. The last bar turns amber and an empty cell turns red, which is as much
+warning as a synth needs. Plug the FM-1 into a computer or a charger and the bars cycle instead of holding
+still: the chip has no charger status line to read, so "charging" is inferred from the USB device being
+configured and not suspended, and an animation says *being charged* without pretending to know how far
+along. Unplug it to get a reading.
+
+The thresholds are 531, 561 and 591 raw ADC counts, and they are measurements rather than arithmetic — the
+divider on PB1 and the converter's reference are both undocumented, so there is no volts figure to work
+back from. They were derived on real hardware by [dxsloop](https://github.com/zvenson/dxsloop) and are
+used here with credit in the source. The whole useful span is about sixty counts, which is why the reading
+is smoothed hard before it is drawn.
+
+Top right is a pair of pips for which HOME screen you are on. They appear on HOME only; every other page
+already says `1/4` in its title, and repeating that would be noise.
+
 ## Building it
 
 You need Linux on x86-64 (or macOS / Windows with Docker or WSL), Python 3 with Pillow, the JieLi toolchain
@@ -410,7 +429,7 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Ten more scripts go with it:
+which is the thing most worth listening to. Eleven more scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
@@ -424,6 +443,7 @@ tests/run_host.sh tests/home.txt          # HOME's four knobs, against the bytes
 tests/run_host.sh tests/env.txt           # ADSR, against the eight raw bytes it is a view of
 tests/run_host.sh tests/focus.txt         # tap and hold, and what each one does to the knobs
 tests/run_host.sh tests/fast.txt          # four clicks, against four clicks with SEL held
+tests/run_host.sh tests/corners.txt       # the battery and the HOME pips, by the pixel
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -496,6 +516,14 @@ step is kept off the lists is proved next door rather than here — `tests/edit.
 entry a click with **SEL** nowhere near it, and would fail outright if fives had been applied to a list. It
 also checks the two halves of **SEL** not colliding: letting go after a turn leaves the page alone, and
 letting go without one still steps the bank.
+
+`tests/cornercheck.py` counts pixels in a sixteen-pixel band. It drives the battery through four charge
+states and measures the lit bars — forty-five pixels, thirty, fifteen, none — then checks the cell's
+outline goes grey, amber, red at the right counts. It counts two pips, confirms the right one is the lit
+one, presses **HOME** and confirms the lit one moved, and goes to a page to confirm both are gone. Last
+and least obvious, it changes page twice and checks the corners are still there afterwards: the drawing is
+cached behind a signature so it is cheap, and a full-screen clear has to invalidate that cache or the
+corners vanish for good. That is a whole class of bug in this firmware, so it is worth a check of its own.
 
 `tests/focuscheck.py` tests a distinction the script can only make with a stopwatch, so the host harness had
 to learn what a button is. It used to deal in edges; now `btn 4` is a fifty-millisecond tap and `btn 4 600`

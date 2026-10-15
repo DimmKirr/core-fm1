@@ -265,6 +265,7 @@ extern void isr_timer5(void);
 /* ---- the sound: ALNK0 I2S, two halves; the app renders, the MASTER knob scales, Q15 -> 24 bit (-6 dBFS ceiling) */
 static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
 static volatile int32_t master_q12 = 2048;
+static int32_t batt_raw;                        /* smoothed ADC ch3, 0 = never read */
 static void app_audio(int32_t *out, uint32_t n);
 static void app_main(void);
 
@@ -341,6 +342,17 @@ static void platform_poll(void)
         k10 = (uint32_t)(knob_avg / 16);
         master_q12 = (int32_t)((k10 * k10) >> 8);
     }
+    /* The battery, smoothed much harder than the volume knob: nobody turns it, and a single
+     * conversion wobbles by several counts over a range only sixty counts wide. */
+    if ((a = fm1_adc_read(FM1_ADC_BATT)) > 0)
+        batt_raw = batt_raw ? batt_raw + (a - batt_raw) / 32 : a;
+}
+
+/* Whether a USB host is actually there, which on this hardware is the only way to know the
+ * battery is being charged: there is no charger status line to read. */
+static int fm1_usb_host(void)
+{
+    return usb.config && !usb.suspended;
 }
 
 static void fm1_fault(const fm1_crash_t *c)

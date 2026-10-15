@@ -340,3 +340,29 @@ the values they land on. The scripts say so where they do it.
 Watch this number again after:
   - any new parameter whose range is 0..99 but which is really a list (there are none today)
   - SEL growing a third job
+
+TWO CORNERS
+-----------
+A battery cell top left and the HOME pips top right, in the sixteen-pixel band above everything
+else. The band was already free: HOME's banner clears from y 18 down and every page title draws
+at y 24, so nothing had to move to make room.
+
+  image   114268 B -> 114784 B   (+516)
+  RAM     30712 B  -> 30744 B    (+32)
+  cpu     unchanged -- this is a 240x16 blit, not audio
+
+The 32 bytes are the battery's smoothing accumulator and the corner signature. The redraw is
+cached behind that signature, so the blit happens only when a bar, a hue or a pip actually
+changes -- which on battery is a handful of times an hour, and while charging is once every
+600 ms for the animation.
+
+The battery read rides along with the MASTER pot in the existing poll, smoothed by an IIR with
+a divisor of 32 because the whole charge span is only about sixty ADC counts and the raw value
+wanders by several. Thresholds 531/561/591 come from dxsloop, measured on real hardware; they
+are credited in the source rather than re-derived, because the divider and the ADC reference
+are both undocumented and there is nothing to derive them from.
+
+Watch this number again after:
+  - a third HOME bank (the pips are drawn from HOME_NBANK and will follow, but the right
+    margin is hand-placed at x 218 to match the battery's 6 px on the left)
+  - anything else wanting the top band, which is now spoken for
