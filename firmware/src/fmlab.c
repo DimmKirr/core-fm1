@@ -2476,10 +2476,13 @@ static void app_main(void)
         if (b & (1u << BTN_GLO))  page_to(PAGE_GLO);
         /* EDIT and ENV are the two buttons that mean an operator, and they are the two that answer
          * to how long you hold them. Held past LONG_MS: the page, and pressing again walks its
-         * banks, exactly as every page button does. Released before: focus, on HOME, and pressing
-         * again steps the operator. The short action waits for the release because the long one
-         * replaces it -- there is no way to know which you meant until you let go or run out of
-         * time, and firing both would be worse than firing neither. */
+         * banks, exactly as every page button does -- a second hold is not needed, because once you
+         * are on the page the button owns, a tap of it can only sensibly mean the next bank. Asking
+         * for focus from there would be asking to leave, which is what HOME is for. Released
+         * anywhere else: focus, on HOME, and pressing again steps the operator. The short action
+         * waits for the release because the long one replaces it -- there is no way to know which
+         * you meant until you let go or run out of time, and firing both would be worse than
+         * firing neither. */
         for (k = 0; k < 2u; k++) {
             uint32_t m = 1u << FOC_BTN[k];
             if (b & m) {
@@ -2494,7 +2497,9 @@ static void app_main(void)
             }
             if (rel & m) {
                 if (!long_fired[k]) {
-                    if (focus == FOC_MODE[k] && page == PAGE_HOME)
+                    if (page == FOC_PAGE[k])
+                        page_to(FOC_PAGE[k]);                  /* already there: the next bank */
+                    else if (focus == FOC_MODE[k] && page == PAGE_HOME)
                         opsel = (uint8_t)((opsel + 5u) % 6u);   /* again: OP1 -> OP2 -> .. */
                     else {
                         focus = FOC_MODE[k];

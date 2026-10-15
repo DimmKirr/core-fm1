@@ -65,4 +65,17 @@
 10900 shot
 11100 btn 6 600
 12000 shot
-12400 end
+
+# A tap of EDIT while already on OPERATOR is the next bank, the same as another hold. It used to
+# drop to HOME with the knobs focused instead, which is the one thing the button cannot sensibly
+# mean from here -- you are on its page, so asking for focus would be asking to leave it.
+12200 btn 6
+13000 shot
+
+# the same bank reached the long way, to compare against
+13200 btn 8
+14000 btn 6 600
+14900 btn 6 600
+15800 btn 6 600
+16700 shot
+16900 end

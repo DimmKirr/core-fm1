@@ -69,6 +69,10 @@ def main(stem):
             out.append(n)
         return out
 
+    def full(ms):
+        """the whole screen, for the banks that only have to match or differ"""
+        return read(stem.with_name(stem.name + f"-{ms}.ppm"))[1]
+
     def cells(ms):
         """the four ADSR bar widths on this screen, in pixels"""
         w, px = read(stem.with_name(stem.name + f"-{ms}.ppm"))
@@ -122,6 +126,12 @@ def main(stem):
     # Walking all five banks and coming back has to be a round trip.
     check("five banks and round to the start again", cells(6300) == adsr,
           f"{cells(6300)} against {adsr}")
+
+    # A tap of the button whose page you are on is the next bank, not a trip to HOME. Proven by
+    # reaching the same bank both ways and comparing every pixel: if the tap had focused the knobs
+    # on HOME, or stayed put, or landed on a different bank, the two screens could not match.
+    check("a tap on ENVELOPE walks the banks", full(7400) == full(9800))
+    check("and it is a different bank", full(7400) != full(6300))
 
     print(f"\n{bad} checks failed")
     return 1 if bad else 0

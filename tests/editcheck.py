@@ -110,6 +110,12 @@ def main(stem):
     check("x31.00 is coarse 31 and fine 0", b_high[0] == BAR_W and b_high[1] == 0, f"{b_high[:2]}")
     check("and the full RATIO bar agreed", r[10900] == BAR_W, f"{r[10900]} px")
 
+    # A tap of the button whose page you are on is the next bank, not a trip to HOME. Proven by
+    # reaching the same bank both ways and comparing every pixel: if the tap had focused the knobs
+    # on HOME, or stayed put, or landed on a different bank, the two screens could not match.
+    check("a tap on OPERATOR walks the banks", full(13000) == full(16700))
+    check("and it is a different bank", full(13000) != full(12000))
+
     print(f"\n{bad} checks failed")
     return 1 if bad else 0
 

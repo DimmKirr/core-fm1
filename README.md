@@ -133,7 +133,9 @@ most bells and all of the breath and click at the front of a sound are made.
 
 **EDIT** and **ENV** can be pressed two ways, and the only difference is how long you hold them.
 
-**Hold** either for a moment and you get its page, which is what those buttons have always done.
+**Hold** either for a moment and you get its page, which is what those buttons have always done. Once you
+are there, pressing it again — tap or hold, it no longer matters — walks that page's banks of parameters and
+wraps round, exactly as every other page button does. **HOME** is the way back out.
 
 **Tap** one and you stay on HOME — on the diagram, on the spectrum, on the sound — but the four knobs become
 that page's first few rows for a single operator. **EDIT** gives you `LEVEL`, `RATIO` and `DETUNE`; **ENV**
