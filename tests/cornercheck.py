@@ -22,7 +22,7 @@ from pathlib import Path
 
 BATT = (7, 22, 5, 10)                   # inside the cell: the bars, without the outline or the nub
 LID = (10, 3)                           # a pixel on the top of the outline, for the colour
-PIPS = (210, 240, 0, 16)                # the right-hand corner
+PIPS = (200, 240, 0, 16)                # the right-hand corner
 bad = 0
 
 
@@ -101,14 +101,18 @@ def main(stem):
     r, g, b = at(2600, *LID)
     check("and an empty one turns it red", r > 200 and g < 130 and abs(g - b) < 24, f"{(r, g, b)}")
 
-    # Two pips on HOME, one of them lit, and pressing HOME moves which.
+    # Three pips on HOME, one of them lit, and pressing HOME moves which, left to right.
     lit, dim = pips(200)
-    check("HOME has two pips, one of them lit", len(lit) == 36 and len(dim) == 36,
+    check("HOME has three pips, one of them lit", len(lit) == 36 and len(dim) == 72,
           f"{len(lit)} lit, {len(dim)} dim")
     first = min(lit)
     lit2, dim2 = pips(600)
-    check("and pressing HOME lights the other one",
+    check("and pressing HOME lights the next one",
           len(lit2) == 36 and min(lit2) > first, f"x {first} -> {min(lit2) if lit2 else None}")
+    lit5, dim5 = pips(750)
+    check("and again, the last one",
+          len(lit5) == 36 and lit2 and min(lit5) > min(lit2), f"x -> {min(lit5) if lit5 else None}")
+    check("which fit on the screen", max(lit5 + dim5) <= 236, f"right edge {max(lit5 + dim5)}")
 
     # A page has no pips, because its title already says which bank it is on.
     lit3, dim3 = pips(1700)
@@ -120,7 +124,7 @@ def main(stem):
     check("the battery survives leaving HOME", bars(1700) == 45, f"{bars(1700)} px")
     lit4, dim4 = pips(3200)
     check("and the pips come back on returning to it",
-          len(lit4) == 36 and len(dim4) == 36, f"{len(lit4)} lit, {len(dim4)} dim")
+          len(lit4) == 36 and len(dim4) == 72, f"{len(lit4)} lit, {len(dim4)} dim")
     check("with the battery full again", bars(3200) == 45, f"{bars(3200)} px")
 
     print(f"\n{bad} checks failed")

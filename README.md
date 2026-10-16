@@ -48,7 +48,7 @@ so a bank fills them exactly.
 | **The keys** | 27 of them, F3 to G5. **OCT-** / **OCT+** move it two octaves either way; the button lights for a shift that way and pulses once you are at the end of the travel. A key stops the note it started, so changing octave mid-chord does the right thing. |
 | **PRESETS** | The voice. It changes under anything still sounding, so you can hold a chord and walk through the bank. 20 factory voices, then your 32, numbered `U01` to `U32`. |
 | **SAVE** | Keep the sound you are on, under a name of your own. Press, name it and pick the slot, press again. Any other button backs out. |
-| **HOME** | Two screens, and pressing it again swaps them: the algorithm drawn out, or the spectrum of what you are hearing. |
+| **HOME** | Three screens, and pressing it again steps through them: the algorithm drawn out, the spectrum of what you are hearing, or its waveform. |
 | **MONO / POLY** | The top two black keys, on the OPERATOR page. Mono is one voice, last note wins. |
 | **A / B** | The voice line starts with the side you are listening to. **PLAY** flips it, **REC** copies this side onto the other. |
 
@@ -104,7 +104,7 @@ the title says what moved instead — `OP1 LVL 69`, or `OP3 x2.00` — for a sec
 
 | Button | Page | What is on it |
 | --- | --- | --- |
-| **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them; the knobs move four operators at a time |
+| **HOME** | | the algorithm diagram, the spectrum or the waveform — press **HOME** again to step through them; the knobs move four operators at a time |
 | **EDIT** | OPERATOR | hold for the page: level, ratio, detune and wave, then mode, the coarse and fine bytes and velocity sensitivity, then amp mod and the keyboard scaling — or tap it to put `LEVEL RATIO DETUNE WAVE` under the knobs without leaving HOME |
 | **ENV** | ENVELOPE | hold for the page: the envelope drawn to scale, attack, decay, sustain and release, then the four raw segments a rate and level at a time — or tap it for `ATK DEC SUS REL` without leaving HOME |
 | **LFO** | LFO | hold for the page: the LFO drawn over speed, delay and wave, then pitch mod, amp mod and pitch mod sensitivity, then key sync — or tap it for this operator's `A M SENS` without leaving HOME |
@@ -320,9 +320,9 @@ the cutoff, from none at all to one about 21 dB tall, and the bottom half of the
 spectrum — from the diagram or the spectrum alike, and **HOME** gives back whichever you came from. A second
 tap steps the type. The partials under the slope are the ones it is taking away, and with `RESO` up you can
 watch one of them stand up as the peak crosses it. With the filter `OFF` the curve is a flat line. None of
-it is an operator's, so the black keys go on playing. **Hold FX** for the FILTER page, the same curve above three cells. The curve is
-the filter's own arithmetic rather than a sketch of a filter, so a peak is as tall on the screen as it is in
-the sound.
+it is an operator's, so the black keys go on playing. **Hold FX** for the FILTER page, the same curve above
+three cells. The curve is the filter's own arithmetic rather than a sketch of a filter, so a peak is as
+tall on the screen as it is in the sound.
 
 Like [the global envelope](#one-envelope-over-everything) it belongs to the instrument and not to the voice,
 so it is saved with the octave, it is under every voice you load, and a bank saved here stays a true DX7 dump.
@@ -353,7 +353,7 @@ side, change *one* thing, then flip back and forth. Hearing the same parameter t
 you far more than hearing it once. Each side carries its own voice number and its own `*`, so you can also
 park a factory voice on one side and your edit of it on the other.
 
-## The three drawings
+## The four drawings
 
 **HOME draws the algorithm.** Every operator is a box, and every box fills from the left with how loud that
 operator is *right now* — read straight out of the running voice, the same number the engine is about to
@@ -410,6 +410,18 @@ It analyses the output and not a single operator, which sounds like the lesser c
 **SEQ** already switch an operator off and solo one, so soloing a carrier gives you exactly that branch of the
 algorithm, and nothing here has to make a second claim about what the engine is doing. What you see is what
 you hear, always.
+
+**HOME a third time draws the waveform**, the way an oscilloscope does: the same sound, as height against
+time. The spectrum says which partials there are; this says what they add up to. Put `INIT VOICE` on, hold a
+note, and bring a modulator's **LEVEL** up from the HOME knobs — the sine bends, leans and then folds over on
+itself, and the spectrum one press away is the same thing seen from the other side.
+
+It stands still because it is locked to the note you played: the screen is two cycles of it, starting each
+time at the same rise through zero, and the time across the screen is written in the top corner. Below about
+C3 two cycles no longer fit in the 23 ms it keeps, so it shows one, and below F2 it shows all 23 ms as they
+come. The height follows the loudness, so a quiet sound fills the screen as well as a loud one. A `SQUARE`
+leans rather than sitting flat, and that is true rather than a fault: the output has a high pass at about
+34 Hz to keep it centred, and a flat top is the one shape that shows it.
 
 **ENV draws the envelope, to scale.** This is the part of a DX7 that catches everyone out: a *rate* is a
 speed, not a time, so the same rate takes longer the further it has to travel, and four equal-looking rates
@@ -522,7 +534,7 @@ back from. They were derived on real hardware by [dxsloop](https://github.com/zv
 used here with credit in the source. The whole useful span is about sixty counts, which is why the reading
 is smoothed hard before it is drawn.
 
-Top right is a pair of pips for which HOME screen you are on. They appear on HOME only; every other page
+Top right is a row of three pips for which HOME screen you are on. They appear on HOME only; every other page
 already says `1/4` in its title, and repeating that would be noise.
 
 ## Building it
@@ -586,6 +598,7 @@ tests/run_host.sh tests/global.txt        # the envelope over the whole voice, s
 tests/run_host.sh tests/lfo.txt           # depth against sensitivity, by ear; the page, the tap, GLOBAL
 tests/run_host.sh tests/fx.txt            # the filter, harmonic by harmonic; the page, the tap, the overlay
 tests/run_host.sh tests/waves.txt         # the operator waves, harmonic by harmonic; drawn, and saved
+tests/run_host.sh tests/scope.txt         # the waveform screen, by its trace
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -614,7 +627,7 @@ column. Hold C4 — 261.63 Hz — at a span of 5 kHz and its fundamental belongs
 harmonic at 25.1 and its third at 37.7; widen the span to 10 kHz and every one of them has to move to half
 the distance across. That is a claim about FM, about the axis and about the transform all at once, and it is
 only true if all three are right. It also checks that the bars fall when you let go and that the held peaks
-outlive them, and that HOME really does swap between two screens and back.
+outlive them, and that HOME really does step through its screens and back.
 
 `tests/envcheck.py` tests a translation, so it reads both languages and checks they agree. It drives the
 four ADSR knobs to known numbers, then walks on to the raw banks and reads the bars there. Attack plus rate 1
@@ -661,8 +674,9 @@ letting go without one still steps the bank.
 
 `tests/cornercheck.py` counts pixels in a sixteen-pixel band. It drives the battery through four charge
 states and measures the lit bars — forty-five pixels, thirty, fifteen, none — then checks the cell's
-outline goes grey, amber, red at the right counts. It counts two pips, confirms the right one is the lit
-one, presses **HOME** and confirms the lit one moved, and goes to a page to confirm both are gone. Last
+outline goes grey, amber, red at the right counts. It counts three pips, confirms the left one is the lit
+one, presses **HOME** twice and confirms the lit one moves right each time and that all three fit, and goes to
+a page to confirm they are gone. Last
 and least obvious, it changes page twice and checks the corners are still there afterwards: the drawing is
 cached behind a signature so it is cheap, and a full-screen clear has to invalidate that cache or the
 corners vanish for good. That is a whole class of bug in this firmware, so it is worth a check of its own.
@@ -728,6 +742,13 @@ second; `SAW` a second 6 dB down and a third 9.5 dB down. Those are the textbook
 tenth of a dB. On the screen, every wave has to draw differently in the box, `LEVEL` has to shrink it, the knob
 has to wrap both ways, and on plain HOME a saw has to change a few pixels of its box and nothing else. Then it
 saves the voice, leaves the slot and comes back, and the mark and the harmonics have to be the saw's still.
+
+`tests/scopecheck.py` reads the waveform screen's white trace as one height per column. Nothing playing has to
+be a flat line on the middle; `INIT VOICE` on middle C has to fill the height, cross the middle downwards
+exactly twice, and start at zero on the way up; and two pictures a tick apart have to be within a pixel or two,
+which is the trigger doing its job. A `SQUARE` has to jump across the middle rather than pass through it —
+three columns near zero against the sine's forty-eight. A tap of **FX** has to put the spectrum and the filter
+there instead, and **HOME** has to give the waveform back.
 
 ## Where to go next
 

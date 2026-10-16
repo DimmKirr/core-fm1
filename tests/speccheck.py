@@ -72,7 +72,7 @@ def main(prefix):
 
     raw = {ms: shot(ms)[1] for ms in (200, 600, 6400)}
     check("the second press of HOME is another screen", raw[200] != raw[600])
-    check("and a third comes back to the diagram", raw[6400] == raw[200])
+    check("and HOME past the wave comes back to the diagram", raw[6400] == raw[200])
 
     quiet = columns(600, "cap")
     check("nothing playing draws no bars", not quiet, f"{len(quiet)} columns")

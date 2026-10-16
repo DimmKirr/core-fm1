@@ -1039,7 +1039,7 @@ static const struct { const char *name; const param_t *p; uint8_t n, rows, y0; }
     {"FILTER",    PG_FX,  sizeof PG_FX / sizeof PG_FX[0],   3, 56},
 };
 #define PAGE_ROWS ((uint32_t)PAGE[page].rows)
-#define HOME_NBANK 2u                           /* HOME's two screens: the diagram, and the spectrum */
+#define HOME_NBANK 3u                           /* HOME's screens: the diagram, the spectrum, the wave */
 
 static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
 static uint8_t gsel;                            /* ..or the global envelope, which is not an operator */
@@ -1249,14 +1249,14 @@ static uint32_t page_nbank(void)
 
 /* ---- the four knobs on HOME
  *
- * The algorithm diagram and the spectrum are the two screens you look at while actually listening,
- * and neither had anything under the knobs. Balancing the operators against each other is most of
+ * The algorithm diagram, the spectrum and the wave are the screens you look at while listening,
+ * and none had anything under the knobs. Balancing the operators against each other is most of
  * what making an FM sound is, so that is what they do: four operators at a time, levels or ratios.
  * Turn one with a note held and you watch its box fill as you hear it change, which is the whole
  * loop in one gesture.
  *
  * SEL steps which four -- the same thing SEL means on every other page, the next four things under
- * the knobs -- so there is nothing new to learn, and HOME's own button goes on swapping the two
+ * the knobs -- so there is nothing new to learn, and HOME's own button goes on stepping the
  * screens. Four knobs and six operators do not divide, so the sets come in pairs: operators 1 to 4,
  * then 5 and 6 with two knobs spare. The legend names every knob, so which set you are on is never
  * something you have to carry in your head. */
@@ -2095,7 +2095,7 @@ static void draw_alg_levels(void)
     }
 }
 
-/* ---- the spectrum, the other half of HOME
+/* ---- the spectrum, HOME's second screen
  *
  * What the instrument is putting out, 1024 points of it, on a linear frequency axis. Linear is the
  * whole point: FM builds its harmonics as sidebands at the carrier plus and minus whole multiples
@@ -2206,6 +2206,112 @@ static void draw_spectrum(void)
         i = put(s, i, "K");
         s[i] = 0;
         cv_text((int32_t)(237u - text_w(&FONT_S, s)), 14, &FONT_S, s, RGB(80, 80, 80));
+    }
+    cv_blit(0, SP_Y);
+}
+
+/* ---- the waveform, HOME's third screen
+ *
+ * The same tap the spectrum reads, drawn the other way up: amplitude against time, the way an
+ * oscilloscope draws it. The spectrum says which partials there are; this says what they add up to,
+ * which is the shape the ear gets -- and a modulator's LEVEL coming up bends a sine into it in front
+ * of you.
+ *
+ * It stands still because it is triggered on the note. The period is known from the key, so the
+ * screen is two periods long and starts on the steepest rising zero crossing inside the first one --
+ * which an FM wave may cross several times a cycle, but crosses steepest at the same point each
+ * cycle. The ring is 23 ms, so below about C3 it shows one period, and below F2 the whole ring as
+ * it comes. The height follows the loudness, with a slow fall, so a quiet sound still fills it.
+ * The ring is copied into the FFT's buffer first, which the spectrum is not using while this shows. */
+static int32_t sc_pk = 512;
+
+static void draw_scope(void)
+{
+    uint32_t i, c, per = 0, w = SP_N, trig = 0, r = sp_wr - SP_N;
+    int32_t pk = 0, best = -1, mid = (int32_t)SP_H / 2, half = (int32_t)SP_H / 2 - 16, prev = 0;   /* under the labels */
+    int32_t *x = sp_re;
+    for (i = 0; i < SP_N; i++) {
+        x[i] = sp_ring[(r + i) & (SP_N - 1u)];
+        if ((x[i] < 0 ? -x[i] : x[i]) > pk)
+            pk = x[i] < 0 ? -x[i] : x[i];
+    }
+    if (v_lit) {
+        int32_t n = (int32_t)sp_note + (int32_t)edit[144] - 24;   /* the patch's own transpose */
+        uint32_t f0 = sp_hz((uint32_t)(n < 0 ? 0 : n));
+        per = f0 ? FS / f0 : 0u;
+    }
+    if (per && per * 3u <= SP_N)
+        w = per * 2u;
+    else if (per && per * 2u <= SP_N)
+        w = per;
+    else
+        per = 0;
+    for (i = 1u; per && i <= per; i++)          /* the steepest way up through zero */
+        if (x[i - 1u] < 0 && x[i] >= 0 && x[i] - x[i - 1u] > best) {
+            best = x[i] - x[i - 1u];
+            trig = i;
+        }
+    if (w == SP_N)
+        trig = 0;
+    sc_pk = pk > sc_pk - sc_pk / 8 ? pk : sc_pk - sc_pk / 8;
+    if (sc_pk < 512)
+        sc_pk = 512;                            /* silence stays a flat line, not magnified hiss */
+
+    cv_begin(240, SP_H, C_BLACK);
+    cv_rect(0, mid, 240, 1, RGB(40, 40, 40));
+    cv_rect(0, mid - half, 240, 1, RGB(22, 22, 22));
+    cv_rect(0, mid + half, 240, 1, RGB(22, 22, 22));
+    for (c = 0; c < 240u; c++) {
+        int32_t lo, hi, last, ylo, yhi;
+        if (w >= 240u) {                        /* several samples a column: all of them, as a span */
+            uint32_t a = trig + c * w / 240u, b = trig + (c + 1u) * w / 240u;
+            if (b <= a)
+                b = a + 1u;
+            lo = hi = x[a];
+            for (i = a + 1u; i < b && i < SP_N; i++) {
+                if (x[i] < lo) lo = x[i];
+                if (x[i] > hi) hi = x[i];
+            }
+            last = x[(b - 1u) < SP_N ? b - 1u : SP_N - 1u];
+        } else {                                /* fewer: read between them */
+            uint32_t q = c * w * 256u / 240u, k = trig + (q >> 8);
+            int32_t f = (int32_t)(q & 255u), a = x[k], b = x[k + 1u < SP_N ? k + 1u : k];
+            lo = hi = last = a + (((b - a) * f) >> 8);
+        }
+        if (c) {                                /* joined to the column before */
+            if (prev < lo) lo = prev;
+            if (prev > hi) hi = prev;
+        }
+        prev = last;
+        yhi = mid - hi * half / sc_pk;
+        ylo = mid - lo * half / sc_pk;
+        {
+            int32_t yl = mid - last * half / sc_pk;
+            if (yl < mid)
+                cv_rect((int32_t)c, yl, 1, mid - yl, RGB(52, 62, 120));
+            else if (yl > mid)
+                cv_rect((int32_t)c, mid + 1, 1, yl - mid, RGB(52, 62, 120));
+        }
+        cv_rect((int32_t)c, yhi, 1, ylo - yhi + 1, C_WHITE);
+    }
+    {
+        char s[16];
+        uint32_t t;
+        if (v_lit) {
+            i = put(s, 0, NOTE_NAME[sp_note % 12u]);
+            if (i && s[i - 1u] == ' ')
+                i--;
+            i = putn(s, i, sp_note / 12u >= 1u ? sp_note / 12u - 1u : 0u, 1);
+            s[i] = 0;
+            cv_text(3, 4, &FONT_S, s, RGB(120, 100, 160));
+        }
+        t = w * 100u / (FS / 100u);             /* the width of the screen, in tenths of a ms */
+        i = putn(s, 0, t / 10u, 1);
+        s[i++] = '.';
+        s[i++] = (char)('0' + t % 10u);
+        i = put(s, i, "MS");
+        s[i] = 0;
+        cv_text((int32_t)(237u - text_w(&FONT_S, s)), 4, &FONT_S, s, RGB(80, 80, 80));
     }
     cv_blit(0, SP_Y);
 }
@@ -2783,8 +2889,8 @@ static void draw_legend(void)
  * evidence of charging available, and an animation says "being charged" without claiming to know
  * how far along it is.
  *
- * Right, which of HOME's two screens you are on. The screen itself tells you which one you are
- * looking at; what it cannot tell you is that there is another, which is the whole job of a pair
+ * Right, which of HOME's three screens you are on. The screen itself tells you which one you are
+ * looking at; what it cannot tell you is that there are others, which is the whole job of a row
  * of pips. Pages other than HOME already say 1/4 in their title, so they get none. */
 #define BATT_1 531                              /* raw counts: anything under this is the last bar */
 #define BATT_2 561
@@ -2817,7 +2923,7 @@ static void draw_corners(void)
     for (k = 0; k < lvl; k++)
         cv_rect(8 + (int32_t)k * 5, 5, 3, 5, c);
     for (k = 0; k < pips; k++)
-        cv_rect(218 + (int32_t)k * 10, 5, 6, 6, k == bank ? C_ACC : RGB(56, 56, 64));
+        cv_rect(238 - (int32_t)pips * 10 + (int32_t)k * 10, 5, 6, 6, k == bank ? C_ACC : RGB(56, 56, 64));
     cv_blit(0, 0);
 }
 
@@ -3446,7 +3552,7 @@ static void app_main(void)
             }
         }
         mute_drawn = opmute;
-        sp_want = (page == PAGE_HOME && (bank == 1u || flt_focus()));
+        sp_want = (page == PAGE_HOME && (bank != 0u || flt_focus()));
         if (fm1_ms - t_live > 60u) {            /* the displays that follow the sound, ~16 times a second */
             t_live = fm1_ms;
             if (page == PAGE_HOME) {
@@ -3466,6 +3572,8 @@ static void app_main(void)
                     }
                 } else if (bank == 0u && !flt_focus()) {
                     draw_alg_levels();
+                } else if (bank == 2u && !flt_focus()) {
+                    draw_scope();
                 } else {
                     sp_run();
                     draw_spectrum();

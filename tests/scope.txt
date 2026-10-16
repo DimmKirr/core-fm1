@@ -1,0 +1,40 @@
+# FM Lab -- HOME's third screen: the waveform, drawn as an oscilloscope draws it.
+#
+#   build/host/fmlab build/host/scope tests/scope.txt
+#
+# INIT VOICE is one sine on its own, so the screen has to draw a sine: two cycles of the note,
+# starting on the way up through zero, filling the height whatever the volume. Triggered on the
+# note, two pictures a tick apart have to be the same picture. WAVE turned to SQUARE has to flatten
+# the tops; a tap of FX swaps it for the spectrum and the filter, and HOME puts it back.
+
+# the first user slot, INIT VOICE, and HOME twice: the third screen
+200 enc 6 20
+300 btn 8
+400 btn 8
+600 shot
+
+# middle C, a sine
+800 keys 0x80
+1500 shot
+1620 shot
+2000 keys 0
+
+# SQUARE, from a tap of EDIT, which leaves the screen where it is
+2200 btn 6
+2300 enc 5 6
+2400 keys 0x80
+3000 shot
+3300 keys 0
+
+# a tap of FX: the spectrum and the filter's curve; HOME, the wave again
+3500 btn 2
+3600 keys 0x80
+4000 shot
+4100 btn 8
+4400 shot
+4600 keys 0
+
+# HOME once more: the diagram
+4800 btn 8
+5000 shot
+5200 end

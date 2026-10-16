@@ -13,9 +13,11 @@
 # A full battery, on HOME's first screen.
 200 shot
 
-# HOME again: the second pip, and nothing else up there moves.
+# HOME again: the second pip, and nothing else up there moves; and again, the third.
 400 btn 8
 600 shot
+650 btn 8
+750 shot
 
 # Off to a page. The pips go, the battery stays, and both of those are after a full-screen clear.
 800 btn 6 600

@@ -522,3 +522,21 @@ spectrum screen always had, and it measured 30 / 36 with the filter on.
 Watch this number again after:
   - patches that use non-sine waves on all six operators across eight voices
   - any wave that needs more than a table read and a shift
+
+
+The waveform screen
+-------------------
+HOME's third screen: the spectrum's tap drawn as amplitude against time,
+triggered on the note. No new buffer: the ring is copied into sp_re, which the
+FFT is not using while this shows.
+
+  image   123568 B -> 124508 B   (+940)
+  RAM     31204 B  -> 31204 B
+  cpu     30 % / PK 37 %   with the waveform showing, filter on
+
+2026-10-15, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+The ISR side is the spectrum's: one store per sample into the ring while the
+screen shows. The main loop copies 1024 samples, finds the trigger, and draws
+240 columns about 16 times a second -- less than the FFT does, so it reads
+the same as the spectrum.

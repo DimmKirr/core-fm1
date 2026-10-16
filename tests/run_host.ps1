@@ -88,6 +88,10 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'waves.txt') {
     python tests\wavescheck.py $out          # the operator waves, heard, drawn and saved
     if ($LASTEXITCODE) { throw 'the operator waves are not what they should be' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'scope.txt') {
+    python tests\scopecheck.py $out          # the waveform screen, by its trace
+    if ($LASTEXITCODE) { throw 'the waveform screen is not what it should be' }
+}
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'corners.txt') {
     python tests\cornercheck.py $out         # and the battery and the pips at the top
     if ($LASTEXITCODE) { throw 'the corners are not saying what they should' }

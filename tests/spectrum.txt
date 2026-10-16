@@ -45,7 +45,8 @@
 5200 shot
 6000 shot
 
-# HOME once more wraps back to the diagram.
+# HOME twice more, past the wave, wraps back to the diagram.
 6200 btn 8
+6300 btn 8
 6400 shot
 6800 end
