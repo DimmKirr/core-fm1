@@ -4820,6 +4820,31 @@ static int test_stage(void)
     return bad;
 }
 
+/* Stage's knobs after DRUM SOUND (the page HOME keeps): Stage's cards alone, nothing sent while they rest (last in
+ * main: its frames move the clock the breathing checks read) */
+static int test_stage_knobs_after_drum(void)
+{
+    int bad = 0;
+    uint32_t k;
+    uint64_t s0;
+    ui_power_on();
+    track_select(3);
+    set_engine_of(TSEL, ENGI_DRUM);
+    go_title("DRUM SOUND");
+    frame();
+    go_home();
+    frame(); frame();
+    turn(EN_K1, 1);
+    for (k = 0; k < ST_DROP + 2u; k++)
+        frame();
+    s0 = host_sent;
+    frames(160);
+    bad += check("Stage after DRUM SOUND: the knobs out, not redrawn over the page's cards each frame",
+                 stage.out && host_sent == s0 && memcmp(ui.col[0], "DRUM|", 5));
+    ui_power_on();
+    return bad;
+}
+
 /* Phase 4: Capture (REC held: what the selected track played in its last bars, unarmed, into its pattern), the jam log
  * (the patterns played since PLAY, a row per track 1 loop) and TAKE JAM, autosave (stopped and untouched) */
 static uint32_t cap_events(const track_t *t)
@@ -5446,6 +5471,7 @@ int main(void)
     bad += test_bughunt_ui2();
     bad += test_piano_roll();
     bad += test_fm6_charts();
+    bad += test_stage_knobs_after_drum();
 
     if (getenv("UI_SCREEN_DIR")) chain_screens(getenv("UI_SCREEN_DIR"));
     printf(bad ? "ui: %d FAILED\n" : "ui: all passed\n", bad);
