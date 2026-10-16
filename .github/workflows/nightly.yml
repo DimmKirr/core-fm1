@@ -52,9 +52,34 @@ jobs:
         env:
           MELODEE_DUAL_CORE: '1'
           MELODEE_RAM_AUDIO: '1'
+          MELODEE_CACHE_RAM: '1'
+          MELODEE_ADMISSION: '0'
+          MELODEE_AUDIO_PROFILE: '0'
+          MELODEE_AUDIO_BENCH: '0'
+          MELODEE_MOD_CACHE: '1'
+          MELODEE_CONTROL_FAST: '1'
+          MELODEE_MIX_FAST: '1'
+          MELODEE_FX_DORMANT: '1'
+          MELODEE_RECORD_INDEX: '1'
+          MELODEE_PROPHET_FAST: '1'
+          MELODEE_PANEL_FAST: '1'
+          MELODEE_FM6_FAST: '1'
+          MELODEE_CZ_FAST: '1'
+          MELODEE_DRUM_FAST: '1'
+          MELODEE_SID_FAST: '1'
+          MELODEE_CAPTURE_FAST: '1'
         run: |
           ./build.sh --nightly
           cp build/melodee-nightly.fwsc build/melodee.fwsc
+          # Host compilation must exercise the same twelve candidates.
+          CC="${CC:-cc}"
+          for flag in MELODEE_MOD_CACHE MELODEE_CONTROL_FAST MELODEE_MIX_FAST \
+            MELODEE_FX_DORMANT MELODEE_RECORD_INDEX MELODEE_PROPHET_FAST \
+            MELODEE_PANEL_FAST MELODEE_FM6_FAST MELODEE_CZ_FAST \
+            MELODEE_DRUM_FAST MELODEE_SID_FAST MELODEE_CAPTURE_FAST; do
+            CC="$CC -D$flag=${!flag}"
+          done
+          export CC
           tests/run_tests.sh
       - name: Save build provenance and checksums
         run: |
