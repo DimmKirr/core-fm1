@@ -165,31 +165,6 @@ static const sheet_row_t SHEET_SHARED[] = {{"Routing", sh_route_v, sh_route_turn
 /* PATTERNS' (OCT+): the selected track's pattern; Copy to: its place picked on the grid (ui_patterns.c) */
 static const sheet_row_t SHEET_PATTERNS[] = {{"Copy to\x85", 0, 0, ptc_start, 0}, {"Delete pattern", 0, 0, 0, CF_DEL_PAT}};
 
-/* Session-only generator memory; these actions never enter the pattern recorder. */
-static void gen_action_ui(uint32_t action)
-{
-    fm1_irq_off();
-    int done = generator_action(TSEL, action);
-    fm1_irq_on();
-    if (!done) ui_message(!generator_on(TSEL) ? "ENABLE A GEN ROLE" : action == GA_RETURN ? "NO COMPLETE KEPT IDEA" :
-        action == GA_MATCH ? "CHOOSE A GEN SOURCE" : generator[song.sel].link_bad == 2 ? "MATCH SOURCE KEY" : "CHECK GEN SOURCE");
-    else ui_message(action == GA_KEEP ? "IDEA KEPT" : action == GA_LOCK ? "MELODY LOCKED" : action == GA_MATCH ? "SOURCE KEY MATCHED" :
-        action == GA_LIKE ? "MORE LIKE THIS" : action == GA_DISLIKE ? "LESS LIKE THIS" : "IDEA CHANGE QUEUED");
-    ui.force = 1;
-}
-static void gen_keep_ui(void) { gen_action_ui(GA_KEEP); }
-static void gen_return_ui(void) { gen_action_ui(GA_RETURN); }
-static void gen_remix_ui(void) { gen_action_ui(GA_REMIX); }
-static void gen_new_ui(void) { gen_action_ui(GA_NEW); }
-static void gen_like_ui(void) { gen_action_ui(GA_LIKE); }
-static void gen_dislike_ui(void) { gen_action_ui(GA_DISLIKE); }
-static void gen_match_ui(void) { gen_action_ui(GA_MATCH); }
-static const sheet_row_t SHEET_GENERATOR[] = {   /* (seven rows fit; CHANGE zero locks a melody, New idea reseeds) */
-    {"Keep idea", 0, 0, gen_keep_ui, 0}, {"Return to kept", 0, 0, gen_return_ui, 0},
-    {"More like this", 0, 0, gen_like_ui, 0}, {"Less like this", 0, 0, gen_dislike_ui, 0},
-    {"Remix melody", 0, 0, gen_remix_ui, 0}, {"New idea", 0, 0, gen_new_ui, 0},
-    {"Match source key", 0, 0, gen_match_ui, 0}};
-
 /* the step's: NOTES' note at the cursor (KNOB 1 its length, velocity, chance), the drum grid's hit of the lane there */
 static void st_cap(uint32_t c, char *b)                 /* NOTES' column c as its chip shows it (draw_columns) */
 {
@@ -303,8 +278,6 @@ static uint32_t page_sheet(void)
         return 0;
     if (ui.home)
         return 1;
-    if (cur_page()->scope == SC_GEN)
-        return 6;
     if (cur_page()->graph == GR_SONG)
         return 2;
     if (cur_page()->graph == GR_PATGRID)
@@ -347,9 +320,6 @@ static void page_sheet_open(void)
     }
     case 5:
         sheet_open("Shared FX", "All tracks", SHEET_SHARED, NELEM(SHEET_SHARED));
-        break;
-    case 6:
-        sheet_open("Idea tools", "Band", SHEET_GENERATOR, NELEM(SHEET_GENERATOR));
         break;
     default:
         break;

@@ -41,8 +41,6 @@
 # CHORD (tests/chord_test.c): the chord keys (src/chord.c): diatonic triads / sevenths of several scales and roots,
 #                   the fixed shapes and voicings (at most 4 notes), names, MONO plays the root, a release ends
 #                   exactly what its key / MIDI note started, recording, the ARP, MIDI IN, kits ignore CHRD.
-# GENERATOR: ARP hold, protected patterns/recordings, repeatable algorithms,
-#                   harmonic movement, all scales, MIDI, note lifetimes and project reset.
 # MOD (tests/mod_test.c): the modulation matrix: slots that do nothing are bit-identical, every source on each
 #                   kind of destination, clamping, MIDI CC1 / CC11 / aftertouch routing, the cost of 4 active
 #                   slots (PHYS at most +5%, mixed dry path at most 90 instructions/sample), demos in build/mod_demo/.
@@ -249,29 +247,12 @@ phys_ref() {
     step "PHYS: the fixed-point models against DaisySP's float originals (mode frequencies, decays, Svf)" "$OUT/phys_ref"
 }
 
-# Keep reference generation and its consumer in the same job: the suite runs
-# independent jobs concurrently. Core and sound jobs use distinct output names.
-generator_reference() {
-    _gen_name=$1 _gen_trace=$2
-    "${CXX:-c++}" -std=c++11 -DTEST -Itests/reference tests/generator_memory_test.cpp \
-        tests/reference/marbles/random/quantizer.cc -o "$OUT/$_gen_name" || { fail "generator reference compile"; return 1; }
-    "$OUT/$_gen_name" "$OUT/$_gen_trace" || { fail "generator reference comparison"; return 1; }
-}
-generator_audio() {
-    generator_reference generator_audio_reference generator_reference_notes.txt || return
-    build generator_audio_test generator_audio_test -O1 $FW || return
-    "$OUT/generator_audio_test" || fail "generator native audio and reference renders"
-}
-
 # ------------------------------------------------------------------ tests ---
 # the longest first: they set the length of the run
 sound && t "FX performance: all effects, four-track mixer, shared send bus and ordered three-effect chains" fx_performance -O2 $FW -- "$OUT/fx_performance" full
 sound && t "FX: three-slot chains, reverb decay/density/rate conversion, smooth Tape, track ownership, dry bypass and frozen legacy storage" fx_test -O1 $FW
 core && t "EQ accelerator: register layout, isolated histories and bounded timeout" eq_hw_test
 core && job web_tests
-core && t "Generator memory: panel, gestures, snapshots, timing and lifetimes" generator_test -O1 $FW
-core && job generator_reference generator_core_reference generator_core_reference.txt
-sound && job generator_audio
 sound && [ $TABLES = 1 ] && job dsp_tracks
 
 if core; then

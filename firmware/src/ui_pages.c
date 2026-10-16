@@ -498,14 +498,6 @@ static uint32_t pv_curve_sig(void)
 {
     const page_t *pg = cur_page();
     uint32_t h = 2166136261u, c;
-    if (pg->scope == SC_GEN) {
-        const generator_t *g = &generator[song.sel];
-        for (c = 0; c < GN_COUNT; c++) h = (h ^ (uint32_t)g->p[c]) * 16777619u;
-        const generator_t *lead = &generator[generator_jam_owner(song.sel)];
-        h = (h ^ lead->path_pos ^ (uint32_t)lead->path_len << 5 ^ (uint32_t)lead->path_valid << 10) * 16777619u;
-        return h ^ g->step * 131u ^ (uint32_t)(g->root + 256) * 8191u ^ g->n * 65537u ^ ux.gen * 977u ^
-            ux.pal * 31u ^ ui.page * 7919u ^ song.sel * 13u ^ (uint32_t)(pv_hot() + 1) * 40503u;
-    }
     for (c = 0; c < 4u; c++)                            /* (a global page's knobs: song.g's, the shared FX slots') */
         h = (h ^ (uint32_t)(pg->scope == SC_GLOBAL ? (pg->id[c] < G_COUNT ? song.g[pg->id[c]] : 0) :
                             pg->id[c] < P_COUNT ? TSEL->p[pg->id[c]] : 0)) * 16777619u;
@@ -536,54 +528,6 @@ static void pv_filter(int32_t cut, int32_t res, int32_t h)
  * octaves in MODE's order, low to high bottom to top; the notes and the octaves at the top. OFF: dim */
 static void pv_arp(int32_t h)
 {
-    if (cur_page()->scope == SC_GEN) {
-        generator_t snapshot;
-        fm1_irq_off(); snapshot = generator[song.sel]; fm1_irq_on();
-        const generator_t *g = &snapshot;
-        uint32_t length = g->running ? g->length : (uint32_t)clamp(g->p[GN_LENGTH], 1, 16);
-        uint32_t fill = g->running ? g->fill : (uint32_t)g->p[GN_FILL];
-        if (fill > length) fill = length;
-        char label[48] = "";
-        for (uint32_t i = 0; i < g->chord_n; i++) {
-            uint32_t note = generator_note(TSEL, g->chord[i]);
-            if (note == KB_SILENT) continue;
-            char name[12]; note_name(name, note);
-            if (label[0]) str_cpy(label + str_len(label), " ", 2);
-            str_cpy(label + str_len(label), name, sizeof label - str_len(label));
-        }
-        cv_free_text(12, 6, TY_LB, label, T_THEME, T_PANEL, PV_PANEL_W - 24);
-        for (uint32_t i = 0; i < length; i++) {
-            int32_t w = 208 / (int32_t)length, x = 16 + (int32_t)i * w;
-            uint32_t hit = g->running ? (g->rhythm >> i) & 1u : (i * fill) % length < fill;
-            uint32_t shape = g->running && g->phrase[i] != KB_SILENT ?
-                (uint32_t)clamp(generator_mapped_degree(TSEL, g->phrase[i]) - g->anchor + (int32_t)(generator_count(TSEL) * (g->range / 2u)), 0, (int32_t)(generator_count(TSEL) * g->range)) * 255u /
-                    (generator_count(TSEL) * g->range) : g->motif[i] * 16u;
-            int32_t y = h - 43 - (int32_t)(shape * (uint32_t)(h > 90 ? h - 90 : 12) / 256u);
-            uint16_t color = !generator_on(TSEL) ? T_DIM : song.playing && g->step && (g->cursor + length - 1u) % length == i ? T_TEXT : T_THEME;
-            cv_rrect(x, hit ? y : h - 36, w - 3, hit ? 8 : 2, 1, hit ? color : T_LINE, T_PANEL);
-        }
-        /* The leader's harmonic cycle as numerals from home, the sounding chord bright
-         * (a window from it when the cycle is wider than the panel). */
-        uint32_t lead_i = generator_jam_owner(song.sel);
-        generator_t lead;
-        fm1_irq_off(); lead = generator[lead_i]; fm1_irq_on();
-        const track_t *lt = &trk[lead_i];
-        uint32_t count = generator_count(lt), home = generator_mod(lead.anchor, count);
-        uint32_t cycle = generator_on(TSEL) && lead.path_valid ? lead.path_len : 0u, first = 0;
-        char tok[16][8];
-        int32_t width = 0, room = PV_PANEL_W - 24, x = 12;
-        for (uint32_t i = 0; i < cycle && i < 16u; i++) {
-            uint32_t degree = lead.path[i], rel = (degree + count - home) % count;
-            if (count != 7u || micro_active(lt)) fmt_int(tok[i], (int32_t)rel + 1);
-            else generator_numeral(lt, home, degree, lead.path_mask[i], tok[i]);   /* (bVI, iv, II...) */
-            width += text_w(TY_LB, tok[i]) + 10;
-        }
-        if (width > room) first = lead.path_pos;
-        for (uint32_t i = first; i < cycle && i < 16u && x < 12 + room; i++)
-            x = cv_free_text(x, h - TY_LB->h - 6, TY_LB, tok[i], song.playing && i == lead.path_pos ? T_TEXT : T_MID,
-                T_PANEL, 12 + room - x) + 10;
-        return;
-    }
     static const uint8_t DEF[3] = {48, 52, 55};
     const track_t *t = TSEL;
     uint8_t base[16], seq[16];

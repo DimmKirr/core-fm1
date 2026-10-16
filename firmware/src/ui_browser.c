@@ -35,7 +35,7 @@ static int browser_can_back(void) { return browse_loads != browse_mark || browse
 /* the top: the track's numeral (filled in its colour), the list in its colour, the place at the right (or the message) */
 static void browser_top(uint32_t cur, uint32_t total)
 {
-    if (head_ongoing()) { brv.top = 0; draw_head(); return; }
+    if (head_waiting()) { draw_head(); return; }
     char d[2] = {(char)('1' + song.sel % NTRK), 0}, r[20];
     const aafont_t *tf = TY_TX, *lf = TY_LB;
     int pending = browse_pending(), badge = pending && brw.x > 1u;

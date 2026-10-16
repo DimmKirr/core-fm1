@@ -222,7 +222,7 @@ static uint32_t seq_erase_transport;
 static uint8_t seq_erase_seen[NTRK];
 static volatile uint16_t seq_erase_button;
 static int seq_erase_active(const track_t *t);
-static int rec_on(const track_t *t) { return !generator_on(t) && (((song.rec & ~song.rec_wait) >> trk_index(t)) & 1u) && song.playing && !chain.running; }
+static int rec_on(const track_t *t) { return (((song.rec & ~song.rec_wait) >> trk_index(t)) & 1u) && song.playing && !chain.running; }
 static void recording_undo_capture(track_t *t);
 static void recording_undo_clear(void);
 static void seq_release(track_t *t);
@@ -249,7 +249,6 @@ static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
 {
     uint32_t period, cnt, list[64], len = 0, i, j, o;
     int32_t sw;
-    if (generator_on(t)) return;
     if (t->arp_note) {
         if (t->arp_off <= gate_n)
             arp_off(t);
@@ -336,12 +335,11 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
 
 /* Capture: every note played (keys, MIDI, a chord's notes) while the transport runs and its track is not recording,
  * with its place: the steps the track has entered since PLAY (cap_step) and the 1/256 of the step, as recording.c
- * keeps them. A ring of 8-byte events in the pool, sized for a jam of four generated parts (generator.c); REC held
- * writes the selected track's last bars into its pattern (ui_input.c capture_take). Durations in 1/256 of a step;
- * tr bit 7: still held */
-#define CAP_N 256u
+ * keeps them. A ring of 8-byte events (RAM is the audio arena's: kept small); REC held writes the selected track's last
+ * bars into its pattern (ui_input.c capture_take). Durations in 1/256 of a step; tr bit 7: still held */
+#define CAP_N 128u
 typedef struct { uint16_t step, dur; uint8_t on, note, vel, tr; } cap_ev_t;
-static cap_ev_t cap_ev[CAP_N] __attribute__((section(".pool")));   /* (generated parts write here too: generator.c) */
+static cap_ev_t cap_ev[CAP_N];
 static uint32_t cap_w, cap_from;                /* events written; the first of this run of the transport */
 static uint16_t cap_step[NTRK];                 /* the step playing, counted from PLAY (65535 before the first) */
 static uint32_t cap_frac(const track_t *t)      /* RECORD_UNIT fraction of the step playing */
@@ -360,26 +358,14 @@ static uint32_t cap_len(const cap_ev_t *e, uint32_t now)   /* its length (held: 
     uint32_t d = (e->tr & 128u) ? (now - ((uint32_t)e->step << 8) - e->on) & 0xFFFFFFu : e->dur;
     return d < 1u ? 1u : d > 65535u ? 65535u : d;
 }
-/* A generated note's own place: generator.c runs after the step timeline has reached the end of the block,
- * cap_ahead samples later than the note (0 for played notes) */
-static uint32_t cap_ahead;
-static uint32_t cap_place(const track_t *t)
-{
-    uint32_t now = cap_now(t), span;
-    if (!cap_ahead)
-        return now;
-    span = step_samples(t, seq_div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx);
-    return span ? (now - (cap_ahead << 8) / span) & 0xFFFFFFu : now;
-}
 static void cap_on(const track_t *t, uint32_t note, uint32_t vel)
 {
-    uint32_t k = trk_index(t), at;
+    uint32_t k = trk_index(t);
     cap_ev_t *e = &cap_ev[cap_w % CAP_N];
     if (!song.playing || chain.running || rec_on(t))
         return;
-    at = cap_place(t);
-    e->step = (uint16_t)(at >> 8);
-    e->on = (uint8_t)at;
+    e->step = t->seq_pos >= 0x7FFFFFFFu ? (uint16_t)(cap_step[k] + 1u) : cap_step[k];
+    e->on = (uint8_t)(cap_frac(t) >> 8);
     e->dur = 0;
     e->note = (uint8_t)note;
     e->vel = (uint8_t)vel;
@@ -395,7 +381,7 @@ static void cap_off(const track_t *t, uint32_t note)
     for (i = 0; i < cap_w - cap_from && i < CAP_N; i++) {
         cap_ev_t *e = &cap_ev[(cap_w - 1u - i) % CAP_N];
         if (e->tr == (k | 128u) && e->note == note) {
-            e->dur = (uint16_t)cap_len(e, cap_place(t));
+            e->dur = (uint16_t)cap_len(e, cap_now(t));
             e->tr = (uint8_t)k;
         }
     }
@@ -619,7 +605,6 @@ static void recording_quantize(track_t *t);
 static void rec_set(track_t *t, uint32_t on)
 {
     uint8_t bit = (uint8_t)(1u << trk_index(t));
-    if (on && generator_on(t)) return;
     if (on) {
         if (song.rec & bit) return;
         song.rec |= bit;
@@ -656,11 +641,8 @@ static void rec_begin_held(track_t *t)
 static void countin_note(track_t *t,uint32_t note,uint32_t vel);
 static int rec_note_start(track_t *t);
 static void seq_advance(uint32_t n);
-static void __attribute__((noinline)) midi_forget_track(uint32_t track);
-#include "generator.c"
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
-    if (generator_on(t)) { if (vel) generator_input(t, note); return; }
     uint32_t started = vel && rec_note_start(t);
     countin_note(t,note,vel);
     last_note = (uint8_t)note;
@@ -683,10 +665,6 @@ static void input_off(track_t *t, uint32_t note)
 {
     if (midi_note_held(t, note))
         return;
-    if (generator_on(t)) {
-        if (!midi_local_held(t, note)) generator_input_off(t, note);
-        return;
-    }
     live_held[trk_index(t)][note >> 5] &= ~(1u << (note & 31u));
     cap_off(t, note);
     rec_release(t, note);
@@ -698,10 +676,6 @@ static void input_off(track_t *t, uint32_t note)
  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
 static void key_on(uint32_t k, track_t *t)
 {
-    if (generator_on(t)) {
-        kb_chord[k][0] = kb_note[k]; kb_chn[k] = 1;
-        generator_input(t, kb_note[k]); last_note = kb_note[k]; return;
-    }
     uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t));
     kb_chn[k] = 0;
     for (i = 0; i < n; i++) {
@@ -725,7 +699,7 @@ static void key_off(uint32_t k, track_t *t)
         if (midi_local_held(t, x))
             continue;
         input_off(t, x);
-        if (!generator_on(t)) midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
+        midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
     }
 }
 
@@ -848,11 +822,6 @@ static void seq_start(void)
     song.rec_pass = song.rec;
     for (i = 0; i < NTRK; i++) {                   /* every track from its step 0, together */
         track_t *t = &trk[i];
-        if (generator_on(t)) {
-            uint8_t bit = (uint8_t)(1u << i);
-            song.rec &= (uint8_t)~bit; song.rec_pass &= (uint8_t)~bit;
-            generator_release(t);
-        }
         if (t->p[P_LTRIG] && t->p[P_LSYNC]) t->lfo_ph = (uint32_t)t->p[P_LPHASE] << 25;
         t->seq_idx = (uint16_t)(t->p[P_SLEN] - 1);
         t->seq_pos = 0x7FFFFFFF;                   /* step 0 fires on the first block */
@@ -959,7 +928,6 @@ static void seq_stop(void)
             if (trk[i].arp_note)
                 arp_off(&trk[i]);
     for (i = 0; i < NTRK; i++) {
-        generator_release(&trk[i]);
         recording_stop(&trk[i]);
         if (trk[i].rh_n)
             rec_finish(&trk[i]);
@@ -1088,7 +1056,6 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         cap_step[trk_index(t)]++;
         if (!t->seq_idx && t == &trk[0] && !chain.running)
             jam_loop();
-        if (generator_on(t)) continue;             /* keep the silent timeline for SONG/queued banks, no notes or motion */
         motion_step(t, t->seq_idx, &motion);
         if (punch_in) rec_begin_held(t);
         seq_erase_pass(t, t->seq_idx, 1);
@@ -1118,7 +1085,6 @@ static void seq_grid_tick(track_t *t, uint32_t n)
  * loop zero once. MIDI batches may cross several boundaries in one call. */
 static void seq_tick(track_t *t, uint32_t n)
 {
-    if (generator_on(t)) { seq_grid_tick(t, n); return; }
     seq_erase_pass(t, t->seq_idx, 0);
     if (!((recording_tracks | song.rec) & (1u << trk_index(t)))) { seq_grid_tick(t, n); return; }
     if (!song.playing) { seq_grid_tick(t, n); return; }
@@ -1183,7 +1149,6 @@ static void seq_advance(uint32_t n)
         seq_tick(&trk[i], n);
     for (i = 0; i < NPART; i++)
         arp_step(&trk[i], song.playing || !song.g[G_CLOCK] ? n : 0u, n);
-    generator_advance(n);
     beat_pos += n;
     while (beat_pos >= beat) {
         beat_pos -= beat;
@@ -1243,7 +1208,6 @@ static void events_block(uint32_t n)
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
         if ((pr >> i) & 1u) {
-            generator_release(t);
             midi_forget_track(i);
             recording_stop(t);
             t->rh_n = t->rskip_n = 0;
@@ -1253,10 +1217,6 @@ static void events_block(uint32_t n)
             t->arp_note = 0;
         }
         engine_block(t);                              /* engine switch: fade, then switch (voice.c) */
-        if (generator_on(t) && chord_kit(t)) {
-            generator_release(t);
-            generator[i].p[GN_MODE] = 0;
-        }
         /* ARP turned off, or HOLD released with no key down: drop the latched chord */
         if ((t->armp && !t->p[P_AMODE]) || (t->aholdp && !t->p[P_AHOLD] && !t->arp_phys)) {
             t->nheld = 0;

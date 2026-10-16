@@ -100,7 +100,7 @@ static uint32_t arp_led(void)
 {
     uint32_t k, on = 0, b = seq_beat_samples();
     for (k = 0; k < NPART; k++)
-        on |= (trk[k].p[P_AMODE] && trk[k].nheld) || (generator_on(&trk[k]) && song.playing);
+        on |= trk[k].p[P_AMODE] && trk[k].nheld;
     return !on ? 2u : beat_pos < (beat_n ? b / 6u : b / 2u);
 }
 
@@ -556,7 +556,6 @@ static void tracks_edit(uint32_t slot, int32_t steps)
  * On STEP, armed keys audition/record instead of writing the cursor step. */
 static void rec_toggle(uint32_t latch)
 {
-    if (generator_on(TSEL)) { ui_message("GEN: REC DISABLED"); return; }
     uint8_t bit = (uint8_t)(1u << song.sel);
     if (!ui.home && cur_page()->graph == GR_SONG && !(song.rec & bit)) {
         ui_message("[SEQ] TO RECORD");
@@ -585,10 +584,6 @@ static void rec_play(void)
 {
     uint8_t bit = (uint8_t)(1u << song.sel);
     ui.rec_t0 |= 2u;
-    if (generator_on(TSEL)) {
-        if (!song.playing && !seq_counting()) transport_req = 1;
-        ui_message("GEN: REC DISABLED"); return;
-    }
     if (chain_busy()) {
         ui_message("STOP TO RECORD");
         return;
@@ -638,25 +633,22 @@ static void qsave_poll(void)
  * bars end at the bar playing when a note in it was played, else at its start. EDIT held undoes it */
 static void capture_take(void)
 {
-    track_t *t = TSEL;                                  /* (a generating track: its generated notes) */
+    track_t *t = TSEL;
     uint32_t k = song.sel, n = 0, i, now, first = 0xFFFFu, last = 0, end, w, start, put = 0, full = 0, j = 0, from;
     uint64_t touched = 0;
     int empty;
-    cap_ev_t captured[CAP_N / 2u];                      /* the track's newest events, oldest first */
-    uint32_t until = 0;
+    cap_ev_t captured[CAP_N];
+    uint32_t until;
     if (chain_busy()) { ui_message("STOP SONG TO CAPTURE"); return; }
     if ((song.rec >> k) & 1u) { ui_message("RECORDING"); return; }
-    fm1_irq_off();                                      /* the selected track's events of this run (the ring is shared) */
+    fm1_irq_off();                                      /* the selected track's events of this run: the newest, the oldest */
     now = cap_now(t);
     from = cap_w - cap_from > CAP_N ? cap_w - CAP_N : cap_from;
-    for (i = cap_w; i != from && until < NELEM(captured); i--)
-        if ((cap_ev[(i - 1u) % CAP_N].tr & 127u) == k) until++;
-    for (i = cap_w, j = until; j; i--)
-        if ((cap_ev[(i - 1u) % CAP_N].tr & 127u) == k) captured[--j] = cap_ev[(i - 1u) % CAP_N];
+    until = cap_w;
+    memcpy(captured, cap_ev, sizeof captured);
     fm1_irq_on();
-    from = 0;
     for (i = from; i != until; i++) {
-        const cap_ev_t *e = &captured[i];
+        const cap_ev_t *e = &captured[i % CAP_N];
         uint32_t back = (uint16_t)((now >> 8) - e->step);
         if ((e->tr & 127u) != k || back >= 64u)
             continue;
@@ -677,7 +669,7 @@ static void capture_take(void)
     if (empty)
         t->p[P_SLEN] = (int16_t)w;
     for (i = from; i != until; i++) {
-        const cap_ev_t *e = &captured[i];
+        const cap_ev_t *e = &captured[i % CAP_N];
         uint32_t actual = (uint16_t)(e->step - start), on = (uint32_t)e->on << 8, view, dur, exp;
         recorded_note_t r;
         if ((e->tr & 127u) != k || actual >= w)
@@ -725,7 +717,6 @@ static void capture_take(void)
         t->seq_active = 1;
     load_end(t);
     if (!put) { ui_message("NOTHING TO CAPTURE"); return; }
-    if (generator_on(t)) { fm1_irq_off(); generator_feedback(k, 2); fm1_irq_on(); }   /* (kept: the band learns it) */
     {
         char b[16];
         fmt_int(b, (int32_t)(w % 16u ? w : w / 16u));
@@ -1013,31 +1004,6 @@ static void edit_param(uint32_t slot, int32_t steps)
     const page_t *pg = cur_page();
     const param_desc_t *d;
     int32_t v;
-    if (pg->scope == SC_GEN) {
-        uint32_t id = pg->id[slot], tr = song.sel;
-        generator_defaults(tr);
-        if (id == GN_STYLE) id = generator_style_id(&generator[tr]);
-        else if (generator_jam_id(id)) { tr = generator_jam_owner(tr); generator_defaults(tr); }
-        generator_t *g = &generator[tr];
-        const param_desc_t *gd = &GEN_PARAM[id];
-        int32_t value = clamp(g->p[id] + steps, gd->min, gd->max);
-        if (id == GN_SOURCE && value == (int32_t)song.sel + 1)
-            value = clamp(value + (steps > 0 ? 1 : -1), gd->min, gd->max);
-        if (value == (int32_t)song.sel + 1 && id == GN_SOURCE) value = gd->max - 1;
-        if (value == g->p[id]) return;
-        if ((id == GN_MODE || id == GN_JAM) && value && chord_kit(&trk[tr])) { ui_message("GEN NEEDS A SYNTH"); return; }
-        uint32_t guard = motion_guard();
-        if (id == GN_MODE) generator_mode(TSEL, (uint32_t)value);
-        else if (id == GN_JAM) generator_jam_set(tr, (uint32_t)value);   /* OFF -> a FEEL: the band forms */
-        else {
-            g->p[id] = (int16_t)value;
-            if (id == GN_CHANGE) g->harmony_left = seq_beat_samples() * 4u * (1u << value);
-        }
-        motion_unguard(guard);
-        if (generator_on(TSEL)) song.seq_mode = 0;
-        ui.force = 1;
-        return;
-    }
     if (pg->graph == GR_SLOTS && slot == 0u && (ui.proj_new || (steps > 0 && song.g[G_SLOT] == PROJ_TMPL))) {
         ui.proj_new = steps > 0;                        /* past TMPL: NEW (SLOT itself stays) */
         if (!ui.proj_new && ui.act == 4u) ui.act = 0;
@@ -1684,7 +1650,6 @@ static uint32_t ly_bit(uint32_t l);
 static void page_tap(uint32_t b)
 {
     uint32_t f;
-    if (b == B_ARP) ui.gen_open = 0;
     if (b == B_EDIT && ui.erase_gesture) return;
     if (b == B_EDIT && smap.on) {                       /* the map open: EDIT closes it */
         smap_close();
@@ -2073,7 +2038,6 @@ static void ui_input(void)
     if (seq_long) seq = BT_HOLD;
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);
     uint32_t edit = btn_hold(&ui.edit_t0, B_EDIT, now, !ui.menu && !ui.confirm && !name_on() && !new_on() && !ui.ly);
-    uint32_t arp = btn_hold(&ui.arp_t0, B_ARP, now, !ui.menu && !ui.confirm && !name_on() && !new_on() && !ui.ly && pop.on != POP_SHEET && pop.on != POP_LIST);
     uint32_t octup = btn_hold(&ui.oct_t0, B_OCTUP, now, page_sheet() != 0u);   /* held: the page's sheet */
     uint32_t oct;
     if (octup == BT_HOLD) {
@@ -2144,7 +2108,6 @@ static void ui_input(void)
     if (glo_sel)                                       /* GLO + SELECT, including a turn on release: no tap */
         combo = 1;
     if (lay) {                                          /* a layer's button held: keys, knobs and buttons are combos */
-        if (ui.arp_t0) ui.arp_t0 |= 2u;
         combo |= (pressed & ~ly_bit(ui.ly)) != 0u;
         notes = 0;                                      /* (the keys are the layer's, not the grid's or a step's) */
         if (pressed & (1u << panel.btn[B_SAVE]))       /* no save, no page */
@@ -2169,7 +2132,6 @@ static void ui_input(void)
     if (glo_sel)
         select_turn(glo_select(), glo_sel);
     song.grid = (uint8_t)keys_mode();                 /* (the menu, a dialog: the keys play again; NAME: silent) */
-    if (generator_on(TSEL)) song.seq_mode = 0;
     if (!step_page() || drum_track(TSEL) || ui.menu || ui.confirm || name_on() || lay || live_rec_sel() || chain_busy())
         seq_midi_events(0);                         /* discard events during modal/layer input too */
     if (ui.seen_pattern_gen != TSEL->pattern_gen) {
@@ -2298,14 +2260,6 @@ static void ui_input(void)
     }
     if (lytap)                                          /* a layer's button acts on release (held: the layer) */
         layer_tap(lytap);
-    if (arp == BT_HOLD) {
-        momentary_restore();
-        if (pop.on == POP_PICK) pop_close();
-        smap.on = 0;
-        ui.gen_open = 1;
-        for (k = 0; k < NPAGES; k++) if (PAGES[k].scope == SC_GEN) break;
-        ui.home = 0; ui.page = (uint8_t)k; page_entered();
-    } else if (arp == BT_TAP && !lay) page_tap(B_ARP);
     if (seq == BT_HOLD) {                               /* SEQ held: PATTERNS, the song under it (SONG: SELECT) */
         for (k = 0; k < NPAGES; k++) if (PAGES[k].graph == GR_PATGRID) break;
         ui.home = 0; ui.page = (uint8_t)k; ui.fam_last[FAM_SEQ] = ui.page; page_entered();
@@ -2353,7 +2307,6 @@ static void ui_input(void)
                 transport_req = 1;
             break;
         case B_SEQ:
-        case B_ARP:
         case B_REC:                                     /* tap / hold: above */
         case B_SAVE:
         case B_GLO:
@@ -2460,9 +2413,6 @@ static void ui_input(void)
 #endif
     pattern_keys(bank_notes);
     if (pattern_keys_on() || ui.pat_key) {
-        seq_midi_events(0);
-    } else if (generator_on(TSEL)) {
-        song.seq_mode = 0;
         seq_midi_events(0);
     } else if (song.grid) {
         if (!seq_erase_active(TSEL)) grid_keys(notes);
