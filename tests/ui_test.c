@@ -2678,8 +2678,10 @@ static int test_product_ux(void)
     bad += check("MIXER K3 is inert, never changes sequence length", TSEL->p[P_SLEN] == len && TSEL->p[P_RESERVED36] == send);
     press(B_GLO); ok = cur_page()->fam == FAM_GLO && str_eq(cur_page()->title, "GLOBAL");
     press(B_GLO); ok &= str_eq(cur_page()->title, "SYSTEM");
+    press(B_GLO); ok &= str_eq(cur_page()->title, "WEIGHTS");
+    press(B_GLO); ok &= str_eq(cur_page()->title, "WEIGHTS 2");
     press(B_GLO); ok &= cur_page()->graph == GR_TRK;
-    bad += check("GLO cycles MIXER > GLOBAL > SYSTEM > MIXER", ok);
+    bad += check("GLO cycles MIXER > GLOBAL > SYSTEM > WEIGHTS > WEIGHTS 2 > MIXER", ok);
     go_home(); hold(B_SEQ);
     bad += check("long SEQ goes directly to PATTERNS (the song under it) with no tap on release", cur_page()->graph == GR_PATGRID);
     turn(EN_SELECT, 1);
@@ -3460,10 +3462,14 @@ static int test_tempo_select(void)
     turn(EN_SELECT, 1);
     ok = song.g[G_BPM] == 120 && str_eq(cur_page()->title, "SYSTEM");
     turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "WEIGHTS");
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "WEIGHTS 2");
+    turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "GLOBAL");
     turn(EN_SELECT, -1);
-    bad += check("SELECT on GLO: GLOBAL -> SYSTEM -> GLOBAL (wraps), back the other way; the BPM untouched",
-                 ok && str_eq(cur_page()->title, "SYSTEM") && song.g[G_BPM] == 120);
+    bad += check("SELECT on GLO: GLOBAL -> SYSTEM -> WEIGHTS -> WEIGHTS 2 -> GLOBAL (wraps), back the other way; the BPM untouched",
+                 ok && str_eq(cur_page()->title, "WEIGHTS 2") && song.g[G_BPM] == 120);
     go_title("NOTES");
     cursor_set(4);
     turn(EN_SELECT, 1);

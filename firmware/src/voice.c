@@ -129,6 +129,10 @@ static uint32_t voice_p5_parts(void)
 static uint32_t voice_units(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
+    /* GLO > WEIGHTS: the player's points per voice replace the built-in rule; AUTO (0) keeps it. */
+    int k = e == &ENG_P5_TEST ? 0 : e == &ENG_CZ ? 1 : e == &ENG_FM6 ? 2 : e == &ENG_SID ? 3 : e == &ENG_DRUM ? 4 : -1;
+    if (k >= 0 && settings_vpoints[k] > 0)
+        return (uint32_t)settings_vpoints[k];
 #if MELODEE_ADMISSION
     if(e==&ENG_P5_TEST){
         return voice_p5_parts()>1u?4u:3u;

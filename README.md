@@ -487,6 +487,11 @@ Thanks to [@aroum](https://github.com/aroum) for the detailed feedback in
 - **BPM**, the song's **SWG** and the selected track's recording **QNT** are on **SEQ > TEMPO**:
   the project's, saved and loaded with it (power-on: the BOOT project's, the template's or 120);
   GLO > GLOBAL keeps CLK and TUNE, the device's
+- **GLO > WEIGHTS** sets how many BUDGET points one voice of **P5** (Prophet), **CZ-1**, **FM6** and **SID** costs;
+  **WEIGHTS 2** has **DRUM**, **BUDGET** and **SAFETY**. AUTO keeps the built-in cost; 1–15 replaces it, so a
+  heavier weight lets fewer voices of that engine start. **SAFETY OFF** stops an overload from cutting releasing
+  voices: the audio may glitch instead, and an overload that lasts several seconds can freeze the panel and
+  restart the FM-1. Device settings, kept across projects
 - SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
   HOME returns home; on HOME, tap HOME again for its second page: the chord in the middle of a wheel
   of the twelve notes in fifths (the key's notes marked, the notes sounding lit in their track's colour and joined

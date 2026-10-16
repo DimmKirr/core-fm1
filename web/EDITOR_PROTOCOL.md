@@ -1206,6 +1206,12 @@ nondefault budgets in bits 8–15 while retaining the low two USB flags. The
 604-byte settings record and project/template layouts are unchanged. Unknown
 or absent tags use the build default (16 with admission enabled).
 
+GLO > WEIGHTS shows device settings on the reserved global IDs 4–9 (P5, CZ-1,
+FM6, SID and DRUM points per voice, 0 = AUTO; SAFETY). They are panel-only:
+`global_reserved()` still covers these IDs, so the editor reads 0 and cannot set
+them, and projects never store them. PER5 favorites row 8 bytes 8–15 hold them
+('W', version 1, five points, bit 0 of the last byte SAFETY OFF).
+
 The shared pool borrows idle capacity and retains native engine slot counts.
 Its weights are Prophet 3 points with one active Prophet track, 4 with multiple
 active Prophet tracks; FM6, SID and DRUM 2 points; CZ 3 points. Capacity fades

@@ -12,6 +12,8 @@ static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
 static const char *const N_FX[] = {"OFF", "PHASER", "WIDTH", "FORMANT", "TAPE", "SPIT", "ECHO", "ROOM", "REVERB", "CHORUS"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
+static const char *const N_VPOINTS[] = {"AUTO", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
+                                        "14", "15"};
 static const char *const N_QUANT[] = {"OFF", "SNAP", "WHITE", "ALL", "MPC"};   /* Q_OFF .. Q_MPC (seq.c kb_map, midi_map) */
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
 static const char *const N_CHRD[] = {"OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"};
@@ -40,6 +42,11 @@ static int16_t drumch_cell;
  * saved). A device setting kept with the settings (ext.boot), not the project's: the column shows boot_cell */
 static uint8_t settings_boot;
 static int16_t settings_budget = VOICE_BUDGET_DEFAULT;
+/* GLO > WEIGHTS: budget points per sounding voice of PROPHET, CZ-1, FM6, SID and DRUM (0 AUTO: voice.c's
+ * built-in rule) and SAFETY (0: overload never cuts voices, audio.c). Device settings (settings_persist.c). */
+#define VOICE_KINDS 5u
+static int16_t settings_vpoints[VOICE_KINDS];
+static int16_t settings_safety = 1;
 /* Device recording preferences: defaults preserve existing behavior. */
 #include "recording_preferences.h"
 static int16_t boot_cell;
@@ -590,6 +597,8 @@ static const page_t PAGES[] = {
     {"VOICE 3", FAM_EDIT, SC_TRACK, GR_NONE, {P_SPRD, 0xFF, 0xFF, 0xFF}},
     {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_A4, G_BUDGET, G_CLOCK, G_TUNE}}, /* device reference/budget; CLK/TUNE kept */
     {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_DRUMCH, G_ROUTE, G_INFO}},
+    {"WEIGHTS", FAM_GLO, SC_GLOBAL, GR_NONE, {G_WP5, G_WCZ, G_WFM6, G_WSID}},        /* budget points per voice */
+    {"WEIGHTS 2", FAM_GLO, SC_GLOBAL, GR_NONE, {G_WDRUM, G_BUDGET, 0xFF, G_SAFETY}},  /* SAFETY: overload voice cuts */
     {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* browser: KNOB 1 LIST, 2 / PRESETS the sounds */
     {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, {0xFF, 0xFF, 0xFF, 0xFF}},       /* user presets: SLOT LOAD ERASE SAVE */
     {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, G_BOOT, G_LOAD, G_SAVE}},
@@ -755,6 +764,12 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (id == G_TRK_RECQ) {                          /* (TEMPO's QNT: the selected track's recording quantise) */
         *valp = &TSEL->p[P_RECQ];
         return track_desc(TSEL, P_RECQ);
+    }
+    if (pg->scope == SC_GLOBAL && id >= G_WP5 && id <= G_SAFETY) {   /* GLO > WEIGHTS: the device's settings */
+        static const param_desc_t weights[] = {PE("P5", N_VPOINTS, 0), PE("CZ-1", N_VPOINTS, 0), PE("FM6", N_VPOINTS, 0),
+            PE("SID", N_VPOINTS, 0), PE("DRUM", N_VPOINTS, 0), PE("GUARD", N_ONOFF, 1)};
+        *valp = id == G_SAFETY ? &settings_safety : &settings_vpoints[id - G_WP5];
+        return &weights[id - G_WP5];
     }
     if (pg->scope == SC_GLOBAL && id == G_BOOT) {
         boot_cell = settings_boot;                       /* (a copy: ui_input.c edit_param writes it back) */
