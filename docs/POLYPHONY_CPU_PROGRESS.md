@@ -1856,3 +1856,112 @@ installer FM-1_91040, RAM_AUDIO=0/ADMISSION=0, contiguous minimum 142,336 B.
 take above on `cpu-cap12` against `cpu-ref10` (events span and complete bound
 during chord-dense takes). No installation, workload, counter reset, guard or
 preference change, publication or default/allowance change occurred.
+
+
+## Resident/cache continuation after Claude (2026-10-16)
+
+Resumed Claude session `b6de2aef-bcaa-48b3-a4f0-b08d0cfea48d` at clean
+`50416bf`, `experiment/recording-release-queue`. Its final human request was
+to fix the resident (`MELODEE_RAM_AUDIO=1`) layout with all twelve candidates
+before another flash. The user then requested cache RAM enabled in that build.
+Claude reported installing the flash-layout, twelve-candidate `FM-1_900` before
+the final GUARD label rebuild. That is session evidence; it was not flashed
+again here. A read-only installer query still reports `FM-1_900`; a fresh
+read-only command-72 memory snapshot reports cache status **0 (disabled)**,
+capacity/used **0/0**, total audio capacity **152,680 B**, used **9,028 B**:
+`build/cpu-resident-cache-before-device.json`. No diagnostic reset or workload
+was requested by these reads.
+
+Claude measured resident POOL contents of 182,872 B, audio code of 111,760 B,
+and CPU1 stacks of 8,192 B, leaving 41,240 B of 344,064 B: **7,912 B short**
+of the unchanged 49,152-B engine minimum. Its proposed unused undo fallback
+was not unused in the default configuration: cache RAM defaults off. Do not
+remove all fallback storage or borrow live audio allocations from the UI.
+
+Implemented:
+
+- Only for **both** resident audio and cache RAM, reserve one SRAM sound-load
+  undo level (1,608 B) instead of eight (12,864 B), reclaiming **11,256 B**.
+  Successful cache startup supplies the existing eight levels from its reserved
+  14 KiB UI partition. Failed/skipped cache startup keeps one level in SRAM;
+  no unvalidated cache address is used. Cache-disabled builds and nonresident
+  builds retain eight fallback levels. This explicitly reduces undo depth only
+  in the resident/cache failure path. The engine arena is never borrowed or
+  evicted by this UI history.
+- Snapshot `audition_count` once per preview dispatch. Its sole publisher is
+  `notes_preview`, which masks audio interrupts; engine note-on callbacks do
+  not modify it. The resident profiling compiler otherwise reloads the byte
+  after callbacks. Its unchanged instruction gate caught cost 143 versus a
+  129 baseline (+11%, limit +10%); the snapshot gives cost 125 in the tested
+  resident profiling candidate. Order, pitches, velocities and gate state are
+  unchanged. No budget/gate threshold was raised.
+- Correct the build memory report: 28,672 B reclaimed cache includes **14,336 B
+  UI** and **14,336 B audio**, so the audio-capacity total must exclude the UI
+  partition. Source `UI_CACHE_BYTES` is used rather than counting the full
+  cache bank as engine memory.
+- Extend actual UI load/undo/redo tests through cache unavailable and ready
+  states, repeated loads beyond history depth, full undo/redo and dropping redo
+  on a new load. Register a resident/cache UI suite variant. Focused ASan/UBSan
+  passes with legacy signed-shift/alignment checks excluded, as in prior host
+  UI runs: `build/cpu-resident-cache-ui-sanitized.log`.
+
+Enabling cache RAM retains all instruction-cache ways but gives up seven data
+cache ways. More allocator capacity is not a measured extra-voice result; cache
+pressure and complete buffer time still require target comparisons. Production
+option defaults, calibrated weight values and voice allowances are unchanged
+by this continuation. The resident profile's existing budget policy remains
+separate from acceptance of additional voices.
+
+No flash, push, publication, music transfer, counter reset, persistence guard
+change or hardware workload occurred here. Cache self-test success, actual
+resident/cache timing, USB streaming, physical audio/controls and extra-voice
+qualification remain pending. Older `cpu-cap12`/`cpu-ref10`/`cpu-cap0` source
+manifests are historical and no longer match the changed firmware.
+
+Prepared packages (all RAM_AUDIO=1, CACHE_RAM=1, ADMISSION=0, DUAL_CORE=1;
+all twelve candidate switches on in `ram12`/`ramlab12`, off in `ramref`):
+
+| Editor identity | Data+BSS | Contiguous arena | Audio resources with ready cache | Package SHA256 |
+| --- | ---: | ---: | ---: | --- |
+| `MELODEE v1.4.0-ram12` | 96624 B | 51712 B | 69240 B | `159be0c076e1865304784aa03f3693cf7eb46c3c11ea2408987d310d164f6511` |
+| `MELODEE v1.4.0-ramlab12` | 97312 B | 50624 B | 67464 B | `4833af7576c3ef90751bbc24df6e7f927f17dc965a9aa62d8958c75c23216cbe` |
+| `MELODEE v1.4.0-ramref` | 96944 B | 57472 B | 75352 B | `1b5b814eb2a104a17ee46c144d2950156152561e54081ab0daafd1d5fb6eccf1` |
+
+Normal `build/melodee-1.4.0-ram12.fwsc` has profiling/benchmark support off;
+`build/melodee-1.4.0-ramlab12.fwsc` and
+`build/melodee-1.4.0-ramref.fwsc` have both on. Distinct editor identities
+prevent the lab runner confusing the reference and candidate. Every package
+has a current firmware-source/package hash manifest and saved ELF/disassembly:
+`build/cpu-resident-cache12*` and `build/cpu-resident-cache-ref*`. All three
+builds pass unchanged memory/register/residency and instruction gates. The
+normal contiguous reserve is 2,560 B above the 49,152-B minimum; the lab
+candidate is 1,472 B above it, even if cache RAM fails. The default-off
+nonresident configuration still has eight SRAM undo levels and still needs a
+separate build configuration rather than inheriting these experiment flags.
+
+Validation history: `build/cpu-resident-cache12-suite.log` passed the entire
+suite with all twelve host flags (**ALL HOST TESTS PASSED in 88 s**) before the
+preview-count snapshot. The next full run, `-final-suite.log`, had exactly one
+failure: a simulated live-take sender exceeded its 3-ms host scheduling bound
+(4.56 ms) under parallel compilation. All ten take tests passed in isolation
+in `build/cpu-resident-cache-take-rerun.log`; the real device lateness threshold
+was not changed. Final complete-suite verification follows below.
+
+After the user's explicit “Flash it already”, installed
+`build/melodee-1.4.0-ram12.fwsc` (SHA256
+`159be0c076e1865304784aa03f3693cf7eb46c3c11ea2408987d310d164f6511`).
+Installer succeeded; post-install identity is **MELODEE v1.4.0-ram12**,
+**FM-1_91040**, port **Melodee**. A read-only command-72 query verifies
+cache status **1 (ready)**, reclaimed cache **28,672 B**, audio cache usage
+**7,572 B**, total audio capacity **69,240 B**, resource usage **9,028 B**,
+resource failures **0** (`build/cpu-resident-cache12-after-device.json`).
+Install log: `build/cpu-resident-cache12-install.log`. No backup, runtime
+transfer, guard change or diagnostic reset was added. These reads establish
+cache startup and identity, not physical audio/controls or extra voices.
+
+Final verification: **ALL HOST TESTS PASSED in 162 s**,
+`build/cpu-resident-cache12-verified-suite.log`, all twelve candidate switches
+in host compilation, PARALLEL=4 and no concurrent target build. This includes
+the native live-take tests and both cache readiness states in the new
+resident/cache UI variant. Each of the three final package/source manifests
+was reverified against the unchanged firmware tree and saved target gates.

@@ -315,8 +315,12 @@ Builds reclaim seven 4 KiB data-cache ways at `0x01F28000..0x01F2F000`
 (`MELODEE_CACHE_RAM=1`, opt-in; normal builds retain all data-cache ways; `MELODEE_CACHE_RAM=0 ./build.sh`
 turns it off), following the AC79 SDK's flash-execution configuration. All instruction-cache ways remain available.
 The first 14 KiB are the UI's (eight undo levels); the rest join the audio allocator, whose worst case still fits
-the SRAM banks alone. Normal builds keep eight undo levels in ordinary SRAM, within the existing arena reserve. Keep USB audio enabled during
-validation.
+the SRAM banks alone. Normal builds keep eight undo levels in ordinary SRAM, within the existing arena reserve.
+When both `MELODEE_RAM_AUDIO=1` and `MELODEE_CACHE_RAM=1`, only one fallback undo level is reserved in
+ordinary SRAM, freeing 11,256 B for the resident layout. A successful cache self-test still supplies eight
+undo levels. A failed/skipped self-test leaves one undo level and excludes the cache bank entirely;
+the unchanged 48 KiB contiguous engine minimum must still fit without it. This fallback does not borrow
+or evict engine memory. Keep USB audio enabled during validation.
 
 The boot routine runs wholly in SRAM with interrupts off and CPU1 held. It
 refuses external-memory configurations, verifies the cache registers, tests the

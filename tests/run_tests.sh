@@ -300,6 +300,7 @@ if core; then
     run "resident audio: call graph and flash/RAM ABI boundaries" python3 tests/audio_ram_test.py
     t "removed effects: old songs and motion, MIDI, physical input and dry output" no_effects_test -O1 $FW
     t "resident audio: four-track resource budget and removed buses" ram_audio_test -O2 $FW
+    t "resident/cache undo: validated eight levels and bounded fallback" ui_resident_cache:ui_test -DMELODEE_RAM_AUDIO=1 -DMELODEE_CACHE_RAM=1 $FW
     t "resident audio: expanded voice budget and CPU1 fallback" ram_voice_budget_test -O2 $FW
     t "audio: calibrated reservations, release tails and overlapping hits" audio_admission_test -O2 $FW
     t "USB audio: four isolated track stems through the real mixer" usb_audio_tracks_test -O2 $FW

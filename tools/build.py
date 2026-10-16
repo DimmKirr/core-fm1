@@ -420,7 +420,12 @@ def check(img, syms, dis, rt):
             errors.append("cache configuration must execute wholly in SRAM")
         if (sym("_resource_cache_start"), sym("_resource_cache_end")) != (0x01F28000, 0x01F2F000):
             errors.append("cache resource bank must cover exactly the seven freed data-cache ways")
-        notes.append(f"cache RAM: optional 28672 B after boot self-test; maximum resources {arena + tails + 28672} B")
+        # resources.c reserves the UI partition before exposing this bank to
+        # audio. Do not count undo storage as additional engine/FX capacity.
+        ui_reserve = int(re.search(r"^#define UI_CACHE_BYTES (\d+)u$",
+                                  (FW / "src" / "resources.c").read_text(), re.M)[1])
+        cache_audio = 28672 - ui_reserve
+        notes.append(f"cache RAM: optional 28672 B after boot self-test; UI {ui_reserve} B, audio {cache_audio} B; maximum audio resources {arena + tails + cache_audio} B")
     if 0x54000 - pool < 8192:                     # keep >= 8 KiB of the pool spare
         errors.append(f"pool headroom {0x54000 - pool} B < 8192 B")
     return errors, notes

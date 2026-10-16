@@ -43,6 +43,7 @@ and prepared/installed distinctions are maintained in the progress log:
 - Guarded lab-only native transport/REC control and internal-clock constructed playback; review fixed a nested interrupt-mask defect and track-in-use checks; fresh packages prepared, not installed.
 - Bounded live REC/overdub take runner with native-replay comparison, failure cleanup and guarded restoration; host-tested, not run on hardware.
 - Exact capture-allocation candidate (`MELODEE_CAPTURE_FAST`): owner-list prune/seal/replacement plus early lowest-free slot, full-state parity; 1.6–3.4x fewer host instructions per recorded note; default off, not installed.
+- Resident/cache layout: eight undo levels in validated cache, one SRAM level on failed cache startup, reclaiming 11,256 B; unchanged 48 KiB engine minimum. Cache-enabled packages and validation are recorded in the final progress checkpoint; hardware acceptance remains pending.
 
 The full host suites passed in 79 s for the baseline infrastructure, 83 s
 with the original cache and 81 s with the revised cache. Validation includes
@@ -59,11 +60,12 @@ benchmark support are compiled in; the fixed-benchmark bypass and persistence
 guard are inactive. `MELODEE_RAM_AUDIO=0` and `MELODEE_ADMISSION=0` preserve the
 actual baseline layout and weight policy. Controlled candidate-only screens
 have started; baseline/candidate device comparisons remain pending. No voice
-allowance or production default has increased. That installation is now
-historical: a later read-only query on 2026-10-16 reported FM-1_900, so the
-device's current package is unconfirmed. The current prepared comparison set
-is `cpu-cap12` (twelve candidates), `cpu-ref10` (profiling reference) and
-`cpu-cap0` (normal); none has been installed.
+allowance or production default has increased. That installation is historical: Claude later reported installing the twelve-candidate
+flash-layout `FM-1_900` before its final GUARD label rebuild. This continuation's
+read-only device query confirms `FM-1_900` and cache RAM disabled; it does not
+independently establish the installed source hash. See the final progress
+checkpoint for the resident/cache build set and its explicit cache-failure
+undo-depth tradeoff. The user subsequently requested and received the normal `ram12` package; post-install reads confirm its identity, cache self-test ready and 69,240 B audio resource capacity. Profiling/reference packages remain uninstalled; musical and additional-voice validation remains pending.
 
 Detailed measurements, package hashes, reproduction commands and known limits
 are recorded in [POLYPHONY_CPU_PROGRESS.md](POLYPHONY_CPU_PROGRESS.md).
