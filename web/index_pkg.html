@@ -293,9 +293,14 @@ $("stock-file").addEventListener("change", async () => {
   if (!file) return;
   try {
     if (file.size !== STOCK_V15_SIZE) throw new Error("FM-1 V15 / FM-1.fwsc");
-    const verified = await validateStockPackage(new Uint8Array(await file.arrayBuffer()));
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const verified = await validateStockPackage(bytes);
+    // Always use the current stable loader, independently of the install selection.
+    const response = await fetch(meta.pkg.dual);
+    if (!response.ok) throw new Error(`Restore loader: HTTP ${response.status}`);
+    const restore = await buildStockRestorePackage(bytes, new Uint8Array(await response.arrayBuffer()), meta.product);
     if (epoch !== stockFileEpoch) return;
-    stock = verified; sayK("stockValid"); lockInstaller(false);
+    stock = {...verified, image:logicalImage(restore)}; sayK("stockValid"); lockInstaller(false);
   } catch (e) { if (epoch === stockFileEpoch) sayK("stockError", e.message); }
 });
 function saveArchive(archive) {

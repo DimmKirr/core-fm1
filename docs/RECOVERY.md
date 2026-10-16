@@ -87,3 +87,22 @@ every OS.
 Source: https://github.com/keremimo/melodee (tag v1.4.0).
 Protocol reference: https://github.com/kurogedelic/FM-1-transporter.
 Licences and corresponding libusb source are included in the archive.
+
+## Return to stock from running Melodee
+
+Use **Return to official V15** in the web installer with the unmodified M-VAVE
+`FM-1.fwsc`. The browser verifies the original file's SHA-256 and prepares a temporary
+update using the current stable Melodee loader. This installs the original stock
+application bytes while preserving the device's boot data below `0x4000`.
+The temporary update is prepared locally; the vendor file is not uploaded.
+
+An on-device **FAILED -5** during **CHECK HEAD** means the vendor package's boot data
+is not byte-identical to the device's. The previous web restore used the vendor
+loader, which rewrites that area, so Melodee refused it. Refresh the web installer
+and select the official file again to use the application-only restore path.
+Existing Melodee versions with the Melodee update loader can use this path without
+a firmware upgrade. The chip-key check and stock-file verification still apply.
+
+The installer retains its full-backup and explicit skip-backup choices. Stock
+firmware may change Melodee's saved data after boot. Restoring stock also removes
+Melodee's application boot protection; keep power connected throughout the update.

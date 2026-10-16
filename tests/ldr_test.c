@@ -142,7 +142,7 @@ int main(int argc, char **argv)
     size_t olen;
     uint8_t *old, head[0x4000];
     uint32_t ofo, nfo;
-    int bad = 0, rc;
+    int bad = 0, rc, target_stub;
     if (argc < 3) { printf("usage: ldr_test OLD.fwsc NEW.fwsc\n"); return 2; }
     old = load_logical(argv[1], &olen);
     logical = load_logical(argv[2], &logical_len);
@@ -152,6 +152,14 @@ int main(int argc, char **argv)
     memset(nor, 0xFF, sizeof nor);
     memcpy(nor, old + ofo, LDR_APP_HI);
     memcpy(head, nor, sizeof head);
+    {
+        uint8_t first[512];
+        uint32_t key;
+        if (ldr_chip_key(&key)) return 2;
+        memcpy(first, logical + nfo + LDR_APP_LO, sizeof first);
+        ldr_sfc(first, sizeof first, 0, key);
+        target_stub = ota_memeq(first + 0x128, (const uint8_t *)"CRSTUB", 6);
+    }
     {
         uint8_t r[112] = {0};
         r[2] = 0x0D; r[3] = 0x5A; r[4] = 0x01; r[5] = 0x5A; r[6] = 0x41; r[7] = 0x54;
@@ -209,7 +217,7 @@ int main(int argc, char **argv)
         bad += check("foreign key / damaged app head refused, nothing erased", rc == -6 && erases == 0);
         logical[nfo + 0x4000 + 5] = save;
     }
-    {   /* A stub package with damaged/invalid metadata must never fall back
+    if (target_stub) {   /* A stub package with damaged/invalid metadata must never fall back
          * to the legacy write order. Keep the rest of the package untouched. */
         uint32_t key;
         uint8_t saved[32], plain[32];

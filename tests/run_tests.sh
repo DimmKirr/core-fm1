@@ -170,6 +170,14 @@ web_tests() {                                     # the editor mock's tables mus
         step "web pages: editor protocol + native CZ patches, package builder, update protocol" node web/test_web.mjs
         step "installer UI: release selection, fetch races, cache and write lock" node web/test_installer.mjs
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
+        step "stock restore package: verified V15 with an application-only loader" node web/test_stock_restore.mjs
+        if [ -f FM-1_v15.fwsc ] && [ -f build/stock-restore.fwsc ]; then
+            build stock_restore_ota ota_test &&
+                step "stock restore staging with a different boot head" "$OUT/stock_restore_ota" build/stock-restore.fwsc
+            build stock_restore_ldr ldr_test &&
+                step "stock application install, interrupted write, resume and preserved boot head" "$OUT/stock_restore_ldr" build/melodee.fwsc build/stock-restore.fwsc &&
+                step "original V15 back to Melodee" "$OUT/stock_restore_ldr" FM-1_v15.fwsc build/melodee.fwsc
+        fi
     else
         echo "== skip web tests (no node)"
     fi
