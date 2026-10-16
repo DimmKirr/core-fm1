@@ -290,7 +290,10 @@ static __attribute__((noinline)) void mix_part(track_t *t,uint32_t n)
                 if(!nr)memset(batch_pcm[next],0,n*sizeof batch_pcm[next][0]);
                 if(fx_reverb_private_start(t,&trk[next],batch_pcm[next],n,&first)){batch_reverb_track=next;paired=1;}
             }
-            if(paired){fx_pan(t,part_buf,n);wet=fx_slot_run(&first,n);fx_post_pan(t,n);}
+            if(paired){   /* (fx_pan in .dsp_text: past a direct jump from flash in builds without RAM audio) */
+                void (*volatile pan)(track_t *,int32_t *,uint32_t)=fx_pan;pan(t,part_buf,n);
+                wet=fx_slot_run(&first,n);fx_post_pan(t,n);
+            }
             else wet=fx_process(t,part_buf,n);
         }
 #else
