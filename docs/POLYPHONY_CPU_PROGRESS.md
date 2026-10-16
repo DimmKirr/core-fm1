@@ -1033,3 +1033,75 @@ Verified package SHA256 (all firmware source hashes match their manifests):
 - `cpu-panel-control`: `4f76d04d98814f0700529f26d0eb25ff939d55a962b312d8edbd82a48046e324`.
 - `cpu-panel-default`: `3591166efd2881f19b957d60c817c972c05b70134b93461ce72ee8731154e559`.
 - `cpu-reference-v4`: `a5f21678d228208c925cb52968f57745ee7d8e18b2348563a48b138bae68c79d`.
+
+## Stage 6: exact FM6 Modern zero-level preparation
+
+Parent `5da9f0d`. `MELODEE_FM6_FAST=1` (default zero) specializes only the
+Modern mode's stateless gain preparation for an exactly zero level:
+`fm_exp2f(-14.0f)` is bit-exact `1.0f / 16384.0f` in the existing polynomial.
+The nonzero expression and Mark I/OPL preparation remain intact. Every operator
+keeps the original routing, thresholds, phase advancement, gain interpolation,
+feedback/loop plan, envelope and quiet/ghost behavior. There is no new cache,
+key, voice state, update-rate change or sample-kernel edit. The existing private
+worker publication and accumulation order remain unchanged.
+
+`tests/fm6_prepare_test.c` retains the original complete routing plan, checks
+all 32 algorithms, three modes, 17 feedback-shift choices, eight level patterns
+and seven preceding-gain cases (including both signed zeros and the run
+threshold): 91,392 cases. A further 200,000 changing blocks compare the entire
+voice state after each call, including phases, gains, plans and feedback.
+ASan/UBSan passes. The retained plan's Melodee changes trace to `32e26696` and
+`fa64ef07`; its preceding Felucca C port derives from MSFA/Dexed. Applicable
+notices and references are retained, including the mixed firmware's notices.
+
+Host instructions per isolated plan, including loop/call/level setup, are not
+sample-job or buffer savings:
+
+| Input / mode | Original | Candidate |
+| --- | ---: | ---: |
+| All zero / Modern | 498.49 | 311.15 |
+| One nonzero operator / Modern | 528.77 | 373.33 |
+| All nonzero / Modern | 626.26 | 631.16 |
+| Continuous nonzero levels / Modern | 649.74 | 655.28 |
+| Alternating all zero/nonzero / Modern | 630.63 | 543.04 |
+| All nonzero / Mark I | 473.42 | 472.04 |
+| All nonzero / OPL | 477.42 | 476.09 |
+
+The isolated >=15% zero/one-active gain and <=4% other-row cost gates pass.
+Logs `build/cpu-fm6-prepare-bench.log`, `build/cpu-fm6-prepare-sanitized.log`.
+These are control preparation costs; they do not establish that an FM6 patch
+limits target polyphony or that zero-output operators can stop advancing.
+
+Combined eight-candidate suite: `ALL HOST TESTS PASSED in 78 s`,
+`build/cpu-fm6-prepare-suite.log`, unchanged goldens and all 1,296 concurrent
+assignments. Target instruction checks pass without changing budgets
+(`build/cpu-fm6-prepare-instructions.log`), along with register/residency checks.
+Prepared, **not installed**:
+`build/melodee-1.4.0-cpu-fm6-prepare.fwsc`, manifest
+`build/cpu-fm6-prepare-build.json`, log `build/cpu-fm6-prepare-target.log`.
+All eight candidates/profiling/lab support on, RAM_AUDIO=0 and ADMISSION=0.
+Data/BSS remains 96,912 B, low-DSP tail remains 1,144 B; 32 B additional POOL
+code changes the audio arena from 148,736 to 148,704 B. The 142,336-B floor
+is unchanged. No state RAM was added, and this layout difference remains part
+of any target comparison. The preceding panel-word package is the recorded
+seven-candidate parent; earlier filenames/evidence are preserved.
+
+Prepared normal package `build/melodee-1.4.0-cpu-fm6-default.fwsc` (manifest
+`build/cpu-fm6-default-build.json`, log `build/cpu-fm6-default-target.log`)
+passes: all eight candidates/profiling/lab support off, 95,888-B data/BSS and
+153,056-B arena. New all-candidates-off profiling reference:
+`build/melodee-1.4.0-cpu-reference-v5.fwsc`, manifest
+`build/cpu-reference-v5-build.json`, log `build/cpu-reference-v5-target.log`:
+96,560-B data/BSS, 153,056-B arena. Its unchanged instruction gates pass
+(`build/cpu-reference-v5-instructions.log`). These packages are not installed.
+
+All current source hashes and package SHA256 values were verified against
+these manifests:
+
+- `cpu-fm6-prepare`: `3ceb646be2634438bdf2850e66944d1703f365a792450892b78a6e321f541ff6`.
+- `cpu-fm6-default`: `8cb40b724cb15fdc3dfe21a0f2ea310f6ef5cf95f26298ac06b4f732e3898ce7`.
+- `cpu-reference-v5`: `3ca279eaced12e25ab0713e4872dbeace1a02b76351b546eea4956a349209d6c`.
+
+Target patch ranking, CPU comparisons, physical transitions and additional
+voice proof remain open. No package was flashed, pushed or used for a hardware
+workload in this continuation. Production defaults/allowances remain unchanged.
