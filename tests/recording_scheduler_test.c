@@ -54,7 +54,7 @@ static int state_matches(track_t *t)
 {
     uint16_t refs[128]={0};
     for(uint32_t i=0;i<RECORD_MAX;i++){
-        if(recording_run[i].held!=expected[i].held || recording_run[i].left!=expected[i].left ||
+        if(recording_run[i].held!=expected[i].held || recording_left(i)!=expected[i].left ||
            (recording_flags[i]&~2u)!=expected[i].flags)return 0;
         if(expected[i].left && recording_active(t,i))refs[recording[i].note]++;
     }
@@ -69,7 +69,7 @@ static int state_matches(track_t *t)
 #endif
     return 1;
 }
-static int oracle_scenario(uint32_t count,uint32_t div)
+static int oracle_scenario(uint32_t count,uint32_t div,int long_gates)
 {
     timing_reset(0,24000000u);track_t *t=TSEL;song.rec=0;
     t->p[P_SLEN]=16;t->p[P_SDIV]=(int16_t)div;t->seq_idx=0;t->seq_pos=0;song.playing=1;
@@ -77,6 +77,7 @@ static int oracle_scenario(uint32_t count,uint32_t div)
     memset(expected,0,sizeof expected);expected_fraction=0;
     for(uint32_t i=0;i<count;i++){
         recorded_note_t r={0};r.on=(uint16_t)next_random();r.duration=(uint16_t)(1u+next_random()%65535u);
+        r.owner=(uint8_t)(long_gates?(i%8u)<<5:0u);
         r.step=(uint8_t)(next_random()%16u);r.note=(uint8_t)(48u+next_random()%12u);r.vel=(uint8_t)(60u+next_random()%68u);
         recording_restore_note(t,i,r);recording_flags[i]=(uint8_t)(i%13u==0u?1u:i%3u==0u?8u:0u);
         expected[i].flags=recording_flags[i];
@@ -84,6 +85,7 @@ static int oracle_scenario(uint32_t count,uint32_t div)
     recording_reindex();expected_zero(t);recording_zero(t);
     int ok=state_matches(t);
     for(uint32_t tick=0;tick<2048 && ok;tick++){
+        if(tick==311 && long_gates){song.g[G_BPM]=173;t->p[P_SDIV]=3;}
         if(tick==513){t->p[P_SSWING]=61;t->p[P_RECQ]=4;}
         if(tick==701)t->step[5].flags=0;
         if(tick==901)t->step[5].flags=SF_RECORDED;
@@ -122,6 +124,6 @@ static int cursor_slot_reuse(void)
 }
 int main(void)
 {
-    int bad=oracle_scenario(64,2)+oracle_scenario(1024,2)+oracle_scenario(64,9)+cursor_slot_reuse();
+    int bad=oracle_scenario(64,2,0)+oracle_scenario(1024,2,0)+oracle_scenario(64,9,0)+oracle_scenario(1024,2,1)+cursor_slot_reuse();
     if(!bad)puts("Recording scheduler tests passed");return bad!=0;
 }

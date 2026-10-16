@@ -696,7 +696,7 @@ static void capture_take(void)
                 (recording[existing].step & 63u) == actual && recording[existing].on == r.on)
                 break;
         if (existing < RECORD_MAX) { fm1_irq_on(); continue; }
-        for (; j < RECORD_MAX && recording[j].vel && (recording_present(&recording[j]) || recording_run[j].left); j++)
+        for (; j < RECORD_MAX && recording[j].vel && (recording_present(&recording[j]) || recording_sounding(j)); j++)
             ;
         if (j == RECORD_MAX) { fm1_irq_on(); full = 1; break; }
         if (recording[j].vel) recording_unlink(j);

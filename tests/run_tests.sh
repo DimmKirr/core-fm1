@@ -312,6 +312,9 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW
+    run "Recording storage codec probe: lossless roundtrip and malformed data" python3 tools/recording_storage_probe.py
+    t "Timestamped releases: rollover, retrigger, 1024 cancellations, edits and track isolation" recording_queue_test -O1 $FW
+    t "Recording scheduler oracle against the countdown cursor" recording_scheduler_countdown:recording_scheduler_test -O1 $FW -DMELODEE_RECORD_QUEUE=0
     t "Recording scheduler oracle against the original scanner" recording_scheduler_reference:recording_scheduler_test -O1 $FW -DMELODEE_RECORD_CURSOR=0
     t "Recording undo: whole takes, motion, early stops, redo, isolation and memory" recording_undo_test -O1 $FW
     t "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" seq_notes_test \

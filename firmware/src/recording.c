@@ -7,6 +7,13 @@ static recorded_note_t recording[RECORD_MAX] __attribute__((section(".pool")));
 #ifndef MELODEE_RECORD_CURSOR
 #define MELODEE_RECORD_CURSOR 1 /* 0: reference scanner for host comparisons */
 #endif
+#ifndef MELODEE_RECORD_QUEUE
+#define MELODEE_RECORD_QUEUE MELODEE_RECORD_CURSOR /* 0: countdown comparator */
+#endif
+#if MELODEE_RECORD_QUEUE && !MELODEE_RECORD_CURSOR
+#error "The release queue requires the ordered onset cursor"
+#endif
+/* left is an absolute release time in queue mode, a countdown otherwise. */
 static struct { uint32_t held, left; } recording_run[RECORD_MAX];
 static uint8_t recording_flags[RECORD_MAX]; /* 1: live hold; 2: runtime list; 4: heard this loop; 8: captured in this take */
 static uint32_t recording_fraction[NTRK];
@@ -22,10 +29,104 @@ static uint32_t recording_due[RECORD_MAX];
 static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
 static struct { uint32_t period, key, ordered_period, ordered_key; uint16_t cursor; } recording_schedule[NTRK];
 #if MELODEE_RECORD_CURSOR
-/* Only held/sounding events are visited each tick. Keep the extra index in
+/* Only capture holds (or sounding events in countdown mode) are visited. Keep the extra index in
  * the pool, rather than taking the target's remaining data SRAM. */
 static uint16_t recording_live_next[RECORD_MAX] __attribute__((section(".pool")));
 static uint16_t recording_live_head[NTRK] = {RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX};
+#endif
+static uint32_t recording_view(const track_t *t, const recorded_note_t *r);
+#if MELODEE_RECORD_QUEUE
+/* Each track can own the entire shared store. Fixed indexed heaps permit
+ * O(log N) insertion, retrigger and cancellation without allocating in audio.
+ * The position's top six bits retain the release's overview cell; its bottom
+ * ten bits address the heap. No second copy of the editable notes is saved. */
+_Static_assert(RECORD_MAX == 1024u && NSTEP == 64u, "packed queue index");
+static uint16_t recording_heap[NTRK][RECORD_MAX] __attribute__((section(".pool")));
+static uint16_t recording_heap_pos[RECORD_MAX] __attribute__((section(".pool")));
+/* bit 7 marks a pending note-off; only the low seven bits reach MIDI/synth. */
+static uint8_t recording_message[RECORD_MAX] __attribute__((section(".pool")));
+static uint16_t recording_watch[NTRK][NSTEP] __attribute__((section(".pool")));
+static uint32_t recording_watch_bits[NTRK][2];
+static uint32_t recording_clock[NTRK];
+static uint16_t recording_heap_count[NTRK], recording_heap_owner[NTRK], recording_heap_len[NTRK];
+#endif
+static int recording_sounding(uint32_t i)
+{
+#if MELODEE_RECORD_QUEUE
+    return (recording_message[i] & 128u) != 0;
+#else
+    return recording_run[i].left != 0;
+#endif
+}
+/* Tests and UI queries use remaining time without updating every voice. */
+static uint32_t recording_left(uint32_t i)
+{
+#if MELODEE_RECORD_QUEUE
+    if (!recording_sounding(i)) return 0;
+    return recording_run[i].left - recording_clock[(recording[i].owner & 31u) / NPAT];
+#else
+    return recording_run[i].left;
+#endif
+}
+#if MELODEE_RECORD_QUEUE
+static int recording_before(uint32_t a, uint32_t b)
+{
+    /* The longest supported gate is below 2^31 clock units. Unsigned clock
+     * rollover is therefore unambiguous, including a deadline of zero. */
+    int32_t d = (int32_t)(recording_run[a].left - recording_run[b].left);
+    return d < 0 || (!d && a < b);
+}
+static void recording_heap_put(uint32_t tr, uint32_t at, uint32_t i)
+{
+    recording_heap[tr][at] = (uint16_t)i;
+    recording_heap_pos[i] = (recording_heap_pos[i] & 0xFC00u) | (uint16_t)at;
+}
+static void recording_heap_fix(uint32_t tr, uint32_t at, uint32_t i)
+{
+    while (at) {
+        uint32_t parent = (at - 1u) / 2u, other = recording_heap[tr][parent];
+        if (!recording_before(i, other)) break;
+        recording_heap_put(tr, at, other); at = parent;
+    }
+    for (;;) {
+        uint32_t child = at * 2u + 1u;
+        if (child >= recording_heap_count[tr]) break;
+        if (child + 1u < recording_heap_count[tr] && recording_before(recording_heap[tr][child + 1u], recording_heap[tr][child])) child++;
+        uint32_t other = recording_heap[tr][child];
+        if (!recording_before(other, i)) break;
+        recording_heap_put(tr, at, other); at = child;
+    }
+    recording_heap_put(tr, at, i);
+}
+static void recording_queue_remove(uint32_t i)
+{
+    if (!recording_sounding(i)) return;
+    uint32_t tr = (recording[i].owner & 31u) / NPAT, pos = recording_heap_pos[i];
+    uint32_t view = pos >> 10, at = pos & 1023u;
+    if (!--recording_watch[tr][view]) recording_watch_bits[tr][view >> 5] &= ~(1u << (view & 31u));
+    recording_message[i] = 0;
+    uint32_t last = --recording_heap_count[tr];
+    if (at != last) recording_heap_fix(tr, at, recording_heap[tr][last]);
+}
+static void recording_queue_add(track_t *t, uint32_t i, uint32_t remaining)
+{
+    uint32_t tr = trk_index(t), was = recording_sounding(i);
+    if (!recording_heap_count[tr]) {
+        recording_heap_owner[tr] = (uint16_t)(tr * NPAT + t->pattern);
+        recording_heap_len[tr] = (uint16_t)t->p[P_SLEN];
+    }
+    /* An edit can change a sounding event's overview. Remove/reinsert also
+     * cancels its old deadline rather than leaving a stale release behind. */
+    if (was) recording_queue_remove(i);
+    uint32_t view = recording_view(t, &recording[i]);
+    recording_run[i].left = recording_clock[tr] + remaining;
+    recording_message[i] = recording[i].note | 128u;
+    recording_heap_pos[i] = (uint16_t)(view << 10);
+    recording_watch[tr][view]++;
+    recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
+    uint32_t at = recording_heap_count[tr]++;
+    recording_heap_fix(tr, at, i);
+}
 #endif
 static volatile uint8_t recording_full;
 static uint8_t recording_tracks;
@@ -36,6 +137,9 @@ static void recording_prune(track_t *t);
 static void recording_live_add(uint32_t i)
 {
 #if MELODEE_RECORD_CURSOR
+#if MELODEE_RECORD_QUEUE
+    if (!(recording_flags[i] & 1u)) return; /* capture holds only */
+#endif
     if (recording_flags[i] & 2u) return;
     uint32_t tr = (recording[i].owner & 31u) / NPAT;
     recording_live_next[i] = recording_live_head[tr];
@@ -102,18 +206,46 @@ static void recording_off(track_t *t, uint32_t note)
  * when a dense take is snapped to one boundary. */
 static void recording_end(track_t *t, uint32_t i)
 {
-    if (!recording_run[i].left) return;
+    if (!recording_sounding(i)) return;
+    uint32_t note = recording[i].note;
+#if MELODEE_RECORD_QUEUE
+    note = recording_message[i] & 127u;
+    recording_queue_remove(i);
+#endif
     recording_run[i].left = 0;
-    uint16_t *count = &recording_refs[trk_index(t)][recording[i].note];
+    uint16_t *count = &recording_refs[trk_index(t)][note];
     if (*count) --*count;
-    recording_off(t, recording[i].note);
+    recording_off(t, note);
 }
+#if MELODEE_RECORD_QUEUE
+static void recording_queue_refresh(track_t *t)
+{
+    uint32_t tr = trk_index(t);
+    /* A sparse edit may invalidate a buried node; scanning stable slot IDs
+     * avoids visiting an entry twice or skipping one as the heap moves. */
+    for (uint32_t i = 0; i < RECORD_MAX; i++)
+        if (recording_sounding(i) && (recording[i].owner & 31u) / NPAT == tr && !recording_active(t, i)) recording_end(t, i);
+    memset(recording_watch[tr], 0, sizeof recording_watch[tr]);
+    memset(recording_watch_bits[tr], 0, sizeof recording_watch_bits[tr]);
+    for (uint32_t at = 0; at < recording_heap_count[tr]; at++) {
+        uint32_t i = recording_heap[tr][at], view = recording_view(t, &recording[i]);
+        recording_heap_pos[i] = (uint16_t)((view << 10) | at);
+        recording_watch[tr][view]++;
+        recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
+    }
+}
+#endif
 static void recording_reindex(void)
 {
     recording_generation++;
     for (uint32_t k = 0; k < NTRK * NPAT; k++) recording_head[k] = RECORD_MAX;
     recording_tracks = 0;
     memset(recording_refs, 0, sizeof recording_refs);
+#if MELODEE_RECORD_QUEUE
+    memset(recording_heap_count, 0, sizeof recording_heap_count);
+    memset(recording_watch, 0, sizeof recording_watch);
+    memset(recording_watch_bits, 0, sizeof recording_watch_bits);
+#endif
 #if MELODEE_RECORD_CURSOR
     for (uint32_t tr = 0; tr < NTRK; tr++) recording_live_head[tr] = RECORD_MAX;
     for (uint32_t i = 0; i < RECORD_MAX; i++) recording_flags[i] &= (uint8_t)~2u;
@@ -122,8 +254,18 @@ static void recording_reindex(void)
         uint32_t owner = recording[i].owner & 31u;
         recording_next[i] = recording_head[owner]; recording_head[owner] = (uint16_t)i;
         recording_tracks |= (uint8_t)(1u << (owner / NPAT));
-        if (recording_run[i].left && trk[owner / NPAT].pattern == owner % NPAT) recording_refs[owner / NPAT][recording[i].note]++;
-        if ((recording_run[i].left || (recording_flags[i] & 1u)) && trk[owner / NPAT].pattern == owner % NPAT) recording_live_add(i);
+        if (recording_sounding(i) && trk[owner / NPAT].pattern == owner % NPAT) {
+            recording_refs[owner / NPAT][recording[i].note]++;
+#if MELODEE_RECORD_QUEUE
+            uint32_t tr = owner / NPAT, view = recording_view(&trk[owner / NPAT], &recording[i]);
+            recording_heap_pos[i] = (uint16_t)(view << 10);
+            recording_watch[tr][view]++;
+            recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
+            uint32_t at = recording_heap_count[tr]++;
+            recording_heap_fix(tr, at, i);
+#endif
+        }
+        if ((recording_sounding(i) || (recording_flags[i] & 1u)) && trk[owner / NPAT].pattern == owner % NPAT) recording_live_add(i);
     }
     memset(recording_schedule, 0, sizeof recording_schedule);
 }
@@ -141,6 +283,10 @@ static void recording_reset(void)
     recording_undo_clear();
     memset(recording, 0, sizeof recording);
     memset(recording_run, 0, sizeof recording_run);
+#if MELODEE_RECORD_QUEUE
+    memset(recording_message, 0, sizeof recording_message);
+    memset(recording_clock, 0, sizeof recording_clock);
+#endif
     memset(recording_flags, 0, sizeof recording_flags);
     memset(recording_fraction, 0, sizeof recording_fraction);
     recording_full = 0;
@@ -270,6 +416,9 @@ static void recording_sync(track_t *t, uint32_t period)
     uint32_t tr = trk_index(t), key = recording_key(t);
     if (recording_schedule[tr].period == period && recording_schedule[tr].key == key) return;
     recording_schedule[tr].period = period; recording_schedule[tr].key = key;
+#if MELODEE_RECORD_QUEUE
+    if (recording_heap_count[tr] && (recording_schedule[tr].ordered_period != period || recording_schedule[tr].ordered_key != key)) recording_queue_refresh(t);
+#endif
     if (!MELODEE_RECORD_CURSOR || recording_schedule[tr].ordered_period != period || recording_schedule[tr].ordered_key != key) {
         for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
             recording_due[i] = recording_on(t, &recording[i], period);
@@ -300,11 +449,11 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
          * Distinct hits in one step remain separate events. */
         uint32_t same_time = r->on == on;
         if (r->vel && (r->owner & 31u) == owner && r->note == note && (r->step & 63u) == actual && same_time) free = i;
-        else if (free == RECORD_MAX && (!r->vel || (!recording_present(r) && !recording_run[i].left && !(recording_flags[i] & 1u)))) free = i;
+        else if (free == RECORD_MAX && (!r->vel || (!recording_present(r) && !recording_sounding(i) && !(recording_flags[i] & 1u)))) free = i;
     }
     if (free == RECORD_MAX) { recording_full = 1; return 0; }
     recording_undo_capture(t);
-    if (recording_run[free].left) recording_end(&trk[(recording[free].owner & 31u) / NPAT], free);
+    if (recording_sounding(free)) recording_end(&trk[(recording[free].owner & 31u) / NPAT], free);
     recording_unlink(free);
     recorded_note_t *r = &recording[free];
     *r = (recorded_note_t){(uint16_t)on, 1, (uint8_t)note, (uint8_t)vel, (uint8_t)owner, (uint8_t)(actual | (step != actual ? 64u : 0u) | (step == 0u && actual ? 128u : 0u))};
@@ -352,6 +501,7 @@ static void recording_prune(track_t *t)
 }
 static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
 {
+    recording_end(&trk[(recording[i].owner & 31u) / NPAT], i);
     recording_live_detach(i);
     recording[i] = r;
     memset(&recording_run[i], 0, sizeof recording_run[i]);
@@ -441,14 +591,19 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     drum_event_pitch=r->pitch; drum_event_length=r->length?gate:0;
     trk_note_on(t, r->note, r->vel);
     drum_event_pitch=0; drum_event_length=0;
-    uint32_t was = recording_run[i].left != 0;
-    recording_run[i].left = gate > late ? gate - late : 0u;
-    if (recording_run[i].left && !was) recording_refs[trk_index(t)][r->note]++;
-    if (!recording_run[i].left) {
+    uint32_t was = recording_sounding(i), remaining = gate > late ? gate - late : 0u;
+#if MELODEE_RECORD_QUEUE
+    if (remaining) recording_queue_add(t, i, remaining);
+    else { recording_queue_remove(i); recording_run[i].left = 0; }
+#else
+    recording_run[i].left = remaining;
+#endif
+    if (remaining && !was) recording_refs[trk_index(t)][r->note]++;
+    if (!remaining) {
         if (was && recording_refs[trk_index(t)][r->note]) recording_refs[trk_index(t)][r->note]--;
         recording_off(t, r->note);
     }
-    if (recording_run[i].left) recording_live_add(i);
+    if (remaining) recording_live_add(i);
 }
 static void recording_zero(track_t *t)
 {
@@ -474,6 +629,36 @@ static void recording_zero(track_t *t)
     }
 #endif
 }
+#if MELODEE_RECORD_QUEUE
+static void recording_queue_tick(track_t *t, uint32_t n)
+{
+    uint32_t tr = trk_index(t), owner = recording_owner(t), len = (uint32_t)t->p[P_SLEN];
+    recording_clock[tr] += n;
+    if (!recording_heap_count[tr]) return;
+    int changed = recording_heap_owner[tr] != owner || recording_heap_len[tr] != len;
+    recording_heap_owner[tr] = (uint16_t)owner; recording_heap_len[tr] = (uint16_t)len;
+    /* Poll only overview cells owning sounding events (at most 64), rather
+     * than all sounding notes. A manual overwrite must release immediately,
+     * even when that event's deadline is buried inside the heap. */
+    for (uint32_t word = 0; word < 2 && !changed; word++) {
+        uint32_t bits = recording_watch_bits[tr][word];
+        while (bits) {
+            uint32_t bit = (uint32_t)__builtin_ctz(bits);
+            const step_t *s = &t->step[word * 32u + bit];
+            if (s->time != ST_NOTE || !(s->flags & SF_RECORDED)) { changed = 1; break; }
+            bits &= bits - 1u;
+        }
+    }
+    if (changed && recording_heap_count[tr]) recording_queue_refresh(t);
+    /* Process offs before this block's new onsets, as the countdown path did.
+     * Retrigger replaces the indexed deadline; no stale off can end its gate. */
+    while (recording_heap_count[tr]) {
+        uint32_t i = recording_heap[tr][0];
+        if ((int32_t)(recording_run[i].left - recording_clock[tr]) > 0) break;
+        recording_end(t, i);
+    }
+}
+#endif
 static void recording_tick(track_t *t, uint32_t n)
 {
     uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), tr = trk_index(t);
@@ -491,16 +676,21 @@ static void recording_tick(track_t *t, uint32_t n)
         elapsed = (uint32_t)(ticks / period);
     }
     recording_sync(t, period);
+#if MELODEE_RECORD_QUEUE
+    recording_queue_tick(t, n);
+#endif
 #if MELODEE_RECORD_CURSOR
     uint16_t *link = &recording_live_head[tr];
     while (*link < RECORD_MAX) {
         uint32_t i = *link;
         if (recording_flags[i] & 1u) recording_run[i].held = (uint32_t)clamp((int32_t)(recording_run[i].held + elapsed), 0, 8388607);
+#if !MELODEE_RECORD_QUEUE
         if (recording_run[i].left) {
             if (!recording_active(t, i) || recording_run[i].left <= n) recording_end(t, i);
             else recording_run[i].left -= n;
         }
-        if (!(recording_flags[i] & 1u) && !recording_run[i].left) {
+#endif
+        if (!(recording_flags[i] & 1u) && (MELODEE_RECORD_QUEUE || !recording_run[i].left)) {
             *link = recording_live_next[i];
             recording_flags[i] &= (uint8_t)~2u;
         } else link = &recording_live_next[i];

@@ -2,6 +2,10 @@
 
 Branch: `experiment/recording-playback-cursor`, based on nightly `1139a6f`.
 
+The subsequent [release queue experiment](RECORDING_RELEASE_QUEUE_EXPERIMENT.md)
+removes sounding-note countdown scans; the measurements below describe this
+original cursor implementation.
+
 This experiment keeps Melodee's original recording behavior. Every note is
 captured independently, including repeated hits within a step, individual
 velocities, overlapping chord releases and free timing. QNT still commits only
