@@ -701,6 +701,8 @@ static int project_restore_runtime(const project_t *input)
     fm1_irq_off();                                      /* the audio ISR must not see half a project */
     seq_stop();
     fx_clear_all();
+    memset(generator, 0, sizeof generator);
+    memset(generator_keep, 0, sizeof generator_keep);
     transport_req = 0;
     pattern_init();
     memcpy(recording, p->recording, sizeof recording);

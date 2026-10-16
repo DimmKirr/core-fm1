@@ -1962,6 +1962,87 @@ static void designer_sweep(const char *out)
     }
     cur_name=0;
 }
+static void generator_sweep(const char *out)
+{
+    static const char *const titles[] = {"GENERATE", "GEN PHRASE", "GEN CHORD", "GEN ANSWER", "PRESETS", "SONG", "SCALES"};
+    for (uint32_t font = 0; font < 2u; font++) for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++) {
+        render_pixel = (int)font;
+        for (uint32_t page = 0; page < NELEM(titles); page++) {
+            char name[80], file[40];
+            state(); pal(p);
+            generator_defaults(song.sel);
+            generator_mode(TSEL, GEN_CHORD);
+            generator[song.sel].p[GN_EVOLVE] = 8;
+            ui.gen_open = 1;
+            go_title(titles[page]);
+            seq_start(); seq_advance(0);
+            song.rec = 2; song.octave = 3;               /* crowded header: another track recording */
+            snprintf(name, sizeof name, "%s%s/generator %s", font ? "PIXEL " : "", UI_PALETTES[p].name, titles[page]);
+            cur_name = name;
+            nscr = npend = 0; ui.force = 1; ui_draw(); lint();
+            if (p == UI_GRAY_INDEX) mono_check();
+            int found = 0;
+            for (uint32_t i = 0; i < nscr; i++) found |= !strcmp(scr[i].s, "GEN RUN");
+            if (!found) { fprintf(rep, "MISSING %s: persistent generator header\n", name); nfind++; }
+            if (p == 0u) {
+                snprintf(file, sizeof file, "generator_%u", page);
+                write_ppm(out, font ? "PIXEL" : "NIGHT", file);
+            }
+            if (page < 4u) for (uint32_t col = 0; col < 4u; col++) {
+                int16_t *value;
+                const param_desc_t *desc = page_desc(cur_page(), col, &value);
+                int16_t old = *value;
+                for (int32_t v = desc->min; v <= desc->max; v++) {
+                    *value = (int16_t)v;
+                    nscr = npend = 0; ui.force = 1; draw_columns(); lint();
+                }
+                *value = old;
+            }
+            generator_t *g = &generator[song.sel];
+            int16_t length_before = g->p[GN_LENGTH];
+            g->p[GN_LENGTH] = length_before == 16 ? 15 : length_before + 1;
+            nscr = npend = 0; ui_draw();
+            found = 0;
+            for (uint32_t i = 0; i < nscr; i++) found |= !strcmp(scr[i].s, "GEN NEXT");
+            if (!found) { fprintf(rep, "MISSING %s: queued phrase header\n", name); nfind++; }
+            g->p[GN_LENGTH] = length_before;
+            nscr = npend = 0; ui_draw();
+            g->p[GN_EVOLVE] = 0;
+            nscr = npend = 0; ui_draw();
+            found = 0;
+            for (uint32_t i = 0; i < nscr; i++) found |= !strcmp(scr[i].s, "GEN LOCK");
+            if (!found) { fprintf(rep, "MISSING %s: locked memory header\n", name); nfind++; }
+            for (uint32_t error = 1; error <= 2u; error++) {
+                g->link_bad = (uint8_t)error;
+                nscr = npend = 0; ui_draw(); lint();
+                found = 0;
+                for (uint32_t i = 0; i < nscr; i++) found |= !strcmp(scr[i].s, error == 1u ? "GEN SRC" : "GEN KEY");
+                if (!found) { fprintf(rep, "MISSING %s: harmonic source status\n", name); nfind++; }
+            }
+            g->link_bad = 0; g->answer_wait = 1;
+            nscr = npend = 0; ui_draw(); lint();
+            found = 0;
+            for (uint32_t i = 0; i < nscr; i++) found |= !strcmp(scr[i].s, "GEN WAIT");
+            if (!found) { fprintf(rep, "MISSING %s: first answer history status\n", name); nfind++; }
+            g->answer_wait = 0;
+            nscr = npend = 0; ui_draw();
+            /* The state outlives action feedback, then clears without a full redraw. */
+            for (uint32_t frame = 0; frame < 65u; frame++) { nscr = npend = 0; ui_draw(); }
+            generator_mode(TSEL, GEN_OFF);
+            nscr = npend = 0; ui_draw();
+            static uint16_t ended[240*240];
+            memcpy(ended, host_screen, sizeof ended);
+            ui.force = 1; ui_draw();
+            if (memcmp(ended, host_screen, sizeof ended)) {
+                fprintf(rep, "STALE %s: generator end differs from full redraw\n", name); nfind++;
+            }
+            seq_stop();
+        }
+    }
+    render_pixel = 0;
+    cur_name = 0;
+}
+
 static void library_note_sweep(const char *out)
 {
     static const char *const names[]={"sysex_import_fm6","sysex_import_cz","sysex_import_p5","preset_bulk","notes_bulk","notes_fractional","preset_bulk_confirm","sysex_import_confirm","notes_bulk_menu","notes_quantize_pattern","notes_quantize_selected","notes_move_single","notes_copy_single","notes_menu_manual"};
@@ -2058,6 +2139,7 @@ int main(int argc, char **argv)
     sweep_list_rows();
     sweep_columns();
     render_pixel = 0;
+    generator_sweep(out);
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */

@@ -232,7 +232,9 @@ static void draw_head(void)
     uint32_t sig, moved = 0;
     int16_t bpm = song.g[G_BPM];                        /* (read once: what is noted is what is drawn) */
     head_chip_text(chip);
-    sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(song.octave + 8) * 11u +
+    sig = (uint32_t)generator_on(TSEL) * 1000003u + (uint32_t)generator_pending(TSEL) * 2000003u +
+          (uint32_t)(generator[song.sel].p[GN_EVOLVE] == 0) * 4000003u + (uint32_t)generator[song.sel].link_bad * 8000009u + (uint32_t)generator[song.sel].answer_wait * 16000007u +
+          (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
           (ui.home ? ui.home_pg * 40503u : ui.page * 2654435761u) + page_sheet() * 524287u;
@@ -274,6 +276,9 @@ static void draw_head(void)
         cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX, "WAIT LOOP", T_REC, T_BG);
     } else if (msg) {                                   /* a message, or the layer's name (may hold a keycap) */
         cv_free_hint(x + 6, ty_y(H_HEAD / 2, TY_TX), ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - x - 6);
+    } else if (generator_on(TSEL)) {
+        cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX,
+            generator[song.sel].link_bad == 2 ? "GEN KEY" : generator[song.sel].link_bad ? "GEN SRC" : !song.playing ? "GEN STOP" : generator[song.sel].answer_wait ? "GEN WAIT" : generator_pending(TSEL) ? "GEN NEXT" : !generator[song.sel].p[GN_EVOLVE] ? "GEN LOCK" : "GEN RUN", T_THEME, T_BG);
     } else {
         int32_t cw = text_w(TY_TX, chip) + 4;           /* (where you are: plain words in the track's colour;
                                                          * PATTERNS plain, the grid is in colour) */
@@ -282,10 +287,12 @@ static void draw_head(void)
             b[0] = song.octave > 0 ? '+' : '-';
             fmt_int(b + 1, song.octave < 0 ? -song.octave : song.octave);
             w = text_w(TY_LB, b) + 12;
-            cv_rrect(x + 2, 4, w, 22, 6, T_MID, T_BG);
-            cv_rrect(x + 3, 5, w - 2, 20, 5, T_BG, T_MID);
-            cv_text_c(x + 2 + w / 2, ty_y(H_HEAD / 2, TY_LB), TY_LB, b, T_TEXT, T_BG);
-            x += w + 8;
+            if (x + w + 8 <= 236 - cw - (low ? 22 : 0) - 6) {
+                cv_rrect(x + 2, 4, w, 22, 6, T_MID, T_BG);
+                cv_rrect(x + 3, 5, w - 2, 20, 5, T_BG, T_MID);
+                cv_text_c(x + 2 + w / 2, ty_y(H_HEAD / 2, TY_LB), TY_LB, b, T_TEXT, T_BG);
+                x += w + 8;
+            }
         }
         if (chain.running) {                            /* the song's row (where there is room) */
             str_cpy(b, "ROW ", 8);
@@ -310,6 +317,10 @@ static void draw_head(void)
                   !ui.home && cur_page()->graph == GR_PATGRID && !ptc_on() ? T_MID : T_THEME, T_BG);
     }
     cv_blit(0, Y_HEAD);
+}
+static int head_ongoing(void)
+{
+    return generator_on(TSEL) || seq_erase_active(TSEL) || (song.rec_wait & (1u << song.sel));
 }
 /* full redraw: the strips (header, cards, panel, footer; Stage: its panel and lanes) cover the rest; only the BG
  * between them is filled */
@@ -376,7 +387,8 @@ static const struct { const char *k, *s; } CELL_SHORT[] = {
     {"DETUNE", "DTUNE"}, {"CUTOFF", "CUT"}, {"UNISON", "UNI"}, {"FREQ A", "FRQ A"}, {"FREQ B", "FRQ B"},
     {"AT LFO", "ATLFO"}, {"AT FLT", "ATFLT"}, {"FILTER", "FILT"}, {"FINE B", "FINEB"}, {"GLMOD", "GLMD"},
     {"SECTION", "SECT"}, {"LENGTH", "LEN"}, {"REPEAT", "REP"}, {"JITTER", "JITT"}, {"VIBRATO", "VIB"},
-    {"TEMPO", "BPM"}, {"SNAPPY", "SNAP"}, {"SEND 1", "FX 1"}, {"SEND 2", "FX 2"}, {"SEND 3", "FX 3"}};
+    {"TEMPO", "BPM"}, {"SNAPPY", "SNAP"}, {"SEND 1", "FX 1"}, {"SEND 2", "FX 2"}, {"SEND 3", "FX 3"},
+    {"EVOLVE", "EVOL"}, {"HARMONY", "HARM"}, {"CHANGE", "CHNG"}, {"WANDER", "WAND"}, {"VOICING", "VOIC"}, {"SOURCE", "SRC"}, {"ANSWER", "ANS"}, {"DYNAMICS", "DYN"}};
 static const char *cell_label(const char *label, int32_t room)
 {
     uint32_t i;
@@ -1164,6 +1176,7 @@ static void ui_draw_frame(void)
     }
     if (ui.menu) {
         draw_menu();
+        if (head_ongoing()) draw_head();
         ui.force = 0;
         return;
     }
@@ -1186,6 +1199,7 @@ static void ui_draw_frame(void)
         smap.on = 0;
     if (smap.on) {                                      /* an engine's map (ui_sections.c) */
         smap_draw();
+        if (head_ongoing()) draw_head();
         ui.force = 0;
         return;
     }
@@ -1201,11 +1215,13 @@ static void ui_draw_frame(void)
             ui.force = 1;
         }
         pop_draw();
+        if (head_ongoing()) draw_head();
         ui.force = 0;
         return;
     }
     if (name_on()) {                                    /* NAME: a user preset's or a project's (ui_name.c) */
         name_draw();
+        if (head_ongoing()) draw_head();
         return;
     }
     if (new_on()) {                                     /* NEW SONG (ui_new.c) */

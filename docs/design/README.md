@@ -164,8 +164,8 @@ place status cards over knobs, lists, waveforms, or notes.
 - **Left:** transport, BPM, then the REC mark. A filled REC mark means the selected track is ready/recording;
   an outline means it is waiting or another track is armed.
 - **Right:** the active transport status replaces the page/engine title and optional navigation marks. Priority:
-  `ERASING`, then `WAIT LOOP` (waiting for the selected track's loop boundary), then brief action feedback, then
-  the normal context. Keep transport, BPM, and REC visible. Use REC colour for recording states.
+  `ERASING`, then `WAIT LOOP` (waiting for the selected track's loop boundary), then brief action feedback,
+  generator state, then the normal context. Keep transport, BPM, and REC visible. Use REC colour for recording states.
 - **Optional context:** octave, song row, page dots, and the low-battery glyph use the remaining header space in
   the normal layout. Never overlap or truncate a status to preserve optional context. Use a concise, documented
   label that fits both Rubik and Melodee Pixel; `WAIT LOOP` is the header label for “waiting for loop”.
@@ -179,6 +179,29 @@ control. These are feedback and interaction, rather than ongoing state indicator
 For each new indicator, specify its state, lifetime, priority, and compact label here, and extend the shared
 header renderer instead of choosing a new position in a page. Verify both fonts, crowded headers, persistence,
 and incremental redraws when the state ends or the selected track changes (`tests/ui_test.c`, `tests/ui_render.c`).
+
+- **GEN SRC:** the selected generator's source is disabled, missing, a kit, or
+  cyclic. Its generated notes release and its part waits until the link is valid.
+- **GEN KEY:** a linked part has incompatible scale/root/transpose/tuning mode.
+  Its notes release until repaired or explicitly matched with Match source key.
+  Source/key statuses outrank other generator states, persist until repaired,
+  and clear on disable or project reset.
+- **GEN WAIT:** an ANSWER part is playing but has no completed audible source
+  phrase yet. Appears after source/key errors and before pending/lock/run labels;
+  clears when the first source history is available or the role is disabled.
+- **GEN RUN:** the selected track has generation enabled and transport is playing
+  with melodic memory allowed to change.
+- **GEN LOCK:** playing with CHANGE zero. Locks melodic memory; harmonic motion
+  remains governed by HOLD/NEAR/PATH. Clears immediately when CHANGE becomes nonzero.
+- **GEN STOP:** generation remains enabled on the selected track while transport is stopped.
+- **GEN NEXT:** while playing, a phrase setting or harmonic change is queued.
+  Replaces GEN RUN until the next phrase commits it (a played root commits at
+  the next note). Shares its priority and location; clears on apply, disable,
+  track change or project reset. Never shown as a toast.
+- All generator labels disappear on ROLE OFF, a change to a nongenerating track,
+  project load or power-off. They replace the right-hand context in the shared
+  header, including browser, song and scale screens. Generator enablement never
+  uses the REC mark. Dialogs and pickers retain the shared status above them.
 
 ## Drawing and the LCD (2026-10-10)
 

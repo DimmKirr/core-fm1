@@ -159,6 +159,8 @@ static struct {
     uint32_t seq_t0;             /* SEQ held: direct SONG entry */
     uint32_t save_t0;            /* SAVE press time (btn_hold: held = project quick save) */
     uint32_t edit_t0;            /* EDIT press time (btn_hold: held = UNDO) */
+    uint32_t arp_t0;             /* ARP held: experimental generator pages */
+    uint8_t gen_open;
     uint32_t oct_t0;             /* OCT+ press time (btn_hold: held = the page's sheet, ui_popup.c) */
     uint8_t confirm;             /* the OCT- / OCT+ dialog: CF_*, 0 = none */
     uint16_t confirm_trk;         /* the track it clears, the slot it overwrites */
@@ -254,6 +256,8 @@ static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's n
 
 static int page_visible(uint32_t i)
 {
+    if (PAGES[i].fam == FAM_ARP)
+        return (PAGES[i].scope == SC_GEN) == (ui.gen_open != 0);
     if (PAGES[i].fam == FAM_FX && PAGES[i].graph != GR_FXRACK)   /* a slot's page (its MIX first): while it holds an
                                                                  * effect (the rack shows it either way) */
         return (PAGES[i].scope == SC_GLOBAL ? song.g : TSEL->p)[PAGES[i].id[0] - 1u] != FX_OFF;
@@ -352,7 +356,7 @@ static void page_entered(void)
         ui.scale_family = (uint8_t)(SCALE_FAMILY[clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u)] + 1u);
         ui.scale_picker_seen = 1;
     }
-    song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
+    song.seq_mode = !generator_on(TSEL) && !ui.home && pg->fam == FAM_SEQ;
     ui.entry_open = 0;
     ui.note_pick = 0;
     ui.note_slot = 0;
@@ -993,6 +997,8 @@ static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 static void track_defaults(track_t *t)
 {
     uint32_t i;
+    memset(&generator[trk_index(t)], 0, sizeof generator[0]);
+    memset(&generator_keep[trk_index(t)], 0, sizeof generator_keep[0]);
     for (i = 0; i < P_E0; i++)
         t->p[i] = TP[i].def;
     track_defaults_steps(t);
@@ -1080,6 +1086,7 @@ static void track_select(uint32_t i)
     browse_commit();                             /* (a sound still pending loads into the track it was meant for) */
     momentary_restore();
     song.sel = (uint8_t)i;
+    song.seq_mode = !generator_on(TSEL) && !ui.home && !ui.menu && cur_page()->fam == FAM_SEQ;
     ui.entry_open = 0;
     ui.note_copy = ui.note_move = 0;
     seq_midi_reset();                            /* (MIDI notes held for the other track enter nothing here) */

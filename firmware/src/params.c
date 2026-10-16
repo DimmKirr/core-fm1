@@ -53,6 +53,22 @@ static const char *const N_ENGNAME[] = {"-", "-", MELODEE_LEGACY_EXTRAS ? "PHASE
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
 #define PE(l, n, df) {l, F_ENUM, 0, (int16_t)(sizeof(n) / sizeof(n[0]) - 1), df, n, 0}
 
+#include "generator_state.h"
+static const char *const N_GEN_MODE[] = {"OFF", "ARP", "BASS", "CHORD", "ANSWER"};
+static const char *const N_GEN_HARMONY[] = {"HOLD", "NEAR", "PATH"};
+static const char *const N_GEN_CHANGE[] = {"1", "2", "4", "8", "16"};
+static const char *const N_GEN_COLOR[] = {"TRIAD", "7TH", "OPEN", "9/11", "SUS2"};
+static const char *const N_GEN_SOURCE[] = {"LOCAL", "T1", "T2", "T3", "T4"};
+static const char *const N_GEN_ANSWER[] = {"ECHO", "REVERSE", "TURN", "INVERT", "BRANCH", "CHORD"};
+static const char *const N_GEN_CONDITION[] = {"ALWAYS", "ODD", "EVEN", "4TH"};
+static const char *const N_GEN_DYNAMICS[] = {"FLAT", "PHRASE"};
+static const param_desc_t GEN_PARAM[GN_COUNT] = {
+    PE("ROLE", N_GEN_MODE, 0), PE("RATE", N_DIV, 1), PD("RANGE", F_INT, 1, 4, 1), PD("FILL", F_INT, 0, 16, 5),
+    PD("LENGTH", F_INT, 1, 16, 8), PD("CHANGE", F_INT, 0, 100, 0), PD("GATE", F_PCT, 1, 127, 80), PD("SEED", F_INT, 1, 127, 11),
+    PE("HARMONY", N_GEN_HARMONY, 0), {"EVERY", F_ENUM, 0, 4, 2, N_GEN_CHANGE, "bar"}, PE("VOICING", N_GEN_COLOR, 0), PD("WANDER", F_INT, 0, 100, 35), PD("COLOR", F_INT, 0, 100, 35), PE("SOURCE", N_GEN_SOURCE, 0),
+    PE("ANSWER", N_GEN_ANSWER, 0), PE("WHEN", N_GEN_CONDITION, 0), PE("DYNAMICS", N_GEN_DYNAMICS, 1), {"STRUM", F_INT, 0, 100, 0, 0, "ms"}
+};
+
 /* FM6's pages (an FM6 track only): the selected track's patch (fm6_patch), its operator switches and the FM6 function
  * settings, in the DX7's ranges. The operator pages show operator fm6_opsel (the PRESETS knob picks it); the STORE
  * page saves the whole sound into user preset slot fm6_bslot (fm6_store.c). The values are not track parameters: page_desc gives a copy
@@ -476,7 +492,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
        FAM_FX, FAM_COUNT };
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
-       SC_FM6, SC_FMOP, SC_CZ, SC_CZ1, SC_P5, SC_P5STORE, SC_DRUM, SC_DRUMHIT };                         /* FM6: its patch, functions; operator fm6_opsel;
+       SC_FM6, SC_FMOP, SC_CZ, SC_CZ1, SC_P5, SC_P5STORE, SC_DRUM, SC_DRUMHIT, SC_GEN };                 /* FM6: its patch, functions; operator fm6_opsel;
                                                                   * CZ1: a native CZ-1 tone (cz_edit.h) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_MOD, GR_PATS, GR_SONG, GR_MOTION, GR_CHORD, GR_SLICES,
@@ -595,6 +611,10 @@ static const page_t PAGES[] = {
     {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, G_BOOT, G_LOAD, G_SAVE}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
+    {"GENERATE", FAM_ARP, SC_GEN, GR_ARP, {GN_MODE, GN_RATE, GN_FILL, GN_EVOLVE}},
+    {"GEN PHRASE", FAM_ARP, SC_GEN, GR_ARP, {GN_LENGTH, GN_GATE, GN_RANGE, GN_PALETTE}},
+    {"GEN CHORD", FAM_ARP, SC_GEN, GR_ARP, {GN_HARMONY, GN_CHANGE, GN_COLOR, GN_SOURCE}},
+    {"GEN ANSWER", FAM_ARP, SC_GEN, GR_ARP, {GN_ANSWER, GN_CONDITION, GN_DYNAMICS, GN_STRUM}},
     {"NOTES", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"TEMPO", FAM_SEQ, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_TRK_RECQ, 0xFF}},   /* the project's: saved with it; QNT: the
@@ -716,6 +736,11 @@ static const param_desc_t *fx_rack_desc(const page_t *pg, uint32_t slot, int16_t
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
+    if (pg->scope == SC_GEN) {
+        generator_defaults(song.sel);
+        *valp = &generator[song.sel].p[id];
+        return &GEN_PARAM[id];
+    }
     if(pg->scope==SC_P5 || pg->scope==SC_P5STORE){
         if(id==255u || (pg->scope==SC_P5 && (id>=88u || !P5_PANEL[id].label))){*valp=0;return 0;}
         p5_cell[slot&3u]=pg->scope==SC_P5STORE?(slot?0:p5_store_slot):p5_patch_of(TSEL)->raw[id]+(id==P5_BEND?1:0);
