@@ -57,8 +57,8 @@ so a bank fills them exactly.
 The five buttons along the top are the pages. The knobs under the screen are whatever that page shows;
 when a page has more than fits, the header says `2/4` and there are two ways to the rest: **SEL**, which is
 the shorter reach once your hands are on the knobs, or pressing that page's own button again — the button
-that got you there also walks you through it, and wraps around to the start. On **EDIT** and **ENV** that
-second press is a hold rather than a tap, for the reason the next section but one gives.
+that got you there also walks you through it, and wraps around to the start. On **EDIT**, **ENV** and
+**LFO** that second press is a hold rather than a tap, for the reason the next section but one gives.
 
 A strip along the bottom of every screen names what the four knobs are doing, in the order they sit under
 it. On a parameter page that is the four parameters you can see anyway — but it is in the same place on
@@ -107,7 +107,7 @@ the title says what moved instead — `OP1 LVL 69`, or `OP3 x2.00` — for a sec
 | **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them; the knobs move four operators at a time |
 | **EDIT** | OPERATOR | hold for the page: level, ratio, detune, mode, velocity sensitivity, amp mod, the coarse and fine bytes, the keyboard scaling — or tap it to put `LEVEL RATIO DETUNE` under the knobs without leaving HOME |
 | **ENV** | ENVELOPE | hold for the page: the envelope drawn to scale, attack, decay, sustain and release, then the four raw segments a rate and level at a time — or tap it for `ATK DEC SUS REL` without leaving HOME |
-| **LFO** | LFO | speed, delay, pitch mod, amp mod, wave, key sync, pitch mod sensitivity |
+| **LFO** | LFO | hold for the page: the LFO drawn over speed, delay and wave, then pitch mod, amp mod and pitch mod sensitivity, then key sync — or tap it for this operator's `A M SENS` without leaving HOME |
 | **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope and **SPECTRUM** |
 
 ### Ratio, and the two bytes under it
@@ -131,7 +131,7 @@ most bells and all of the breath and click at the front of a sound are made.
 
 ### A tap, and a hold
 
-**EDIT** and **ENV** can be pressed two ways, and the only difference is how long you hold them.
+**EDIT**, **ENV** and **LFO** can be pressed two ways, and the only difference is how long you hold them.
 
 **Hold** either for a moment and you get its page, which is what those buttons have always done. Once you
 are there, pressing it again — tap or hold, it no longer matters — walks that page's banks of parameters and
@@ -140,11 +140,13 @@ wraps round, exactly as every other page button does. **HOME** is the way back o
 **Tap** one and you stay on HOME — on the diagram, on the spectrum, on the sound — but the four knobs become
 that page's first few rows for a single operator. **EDIT** gives you `LEVEL`, `RATIO` and `DETUNE`; **ENV**
 gives you `ATK`, `DEC`, `SUS` and `REL`. The fourth knob under **EDIT** is deliberately blank: it is being
-kept for the operator's waveform.
+kept for the operator's waveform. **LFO** gives you one knob, `A M SENS`, for the reason
+[the LFO](#the-lfo) gives.
 
-These are literally the first rows of the page the button would have opened, driven by the same code that
-drives them there. A tap is a shortcut to the top of a menu, not a second set of controls to learn, and
-anything you change this way is on the page waiting for you when you hold the button instead.
+The **EDIT** and **ENV** knobs are literally the first rows of the page the button would have opened,
+driven by the same code that drives them there. A tap is a shortcut to the top of a menu, not a second set of
+controls to learn, and anything you change this way is on the page waiting for you when you hold the button
+instead.
 
 The operator is the one **SELECT** is on — the one with the white ring round its box in the diagram — and
 tapping the same button again steps to the next one. So do the `OP1` to `OP6` black keys. Press **HOME** to
@@ -154,8 +156,9 @@ This is the view worth living in. Four operator parameters under four knobs, a n
 sidebands both moving while you turn: everything FM has to teach is in that loop, and it is much harder to
 learn it from a list of numbers on a page with the sound two button presses away.
 
-The title says when you are in it. `FM LAB` becomes `EDIT OP3` or `ENV OP3`, and it needs to, because part of
-the keyboard has stopped playing — which is the one thing about this that can take you by surprise.
+The title says when you are in it. `FM LAB` becomes `EDIT OP3`, `ENV OP3` or `LFO OP3`, and it needs to,
+because part of the keyboard has stopped playing — which is the one thing about this that can take you by
+surprise.
 
 **SELECT** picks which operator the OPERATOR and ENVELOPE pages are showing. So do the low six black keys,
 the ones the panel prints `OP1` to `OP6` under: on those two pages, and whenever a tap has the knobs, they
@@ -198,7 +201,8 @@ envelope that is not an operator's at all: a single ADSR over the finished voice
 before the mix.
 
 Press the black key marked `GLOBAL` — the one just above `OP6` — wherever `OP1` to `OP6` are already
-selecting an operator: on the OPERATOR and ENVELOPE pages, or after a tap of **ENV**. The title says
+selecting an operator: on the OPERATOR and ENVELOPE pages, or after a tap of **ENV** — or of **LFO**,
+where it does the same for the LFO, as [the LFO](#the-lfo) describes. The title says
 `ENV GLOBAL`, the four knobs become `ATK` `DEC` `SUS` `REL` for the whole voice, and any `OP` key takes you
 back. On a tap of **ENV** the algorithm diagram steps aside and draws the envelope instead, because with
 `GLOBAL` selected the diagram has nothing to point at and you should be able to see the shape you are
@@ -224,6 +228,42 @@ shape worth having and the only way to make a note start quiet.
 It is a setting of the instrument and not of the sound, for the same reason mono is: the 156 bytes are a
 DX7 voice and have no room for it, and a bank saved here should stay a real DX7 dump. So there is one of it,
 it is saved with the octave, and it is under every voice you load.
+
+## The LFO
+
+The LFO is the one part of a DX7 voice where it is easy to set everything right and hear nothing, and the
+reason is that its depth is split in two. `AMP MOD` is how hard the LFO swings, once, for the whole voice.
+`A M SENS` is how much of that swing one operator takes, and there are six of it. **Both have to be up.** A
+depth with every sensitivity at zero does nothing at all, and so does a sensitivity with no depth — which is
+the single most common way of deciding the LFO is broken. Pitch works the same way, with `P MOD` the depth
+and `P M SENS` the sensitivity, except that there is only one `P M SENS`: every operator's frequency comes
+from the one pitch of the voice, so there is no way for one operator to have vibrato and another not.
+
+The layout is built on that split. **Hold LFO** and the page is every LFO number there is one of, and
+nothing else, so the black keys go on playing on all of it. It draws the LFO itself above three cells, four
+cycles wide whatever the speed so the shape stays readable at both ends: a dim line for the LFO as it will
+be, and a bright one at the height `DELAY` is letting through right now, with a dot riding it while a note
+plays. With `DELAY` at 0 the two coincide; wind it up and the bright one starts flat and grows into the dim
+one. The picture is computed with the engine's own LFO arithmetic, so it cannot disagree with what you hear.
+The banks are `SPEED` `DELAY` `WAVE`, then `P MOD` `A MOD` `PMSENS` — the sensitivity beside the depths,
+because `P MOD` means nothing without it — then `K SYNC`, which restarts the LFO under every new note. With
+it off each voice keeps its own LFO running, so a chord shimmers rather than pulsing in step.
+
+**Tap LFO** and you get the other half: one knob, the selected operator's `A M SENS`, with the `OP` keys
+choosing which. One knob looks thin until you count what it is worth. Put a carrier's sensitivity up and
+the LFO is tremolo. Put a modulator's up instead and the loudness barely moves but the brightness wobbles,
+because a modulator's level is how hard it modulates. That difference is the thing worth finding out about
+amplitude modulation on an FM synth, and this is the knob that finds it.
+
+Press `GLOBAL` from there and the knobs become `SPEED` `DELAY` `P MOD` `A MOD` for the whole voice, the
+title says `LFO GLOBAL`, and the LFO's picture takes the diagram's place, exactly as the envelope's does.
+There is no operator to step any more, so a tap of **LFO** steps the wave instead and the picture changes
+under it. Any `OP` key takes you back.
+
+One quirk of the engine is worth knowing, because the instrument reproduces it faithfully rather than
+hiding it. Any operator with `A M SENS` above zero loses about a tenth of its level even with `AMP MOD` at
+zero: Dexed's sensitivity curve does not start at nothing. Raising a sensitivity with no depth is not
+silent, only steady.
 
 ## Taking it apart
 
@@ -482,6 +522,7 @@ tests/run_host.sh tests/focus.txt         # tap and hold, and what each one does
 tests/run_host.sh tests/fast.txt          # four clicks, against four clicks with SEL held
 tests/run_host.sh tests/corners.txt       # the battery and the HOME pips, by the pixel
 tests/run_host.sh tests/global.txt        # the envelope over the whole voice, screens and sound
+tests/run_host.sh tests/lfo.txt           # depth against sensitivity, by ear; the page, the tap, GLOBAL
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -590,6 +631,22 @@ Then it proves the knobs really are the page's rows and not a copy of them — `
 as rate 1 of 59 when you go and look at the raw bank — that two operators get different numbers, that the
 fourth **EDIT** cell is genuinely empty rather than stale, that **HOME** hands the knobs back, and, from the
 run's own MIDI log, that the `OP` keys sent nothing while a white key played and sounded normally.
+
+`tests/lfocheck.py` makes the claim the LFO section rests on by playing the same note three times — depth
+up and nobody listening, both up, sensitivity up and no depth — under algorithm 16, whose only carrier is
+`OP1`, and dividing the outer two into the first so that the patch's own decay cancels. Only the middle one
+may move, and it does: down to one per cent of itself and back, against a swing of 1.01 for the third. The
+statistic took finding. Ten-millisecond RMS windows hear the partials beating against each other as much as
+the LFO, and a window a whole cycle long hides the LFO completely; ten-millisecond windows averaged three at
+a time, a fifth of a cycle, tell the two notes apart by seventy times. It also pins the engine quirk above:
+the third note has to sit steady between eight and nine and a half tenths of the first.
+
+The layout it checks from the audio as much as the screen, because a key that points makes no sound. The
+black keys have to play on the LFO page's banks and fall silent under a tap; `GLOBAL` has to swap the knobs,
+the title and the picture, a second tap there has to change the picture and not the knobs, and an `OP` key
+has to put everything back. Changing the wave has to change the plot, and changing it back has to give the
+same pixels — which is what says the picture is a function of the bytes. Last, it walks to OPERATOR 2/4 and
+reads `A M SENS` off its own row, full, which proves the one knob under the tap wrote that operator's byte.
 
 ## Where to go next
 

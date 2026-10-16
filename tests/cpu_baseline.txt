@@ -426,3 +426,28 @@ Watch this number again after:
     GSTEP, and the firmware would look and feel entirely correct
   - anything else per-sample joining app_audio: this is the first, and the 3 %
     is the price of the first one. A filter would be the second.
+
+
+The LFO page, its picture, and A M SENS under a tap
+---------------------------------------------------
+No change to the audio path: the LFO was always running, and the picture reads
+dxv[].lfo from the UI loop, never the ISR. Image 118868 B (+1352 over the
+global envelope's build), almost all of it draw_lfo_plot and its two helpers.
+RAM unchanged at 31064 B.
+
+Two engine facts the tests had to learn the hard way, kept here because they
+are not in the code's own comments at the point where they bite:
+
+  - DX_AMS_PT[0] is 198789, not 0 (dx7_tables.h, applied in dx7_core.c's AM
+    path). Any operator with A M SENS above zero loses a constant ~11.5 % of
+    level even at AMP MOD 0, because the table lookup lands on that entry
+    rather than on unity. Faithful to Dexed; tests/lfocheck.py pins it at
+    0.80..0.95 of the reference note so that it cannot drift unnoticed.
+  - p_step() gives a click of 5 only to 0..99 bytes. A M SENS (max 3), WAVE
+    (max 5) and every list move 1 per click, so a script that turns them must
+    count in ones.
+
+And one measurement fact: 10 ms RMS windows hear the partials beating (+-8 %)
+as much as an ~8 Hz LFO, and 120 ms windows hide the LFO completely. 10 ms
+windows averaged three at a time separate a modulated note from a steady one
+by about 70x. Any future check on a slow modulation should start there.

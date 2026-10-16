@@ -76,6 +76,10 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'global.txt') {
     python tests\globalcheck.py $out         # and the one envelope over all six operators
     if ($LASTEXITCODE) { throw 'the global envelope is not what it should be' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'lfo.txt') {
+    python tests\lfocheck.py $out            # and the depth and the sensitivity it needs
+    if ($LASTEXITCODE) { throw 'the LFO is not what it should be' }
+}
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'corners.txt') {
     python tests\cornercheck.py $out         # and the battery and the pips at the top
     if ($LASTEXITCODE) { throw 'the corners are not saying what they should' }

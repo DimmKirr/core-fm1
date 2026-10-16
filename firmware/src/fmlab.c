@@ -718,7 +718,7 @@ static const param_t PG_OP[] = {
     {"COARSE", 0, P_OP, 18, 31, K_NUM},         /* the two bytes RATIO says in one number */
     {"FINE",   0, P_OP, 19, 99, K_NUM},
     {"VEL SENS", "V SENS", P_OP, 15, 7, K_NUM},
-    {"AMP MOD",  "AMPMOD", P_OP, 14, 3, K_NUM},
+    {"A M SENS", "AMSENS", P_OP, 14, 3, K_NUM},   /* how hard this operator listens to the LFO */
     {"RATE SCL", "RT SCL", P_OP, 13, 7, K_NUM},
     {"BREAK PT", "BRK PT", P_OP, 8,  99, K_BRK},
     {"L DEPTH", "L DEP", P_OP, 9,  99, K_NUM},
@@ -726,6 +726,9 @@ static const param_t PG_OP[] = {
     {"L CURVE", "L CRV", P_OP, 11, 3,  K_CURVE},
     {"R CURVE", "R CRV", P_OP, 12, 3,  K_CURVE},
 };
+/* A M SENS is the one row in this table reached by name from somewhere else -- a tap of LFO puts
+ * it under the first knob -- so where it sits is not free to change. */
+#define PG_OP_AMS 7u
 /* ---- the envelope, said twice
  *
  * The DX7 gives an operator four segments, each a rate and the level it is heading for. It is the
@@ -766,15 +769,40 @@ static const param_t PG_GEG[] = {
     {"SUSTAIN", "SUS", P_UI, UI_GSUS, 99, K_NUM},
     {"RELEASE", "REL", P_UI, UI_GREL, 99, K_MSR},
 };
+/* ---- the LFO, and the two numbers that decide whether anyone is listening
+ *
+ * A depth on its own does nothing here. The LFO has one PITCH MOD depth and one AMP MOD depth for
+ * the whole voice, and then each destination has a sensitivity saying how much of that depth it
+ * actually takes: one for pitch, which is the voice's, and one per operator for amplitude. Turn
+ * AMP MOD to 99 on a voice whose operators are all at sensitivity 0 and nothing whatever happens,
+ * which is the single most common way of concluding that a DX7's LFO is broken.
+ *
+ * So this page is every number the LFO has that belongs to the whole voice, and deliberately not
+ * one more. The pitch half of the pair is here, because there is one of it: P MOD sets how far
+ * and PMSENS how much of that the voice's pitch takes. The amplitude half is not, because there
+ * are six of it -- A M SENS is an operator's byte and lives on OPERATOR with that operator's
+ * other bytes, and a tap of LFO puts it under a knob on HOME.
+ *
+ * Splitting them that way is the whole point of the page rather than an omission. The first thing
+ * worth knowing about these numbers is which of them you set once and which you set six times,
+ * and a page that is all of the first kind says that without a word.
+ *
+ * Three to a bank, so that a name and its value both fit in a cell. The first bank is the LFO as
+ * the picture draws it -- how fast, how late, what shape. The second is how deep, with P M SENS
+ * beside the two depths because P MOD does nothing without it. The third is whether it restarts
+ * under each note, which is the one thing about it the picture cannot show. */
 static const param_t PG_LFO[] = {
     {"SPEED",   0, P_G, 137, 99, K_NUM},
     {"DELAY",   0, P_G, 138, 99, K_NUM},
-    {"PITCH MOD", "P MOD", P_G, 139, 99, K_NUM},
-    {"AMP MOD", "AMPMOD", P_G, 140, 99, K_NUM},
     {"WAVE",    0, P_G, 142, 5,  K_WAVE},
+    {"PITCH MOD", "P MOD", P_G, 139, 99, K_NUM},
+    {"AMP MOD",  "A MOD", P_G, 140, 99, K_NUM},
+    {"P M SENS", "PMSENS", P_G, 143, 7, K_NUM},     /* how much the voice's pitch takes of P MOD */
     {"KEY SYNC", "K SYNC", P_G, 141, 1, K_ONOFF},
-    {"P M SENS", "PMSENS", P_G, 143, 7, K_NUM},
 };
+#define PG_LFO_WAVE 2u                          /* reached by name: a tap steps it under GLOBAL */
+/* ..and the four GLOBAL puts under the knobs on HOME, where the wave has the button instead */
+static const uint8_t LFO_FOC[4] = {0u, 1u, 3u, 4u};   /* SPEED DELAY P MOD A MOD */
 static const param_t PG_GLO[] = {
     {"ALGORITHM", "ALGO", P_G, 134, 31, K_ALG},
     {"FEEDBACK",  "FEEDBK", P_G, 135, 7,  K_NUM},
@@ -795,24 +823,98 @@ enum { PAGE_HOME = 0, PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_GLO };
 /* rows: how many parameters a bank shows at once, and y0 where the first one sits. The envelope
  * page shows only two, because the graph above them is worth more than two more numbers -- and a
  * rate with the level it is heading for is the pair that actually means something together. */
-static const struct { const char *name; const param_t *p; uint8_t n, perop, rows, y0; } PAGE[] = {
-    {"FM LAB",    0,      0,                                0, 4, 56},
-    {"OPERATOR",  PG_OP,  sizeof PG_OP / sizeof PG_OP[0],   1, 4, 56},
-    {"ENVELOPE",  PG_EG,  sizeof PG_EG / sizeof PG_EG[0],   1, 2, 124},
-    {"LFO",       PG_LFO, sizeof PG_LFO / sizeof PG_LFO[0], 0, 4, 56},
-    {"GLOBAL",    PG_GLO, sizeof PG_GLO / sizeof PG_GLO[0], 0, 4, 56},
+static const struct { const char *name; const param_t *p; uint8_t n, rows, y0; } PAGE[] = {
+    {"FM LAB",    0,      0,                                4, 56},
+    {"OPERATOR",  PG_OP,  sizeof PG_OP / sizeof PG_OP[0],   4, 56},
+    {"ENVELOPE",  PG_EG,  sizeof PG_EG / sizeof PG_EG[0],   2, 124},
+    {"LFO",       PG_LFO, sizeof PG_LFO / sizeof PG_LFO[0], 3, 56},
+    {"GLOBAL",    PG_GLO, sizeof PG_GLO / sizeof PG_GLO[0], 4, 56},
 };
 #define PAGE_ROWS ((uint32_t)PAGE[page].rows)
 #define HOME_NBANK 2u                           /* HOME's two screens: the diagram, and the spectrum */
 
 static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
 static uint8_t gsel;                            /* ..or the global envelope, which is not an operator */
-enum { FOC_OFF = 0, FOC_EDIT, FOC_ENV };        /* a tap of EDIT or ENV puts one operator under the knobs */
+enum { FOC_OFF = 0, FOC_EDIT, FOC_ENV, FOC_LFO };  /* a tap puts the top of a page under the knobs */
 static uint8_t focus;
 #define LONG_MS 400u                            /* longer than a tap, shorter than a wait */
-static const uint8_t FOC_BTN[2] = {BTN_EDIT, BTN_ENV};
-static const uint8_t FOC_MODE[2] = {FOC_EDIT, FOC_ENV};
-static const uint8_t FOC_PAGE[2] = {PAGE_OP, PAGE_EG};
+#define FOC_N 3u
+static const uint8_t FOC_BTN[FOC_N] = {BTN_EDIT, BTN_ENV, BTN_LFO};
+static const uint8_t FOC_MODE[FOC_N] = {FOC_EDIT, FOC_ENV, FOC_LFO};
+static const uint8_t FOC_PAGE[FOC_N] = {PAGE_OP, PAGE_EG, PAGE_LFO};
+static const char *const FOC_NAME[FOC_N] = {"EDIT", "ENV", "LFO"};
+
+/* ---- a few things under the four knobs, without leaving the screen you play on
+ *
+ * The pages are the right way to read a sound and the wrong way to shape one: the moment you are
+ * listening, a full-screen list of numbers is in the way. So EDIT, ENV and LFO answer to how long
+ * you hold them. Hold one and you get its page, as ever. Tap it and you stay on HOME -- diagram or
+ * spectrum, still playing -- and the four knobs swing round onto the top of that page.
+ *
+ * Tapping EDIT gives one operator's timbre: level, ratio, detune. The fourth knob is deliberately
+ * empty and is waiting for the wave shape. Tapping ENV gives its envelope: attack, decay, sustain,
+ * release -- which is exactly four, and is the reason those four had to exist before this did.
+ * Tapping LFO gives one knob rather than four: this operator's A M SENS, which is how much of the
+ * LFO's amplitude depth it takes. One knob looks thin until you count what it is worth. It is the
+ * only LFO number there are six of, and carrying it from operator to operator is what turns one
+ * LFO into tremolo, or into a wobble in brightness, or into both at once -- which is the thing
+ * about amplitude modulation on an FM synth that is worth finding out early.
+ *
+ * EDIT and ENV are the first few rows of the page the button would have opened. LFO is not, and
+ * it is the one place the shortcut is deliberately not the top of the menu. The LFO page is every
+ * number that belongs to the whole voice; the one you reach for with a note sounding is the one
+ * that does not. Putting both under the same four knobs was what made it hard to see which of
+ * them you set once and which you set six times.
+ *
+ * The voice's half is still one press away, by the key that means "all six of them" everywhere
+ * else: GLOBAL swaps the single operator knob for the LFO itself -- speed, delay, and the two
+ * depths -- and puts its picture where the diagram was, exactly as it does for the envelope. Any
+ * OP key brings you back to that operator's ear on it.
+ *
+ * SEL steps the operator under all three, because the four knobs are fixed and the operator is
+ * what varies. Pressing the button again does the same as SEL, as it always has -- except on the
+ * global LFO, where there is no operator to step and the button steps the wave instead, with its
+ * picture right there to show what it became.
+ *
+ * The black keys the panel prints OP1..OP6 under pick the operator instead of sounding whenever
+ * the knobs have an operator's byte under them -- under EDIT and ENV always, under LFO until
+ * GLOBAL takes the knobs off that operator. That makes some of the keyboard stop playing, so the
+ * title says EDIT OP3 or LFO OP3 exactly when it does, and LFO GLOBAL when it does not. */
+/* what knob e moves while focused, or 0 for "this knob does nothing" */
+static const param_t *focus_at(uint32_t e)
+{
+    if (focus == FOC_EDIT)
+        return e < 3u ? &PG_OP[e] : 0;          /* LEVEL RATIO DETUNE, and one kept for the wave */
+    if (focus == FOC_ENV)                       /* ATTACK DECAY SUSTAIN RELEASE, of one of the
+                                                 * operators or of the whole voice */
+        return e < 4u ? (gsel ? &PG_GEG[e] : &PG_EG[e]) : 0;
+    if (focus == FOC_LFO)                       /* the LFO itself, or this operator's ear on it */
+        return gsel ? (e < 4u ? &PG_LFO[LFO_FOC[e]] : 0)
+                    : (e < 1u ? &PG_OP[PG_OP_AMS] : 0);
+    return 0;
+}
+
+/* Do the focus knobs have a byte belonging to one operator under them? It decides three things at
+ * once -- whether the black keys point, whether the title names an operator, and whether the
+ * diagram draws that operator's envelope in its box -- and they must agree, because the title is
+ * the only warning that part of the keyboard has stopped playing. */
+static uint32_t foc_op(void)
+{
+    uint32_t e;
+    const param_t *p;
+    for (e = 0; e < 4u; e++)
+        if ((p = focus_at(e)) != 0 && p->where == P_OP)
+            return 1u;
+    return 0u;
+}
+
+/* SEL, and a second press of the button that got you here, both mean "the next operator" -- which
+ * is the only thing any of the three has more than one of. */
+static void foc_step(void)
+{
+    opsel = (uint8_t)((opsel + 5u) % 6u);       /* again: OP1 -> OP2 -> .. */
+}
+
 
 /* One more black key points instead of playing: the one the panel prints GLOBAL under. It picks
  * the global envelope in place of an operator, and it does so only where there is an envelope on
@@ -821,12 +923,21 @@ static const uint8_t FOC_PAGE[2] = {PAGE_OP, PAGE_EG};
 #define GLO_KEY 17u                             /* A#4 */
 static uint32_t glo_point(void)
 {
-    return page == PAGE_EG || (focus == FOC_ENV && page == PAGE_HOME);
+    return page == PAGE_EG
+        || ((focus == FOC_ENV || focus == FOC_LFO) && page == PAGE_HOME);
 }
 
 static uint32_t eg_glo(void)                    /* ..and it is the global envelope that is showing */
 {
-    return gsel && glo_point();
+    return gsel && (page == PAGE_EG || (focus == FOC_ENV && page == PAGE_HOME));
+}
+
+/* ..or the LFO itself in place of one operator's share of it. One flag, because GLOBAL asks the
+ * same question wherever it is worth asking -- all six of them rather than this one -- and only
+ * one of the two can be on the screen to ask it of. */
+static uint32_t lfo_glo(void)
+{
+    return gsel && focus == FOC_LFO && page == PAGE_HOME;
 }
 
 /* ---- a click, and what it is worth
@@ -956,16 +1067,31 @@ static void page_to(uint8_t p)
     }
 }
 
+/* Does the bank showing have a row that belongs to one operator rather than to the whole voice?
+ * Every bank of OPERATOR and ENVELOPE does; of the LFO page's two, only the one holding A M SENS.
+ * Asking the bank rather than the page is what lets a single operator row live on a page that is
+ * otherwise the voice's without making the whole page behave as though it were an operator's. */
+static uint32_t bank_has_op(void)
+{
+    uint32_t i, f = bank_first(bank), n = bank_rows(bank);
+    const param_t *p;
+    for (i = 0; i < n; i++)
+        if ((p = page_at(f + i)) != 0 && p->where == P_OP)
+            return 1u;
+    return 0u;
+}
+
 /* The panel prints OP1..OP6 under the low six black keys, and the stock firmware uses them that
- * way. On the two pages whose whole subject is one operator -- OPERATOR and ENVELOPE -- so do we:
- * the key picks the operator instead of sounding, because there you are pointing at one rather
- * than playing it -- and so does a tap of ENV or EDIT, which points the knobs at one operator
- * without leaving HOME. On every other page they are ordinary keys. Returns the engine's operator
- * index (0 = OP6 .. 5 = OP1, as opsel counts) or -1 for "this is a note". */
+ * way. Wherever the knobs are on one operator's bytes -- every bank of OPERATOR and ENVELOPE, the
+ * and a tap of EDIT, ENV or LFO -- so do we: the key picks the operator instead of sounding,
+ * because there you are pointing at one rather than playing it. The two global pictures count too,
+ * or there would be no way back off them. Everywhere else they are ordinary
+ * keys. Returns the engine's operator index (0 = OP6 .. 5 = OP1, as opsel counts), or -1 for
+ * "this is a note". */
 static const uint8_t OP_KEY[6] = {1, 3, 5, 8, 10, 13};   /* F#3 G#3 A#3 C#4 D#4 F#4 = OP1..OP6 */
 static uint32_t op_point(void)                  /* are the black keys pointing rather than playing? */
 {
-    return page == PAGE_OP || page == PAGE_EG || focus != FOC_OFF;
+    return bank_has_op() || eg_glo() || lfo_glo() || (page == PAGE_HOME && foc_op());
 }
 
 static int op_key(uint32_t k)
@@ -1002,6 +1128,9 @@ static uint8_t *p_ref(const param_t *p)
 }
 
 static const char *const WAVE[] = {"TRIANGLE", "SAW DOWN", "SAW UP", "SQUARE", "SINE", "SAMP/HOLD"};
+/* ..and short enough to share a third of the screen with the word WAVE, where the picture of it is
+ * directly above to say the rest */
+static const char *const WAVE_S[] = {"TRI", "SAWD", "SAWU", "SQR", "SINE", "S/H"};
 static const char *const CURVE[] = {"-LIN", "-EXP", "+EXP", "+LIN"};
 static const char NOTE_NAME[12][3] = {"C ", "C#", "D ", "D#", "E ", "F ", "F#", "G ", "G#", "A ", "A#", "B "};
 /* ---- the screen */
@@ -1102,36 +1231,6 @@ static void rat_turn(uint32_t op, int32_t enc)
         *op_byte(op, 18) = RAT[x][0];
         *op_byte(op, 19) = RAT[x][1];
     }
-}
-
-/* ---- one operator under the four knobs, without leaving the screen you play on
- *
- * The pages are the right way to read a sound and the wrong way to shape one: the moment you are
- * listening, a full-screen list of numbers is in the way. So ENV and EDIT answer to how long you
- * hold them. Hold one and you get its page, as ever. Tap it and you stay on HOME -- diagram or
- * spectrum, still playing -- and the four knobs swing round onto a single operator.
- *
- * Tapping EDIT gives that operator's timbre: level, ratio, detune. The fourth knob is deliberately
- * empty and is waiting for the wave shape. Tapping ENV gives its envelope: attack, decay, sustain,
- * release -- which is exactly four, and is the reason those four had to exist before this did.
- *
- * Both are the first few rows of the page the button would have opened, which is not a coincidence
- * worth hiding: the tap is a shortcut to the top of the menu, not a second set of controls with
- * its own opinions. The same bytes, the same knobs, the same order.
- *
- * While focused, the six black keys the panel prints OP1..OP6 under pick the operator instead of
- * sounding, as they already do on those two pages, and MONO/POLY work as they do on EDIT. That
- * makes some of the keyboard stop playing, so the title line says EDIT OP3 or ENV OP3 to tell you
- * why. SEL steps the operator; HOME puts the keys and the knobs back. */
-/* what knob e moves while focused, or 0 for "this knob does nothing" */
-static const param_t *focus_at(uint32_t e)
-{
-    if (focus == FOC_EDIT)
-        return e < 3u ? &PG_OP[e] : 0;          /* LEVEL RATIO DETUNE, and one kept for the wave */
-    if (focus == FOC_ENV)                       /* ATTACK DECAY SUSTAIN RELEASE, of one of the
-                                                 * operators or of the whole voice */
-        return e < 4u ? (gsel ? &PG_GEG[e] : &PG_EG[e]) : 0;
-    return 0;
 }
 
 /* Move one parameter by one knob's worth, wherever the knob happened to be. The focus knobs and
@@ -1602,7 +1701,7 @@ static uint16_t op_hue(uint32_t op, uint32_t t)
 static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
 {
     uint32_t off = (opmute >> op) & 1u;
-    int shape = focus != FOC_OFF && !eg_glo() && op == opsel;
+    int shape = (focus == FOC_EDIT || focus == FOC_ENV) && !eg_glo() && op == opsel;
     uint16_t frame = off ? RGB(70, 70, 70) : op_hue(op, 105u);
     int32_t w = a_bw - 2, c;
     char s[2];
@@ -1945,6 +2044,126 @@ static void draw_geg(int32_t y, int32_t h)
     cv_blit(0, (uint32_t)y);
 }
 
+/* ---- the LFO, drawn
+ *
+ * Four numbers of the LFO's seven are things you can only really judge by looking: what shape it
+ * is, how fast, how long before it arrives, and -- the one no number tells you at all -- where in
+ * its cycle it happens to be right now. So the page draws it, the way the ENVELOPE page draws an
+ * envelope, and for the same reason: adjusting a shape you cannot see is no way to learn what the
+ * shape does.
+ *
+ * The wave is read out of the engine's own arithmetic rather than redrawn by hand. lfo_at is
+ * dx_lfo_sample with the state left alone, and lfo_dly is dx_lfo_delay solved for a block number
+ * instead of stepped to it, so the picture cannot drift away from the sound -- if the engine has
+ * a quirk, the quirk is on the screen.
+ *
+ * The plot is four cycles wide whatever the speed, so the shape stays readable at both ends of
+ * the range, and SPEED shows itself twice over: in how far the delay ramp reaches across those
+ * four cycles, and in how fast the marker runs. The wave is drawn twice -- once dim at full
+ * height, which is the LFO as it will be, and once bright at the height the delay is currently
+ * letting through. With DELAY at 0 the two coincide and you see one bright wave; wind it up and
+ * the bright one shrinks back into the dim one, which says "not yet, and this is how much of it"
+ * without needing a second time axis or leaving the screen blank. */
+#define LFO_CYC 4u
+
+static int32_t lfo_at(uint32_t wave, uint32_t phase, uint8_t rnd)
+{
+    int32_t x;
+    switch (wave) {                             /* dx_lfo_sample, without advancing anything */
+    case 0:
+        x = (int32_t)(phase >> 7);
+        x ^= -(int32_t)(phase >> 31);
+        return x & ((1 << 24) - 1);
+    case 1: return (int32_t)((~phase ^ (1u << 31)) >> 8);
+    case 2: return (int32_t)((phase ^ (1u << 31)) >> 8);
+    case 3: return (int32_t)(((~phase) >> 7) & (1u << 24));
+    case 4: return (1 << 23) + (dx_sin((int32_t)(phase >> 8)) >> 1);
+    case 5: return ((int32_t)(rnd ^ 0x80) + 1) << 16;
+    }
+    return 1 << 23;
+}
+
+/* how much of the LFO is through the delay after n render blocks, Q24 */
+static int32_t lfo_dly(uint32_t n, uint32_t inc, uint32_t inc2)
+{
+    uint64_t ds;
+    uint32_t n1;
+    if (inc == ~0u)                             /* DELAY 0: open from the first block */
+        return 1 << 24;
+    n1 = (1u << 31) / inc;                      /* blocks spent before it starts to open at all */
+    if (n <= n1)
+        return 0;
+    ds = (uint64_t)(1u << 31) + (uint64_t)(n - n1) * inc2;
+    if (ds > 0xFFFFFFFFull)
+        return 1 << 24;
+    return (int32_t)((ds >> 7) & ((1 << 24) - 1));
+}
+
+static void draw_lfo_plot(int32_t y, int32_t h)
+{
+    const int32_t x0 = 4, x1 = 236, top = 3, bot = h - 4;
+    const uint32_t w = (uint32_t)(x1 - x0);
+    uint32_t wave = edit[142] > 5u ? 0u : edit[142];
+    uint32_t delta = DX_LFO_DELTA[edit[137] % 100u];
+    uint32_t span, inc, inc2, i, prevc = 0xFFFFFFFFu;
+    uint8_t rnd = 0;
+    int32_t pd = 0, pb = 0;
+    int a = 99 - (int)(edit[138] > 99u ? 99u : edit[138]);
+
+    if (!delta)
+        delta = 1u;
+    span = (uint32_t)((((uint64_t)LFO_CYC) << 32) / delta);
+    if (a == 99) {                              /* dx_lfo_reset, for the delay alone */
+        inc = inc2 = ~0u;
+    } else {
+        a = (16 + (a & 15)) << (1 + (a >> 4));
+        inc = DX_LFO_UNIT * (uint32_t)a;
+        a &= 0xff80;
+        inc2 = DX_LFO_UNIT * (uint32_t)a;
+    }
+
+    cv_begin(240, (uint32_t)h, C_BLACK);
+    cv_rect(0, h - 2, 240, 1, RGB(40, 40, 40));
+    cv_rect(x0, (top + bot) / 2, (int32_t)w, 1, RGB(38, 38, 46));   /* the middle: no change */
+
+    for (i = 0; i <= w; i++) {
+        uint64_t nb = (uint64_t)i * span / w;
+        uint64_t ph = nb * delta;
+        uint32_t c = (uint32_t)(ph >> 32);
+        int32_t v, yd, yb;
+        if (c != prevc) {                       /* sample and hold picks a new one each cycle */
+            if (prevc != 0xFFFFFFFFu)
+                rnd = (uint8_t)((rnd * 179 + 17) & 0xff);
+            prevc = c;
+        }
+        v = lfo_at(wave, (uint32_t)ph, rnd);
+        yd = bot - (int32_t)(((int64_t)v * (bot - top)) >> 24);
+        v = (int32_t)(((int64_t)v * lfo_dly((uint32_t)nb, inc, inc2)) >> 24);
+        yb = bot - (int32_t)(((int64_t)v * (bot - top)) >> 24);
+        if (i) {
+            cv_line(x0 + (int32_t)i - 1, pd, x0 + (int32_t)i, yd, RGB(70, 74, 100));
+            cv_line(x0 + (int32_t)i - 1, pb, x0 + (int32_t)i, yb, C_ACC);
+        }
+        pd = yd;
+        pb = yb;
+    }
+
+    {   /* where the newest note's own copy of it has actually got to, and how much is through */
+        uint32_t v = v_last;
+        if (v < NV && dxv[v].on && (v_lit >> v & 1u)) {
+            uint32_t ph = dxv[v].lfo.phase, ds = dxv[v].lfo.delaystate;
+            int32_t d = ds >= (1u << 31) ? (int32_t)((ds >> 7) & ((1 << 24) - 1)) : 0;
+            int32_t lv = lfo_at(wave, ph, dxv[v].lfo.rnd);
+            int32_t px = x0 + (int32_t)((((uint64_t)ph * w) >> 32) / LFO_CYC);
+            int32_t py;
+            lv = (int32_t)(((int64_t)lv * d) >> 24);
+            py = bot - (int32_t)(((int64_t)lv * (bot - top)) >> 24);
+            cv_rect(px - 1, py - 1, 3, 3, d > (1 << 23) ? C_WHITE : RGB(120, 120, 140));
+        }
+    }
+    cv_blit(0, (uint32_t)y);
+}
+
 /* The envelope to draw: the live one if this operator is sounding, otherwise one built the way a
  * note at middle C would build it, so the page is never blank. The shape always comes from `edit`,
  * so a switched-off operator still shows the envelope it would have -- but it gets no marker,
@@ -2030,31 +2249,52 @@ static void draw_row(uint32_t slot, const param_t *p, uint32_t v)
 
 /* ADSR four to a row. Two columns of two would have fitted as well, but these cells line up with
  * the four knobs and with the legend under them, and a value you cannot match to a knob is half a
- * value. The bar is a quarter as wide as a full row's and says exactly the same thing. */
+ * value. The bar is a quarter as wide as a full row's and says exactly the same thing.
+ *
+ * The LFO page has three to a bank instead, because four names and four values in a quarter of
+ * the screen each came out as four letters of every name, and WAVE's value ran over its own. A
+ * third each is room for both; the legend under them still sits under the knobs. */
 static void draw_eg_cells(void)
 {
-    uint32_t e;
+    uint32_t e, nc = bank_rows(bank) < 4u ? bank_rows(bank) : 4u;
+    uint32_t cw = nc == 3u ? 80u : 60u, in = cw - 6u;
     cv_begin(240, 32, C_BLACK);
-    for (e = 0; e < 4u; e++) {
-        const param_t *p = page_at(e);
+    for (e = 0; e < nc; e++) {
+        const param_t *p = page_at(bank_first(bank) + e);
         uint32_t max, n, w;
         if (e)
-            cv_rect((int32_t)(e * 60u), 2, 1, 22, RGB(44, 44, 44));
+            cv_rect((int32_t)(e * cw), 2, 1, 22, RGB(44, 44, 44));
         if (!p)
             continue;
         n = p_bar(p, *p_ref(p), &max);
-        w = max ? (54u * n) / max : 0u;
-        cv_rect((int32_t)(e * 60u + 3u), 26, 54, 4, RGB(45, 45, 45));
+        w = max ? (in * n) / max : 0u;
+        cv_rect((int32_t)(e * cw + 3u), 26, (int32_t)in, 4, RGB(45, 45, 45));
         if (w)
-            cv_rect((int32_t)(e * 60u + 3u), 26, (int32_t)w, 4, C_ACC);
+            cv_rect((int32_t)(e * cw + 3u), 26, (int32_t)w, 4, C_ACC);
     }
     cv_blit(0, EGC_Y);
-    for (e = 0; e < 4u; e++) {                  /* the text goes on top, as it does on a full row */
-        const param_t *p = page_at(e);
+    for (e = 0; e < nc; e++) {                  /* the text goes on top, as it does on a full row */
+        const param_t *p = page_at(bank_first(bank) + e);
         char s[16];
         uint32_t i;
         if (!p)
             continue;
+        if (cw != 60u) {                        /* wide: the value as wide as it needs, the name
+                                                 * in whatever is left */
+            uint32_t vw, v = *p_ref(p);
+            i = p->kind == K_WAVE ? put(s, 0, WAVE_S[v < 6u ? v : 0u]) : putval(s, 0, p, v);
+            s[i] = 0;
+            vw = (uint32_t)text_w(&FONT_S, s) + 1u;
+            if (vw > in)
+                vw = in;
+            draw_text_box(e * cw + 3u + in - vw, EGC_Y + 4u, (int32_t)vw, &FONT_S, s, C_WHITE, 2);
+            if (in - vw >= 10u) {
+                i = put(s, 0, p_knob(p));
+                s[i] = 0;
+                draw_text_box(e * cw + 3u, EGC_Y + 4u, (int32_t)(in - vw - 4u), &FONT_S, s, C_LBL, 0);
+            }
+            continue;
+        }
         if (eg_glo()) {                         /* a real time needs five characters; the knob
                                                  * legend under it is already naming the four */
             i = putval(s, 0, p, *p_ref(p));
@@ -2092,9 +2332,14 @@ static void draw_home_title(void)
         i = put(s, 0, APP_NAME);
     else if (eg_glo())
         i = put(s, 0, "ENV GLOBAL");
+    else if (lfo_glo())
+        i = put(s, 0, "LFO GLOBAL");
     else {
-        i = put(s, 0, focus == FOC_EDIT ? "EDIT OP" : "ENV OP");
-        i = putn(s, i, 6u - opsel, 1);
+        i = put(s, 0, FOC_NAME[focus - 1u]);
+        if (foc_op()) {                         /* ..of one operator, and which, if it is one */
+            i = put(s, i, " OP");
+            i = putn(s, i, 6u - opsel, 1);
+        }
     }
     s[i] = 0;
     lcd_fill(0, 18, 240, 32, C_BLACK);
@@ -2104,15 +2349,18 @@ static void draw_home_title(void)
 static void draw_head(void)
 {
     char s[32];
-    uint32_t i, nb, perop = PAGE[page].perop;
+    uint32_t i, nb, perop;
     /* Focused, the title stops naming the screen and names what the knobs and the black keys have
-     * become -- which is the only warning you get that part of the keyboard has stopped playing. */
+     * become -- which is the only warning you get that part of the keyboard has stopped playing.
+     * Either way it names an operator exactly when one of the knobs is on that operator's byte. */
     if (focus != FOC_OFF && page == PAGE_HOME) {
-        i = put(s, 0, focus == FOC_EDIT ? "EDIT" : "ENV");
-        perop = 1;
-    } else
+        i = put(s, 0, FOC_NAME[focus - 1u]);
+        perop = foc_op();
+    } else {
         i = put(s, 0, PAGE[page].name);
-    if (eg_glo()) {                             /* not an operator at all: the whole voice */
+        perop = bank_has_op();
+    }
+    if (eg_glo() || lfo_glo()) {                /* not an operator at all: the whole voice */
         i = put(s, i, "  GLOBAL");
         perop = 0;
     }
@@ -2388,8 +2636,9 @@ static void app_main(void)
     uint8_t page_drawn = 255, bank_drawn = 255, bank_drawn2 = 255, op_drawn = 255, mono_drawn = 255;
     uint8_t gsel_drawn = 255;
     uint8_t foc_drawn = 255;
-    uint32_t t_hold[2] = {0, 0}, long_fired[2] = {0, 0};   /* EDIT and ENV, and how long they are down */
+    uint32_t t_hold[FOC_N] = {0, 0, 0}, long_fired[FOC_N] = {0, 0, 0};  /* how long each is down */
     uint8_t alg_drawn = 255, alg_op_drawn = 255, mute_drawn = 255, leg_drawn = 255;
+    uint32_t lfo_sig_drawn = ~0u;               /* the LFO picture on HOME follows its own bytes */
 
     bank_init();                                /* before the first load_voice: a slot may be the voice */
     settings_load(&set, sizeof set);
@@ -2472,10 +2721,9 @@ static void app_main(void)
             } else
                 page_to(PAGE_HOME);
         }
-        if (b & (1u << BTN_LFO))  page_to(PAGE_LFO);
         if (b & (1u << BTN_GLO))  page_to(PAGE_GLO);
-        /* EDIT and ENV are the two buttons that mean an operator, and they are the two that answer
-         * to how long you hold them. Held past LONG_MS: the page, and pressing again walks its
+        /* EDIT, ENV and LFO are the three buttons with a page whose top is worth having under the
+         * knobs while you play, and they are the three that answer to how long you hold them. Held past LONG_MS: the page, and pressing again walks its
          * banks, exactly as every page button does -- a second hold is not needed, because once you
          * are on the page the button owns, a tap of it can only sensibly mean the next bank. Asking
          * for focus from there would be asking to leave, which is what HOME is for. Released
@@ -2483,7 +2731,7 @@ static void app_main(void)
          * waits for the release because the long one replaces it -- there is no way to know which
          * you meant until you let go or run out of time, and firing both would be worse than
          * firing neither. */
-        for (k = 0; k < 2u; k++) {
+        for (k = 0; k < FOC_N; k++) {
             uint32_t m = 1u << FOC_BTN[k];
             if (b & m) {
                 t_hold[k] = fm1_ms ? fm1_ms : 1u;
@@ -2499,8 +2747,15 @@ static void app_main(void)
                 if (!long_fired[k]) {
                     if (page == FOC_PAGE[k])
                         page_to(FOC_PAGE[k]);                  /* already there: the next bank */
-                    else if (focus == FOC_MODE[k] && page == PAGE_HOME)
-                        opsel = (uint8_t)((opsel + 5u) % 6u);   /* again: OP1 -> OP2 -> .. */
+                    else if (focus == FOC_MODE[k] && page == PAGE_HOME) {
+                        if (FOC_MODE[k] == FOC_LFO && lfo_glo()) {  /* no operator to step: the wave */
+                            edit[142] = (uint8_t)((edit[142] + 1u) % 6u);
+                            say_param(&PG_LFO[PG_LFO_WAVE]);
+                            modified = 1;
+                            patch_publish();
+                        } else
+                            foc_step();                        /* again: the next one */
+                    }
                     else {
                         focus = FOC_MODE[k];
                         if (page != PAGE_HOME)
@@ -2521,7 +2776,7 @@ static void app_main(void)
             draw_legend();
             if (!sel_used) {                               /* the next four things under the knobs */
                 if (focus != FOC_OFF && page == PAGE_HOME)
-                    opsel = (uint8_t)((opsel + 5u) % 6u);  /* or, focused, the next operator */
+                    foc_step();                            /* or, focused, the next one of those */
                 else if (page == PAGE_HOME)
                     homeset = (uint8_t)((homeset + 1u) % HSET_N);
                 else
@@ -2689,10 +2944,10 @@ static void app_main(void)
             int opk = (int)op_point();
             for (k = 0; k < 6u; k++)
                 fm1_led_key_glow(KEY_LED(OP_KEY[k]), opk);
-            if (opk && !eg_glo())
+            if (opk && !eg_glo() && !lfo_glo())
                 fm1_led_key(KEY_LED(OP_KEY[5u - opsel]), 1);
             fm1_led_key_glow(KEY_LED(GLO_KEY), (int)glo_point());
-            if (eg_glo())
+            if (eg_glo() || lfo_glo())
                 fm1_led_key(KEY_LED(GLO_KEY), 1);
             fm1_led_key_glow(KEY_LED(MONO_KEY), opk);
             fm1_led_key_glow(KEY_LED(POLY_KEY), opk);
@@ -2713,7 +2968,7 @@ static void app_main(void)
         fm1_led_key(BTN_HOME, page == PAGE_HOME);
         fm1_led_key(BTN_EDIT, page == PAGE_OP || focus == FOC_EDIT);
         fm1_led_key(BTN_ENV, page == PAGE_EG || focus == FOC_ENV);
-        fm1_led_key(BTN_LFO, page == PAGE_LFO);
+        fm1_led_key(BTN_LFO, page == PAGE_LFO || focus == FOC_LFO);
         fm1_led_key(BTN_GLO, page == PAGE_GLO);
         fm1_led_key(BTN_ARP, (opmute >> opsel) & 1u);      /* this operator is off */
         fm1_led_key(BTN_SEQ, opmute != 0u);                /* something is off: you are not hearing it all */
@@ -2740,7 +2995,9 @@ static void app_main(void)
         }
         if (page == PAGE_HOME) {                /* the banner, or what the knobs have become */
             uint8_t ft = (uint8_t)(focus == FOC_OFF ? 0u :
-                                   gsel && focus == FOC_ENV ? 63u : focus * 8u + opsel);
+                                   gsel && focus == FOC_ENV ? 63u :
+                                   gsel && focus == FOC_LFO ? 62u :
+                                   focus * 8u + opsel);
             if (ft != foc_drawn || repaint) {
                 foc_drawn = ft;
                 draw_home_title();
@@ -2749,8 +3006,10 @@ static void app_main(void)
         }
         {   /* the legend outlives a page, but not a change of mode: RATIO becomes FIXED HZ */
             uint8_t leg = (uint8_t)(eg_glo() ? 40u :
+                                    lfo_glo() ? 41u :
                                     focus != FOC_OFF && page == PAGE_HOME ?
-                                        20u + focus * 2u + (*op_byte(opsel, 17) ? 1u : 0u) :
+                                        20u + focus * 2u +
+                                            (*op_byte(opsel, 17) ? 1u : 0u) :
                                     page == PAGE_OP ? (*op_byte(opsel, 17) ? 2u : 1u) :
                                     page == PAGE_HOME ? 10u + homeset : 0u);
             if (leg != leg_drawn || repaint) {
@@ -2787,17 +3046,23 @@ static void app_main(void)
              * The ring and the curve belong to an operator, and GLOBAL is not one -- so GLOBAL
              * gets the diagram's room instead, and the same picture the ENVELOPE page draws.
              * Adjusting a shape you cannot see is no way to learn what the shape does. */
-            uint8_t asel = (uint8_t)(opsel | (eg_glo() ? 0x80u : 0u));
-            if (bank == 0u && (edit[134] != alg_drawn || asel != alg_op_drawn || opmute != mute_drawn)) {
+            uint8_t asel = (uint8_t)(opsel | (eg_glo() ? 0x80u : 0u) | (lfo_glo() ? 0x40u : 0u));
+            /* the LFO's picture follows bytes the diagram never cared about, so it brings its own */
+            uint32_t lsig = lfo_glo() ? (1u | (uint32_t)edit[137] << 1 | (uint32_t)edit[138] << 9
+                                            | (uint32_t)edit[142] << 17) : 0u;
+            if (bank == 0u && (edit[134] != alg_drawn || asel != alg_op_drawn
+                               || opmute != mute_drawn || lsig != lfo_sig_drawn)) {
                 alg_drawn = edit[134];
                 alg_op_drawn = asel;
-                if (eg_glo()) { draw_geg(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
-                else          { draw_alg(); }
+                lfo_sig_drawn = lsig;
+                if (eg_glo())       { draw_geg(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
+                else if (lfo_glo()) { draw_lfo_plot(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
+                else                { draw_alg(); }
             }
-        } else if (page == PAGE_EG && bank == 0u) {
+        } else if (page == PAGE_LFO || (page == PAGE_EG && bank == 0u)) {
             uint32_t ch = 0;                    /* the four cells are one blit, so one of them is all */
             for (e = 0; e < 4u; e++) {
-                const param_t *p = page_at(e);
+                const param_t *p = e < bank_rows(bank) ? page_at(bank_first(bank) + e) : 0;
                 uint16_t v = p ? (uint16_t)p_cache(p) : (uint16_t)0xFFFEu;
                 if (shown[e] != v) { shown[e] = v; ch = 1; }
             }
@@ -2829,6 +3094,13 @@ static void app_main(void)
                         eg_dirty = 0;
                         draw_geg(ALG_Y, ALG_H);
                     }
+                } else if (bank == 0u && lfo_glo()) {   /* ..and the LFO's, which runs the fastest */
+                    uint32_t snd = v_lit ? 1u : 0u;
+                    if (snd || snd != eg_live || eg_dirty) {
+                        eg_live = snd;
+                        eg_dirty = 0;
+                        draw_lfo_plot(ALG_Y, ALG_H);
+                    }
                 } else if (bank == 0u) {
                     draw_alg_levels();
                 } else {
@@ -2841,6 +3113,13 @@ static void app_main(void)
                     eg_live = snd;
                     eg_dirty = 0;
                     draw_eg_now(bank);
+                }
+            } else if (page == PAGE_LFO) {
+                uint32_t snd = v_lit ? 1u : 0u;
+                if (snd || snd != eg_live || eg_dirty) {
+                    eg_live = snd;
+                    eg_dirty = 0;
+                    draw_lfo_plot(EG_Y, EG_H_TALL);
                 }
             }
         }

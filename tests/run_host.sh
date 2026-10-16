@@ -39,6 +39,7 @@ case "$script" in                                           # while the screens 
 */fast.txt)   python3 tests/fastcheck.py "$out" ;;          # four clicks, against four with SEL held
 */corners.txt) python3 tests/cornercheck.py "$out" ;;       # the battery, and which HOME screen
   */global.txt)  python3 tests/globalcheck.py "$out" ;;        # one envelope over all six
+  */lfo.txt)     python3 tests/lfocheck.py "$out" ;;           # a depth, and who is listening
 esac
 OUT="$out" python3 - <<'PY'
 import os
