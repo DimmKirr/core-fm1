@@ -1747,3 +1747,112 @@ build/venv/bin/python tools/audio_cpu_device.py \
   --live-notes 256 --live-tracks all --live-mode latched \
   --live-base 256 --recording-timing grid --sequence-bpm 120
 ```
+
+## Stage 5: exact capture allocation (`MELODEE_CAPTURE_FAST`)
+
+Parent `18fbd7e`. Live recording runs `rec_note` → `recording_note` inside the
+CPU0 audio-side event handling for every recorded note. Scratch host probes
+before any change (one armed Prophet/CZ/808 track, 48 notes, empty to near-full
+store; `build/cpu-capture-before.log`, probe sources not retained) measured:
+unarmed note input 6.7–11.7k host instructions, armed input 25–76k, of which
+`recording_note` alone 22–73k. Its cost split into the owner-list prune walk
+(5.9k–50k) and the unconditional 1,024-slot scan (14.0k–48.5k). A recorded
+chord therefore multiplies a fixed per-note scan inside one audio block.
+
+`MELODEE_CAPTURE_FAST=1` (default zero) keeps the same `on`/cell arithmetic and
+replaces the prune plus full scan with:
+
+1. one walk of this bank's list: retire events whose overview cell is no longer
+   a recorded note (as `recording_prune` does, in list order), seal this pitch's
+   live hold, and keep the highest-index same-time replacement (the full scan's
+   last match wins);
+2. only without a replacement, the lowest empty or retired slot, in index order,
+   skipping this bank's remaining events (just found present, so they cannot
+   qualify). Other banks still use `recording_present`, sounding and live-hold
+   checks unchanged.
+
+No state, RAM, cache, threshold or format is added; the selected slot, removal
+order, finishing, undo capture, insertion and flags are unchanged. The bank-list
+invariant was audited: single-slot writers link/unlink, and every bulk writer
+(`recording_copy`/`double`/`drop`, project restore, recording undo swap, note
+transactions, track removal) calls `recording_reindex` before interrupts resume.
+`recording.c` provenance is entirely Kerem Kilic (Ellic Studio).
+
+`tests/capture_alloc_test.c` retains the parent's `recording_note` verbatim as
+the reference. 400 seeded scenarios × 160 operations run in forked children,
+one per version, and compare hashes after every operation of the complete
+state: event store, run/flags/fraction, bank lists, onset cache, live and
+release queues, overview pitch index when compiled, generation/full/track
+masks, undo flags, all tracks, song, both pattern stores, the resource table
+and every resource-bank byte (engine and undo memory). Scenarios move events to
+other banks (present or retired), retire random cells in active and stored
+banks, arm/latch random tracks, replay, release and repeat captures at the same
+time. Coverage: 7,375 replacements, 5,545 other-bank and 23,778 own retired
+slots reused, 5,673 full-store refusals, 13,575 live holds sealed. Index-off
+and index-on variants pass (`build/cpu-capture-alloc-host.log`, `-index.log`);
+ASan/UBSan passes with legacy signed shifts and alignment excluded
+(`build/cpu-capture-alloc-sanitized.log`; the 909 host-pointer note above).
+End-to-end, five complete live-take descriptions from `audio_cpu_take --plan`
+(events and overview, through real MIDI input) are byte-identical with the
+candidate off and on.
+
+Host instructions per recorded note (one track armed, 48 notes):
+
+| Stored events | Layout | Original | Candidate |
+| ---: | --- | ---: | ---: |
+| 0 | single | 22,231 | 6,594 |
+| 64 | single | 29,757 | 10,060 |
+| 256 | single | 46,992 | 17,694 |
+| 960 | single | 110,366 | 45,709 |
+| 0 | all | 21,983 | 6,594 |
+| 64 | all | 26,636 | 9,755 |
+| 256 | all | 36,510 | 17,210 |
+| 960 | all | 71,720 | 43,805 |
+
+The test requires at most 75% of the original in every row where host counters
+exist. Near-full stores remain O(stored events): the prune walk still checks
+every event of the bank, and other banks' events below the first free slot
+still need presence checks. Removing that would need an audited overview-change
+invalidation for every step writer; it is not attempted. Host counts do not
+establish target cycles.
+
+A separate scratch probe (`build/cpu-capture-undo-probe.log`, original path)
+shows the first recorded note of a take also pays the bounded undo snapshot:
+43.6k–174.3k host instructions once per take versus 21.8k–105.6k for the next
+note. It is a one-time punch-in cost whose snapshot and signature must keep
+their exact contents and order; it is measured and left unchanged here.
+
+Complete suite with **twelve** candidate flags in host compilation (the eleven
+above plus `MELODEE_CAPTURE_FAST`) and the fresh candidate listing: **ALL HOST
+TESTS PASSED in 79 s**, `build/cpu-cap12-suite.log`. Every recording, note
+editor, undo and live-take test therefore ran with the candidate enabled;
+golden renders and all 1,296 concurrent assignments are unchanged.
+
+Target: the candidate adds 128 B of image; data/BSS, arenas, register and
+residency checks and the unchanged instruction gates pass. `rec_note` (which
+inlines `recording_note`) grows from 462 to 501 instructions. The static loop
+metric rises from 78 to 96 because it sums loop bodies: two loops with trip
+counts bounded by the bank's events and the first free slot replace one
+1,024-trip loop. It does not establish target cycles. With the flag off,
+`rec_note` is instruction-identical to `cpu-ref9` (addresses stripped), and the
+normal image size and `rec_note` equal `cpu-sid0`/`cpu-lab0`.
+
+Fresh prepared packages from `18fbd7e` plus this change (final source and
+package hashes match; `build/cpu-NAME-build.json`, `-target.log`,
+`-instructions.log`, `.dis`):
+
+| Name | Flags / profiling / lab | Image | Data+BSS | Arena | Package SHA256 |
+| --- | --- | ---: | ---: | ---: | --- |
+| cpu-cap12 | all twelve on / on / on | 523,616 B | 96,912 B | 148,704 B | `c41fc30156bf8ad33478773bba5a62ec0c3719997650f2e9df8c7928f2d98101` |
+| cpu-ref10 | all off / on / on | 521,332 B | 96,560 B | 153,056 B | `2b6f88a6be7d7e5af5459989bf7f202f7e15bd5c67cb60de0617e70505c5a464` |
+| cpu-cap0 | all off / off / off | 518,024 B | 95,888 B | 153,056 B | `cb204e03fd901c967139e99a4201c3578cfecd7c3176c16f9d3de721cac0392e` |
+
+`recording.c` changed, so `cpu-lab11`/`cpu-ref9`/`cpu-lab0` are now historical:
+their firmware manifests no longer match the tree and the runners would refuse
+them for constructed fixtures and live takes. Identities `MELODEE v1.4.0-NAME`,
+installer FM-1_91040, RAM_AUDIO=0/ADMISSION=0, contiguous minimum 142,336 B.
+
+**Not installed or measured on hardware.** The device comparison is the live
+take above on `cpu-cap12` against `cpu-ref10` (events span and complete bound
+during chord-dense takes). No installation, workload, counter reset, guard or
+preference change, publication or default/allowance change occurred.

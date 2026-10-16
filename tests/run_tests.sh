@@ -400,6 +400,9 @@ if sound && [ $TABLES = 1 ]; then
     t "modulation routing cache: independent reference parity and comparison cost" mod_route_test -O2 $FW
     t "CPU playback fixtures: exact full-bank serialization across densities/timing/engines" audio_cpu_fixture -O2 $FW
     t "CPU live takes: REC/overdub schedules, native simulation, jitter bounds, FBKK decoding" audio_cpu_take -O2 $FW
+    t "capture allocation: full-state parity with the original scan, path coverage and cost" capture_alloc_test -O2 $FW
+    t "capture allocation with the overview pitch index" capture_alloc_index:capture_alloc_test -O2 \
+        -UMELODEE_RECORD_INDEX -DMELODEE_RECORD_INDEX=1 $FW -- "$OUT/capture_alloc_index" 400 nocost
     t "routing rebuild probes: full-state parity and rejected steady/changing costs" mod_churn_bench -O2 $FW
     t "SID filter output: exact full state across models/waves/stacks/modes and costs" sid_filter_test -O2 $FW
     t "808/909 metal preparation: exact pitches, states and steady/changing costs" drum_prepare_test -O2 $FW

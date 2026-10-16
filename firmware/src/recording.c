@@ -522,8 +522,44 @@ static uint32_t recording_play_on(const track_t *t, uint32_t i, uint32_t period)
     (void)t; (void)period;
     return recording_due[i];
 }
+#ifndef MELODEE_CAPTURE_FAST
+#define MELODEE_CAPTURE_FAST 0 /* 1: owner-list capture allocation, same slot and state */
+#endif
+#if MELODEE_CAPTURE_FAST
+static void recording_remove(track_t *t, uint32_t i);
+#endif
 static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step)
 {
+#if MELODEE_CAPTURE_FAST
+    uint32_t owner = recording_owner(t), period = seq_div_samples((uint32_t)t->p[P_SDIV]);
+    uint32_t actual = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_idx;
+    uint32_t span = step_samples(t, period, actual), pos = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_pos;
+    uint32_t on = (uint32_t)(((uint64_t)pos * RECORD_UNIT + span / 2u) / span), free = RECORD_MAX;
+    if (on > 65535u) on = 65535u;
+    /* Every event of this owner, and only those, is on its bank list. One
+     * walk retires overwritten overview cells (as recording_prune does, in
+     * list order), seals this pitch's live hold and keeps the highest-index
+     * same-time replacement, which wins as it does in the full scan. */
+    for (uint32_t i = recording_head[owner]; i < RECORD_MAX;) {
+        uint32_t next = recording_next[i];
+        recorded_note_t *r = &recording[i];
+        uint32_t view = recording_view(t, r);
+        if (view >= NSTEP || t->step[view].time != ST_NOTE || !(t->step[view].flags & SF_RECORDED)) {
+            recording_remove(t, i);
+        } else if (r->note == note) {
+            if (recording_flags[i] & 1u) recording_finish(i);
+            if ((r->step & 63u) == actual && r->on == on && (free == RECORD_MAX || i > free)) free = i;
+        }
+        i = next;
+    }
+    /* Otherwise the lowest empty or retired slot. This owner's remaining
+     * events were just found present, so they can never qualify. */
+    for (uint32_t i = 0; free == RECORD_MAX && i < RECORD_MAX; i++) {
+        const recorded_note_t *r = &recording[i];
+        if (!r->vel || ((r->owner & 31u) != owner && !recording_present(r) && !recording_sounding(i) && !(recording_flags[i] & 1u)))
+            free = i;
+    }
+#else
     /* Retire overwritten overview cells before a new take can own them again. */
     recording_prune(t);
     uint32_t owner = recording_owner(t), period = seq_div_samples((uint32_t)t->p[P_SDIV]);
@@ -540,6 +576,7 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
         if (r->vel && (r->owner & 31u) == owner && r->note == note && (r->step & 63u) == actual && same_time) free = i;
         else if (free == RECORD_MAX && (!r->vel || (!recording_present(r) && !recording_sounding(i) && !(recording_flags[i] & 1u)))) free = i;
     }
+#endif
     if (free == RECORD_MAX) { recording_full = 1; return 0; }
     recording_undo_capture(t);
     if (recording_sounding(free)) recording_end(&trk[(recording[free].owner & 31u) / NPAT], free);
