@@ -105,10 +105,8 @@ def main(stem):
           band(500, DIAG_Y, DIAG_H) == band(100, DIAG_Y, DIAG_H))
     check("but renames the banner", band(500, HEAD_Y, HEAD_H) != band(100, HEAD_Y, HEAD_H))
     check("and the four knobs with it", legend(500) != legend(100))
-    check("the fourth knob is left empty for the wave", ink(legend(500)[3]) == 0,
-          f"{ink(legend(500)[3])} pixels of ink")
-    check("the other three are not", all(ink(c) > 0 for c in legend(500)[:3]),
-          " ".join(str(ink(c)) for c in legend(500)[:3]))
+    check("all four knobs are named, the fourth the wave", all(ink(c) > 0 for c in legend(500)),
+          " ".join(str(ink(c)) for c in legend(500)))
 
     # ---- an operator key moves the knobs to another operator, and the banner says so
     check("an operator key renames the banner",

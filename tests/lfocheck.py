@@ -135,11 +135,11 @@ ok("..and an OP key puts it all back",
    band(15100, BANNER_Y) == band(7900, BANNER_Y) and
    band(15100, ALG_Y) == band(7900, ALG_Y))
 
-# That one knob writes an operator's own byte, so OPERATOR 2/4 -- COARSE FINE V SENS A M SENS --
+# That one knob writes an operator's own byte, so OPERATOR 3/4 -- A M SENS RT SCL BRK PT L DEP --
 # has to be waiting with it. Its max is 3, so 3 fills the bar.
-b = bars(17100)
-ok("the knob under the tap is the operator's own byte", b[3] == BAR_W,
-   "A M SENS %d px of %d" % (b[3], BAR_W))
+b = bars(18000)
+ok("the knob under the tap is the operator's own byte", b[0] == BAR_W,
+   "A M SENS %d px of %d" % (b[0], BAR_W))
 
 # ---- the audio
 with open(os.path.join(D, "lfo.wav"), "rb") as f:

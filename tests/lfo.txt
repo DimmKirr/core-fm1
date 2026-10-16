@@ -105,9 +105,10 @@
 14360 keys 0
 15100 shot
 
-# ---- and the byte that one knob wrote is the operator's own, which OPERATOR 2/4 says in its own
-# words: COARSE FINE V SENS A M SENS, so the last bar has to be full.
+# ---- and the byte that one knob wrote is the operator's own, which OPERATOR 3/4 says in its own
+# words: A M SENS RT SCL BRK PT L DEP, so the first bar has to be full.
 15300 btn 6 600
 16200 btn 6 600
-17100 shot
-17600 end
+17100 btn 6 600
+18000 shot
+18500 end

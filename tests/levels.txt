@@ -6,7 +6,7 @@
 # instant, and the claim that makes is about time: a plucked voice has to empty its boxes as it
 # decays, and letting go has to take all of them with it.
 #
-# The operator the knobs are on is the exception. Tap EDIT and that one box draws its envelope
+# The operator the knobs are on is the exception. Tap ENV and that one box draws its envelope
 # instead -- solid, so a box that small still reads, ending in the bottom right-hand corner, and
 # without its number, which the white ring round it has already made unnecessary. That one is
 # worth a shape because it is the one you are looking at; the rest stay bars, which is what makes
@@ -46,12 +46,15 @@
 5100 shot
 5300 keys 0
 
-# And the one box that is not a bar. Back to algorithm 1, tap EDIT to put LEVEL under KNOB1 without
-# leaving the diagram, and look at a screen with nothing sounding on it at all: one box has to have
-# grown a curve, and turning LEVEL has to visibly lower it. A bar would have been empty in both.
+# And the one box that is not a bar. Back to algorithm 1, tap ENV, and look at a screen with
+# nothing sounding on it at all: one box has to have grown a curve. Then a tap of EDIT for LEVEL
+# under KNOB1, turn it down, and back to ENV: the curve has to be visibly lower. A bar would have
+# been empty in both.
 5600 enc 1 -31
-5900 btn 6
+5900 btn 4
 6200 shot
+6300 btn 6
 6400 enc 2 -70
+6500 btn 4
 6700 shot
 7000 end

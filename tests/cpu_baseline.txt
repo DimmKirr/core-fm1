@@ -492,3 +492,33 @@ Watch this number again after:
   - the filter moving inside the voice (it would then cost eight times this)
   - CUT or RESO gaining modulation that recomputes the coefficients often:
     flt_sync is cheap per call but not per sample
+
+
+Operator waves
+--------------
+Eight shapes per operator, TX81Z-style, in bits 4-6 of packed byte 11. SINE
+keeps Dexed's own inner loop, untouched; any other wave takes a second loop
+that calls dx_wave() per sample, a switch on the wave and one table read.
+
+  image   122536 B -> 123568 B   (+1032, with the FX tap moving to the spectrum)
+  RAM     31128 B  -> 31204 B    (+76: six wave bytes per voice, and the
+                                  six-byte longer edit buffers)
+  cpu     30 % / PK 36 %   all sines, filter on: unchanged, as the 15 suites'
+                           WAVs being bit-identical said it would be
+          40 % / PK 50 %   non-sine operators sounding, filter on
+
+2026-10-15, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+The cost is per operator that is not a sine, per voice, so a patch using one
+pays a fraction of what a patch using six does. The 40/50 was with several.
+Headroom is still there; if it gets tight, the obvious saving is to give each
+wave its own loop rather than switching per sample, or to fold the shapes
+into lookup tables the size of DX_SINTAB.
+
+The FX tap now runs the spectrum's FFT from the diagram screen as well, so the
+filter's curve is always drawn over the sound. That is the same cost the
+spectrum screen always had, and it measured 30 / 36 with the filter on.
+
+Watch this number again after:
+  - patches that use non-sine waves on all six operators across eight voices
+  - any wave that needs more than a table read and a shift

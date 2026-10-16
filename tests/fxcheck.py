@@ -13,11 +13,11 @@ fundamental and takes about 26 dB off the 1046 two octaves up; HIGH PASS at 1.86
 opposite; and RESONANCE at the top stands the harmonic under the cutoff up by about 24 dB.
 
 That it is reached the way the other three are. A tap of FX on HOME puts CUTOFF RESONANCE TYPE
-under the knobs with the curve where the diagram was, a second tap steps the type, HOME puts it all
+under the knobs with the curve over the spectrum, from either screen, a second tap steps the type, HOME puts it all
 back, the black keys go on playing, and over the spectrum the curve is drawn on the sound. A hold
 gives the page: the curve over three cells.
 
-And that off is off: the picture is a flat line and nothing on it is the curve's colour.
+And that off is off: the curve is a flat line.
 """
 import sys, os, struct, math
 
@@ -54,6 +54,11 @@ def count(ms, ys, rgb):
     return sum(1 for i in range(0, len(b), 3) if tuple(b[i:i + 3]) == rgb)
 
 
+def rows(ms, ys, rgb):
+    b = band(ms, ys)
+    return {ys[0] + i // (240 * 3) for i in range(0, len(b), 3) if tuple(b[i:i + 3]) == rgb}
+
+
 def px(ms, x, y):
     i = (y * 240 + x) * 3
     return tuple(ppm(ms)[i:i + 3])
@@ -63,10 +68,12 @@ def px(ms, x, y):
 ok("a tap of FX puts the filter where the diagram was",
    band(1000, ALG_Y) != band(400, ALG_Y) and band(1000, LEG_Y) != band(400, LEG_Y) and
    band(1000, BANNER_Y) != band(400, BANNER_Y), "picture, knobs and banner all changed")
-ok("..and it starts off: a flat line, nothing in the curve's colour",
-   count(1000, ALG_Y, ACC) == 0, "%d lilac pixels" % count(1000, ALG_Y, ACC))
-ok("..until LOW PASS draws a curve", count(3200, ALG_Y, ACC) > 150,
-   "%d lilac pixels" % count(3200, ALG_Y, ACC))
+ok("..the spectrum, with the filter's curve over it, from the diagram too",
+   count(1000, ALG_Y, TEAL) > 150, "%d teal pixels" % count(1000, ALG_Y, TEAL))
+ok("..and it starts off: the curve is one flat line", len(rows(1000, ALG_Y, TEAL)) == 1,
+   "on %d rows" % len(rows(1000, ALG_Y, TEAL)))
+ok("..until LOW PASS bends it", len(rows(3200, ALG_Y, TEAL)) > 10,
+   "on %d rows" % len(rows(3200, ALG_Y, TEAL)))
 ok("..and a second tap steps the type, and not the knobs",
    band(5200, ALG_Y) != band(3200, ALG_Y) and band(5200, LEG_Y) == band(3200, LEG_Y))
 ok("RESONANCE is in the picture as well as the sound",

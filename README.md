@@ -105,7 +105,7 @@ the title says what moved instead — `OP1 LVL 69`, or `OP3 x2.00` — for a sec
 | Button | Page | What is on it |
 | --- | --- | --- |
 | **HOME** | | the algorithm diagram, or the spectrum — press **HOME** again to swap them; the knobs move four operators at a time |
-| **EDIT** | OPERATOR | hold for the page: level, ratio, detune, mode, velocity sensitivity, amp mod, the coarse and fine bytes, the keyboard scaling — or tap it to put `LEVEL RATIO DETUNE` under the knobs without leaving HOME |
+| **EDIT** | OPERATOR | hold for the page: level, ratio, detune and wave, then mode, the coarse and fine bytes and velocity sensitivity, then amp mod and the keyboard scaling — or tap it to put `LEVEL RATIO DETUNE WAVE` under the knobs without leaving HOME |
 | **ENV** | ENVELOPE | hold for the page: the envelope drawn to scale, attack, decay, sustain and release, then the four raw segments a rate and level at a time — or tap it for `ATK DEC SUS REL` without leaving HOME |
 | **LFO** | LFO | hold for the page: the LFO drawn over speed, delay and wave, then pitch mod, amp mod and pitch mod sensitivity, then key sync — or tap it for this operator's `A M SENS` without leaving HOME |
 | **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope and **SPECTRUM** |
@@ -140,9 +140,9 @@ are there, pressing it again — tap or hold, it no longer matters — walks tha
 wraps round, exactly as every other page button does. **HOME** is the way back out.
 
 **Tap** one and you stay on HOME — on the diagram, on the spectrum, on the sound — but the four knobs become
-that page's first few rows for a single operator. **EDIT** gives you `LEVEL`, `RATIO` and `DETUNE`; **ENV**
-gives you `ATK`, `DEC`, `SUS` and `REL`. The fourth knob under **EDIT** is deliberately blank: it is being
-kept for the operator's waveform. **LFO** gives you one knob, `A M SENS`, for the reason
+that page's first few rows for a single operator. **EDIT** gives you `LEVEL`, `RATIO`, `DETUNE` and
+[`WAVE`](#operator-waves); **ENV** gives you `ATK`, `DEC`, `SUS` and `REL`. **LFO** gives you one knob,
+`A M SENS`, for the reason
 [the LFO](#the-lfo) gives. **FX** gives you the whole of [the filter](#the-filter), which is three knobs.
 
 The **EDIT** and **ENV** knobs are literally the first rows of the page the button would have opened,
@@ -267,6 +267,41 @@ hiding it. Any operator with `A M SENS` above zero loses about a tenth of its le
 zero: Dexed's sensitivity curve does not start at nothing. Raising a sensitivity with no depth is not
 silent, only steady.
 
+## Operator waves
+
+A DX7 operator is always a sine. Yamaha's next generation of FM, the TX81Z and the DX11, gave each operator a
+choice of eight shapes, and so does FM Lab: `WAVE` is the fourth knob under a tap of **EDIT**, and the fourth
+row of the OPERATOR page.
+
+| Wave | What it is | What you hear on its own |
+| --- | --- | --- |
+| `SINE` | the DX7's, and where every operator starts | the fundamental alone |
+| `HALF SINE` | the top half, then silence | a strong second harmonic: hollow and reedy |
+| `ABS SINE` | the top half twice | an octave up, and only that octave's harmonics |
+| `QUARTER` | the rising quarter, then a gap, twice | an octave up, and buzzy |
+| `ALT SINE` | a whole sine in the first half, then silence | nasal, pushed up an octave |
+| `CAMEL` | two humps in the first half, then silence | thinner again |
+| `SQUARE` | up, then down | the odd harmonics only: hollow, clarinet-like |
+| `SAW` | a ramp | every harmonic: bright and buzzy |
+
+The thing worth finding out is what a shape does as a *modulator* rather than a carrier. A sine modulator
+makes sidebands at the carrier plus and minus whole multiples of its frequency; a modulator that already has
+harmonics of its own makes sidebands off every one of them, so a little `LEVEL` on a `SAW` modulator does what
+a lot of `LEVEL` on a sine would, and more densely. Put the spectrum up and turn one.
+
+While **EDIT** has the knobs, the selected operator's box draws its wave, as tall as its `LEVEL`. On the
+diagram any operator that is not a sine wears a small mark of its shape in the corner of its box, so a voice
+that uses them says so at a glance. The knob goes round in a ring: past `SAW` is `SINE` again.
+
+Every wave peaks at the same level as the sine. `SQUARE` and `SAW` are drawn sharp-edged, with nothing
+smoothing them, so on high notes their top harmonics fold back down into the audible range as a metallic
+fizz — which is worth hearing once, and is the reason most of their uses are low.
+
+The waves are saved with the voice, in three bits of the bank format that the DX7 leaves unused, so a bank
+saved here still loads on a DX7 or in Dexed — every operator just plays as a sine there. Two things follow.
+A **single voice** dump has no spare bits, so a voice sent or received on its own is all sines. And a bank
+from elsewhere that happens to have something in those bits will play the waves it says.
+
 ## The filter
 
 A DX7 has no filter, and FM does not need one: a modulator's level already decides how bright a sound is. That
@@ -281,11 +316,11 @@ which is where it starts and where it costs nothing at all. `CUT` runs from 20 H
 pitch, so a click is about half an octave, and the cells say the frequency it is at. `RESO` raises a peak at
 the cutoff, from none at all to one about 21 dB tall, and the bottom half of the knob is the subtle half.
 
-**Tap FX** and the three are under the knobs on HOME, with the filter's curve where the algorithm diagram was;
-a second tap steps the type. Tap it on the spectrum screen instead and the curve is drawn in green over the
-live sound, which is the best view of the three: the partials under the slope are the ones it is taking away,
-and with `RESO` up you can watch one of them stand up as the peak crosses it. None of it is an operator's, so
-the black keys go on playing. **Hold FX** for the FILTER page, the same curve above three cells. The curve is
+**Tap FX** and the three are under the knobs on HOME, with the filter's curve drawn in green over the live
+spectrum — from the diagram or the spectrum alike, and **HOME** gives back whichever you came from. A second
+tap steps the type. The partials under the slope are the ones it is taking away, and with `RESO` up you can
+watch one of them stand up as the peak crosses it. With the filter `OFF` the curve is a flat line. None of
+it is an operator's, so the black keys go on playing. **Hold FX** for the FILTER page, the same curve above three cells. The curve is
 the filter's own arithmetic rather than a sketch of a filter, so a peak is as tall on the screen as it is in
 the sound.
 
@@ -336,14 +371,15 @@ Which boxes are carriers is left to the wires: a carrier is one with a line runn
 along the bottom. The fill is worth more than the shading it replaced, because routing is a thing you can
 read off the diagram at leisure and level is a thing that is gone in a second.
 
-**One box is not a bar.** Tap **EDIT** or **ENV** and the operator the knobs land on draws its *envelope*
+**One box is not a bar.** Tap **ENV** and the operator the knobs land on draws its *envelope*
 instead — the same curve the ENVELOPE page draws, shrunk into the box, ending in the bottom right-hand
 corner. It is filled in solid rather than traced, because a shape thirty pixels wide does not read any
 other way, and the part already played is the bright half, so the join between the two brightnesses is the
 playhead. It gives up its number while it is doing this; the white ring has already said which operator it
 is. That curve has LEVEL baked into it the same way the ENVELOPE page's does, so turning LEVEL with nothing
 playing at all visibly collapses the shape — which is the one thing the bar could never show you, because
-with no note held a bar is empty.
+with no note held a bar is empty. Tap **EDIT** instead and the same box draws the operator's
+[wave](#operator-waves), as tall as its `LEVEL`.
 
 **HOME again draws the spectrum.** This is the one screen here purely to teach, and it is worth the stare.
 
@@ -549,6 +585,7 @@ tests/run_host.sh tests/corners.txt       # the battery and the HOME pips, by th
 tests/run_host.sh tests/global.txt        # the envelope over the whole voice, screens and sound
 tests/run_host.sh tests/lfo.txt           # depth against sensitivity, by ear; the page, the tap, GLOBAL
 tests/run_host.sh tests/fx.txt            # the filter, harmonic by harmonic; the page, the tap, the overlay
+tests/run_host.sh tests/waves.txt         # the operator waves, harmonic by harmonic; drawn, and saved
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -601,7 +638,7 @@ shot; let go and every box has to empty while staying drawn, which is also the p
 outline now rather than a solid block. It checks that the feedback operator keeps its warm colour and its
 loop, and that six boxes side by side under algorithm 32 stay six separate boxes of equal width — the live
 redraw patches one box at a time, and that is what would break first if a patch grew. Then the box that is
-not a bar: tap **EDIT** with nothing sounding, and exactly one box may have anything in it. That one has to
+not a bar: tap **ENV** with nothing sounding, and exactly one box may have anything in it. That one has to
 be filled solid to the floor in every column it occupies, has to reach the bottom right-hand pixel, has to
 have lost its number while the other five keep theirs — and turning **LEVEL** alone has to lower its crest.
 Every one of those is a claim a bar could not make, since a bar with no note held is empty.
@@ -612,7 +649,7 @@ rather than "the screen changed": one click is one entry, turning back down retr
 exactly, both ends of the list hold against another click, and `FIXED` switches the same knob to counting
 frequency steps — coarse 31, of which the engine reads only the low two bits, has to land three decades up.
 Then the claim that matters. It drives **RATIO** to each end of its list and goes and reads `COARSE` and
-`FINE` directly, two banks along: `x0.50` has to be 0 and 0, `x31.00` has to be 31 and 0. If **RATIO** were
+`FINE` directly, a bank along: `x0.50` has to be 0 and 0, `x31.00` has to be 31 and 0. If **RATIO** were
 anything other than those two bytes, that is where it would show.
 
 `tests/fastcheck.py` reads the same bars to do arithmetic on a feel: four clicks move **LEVEL** by twenty,
@@ -654,8 +691,8 @@ is held down for six hundred, with the button genuinely down in between, which i
 needs to see. The checks are the two halves of the difference: a tap must leave the diagram on the screen
 while renaming the banner and relabelling all four knob cells, and a hold must replace the screen entirely.
 Then it proves the knobs really are the page's rows and not a copy of them — `ATK` turned to 40 has to read
-as rate 1 of 59 when you go and look at the raw bank — that two operators get different numbers, that the
-fourth **EDIT** cell is genuinely empty rather than stale, that **HOME** hands the knobs back, and, from the
+as rate 1 of 59 when you go and look at the raw bank — that two operators get different numbers, that all
+four **EDIT** cells are named, the fourth `WAVE`, that **HOME** hands the knobs back, and, from the
 run's own MIDI log, that the `OP` keys sent nothing while a white key played and sounded normally.
 
 `tests/lfocheck.py` makes the claim the LFO section rests on by playing the same note three times — depth
@@ -671,7 +708,7 @@ The layout it checks from the audio as much as the screen, because a key that po
 black keys have to play on the LFO page's banks and fall silent under a tap; `GLOBAL` has to swap the knobs,
 the title and the picture, a second tap there has to change the picture and not the knobs, and an `OP` key
 has to put everything back. Changing the wave has to change the plot, and changing it back has to give the
-same pixels — which is what says the picture is a function of the bytes. Last, it walks to OPERATOR 2/4 and
+same pixels — which is what says the picture is a function of the bytes. Last, it walks to OPERATOR 3/4 and
 reads `A M SENS` off its own row, full, which proves the one knob under the tap wrote that operator's byte.
 
 `tests/fxcheck.py` measures the filter on one steady note, `ORGAN` on middle C, by the level of its
@@ -680,9 +717,17 @@ difference is the filter. `LOW PASS` at 230 Hz has to keep the fundamental withi
 20 dB off the eighth harmonic, two octaves up; `HIGH PASS` at 1.86 kHz has to do the opposite; `LOW PASS` set
 right on a partial has to leave it 3 dB down, which is what a cutoff means; and full `RESO` there has to stand
 it up by more than 15 dB without touching the fundamental. It measures 26, 46, 2.9 and 24. On the screen, a
-tap has to swap the diagram for the curve and a second tap change the curve and not the knobs; `OFF` has to
-draw nothing in the curve's colour; the curve has to appear over the spectrum and go again with **HOME**; and
+tap from the diagram has to put the curve over the spectrum, flat while `OFF` and bent once it is not, and a
+second tap change the curve and not the knobs; the same from the spectrum screen, gone again with **HOME**; and
 the page has to be three cells under the curve, with one bank, so its own button leaves it where it is.
+
+`tests/wavescheck.py` plays `INIT VOICE`, one sine carrier on its own, through each wave on middle C and
+measures the harmonics against what the shape has to have: `SINE` none; `HALF SINE` a second 7.5 dB down and
+no third; `ABS SINE` nothing at the note and everything an octave up; `SQUARE` a third 9.5 dB down and no
+second; `SAW` a second 6 dB down and a third 9.5 dB down. Those are the textbook numbers, and it hits them to a
+tenth of a dB. On the screen, every wave has to draw differently in the box, `LEVEL` has to shrink it, the knob
+has to wrap both ways, and on plain HOME a saw has to change a few pixels of its box and nothing else. Then it
+saves the voice, leaves the slot and comes back, and the mark and the harmonics have to be the saw's still.
 
 ## Where to go next
 

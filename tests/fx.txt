@@ -8,13 +8,12 @@
 # what the filter took away is the difference and the voice cancels out.
 #
 # The screens: a tap of FX on HOME puts CUTOFF RESONANCE TYPE under the knobs and the filter's
-# curve where the diagram was; a second tap steps the type; on the spectrum the curve is drawn over
-# the sound instead; the black keys go on playing, because none of it belongs to an operator; and
+# curve over the spectrum, from the diagram or the spectrum alike; a second tap steps the type; the black keys go on playing, because none of it belongs to an operator; and
 # a hold of FX gives the FILTER page, the curve over three cells.
 200 enc 6 10
 400 shot
 
-# ---- a tap: the filter's knobs on HOME, and its picture -- flat, because it starts off
+# ---- a tap: the filter's knobs on HOME, and the spectrum with its curve -- flat, because it starts off
 600 btn 2
 1000 shot
 

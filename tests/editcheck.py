@@ -69,7 +69,7 @@ def main(stem):
         return read(stem.with_name(stem.name + f"-{ms}.ppm"))[1]
 
     r = {ms: bars(ms)[1] for ms in (1100, 1500, 1900, 2300, 2700, 3100,
-                                    3500, 3900, 4300, 4700, 5100, 5500, 6100, 10900)}
+                                    3500, 3900, 4300, 4700, 5400, 5700, 7100, 11900)}
 
     # One entry per click. The widths are a list index scaled to 228 pixels, so consecutive entries
     # differ by about six and the steps have to be even as well as upward.
@@ -93,28 +93,28 @@ def main(stem):
 
     # FIXED counts four hundred frequency steps instead of thirty-seven entries, so coarse 31 --
     # of which the engine reads only the low two bits -- lands three decades up, at 1 kHz.
-    check("FIXED reads the bytes as a frequency", r[5100] == round(BAR_W * 300 / 399),
-          f"{r[5100]} px, want {round(BAR_W * 300 / 399)}")
-    check("and the knob walks the steps", r[5500] == round(BAR_W * 350 / 399),
-          f"{r[5500]} px, want {round(BAR_W * 350 / 399)}")
+    check("FIXED reads the bytes as a frequency", r[5400] == round(BAR_W * 300 / 399),
+          f"{r[5400]} px, want {round(BAR_W * 300 / 399)}")
+    check("and the knob walks the steps", r[5700] == round(BAR_W * 350 / 399),
+          f"{r[5700]} px, want {round(BAR_W * 350 / 399)}")
 
     # Four banks of four, all different, and the fifth press back to the first.
-    walked = [full(6100), full(7200), full(8300), full(9400)]
+    walked = [full(7100), full(8200), full(9300), full(10400)]
     check("OPERATOR has four banks", len(set(walked)) == 4)
-    check("and the fifth press wraps", full(10500) == full(6100))
+    check("and the fifth press wraps", full(11500) == full(7100))
 
-    # The claim: RATIO is the COARSE and FINE bytes, which are the next bank along.
-    b_low, b_high = bars(7200), bars(12000)
-    check("x0.50 is coarse 0 and fine 0", b_low[0] == 0 and b_low[1] == 0, f"{b_low[:2]}")
-    check("and the empty RATIO bar agreed", r[6100] == 0, f"{r[6100]} px")
-    check("x31.00 is coarse 31 and fine 0", b_high[0] == BAR_W and b_high[1] == 0, f"{b_high[:2]}")
-    check("and the full RATIO bar agreed", r[10900] == BAR_W, f"{r[10900]} px")
+    # The claim: RATIO is the COARSE and FINE bytes, which are the next bank along, after MODE.
+    b_low, b_high = bars(8200), bars(13000)
+    check("x0.50 is coarse 0 and fine 0", b_low[1] == 0 and b_low[2] == 0, f"{b_low[1:3]}")
+    check("and the empty RATIO bar agreed", r[7100] == 0, f"{r[7100]} px")
+    check("x31.00 is coarse 31 and fine 0", b_high[1] == BAR_W and b_high[2] == 0, f"{b_high[1:3]}")
+    check("and the full RATIO bar agreed", r[11900] == BAR_W, f"{r[11900]} px")
 
     # A tap of the button whose page you are on is the next bank, not a trip to HOME. Proven by
     # reaching the same bank both ways and comparing every pixel: if the tap had focused the knobs
     # on HOME, or stayed put, or landed on a different bank, the two screens could not match.
-    check("a tap on OPERATOR walks the banks", full(13000) == full(16700))
-    check("and it is a different bank", full(13000) != full(12000))
+    check("a tap on OPERATOR walks the banks", full(14000) == full(17700))
+    check("and it is a different bank", full(14000) != full(13000))
 
     print(f"\n{bad} checks failed")
     return 1 if bad else 0

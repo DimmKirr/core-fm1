@@ -65,8 +65,8 @@
 #include "platform.c"
 
 #define DX_LG_N 6                               /* 64-sample blocks: as Dexed renders, 4 per audio ISR */
+#include "dx7_voice.h"                          /* first: the core reads the wave bytes it lays out */
 #include "dx7_core.c"
-#include "dx7_voice.h"
 #include "dx7_voices.h"
 #include "spectrum.h"
 
@@ -75,8 +75,8 @@
 /* ---- the patch. `edit` is the main loop's own copy and the one the knobs change; pbuf is the pair
  * the ISR reads from. A change goes: edit -> the spare pbuf -> publish -> flip -> tell the ISR. The
  * ISR never sees a half-written patch, and nothing large is ever written under it. */
-static uint8_t edit[156];
-static uint8_t pbuf[2][156];
+static uint8_t edit[DX_VSZ];
+static uint8_t pbuf[2][DX_VSZ];
 static volatile uint8_t pcur;                   /* the ISR reads pbuf[pcur] */
 static uint8_t modified;                        /* the voice differs from the factory one */
 
@@ -88,7 +88,7 @@ static uint8_t opmute;
 /* A/B: two patches, one of them in `edit` and the other stashed here, with the switch swapping
  * them. Land on a sound, copy it across, change one thing, and flip back and forth: hearing the
  * same parameter two ways in succession is how you find out what it does. */
-static uint8_t other[156];
+static uint8_t other[DX_VSZ];
 static uint8_t ab;                              /* which side `edit` is: 0 = A, 1 = B */
 static uint8_t other_mod, other_voice;
 
@@ -122,7 +122,7 @@ static void say(const char *m)                  /* a word on the voice line for 
 
 static void bank_init(void)
 {
-    uint8_t u[156];
+    uint8_t u[DX_VSZ];
     uint32_t i;
     bankmsg[0] = 0xF0; bankmsg[1] = 0x43; bankmsg[2] = 0x00;
     bankmsg[3] = 0x09; bankmsg[4] = 0x20; bankmsg[5] = 0x00;   /* 32-voice bulk dump, 4096 bytes */
@@ -244,7 +244,7 @@ static void patch_publish(void)                 /* main loop: hand `edit` to the
 {
     uint8_t *d = pbuf[pcur ^ 1u];
     uint32_t op;
-    memcpy(d, edit, 156);
+    memcpy(d, edit, DX_VSZ);
     /* The switches are applied on the way out, so `edit` -- what is drawn, compared and reverted --
      * never carries them. An operator goes off by having its output level taken to zero, which is
      * what the DX7's switch did. Its keyboard level scaling goes with it: a + curve adds to the
@@ -714,7 +714,8 @@ enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, 
        K_MSO,                                   /* the same, and 99 of it is OFF rather than 2s */
        K_MSR,                                   /* and this one is OFF at both ends of the knob */
        K_HZ,                                    /* the filter's cutoff, in hertz */
-       K_FTYPE };                               /* and which of its three it is, or off */
+       K_FTYPE,                                 /* and which of its three it is, or off */
+       K_OPWAVE };                              /* an operator's wave: SINE, or seven that are not */
 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
@@ -906,11 +907,13 @@ typedef struct {
     const char *knob;                           /* six characters for the legend, or 0 for name */
     uint8_t where, idx, max, kind;
 } param_t;
+#define OPB_WAVE 21u                            /* the one operator byte past its 21: the wave */
 
 static const param_t PG_OP[] = {
     {"LEVEL",  0, P_OP, 16, 99, K_NUM},         /* how loud -- or, on a modulator, how much it modulates */
     {"RATIO",  0, P_OP, 18, 36, K_RAT},         /* coarse and fine, said as the one number they mean */
     {"DETUNE", 0, P_OP, 20, 14, K_DET},
+    {"WAVE",   0, P_OP, OPB_WAVE, DX_NWAVE - 1u, K_OPWAVE},   /* not in the operator's 21: see p_at */
     {"MODE",   0, P_OP, 17, 1,  K_MODE},
     {"COARSE", 0, P_OP, 18, 31, K_NUM},         /* the two bytes RATIO says in one number */
     {"FINE",   0, P_OP, 19, 99, K_NUM},
@@ -925,7 +928,7 @@ static const param_t PG_OP[] = {
 };
 /* A M SENS is the one row in this table reached by name from somewhere else -- a tap of LFO puts
  * it under the first knob -- so where it sits is not free to change. */
-#define PG_OP_AMS 7u
+#define PG_OP_AMS 8u
 /* ---- the envelope, said twice
  *
  * The DX7 gives an operator four segments, each a rate and the level it is heading for. It is the
@@ -1056,8 +1059,8 @@ static const char *const FOC_NAME[FOC_N] = {"EDIT", "ENV", "LFO", "FILTER"};
  * you hold them. Hold one and you get its page, as ever. Tap it and you stay on HOME -- diagram or
  * spectrum, still playing -- and the four knobs swing round onto the top of that page.
  *
- * Tapping EDIT gives one operator's timbre: level, ratio, detune. The fourth knob is deliberately
- * empty and is waiting for the wave shape. Tapping ENV gives its envelope: attack, decay, sustain,
+ * Tapping EDIT gives one operator's timbre: level, ratio, detune and wave -- and while it does, that
+ * operator's box on the diagram draws its wave, as tall as its LEVEL. Tapping ENV gives its envelope: attack, decay, sustain,
  * release -- which is exactly four, and is the reason those four had to exist before this did.
  * Tapping LFO gives one knob rather than four: this operator's A M SENS, which is how much of the
  * LFO's amplitude depth it takes. One knob looks thin until you count what it is worth. It is the
@@ -1087,14 +1090,14 @@ static const char *const FOC_NAME[FOC_N] = {"EDIT", "ENV", "LFO", "FILTER"};
  * title says EDIT OP3 or LFO OP3 exactly when it does, and LFO GLOBAL when it does not.
  *
  * FX is the fourth, and the simplest: the filter's whole page is three knobs, so a tap gives all
- * of it -- CUTOFF, RESONANCE, TYPE -- with its curve where the diagram was, or drawn over the
- * spectrum if that is the screen you were on, which is the one place you can watch it work. None
+ * of it -- CUTOFF, RESONANCE, TYPE -- with its curve drawn over the spectrum, from either of HOME's
+ * screens, because the sound it is cutting is the one place you can watch it work. None
  * of it is an operator's, so the black keys go on playing, and a second tap steps the type. */
 /* what knob e moves while focused, or 0 for "this knob does nothing" */
 static const param_t *focus_at(uint32_t e)
 {
     if (focus == FOC_EDIT)
-        return e < 3u ? &PG_OP[e] : 0;          /* LEVEL RATIO DETUNE, and one kept for the wave */
+        return e < 4u ? &PG_OP[e] : 0;          /* LEVEL RATIO DETUNE WAVE */
     if (focus == FOC_ENV)                       /* ATTACK DECAY SUSTAIN RELEASE, of one of the
                                                  * operators or of the whole voice */
         return e < 4u ? (gsel ? &PG_GEG[e] : &PG_EG[e]) : 0;
@@ -1333,8 +1336,10 @@ static int op_key(uint32_t k)
  * DX_ALG with the same number -- so the block index and the engine's operator index are the one
  * thing, and opsel is both. (Proven by muting each block in turn under algorithm 16, which has a
  * single carrier: block 5 is the one that silences it, and carriers() puts that carrier at index 5.) */
-static uint32_t p_at(const param_t *p)          /* where this parameter lives in the 156 */
+static uint32_t p_at(const param_t *p)          /* where this parameter lives in the voice */
 {
+    if (p->where == P_OP && p->idx == OPB_WAVE)  /* the waves are after the DX7's 156, one a byte */
+        return DX_WAVE + opsel;
     return p->where == P_OP ? (uint32_t)opsel * 21u + p->idx : p->idx;
 }
 
@@ -1349,6 +1354,8 @@ static const char *const WAVE[] = {"TRIANGLE", "SAW DOWN", "SAW UP", "SQUARE", "
  * directly above to say the rest */
 static const char *const WAVE_S[] = {"TRI", "SAWD", "SAWU", "SQR", "SINE", "S/H"};
 static const char *const CURVE[] = {"-LIN", "-EXP", "+EXP", "+LIN"};
+static const char *const OPWAVE[DX_NWAVE] = {"SINE", "HALF SINE", "ABS SINE", "QUARTER",
+                                             "ALT SINE", "CAMEL", "SQUARE", "SAW"};
 static const char *const FTYPE[] = {"OFF", "LOW PASS", "BAND PASS", "HIGH PASS"};
 static const char *const FTYPE_S[] = {"OFF", "LP", "BP", "HP"};
 static const char NOTE_NAME[12][3] = {"C ", "C#", "D ", "D#", "E ", "F ", "F#", "G ", "G#", "A ", "A#", "B "};
@@ -1463,6 +1470,8 @@ static void p_turn(const param_t *p, int32_t enc)
         return;
     }
     v = (int32_t)*p_ref(p) + (p->kind == K_TIME || p->kind == K_DEC ? -enc : enc);
+    if (p->kind == K_OPWAVE)                    /* a ring, not a range: past SAW is SINE again */
+        v = ((v % ((int32_t)p->max + 1)) + (int32_t)p->max + 1) % ((int32_t)p->max + 1);
     v = v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v;
     *p_ref(p) = (uint8_t)v;
     if (p->kind == K_DEC)                       /* the second stage of the decay goes with the first */
@@ -1505,6 +1514,7 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
     case K_CURVE: return put(s, i, CURVE[v & 3u]);
     case K_WAVE: return put(s, i, WAVE[v < 6u ? v : 0]);
     case K_FTYPE: return put(s, i, FTYPE[v & 3u]);
+    case K_OPWAVE: return put(s, i, OPWAVE[v & 7u]);
     case K_HZ: {                                /* three figures, which is all a hundred steps need */
         uint32_t hz = FLT_HZ[v < 100u ? v : 99u];
         if (hz < 1000u) { i = putn(s, i, hz, 1); return put(s, i, "HZ"); }
@@ -1902,6 +1912,27 @@ static void alg_eg_build(void)
     eg_shape(&e, 0, a_bw - 3, alg_hold(), 1, alg_ex, alg_el);
 }
 
+/* One cycle of a wave, w columns wide, centred on row cy and reaching a rows either side of it,
+ * drawn as a line: each column runs from where the last one ended to where this one is, so a SQUARE
+ * gets its two upright edges and a SAW its drop. axis 0: no centre line. Read from dx_wave itself,
+ * so it is the shape the engine plays and not a drawing of one. */
+static void alg_wave(int32_t x, int32_t cy, int32_t w, int32_t a, uint32_t wave, uint16_t line, uint16_t axis)
+{
+    int32_t c, py = cy;
+    if (axis)
+        cv_rect(x, cy, w, 1, axis);
+    for (c = 0; c < w; c++) {
+        int32_t v = dx_wave((int32_t)(((uint32_t)c << 24) / (uint32_t)w), (int)wave);
+        int32_t yy = cy - (int32_t)(((int64_t)v * a + (1 << 23)) >> 24), lo = yy, hi = yy;
+        if (c) {
+            if (py < lo) lo = py;
+            if (py > hi) hi = py;
+        }
+        cv_rect(x + c, lo, 1, hi - lo + 1, line);
+        py = yy;
+    }
+}
+
 /* The operator's colour at brightness t (0..255). Warm if it is in the feedback loop, so the one
  * operator that is modulating itself stands out from the ones that are not. */
 static uint16_t op_hue(uint32_t op, uint32_t t)
@@ -1917,9 +1948,10 @@ static uint16_t op_hue(uint32_t op, uint32_t t)
  * bus -- so the fill is free to mean something you cannot otherwise see. Watch a four-operator
  * stack and the modulators empty out before the carrier does, which is why the timbre moves.
  *
- * Except for one box. Tap EDIT or ENV and the operator those knobs are on swaps its bar for its
+ * Except for one box. Tap ENV and the operator those knobs are on swaps its bar for its
  * envelope -- time left to right, level upwards, the shape filled in solid so that a box this
- * small still reads. The whole shape is scaled by that operator's output LEVEL, so turning LEVEL
+ * small still reads. (Tap EDIT and it draws one cycle of its wave instead, scaled the same way --
+ * see alg_wave.) The whole shape is scaled by that operator's output LEVEL, so turning LEVEL
  * raises or collapses the entire curve with no note held at all, which a bar could never show;
  * and while a note is held the part of it already walked is drawn bright, so the boundary between
  * the two is the point the envelope has reached. It is the one operator you are looking at, so it
@@ -1930,8 +1962,9 @@ static uint16_t op_hue(uint32_t op, uint32_t t)
  * give even that fifteen rows -- so there is always room for a curve. */
 static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
 {
-    uint32_t off = (opmute >> op) & 1u;
-    int shape = (focus == FOC_EDIT || focus == FOC_ENV) && !eg_glo() && op == opsel;
+    uint32_t off = (opmute >> op) & 1u, wave = edit[DX_WAVE + op] & 7u;
+    int wshape = focus == FOC_EDIT && page == PAGE_HOME && op == opsel;
+    int shape = focus == FOC_ENV && !eg_glo() && op == opsel;
     uint16_t frame = off ? RGB(70, 70, 70) : op_hue(op, 105u);
     int32_t w = a_bw - 2, c;
     char s[2];
@@ -1971,6 +2004,10 @@ static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
         }
         for (c = 0; c < w; c++)
             cv_rect(x + 1 + c, y + cy[c], 1, a_bh - 1 - cy[c], c < px ? walked : solid);
+    } else if (wshape) {
+        int32_t a = ((a_bh - 5) / 2) * (int32_t)edit[op * 21u + 16u] / 99;
+        alg_wave(x + 1, y + a_bh / 2, w, a < 1 ? 1 : a, wave,
+                 off ? RGB(110, 110, 110) : op_hue(op, 255u), off ? RGB(48, 48, 48) : op_hue(op, 70u));
     } else {
         int32_t fw = w * (int32_t)(off ? 0u : op_now(op)) / 255;
         /* The body of the fill is kept dim and the level itself drawn as a bright edge on top of
@@ -1979,6 +2016,10 @@ static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
         if (fw > 0) {
             cv_rect(x + 1, y + 1, fw, a_bh - 2, op_hue(op, 140u));
             cv_rect(x + fw - 1, y + 1, 2, a_bh - 2, op_hue(op, 255u));
+        }
+        if (wave && !shape) {                   /* not a sine: say so in the corner, small */
+            int32_t mw = w - 4 < 9 ? w - 4 : 9;
+            alg_wave(x + 2, y + a_bh - 5, mw, 2, wave, off ? RGB(110, 110, 110) : C_WHITE, 0);
         }
     }
     if (a_fb >> op & 1u) {                      /* the feedback loop, round the right-hand side */
@@ -1995,7 +2036,7 @@ static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
     }
     s[0] = (char)('0' + (6u - op));
     s[1] = 0;
-    if (!shape && a_bh >= 14)                   /* the curve needs the room more than the number */
+    if (!shape && !wshape && a_bh >= 14)        /* the curve needs the room more than the number */
         cv_text(x + (a_bw - 5) / 2, y + (a_bh - 13) / 2, &FONT_S, s, off ? RGB(110, 110, 110) : C_WHITE);
     if (off)                                    /* struck through: switched off */
         cv_line(x + 1, y + a_bh - 2, x + a_bw - 2, y + 1, RGB(190, 85, 85));
@@ -2805,9 +2846,10 @@ static void draw_status(int32_t oct, uint32_t nv, uint32_t cpu, uint32_t pk)
 /* ---- the main loop */
 static void load_voice(uint32_t vi)
 {
-    if (vi < DX_NVOICES)
+    if (vi < DX_NVOICES) {
         memcpy(edit, DX_VOICES[vi], 156);
-    else
+        memset(edit + DX_WAVE, 0, 6);           /* the factory voices are a DX7's: sines */
+    } else
         dx_unpack(bankv + (vi - DX_NVOICES) * 128u, edit);
     dx_sanitize(edit);
     modified = 0;
@@ -2838,7 +2880,7 @@ static void ab_swap(uint8_t *voice)
 {
     uint32_t i;
     uint8_t t;
-    for (i = 0; i < 156u; i++) { t = edit[i]; edit[i] = other[i]; other[i] = t; }
+    for (i = 0; i < DX_VSZ; i++) { t = edit[i]; edit[i] = other[i]; other[i] = t; }
     t = modified;   modified = other_mod;   other_mod = t;
     t = *voice;     *voice = other_voice;   other_voice = t;
     ab ^= 1u;
@@ -2847,7 +2889,7 @@ static void ab_swap(uint8_t *voice)
 
 static void ab_copy(uint8_t voice)              /* this side onto the other: a place to come back to */
 {
-    memcpy(other, edit, 156);
+    memcpy(other, edit, DX_VSZ);
     other_mod = modified;
     other_voice = voice;
 }
@@ -2870,7 +2912,7 @@ static void ab_copy(uint8_t voice)              /* this side onto the other: a p
  * of the two erases. That is the only time FM Lab deliberately interrupts itself. */
 static int app_sysex(const uint8_t *p, uint32_t n)
 {
-    uint8_t u[156];
+    uint8_t u[DX_VSZ];
     uint32_t sub;
     if (n < 3u || p[0] != 0x43u)
         return 0;                               /* not Yamaha's: let the updater look at it */
@@ -2905,10 +2947,10 @@ static int app_sysex(const uint8_t *p, uint32_t n)
         if (dx_syx_sum(p + 5, 155u) != p[n - 1u])
             say("VOICE BAD CHECKSUM");
         else {
+            memset(u, 0, sizeof u);             /* the DX7's 155 has no room for a wave: sines */
             memcpy(u, p + 5, 155);
-            u[155] = 0;
             dx_sanitize(u);
-            memcpy(edit, u, 156);
+            memcpy(edit, u, DX_VSZ);
             opmute = 0;
             modified = 1;                       /* it is not any stored voice: it is an edit */
             patch_publish();
@@ -2960,7 +3002,7 @@ static void app_main(void)
     save_slot = set.slot;
     load_voice(set.voice);
     ab_copy(set.voice);                         /* both sides start as the same sound */
-    memcpy(pbuf[pcur ^ 1u], edit, 156);         /* both halves valid before the ISR ever reads one */
+    memcpy(pbuf[pcur ^ 1u], edit, DX_VSZ);         /* both halves valid before the ISR ever reads one */
 
     lcd_fill(0, 0, 240, 240, C_BLACK);
 
@@ -3365,12 +3407,11 @@ static void app_main(void)
              * Adjusting a shape you cannot see is no way to learn what the shape does. */
             uint8_t asel = (uint8_t)(opsel | (eg_glo() ? 0x80u : 0u) | (lfo_glo() ? 0x40u : 0u)
                                      | (flt_focus() ? 0x20u : 0u));
-            /* the LFO's picture follows bytes the diagram never cared about, so it brings its own,
-             * and so does the filter's */
+            /* the LFO's picture follows bytes the diagram never cared about, so it brings its own.
+             * The filter's is the spectrum with its curve over it, which redraws itself on the tick
+             * like the spectrum always has, from either of HOME's screens. */
             uint32_t lsig = lfo_glo() ? (1u | (uint32_t)edit[137] << 1 | (uint32_t)edit[138] << 9
-                                            | (uint32_t)edit[142] << 17) :
-                            flt_focus() ? (2u | (uint32_t)ui[UI_FCUT] << 2 | (uint32_t)ui[UI_FRES] << 9
-                                              | (uint32_t)ui[UI_FTYPE] << 16) : 0u;
+                                            | (uint32_t)edit[142] << 17) : 0u;
             if (bank == 0u && (edit[134] != alg_drawn || asel != alg_op_drawn
                                || opmute != mute_drawn || lsig != lfo_sig_drawn)) {
                 alg_drawn = edit[134];
@@ -3378,7 +3419,7 @@ static void app_main(void)
                 lfo_sig_drawn = lsig;
                 if (eg_glo())       { draw_geg(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
                 else if (lfo_glo()) { draw_lfo_plot(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
-                else if (flt_focus()) { draw_flt_plot(ALG_Y, ALG_H); }
+                else if (flt_focus()) { sp_run(); draw_spectrum(); }
                 else                { draw_alg(); }
             }
         } else if (page == PAGE_LFO || page == PAGE_FX || (page == PAGE_EG && bank == 0u)) {
@@ -3405,7 +3446,7 @@ static void app_main(void)
             }
         }
         mute_drawn = opmute;
-        sp_want = (page == PAGE_HOME && bank == 1u);
+        sp_want = (page == PAGE_HOME && (bank == 1u || flt_focus()));
         if (fm1_ms - t_live > 60u) {            /* the displays that follow the sound, ~16 times a second */
             t_live = fm1_ms;
             if (page == PAGE_HOME) {
@@ -3423,9 +3464,7 @@ static void app_main(void)
                         eg_dirty = 0;
                         draw_lfo_plot(ALG_Y, ALG_H);
                     }
-                } else if (bank == 0u && flt_focus()) {
-                    ;                           /* a still picture: it moves only with its knobs */
-                } else if (bank == 0u) {
+                } else if (bank == 0u && !flt_focus()) {
                     draw_alg_levels();
                 } else {
                     sp_run();

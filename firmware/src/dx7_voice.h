@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * DX7 voice data: the 128-byte packed form a .syx carries, and the 156-byte unpacked form dx_init()
- * reads. Taken from sloopDX's eng_dx7.c (Copyright (C) 2026 Sven Trogus), only these three functions.
+ * DX7 voice data: the 128-byte packed form a .syx carries, and the unpacked form dx_init() reads --
+ * the DX7's 156 bytes and FM Lab's six wave bytes after them, DX_VSZ in all. Taken from sloopDX's eng_dx7.c (Copyright (C) 2026 Sven Trogus), only these three functions.
  *
  * The unpacked layout, as tools/gen_voices.py writes it and dx7_core.c reads it:
  *   u[op * 21 + 0..20]   operator, stored OP6 first: op index 0 = OP6 ... 5 = OP1
@@ -16,10 +16,22 @@
  *   u[137] LFO speed  u[138] LFO delay  u[139] LFO PMD  u[140] LFO AMD
  *   u[141] LFO key sync  u[142] LFO wave  u[143] pitch mod sens  u[144] transpose (24 = middle C)
  *   u[145..154] name   u[155] unused
+ *   u[156..161] FM Lab's: each operator's wave (0 = sine), in the same OP6-first order
+ *
+ * The waves are not the DX7's, and a DX7 has nowhere to put them -- except that it does. Packed, an
+ * operator's byte 11 holds the two keyboard curves in its low four bits, and MIDI gives every byte
+ * seven, so bits 4..6 travel in every .syx and a DX7 and Dexed ignore them. Eight waves is three
+ * bits. A bank saved here is still a DX7 bank, and on a DX7 it plays every operator as the sine it
+ * would have been anyway. The single-voice dump is the DX7's unpacked 155 with nothing spare, so a
+ * voice sent that way goes as sines, and one received that way arrives as sines.
  */
 #pragma once
 
-/* an unpacked voice (156) -> the DX7's packed 128 bytes */
+#define DX_WAVE 156u                            /* u[DX_WAVE + op]: the waves */
+#define DX_NWAVE 8u
+#define DX_VSZ (DX_WAVE + 6u)
+
+/* an unpacked voice (DX_VSZ) -> the DX7's packed 128 bytes, the waves in byte 11's spare bits */
 static void dx_pack(const uint8_t *u, uint8_t *b)
 {
     uint32_t op, i;
@@ -28,7 +40,7 @@ static void dx_pack(const uint8_t *u, uint8_t *b)
         uint8_t *q = b + op * 17u;
         for (i = 0; i < 11u; i++)
             q[i] = o[i];
-        q[11] = (uint8_t)(o[11] | o[12] << 2);
+        q[11] = (uint8_t)(o[11] | o[12] << 2 | (u[DX_WAVE + op] & 7u) << 4);
         q[12] = (uint8_t)(o[13] | o[20] << 3);
         q[13] = (uint8_t)(o[14] | o[15] << 2);
         q[14] = o[16];
@@ -47,7 +59,7 @@ static void dx_pack(const uint8_t *u, uint8_t *b)
         b[118 + i] = u[145 + i];
 }
 
-/* the DX7's packed 128 bytes (one voice of a 32-voice .syx) -> unpacked 156 */
+/* the DX7's packed 128 bytes (one voice of a 32-voice .syx) -> unpacked DX_VSZ */
 static void dx_unpack(const uint8_t *b, uint8_t *u)
 {
     uint32_t op, i;
@@ -58,6 +70,7 @@ static void dx_unpack(const uint8_t *b, uint8_t *u)
             o[i] = s[i];
         o[11] = s[11] & 3u;
         o[12] = (s[11] >> 2) & 3u;
+        u[DX_WAVE + op] = (s[11] >> 4) & 7u;
         o[13] = s[12] & 7u;
         o[20] = (s[12] >> 3) & 15u;
         o[14] = s[13] & 3u;
@@ -98,6 +111,9 @@ static void dx_sanitize(uint8_t *u)
     for (i = 0; i < 19u; i++)
         if (u[126 + i] > DX_GMAX[i])
             u[126 + i] = DX_GMAX[i];
+    for (op = 0; op < 6u; op++)
+        if (u[DX_WAVE + op] >= DX_NWAVE)
+            u[DX_WAVE + op] = 0;
 }
 
 /* ---- the rest of this file is FM Lab's, not sloopDX's ----
@@ -126,6 +142,8 @@ static void dx_init_voice(uint8_t *u)
     }
     for (i = 0; i < 30u; i++)
         u[126 + i] = G[i];
+    for (op = 0; op < 6u; op++)
+        u[DX_WAVE + op] = 0;                    /* and they are all sines */
 }
 
 /* the checksum a .syx carries after its data: the low 7 bits of the negated sum */

@@ -84,6 +84,10 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'fx.txt') {
     python tests\fxcheck.py $out             # the filter, heard and drawn
     if ($LASTEXITCODE) { throw 'the filter is not what it should be' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'waves.txt') {
+    python tests\wavescheck.py $out          # the operator waves, heard, drawn and saved
+    if ($LASTEXITCODE) { throw 'the operator waves are not what they should be' }
+}
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'corners.txt') {
     python tests\cornercheck.py $out         # and the battery and the pips at the top
     if ($LASTEXITCODE) { throw 'the corners are not saying what they should' }

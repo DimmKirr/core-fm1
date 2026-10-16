@@ -41,6 +41,7 @@ case "$script" in                                           # while the screens 
   */global.txt)  python3 tests/globalcheck.py "$out" ;;        # one envelope over all six
   */lfo.txt)     python3 tests/lfocheck.py "$out" ;;           # a depth, and who is listening
   */fx.txt)      python3 tests/fxcheck.py "$out" ;;            # the filter, heard and drawn
+  */waves.txt)   python3 tests/wavescheck.py "$out" ;;         # the operator waves, heard, drawn and saved
 esac
 OUT="$out" python3 - <<'PY'
 import os

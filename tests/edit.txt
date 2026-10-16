@@ -8,7 +8,8 @@
 # means a frequency in FIXED, and -- the claim that matters -- is nothing but the COARSE and FINE
 # bytes, which sit on the very next bank so they can be read directly.
 #
-# OPERATOR bank 1 is LEVEL, RATIO, DETUNE, MODE, so RATIO is KNOB2 = enc 3 and MODE is KNOB4 = enc 5.
+# OPERATOR bank 1 is LEVEL, RATIO, DETUNE, WAVE, so RATIO is KNOB2 = enc 3. Bank 2 is MODE, COARSE,
+# FINE, VEL SENS: MODE is KNOB1 = enc 2 there.
 0 btn 8
 200 btn 6 600
 
@@ -39,43 +40,52 @@
 4700 shot
 
 # FIXED makes the same two bytes a frequency, and the row follows: four decades in four hundred
-# steps, so the bar moves by a quarter of its length per decade instead of by one entry.
-4900 enc 5 1
-5100 shot
-5300 enc 3 50
-5500 shot
-5700 enc 5 -1
+# steps, so the bar moves by a quarter of its length per decade instead of by one entry. MODE is
+# the first knob of the next bank, so a tap goes there and three more come round to RATIO again.
+4800 btn 6
+4900 enc 2 1
+5000 btn 6
+5100 btn 6
+5200 btn 6
+5400 shot
+5500 enc 3 50
+5700 shot
+5800 btn 6
+5900 enc 2 -1
+6000 btn 6
+6100 btn 6
+6200 btn 6
 
 # The claim that matters: RATIO is nothing but the COARSE and FINE bytes, which are the next bank
 # along. Drive RATIO to the bottom of its list -- x0.50 is coarse 0 and fine 0 -- and read them.
 # Walking on round the four banks proves they are four and that the fifth press comes back.
-5900 enc 3 -99
-6100 shot
-6300 btn 6 600
-7200 shot
-7400 btn 6 600
-8300 shot
-8500 btn 6 600
-9400 shot
-9600 btn 6 600
-10500 shot
+6900 enc 3 -99
+7100 shot
+7300 btn 6 600
+8200 shot
+8400 btn 6 600
+9300 shot
+9500 btn 6 600
+10400 shot
+10600 btn 6 600
+11500 shot
 
 # and the top of the list is coarse 31, fine 0 -- a full bar and an empty one
-10700 enc 3 99
-10900 shot
-11100 btn 6 600
-12000 shot
+11700 enc 3 99
+11900 shot
+12100 btn 6 600
+13000 shot
 
 # A tap of EDIT while already on OPERATOR is the next bank, the same as another hold. It used to
 # drop to HOME with the knobs focused instead, which is the one thing the button cannot sensibly
 # mean from here -- you are on its page, so asking for focus would be asking to leave it.
-12200 btn 6
-13000 shot
+13200 btn 6
+14000 shot
 
 # the same bank reached the long way, to compare against
-13200 btn 8
-14000 btn 6 600
-14900 btn 6 600
-15800 btn 6 600
-16700 shot
-16900 end
+14200 btn 8
+15000 btn 6 600
+15900 btn 6 600
+16800 btn 6 600
+17700 shot
+17900 end
