@@ -29,21 +29,35 @@ static int navigation(void)
     press(B_ARP);
     int bad = check("ARP tap keeps the ordinary arp pages", cur_page()->scope == SC_TRACK && cur_page()->fam == FAM_ARP);
     hold(B_ARP);
-    bad += check("ARP hold enters generator without enabling or advancing on release", cur_page()->scope == SC_GEN && cur_page()->id[0] == GN_MODE && !generator_on(TSEL));
+    bad += check("ARP hold enters the JAM page without enabling or advancing on release", cur_page()->scope == SC_GEN && cur_page()->id[0] == GN_JAM && !generator_on(TSEL));
+    turn(EN_SELECT, 1);
+    bad += check("SELECT reaches the part's own ROLE", cur_page()->scope == SC_GEN && cur_page()->id[0] == GN_MODE);
     turn(EN_K1, 1);
     bad += check("MODE enables generation without starting transport or recording", generator_on(TSEL) && !song.playing && !song.rec);
+    int16_t *value; const param_desc_t *d = page_desc(cur_page(), 1, &value);
+    int valid = d->names == N_GEN_ASTYLE && value == &generator[song.sel].p[GN_ASTYLE];
+    turn(EN_K1, 1); d = page_desc(cur_page(), 1, &value);
+    valid &= d->names == N_GEN_BSTYLE && value == &generator[song.sel].p[GN_BSTYLE];
+    turn(EN_K2, 4);
+    valid &= generator[song.sel].p[GN_BSTYLE] == BS_WALK && generator[song.sel].p[GN_ASTYLE] == AS_DRIFT;
+    turn(EN_K1, -1);
+    bad += check("STYLE shows and keeps each role's own list", valid);
     turn(EN_SELECT, 1);
     bad += check("SELECT visits phrase controls", cur_page()->scope == SC_GEN && cur_page()->id[0] == GN_LENGTH);
     turn(EN_SELECT, 1);
     bad += check("SELECT visits harmony controls", cur_page()->id[0] == GN_HARMONY);
+    turn(EN_SELECT, 1);
+    bad += check("SELECT visits the evolution and expression controls", cur_page()->id[0] == GN_EVOLVE);
     press(B_HOME); hold(B_ARP);
-    bad += check("holding ARP returns directly to MODE for disabling", cur_page()->id[0] == GN_MODE && generator_on(TSEL));
-    turn(EN_K1, -1);
+    bad += check("holding ARP returns directly to the JAM page", cur_page()->id[0] == GN_JAM && generator_on(TSEL));
+    turn(EN_SELECT, 1); turn(EN_K1, -1);
     bad += check("MODE OFF returns ownership to patterns", !generator_on(TSEL));
     press(B_ARP);
     bad += check("short ARP from generator returns to ordinary arp", cur_page()->scope == SC_TRACK && !ui.gen_open);
-    set_engine_of(TSEL, ENGI_DRUM); events_block(0); hold(B_ARP); turn(EN_K1, 1);
-    bad += check("kits reject generation clearly", !generator_on(TSEL) && msg_is("GEN NEEDS A SYNTH"));
+    set_engine_of(TSEL, ENGI_DRUM); events_block(0); hold(B_ARP); turn(EN_SELECT, 1); turn(EN_K1, 1);
+    valid = !generator_on(TSEL) && msg_is("GEN NEEDS A SYNTH");
+    turn(EN_SELECT, -1); turn(EN_K1, 1);
+    bad += check("kits reject generation and JAM clearly", valid && !generator[song.sel].p[GN_JAM] && msg_is("GEN NEEDS A SYNTH"));
     return bad;
 }
 static int isolation(void)
@@ -57,21 +71,50 @@ static int isolation(void)
     motion_store_t saved_motion = motion;
     seq_start(); seq_advance(0);
     int bad = check("generation plays without held keys and bypasses the stored pattern", generator[0].n && !t->seq_n && t->p[P_PAN] != 40);
-    uint32_t cap = cap_w;
     rec_set(t, 1); press(B_REC); rec_play(); transport_req = 0;
     input_on(t, 62, 100); input_off(t, 62);
     generator_input(t, 62);
     for (uint32_t i = 0; i < 64u; i++) seq_advance(1000);
-    capture_take();
-    bad += check("REC, REC+PLAY, capture and note input cannot write generator patterns",
-        !(song.rec & 1u) && !memcmp(saved, t->step, sizeof saved) && !memcmp(&saved_motion, &motion, sizeof motion) && !recording_tracks && cap_w == cap);
+    bad += check("REC, REC+PLAY and note input cannot record into a generating track",
+        !(song.rec & 1u) && !memcmp(saved, t->step, sizeof saved) && !memcmp(&saved_motion, &motion, sizeof motion) && !recording_tracks);
     song.sel = 1; rec_set(&trk[1], 1);
     bad += check("other tracks can still arm recording", (song.rec & 2u) != 0);
-    song.sel = 0;
+    song.sel = 0; song.rec = 0;
     seq_stop();
     bad += check("STOP releases every generator-owned note", !generator[0].n && !gen_gates(t));
-    generator_mode(t, GEN_OFF); song.rec = 0; seq_start(); seq_advance(0);
+    generator_mode(t, GEN_OFF); seq_start(); seq_advance(0);
     bad += check("disabling resumes the original pattern from its start", t->seq_n && t->seq_notes[0] == 12 && !memcmp(saved, t->step, sizeof saved));
+    seq_stop();
+    return bad;
+}
+/* Holding REC keeps what a generating part just played, as it keeps played notes. */
+static int capture(void)
+{
+    gen_fixture(GEN_LOOP);
+    track_t *t = TSEL; generator_t *g = &generator[0];
+    g->p[GN_LENGTH] = g->p[GN_FILL] = 8; g->p[GN_GATE] = 64;
+    seq_start(); seq_advance(0);
+    uint8_t heard[8]; memcpy(heard, g->phrase, sizeof heard);
+    uint32_t bar = seq_beat_samples() * 4u;
+    for (uint32_t i = 0; i < 8u; i++) seq_advance(bar / 4u);
+    capture_take();
+    int found = 0, other = 0;
+    for (uint32_t i = 0; i < RECORD_MAX; i++) if (recording_active(t, i)) {
+        int listed = 0;
+        for (uint32_t j = 0; j < 8u; j++) listed |= recording[i].note == heard[j];
+        found += listed; other += !listed;
+    }
+    int bad = check("holding REC captures the generated phrase into the pattern", found >= 8 && !other && t->seq_active);
+    bad += check("capturing keeps the part generating and REC disarmed", generator_on(t) && g->running && !song.rec && !rec_on(t));
+    seq_stop();
+    generator_mode(t, GEN_OFF); seq_start();
+    int played = 0;
+    for (uint32_t q = 0; q < 2u * bar / CTL && !played; q++) {
+        seq_advance(CTL);
+        for (uint32_t v = 0; v < NVOICE; v++) if (t->v[v].active && t->v[v].gate)
+            for (uint32_t j = 0; j < 8u; j++) played |= t->v[v].note == heard[j];
+    }
+    bad += check("ROLE OFF then plays the captured phrase as an ordinary pattern", played);
     seq_stop();
     return bad;
 }
@@ -333,7 +376,6 @@ static int memory_contract(void)
     bad += check("STOP/PLAY retains an evolved idea instead of recreating its original seed",
         !memcmp(initial, g->phrase, sizeof initial) && !memcmp(values, g->value, sizeof values));
     generator_tick(TSEL, period * 3u);
-    uint32_t cap = cap_w;
     step_t steps[NSTEP]; memcpy(steps, TSEL->step, sizeof steps);
     valid = generator_action(TSEL, GA_KEEP);
     gen_memory_t kept = g->memory;
@@ -347,7 +389,7 @@ static int memory_contract(void)
     generator_tick(TSEL, seq_div_samples(g->rate) * 13u);
     valid &= !memcmp(initial, g->phrase, sizeof initial) && !memcmp(values, g->value, sizeof values) &&
         !memcmp(&kept, &g->memory, sizeof kept) && TSEL->p[P_SCALE] == 1 && TSEL->p[P_ROOT] == 0 &&
-        g->length == 16 && g->rate == 1 && cap_w == cap && !memcmp(steps, TSEL->step, sizeof steps);
+        g->length == 16 && g->rate == 1 && !memcmp(steps, TSEL->step, sizeof steps);
     bad += check("KEEP/RETURN recovers evolved memory, timing and tuning without recording a pattern", valid);
     memcpy(values, g->value, sizeof values); kept = g->memory;
     uint16_t rhythm = g->rhythm;
@@ -642,10 +684,278 @@ static int answers_and_expression(void)
     return bad;
 }
 
+/* The chord roots a LOCAL part plays at each of its next `n` changes (degree classes). */
+static void gen_roots(uint32_t *out, uint32_t n)
+{
+    generator_t *g = &generator[0];
+    out[0] = generator_mod(g->root, generator_count(TSEL));
+    for (uint32_t i = 1; i < n; i++) { generator_next_chord(TSEL); out[i] = generator_mod(g->root, generator_count(TSEL)); }
+}
+static int progressions(void)
+{
+    static const uint8_t pop_major[4] = {0, 4, 5, 3}, pop_minor[4] = {5, 3, 0, 4}, royal[4] = {3, 4, 2, 5};
+    uint32_t roots[16];
+    gen_fixture(GEN_CHORD); generator_t *g = &generator[0];
+    g->p[GN_HARMONY] = GH_POP; generator_input(TSEL, 60); generator_input_off(TSEL, 60);
+    seq_start(); generator_tick(TSEL, 0); gen_roots(roots, 8);
+    int valid = 1;
+    for (uint32_t i = 0; i < 8u; i++) valid &= roots[i] == pop_major[i % 4u];
+    seq_stop();
+    generator_input(TSEL, 69); generator_input_off(TSEL, 69);
+    seq_start(); generator_tick(TSEL, 0); gen_roots(roots, 4);
+    for (uint32_t i = 0; i < 4u; i++) valid &= roots[i] == pop_minor[i];
+    int bad = check("POP plays I V vi IV from a major home and i VI III VII from a minor one", valid);
+    seq_stop();
+    g->p[GN_HARMONY] = GH_ROYAL; generator_input(TSEL, 60); generator_input_off(TSEL, 60);
+    seq_start(); generator_tick(TSEL, 0); gen_roots(roots, 4); valid = 1;
+    for (uint32_t i = 0; i < 4u; i++) valid &= roots[i] == royal[i];
+    uint32_t bar = seq_beat_samples() * 4u; g->p[GN_CHANGE] = 0;
+    seq_stop(); seq_start(); generator_tick(TSEL, 0);
+    valid &= generator_mod(g->root, 7) == 3;
+    generator_tick(TSEL, bar); valid &= generator_mod(g->root, 7) == 4;
+    generator_tick(TSEL, bar); valid &= generator_mod(g->root, 7) == 2;
+    bad += check("a named progression starts on its own first chord at PLAY and changes on each EVERY", valid);
+    seq_stop();
+    valid = 1;
+    for (uint32_t scale = 0; scale < SCALE_TOTAL; scale++) {
+        TSEL->p[P_SCALE] = (int16_t)scale; TSEL->p[P_QUANT] = Q_SNAP;
+        if (!generator_functional(TSEL)) continue;
+        for (uint32_t type = GH_MARKOV; type < GH_COUNT; type++) for (uint32_t home = 0; home < 7u; home++) {
+            g->p[GN_HARMONY] = (int16_t)type; g->anchor = g->root = (int16_t)home; g->path_valid = 0;
+            generator_identity(g);
+            for (uint32_t i = 0; i < 12u; i++) {
+                generator_next_chord(TSEL);
+                if (type != GH_CIRCLE && type != GH_JAZZ) valid &= !generator_dim(TSEL, g->root) || generator_dim(TSEL, (int32_t)home);
+                valid &= g->path_len >= 1u && g->path_len <= 16u && g->chord_n >= 3u;
+                for (uint32_t j = 0; j < g->chord_n; j++) valid &= generator_note(TSEL, g->chord[j]) != KB_SILENT;
+            }
+        }
+    }
+    bad += check("named progressions and MARKOV avoid diminished stops in every seven-note scale", valid);
+    TSEL->p[P_SCALE] = 1;
+    valid = 1; uint32_t distinct = 0, seen = 0, varied = 0, first[8];
+    for (uint32_t seed = 1; seed <= 12u; seed++) {
+        g->p[GN_HARMONY] = GH_MARKOV; g->p[GN_SEED] = (int16_t)seed; g->anchor = g->root = 0; generator_identity(g);
+        generator_harmony_restart(TSEL);
+        for (uint32_t cycle = 0; cycle < 3u; cycle++) {
+            for (uint32_t i = 0; i < 8u; i++) {
+                uint32_t r = generator_mod(g->root, 7);
+                seen |= 1u << r;
+                if (seed == 1u && !cycle) first[i] = r; else if (!cycle) varied |= first[i] != r;
+                if (i < 7u) {
+                    uint32_t soon, next = generator_upcoming(g, 7, 0, &soon);
+                    generator_next_chord(TSEL);
+                    valid &= next == generator_mod(g->root, 7);
+                } else generator_next_chord(TSEL);
+            }
+            valid &= generator_mod(g->root, 7) == 0;
+        }
+    }
+    for (uint32_t i = 0; i < 7u; i++) distinct += (seen >> i) & 1u;
+    bad += check("MARKOV journeys vary by seed, return home every eight changes and announce each next chord", valid && varied && distinct >= 5u);
+    valid = 1;
+    for (uint32_t v = 0; v < GV_COUNT; v++) {
+        g->p[GN_COLOR] = (int16_t)v; g->anchor = g->root = 0; g->chord_n = 0; generator_voicing(TSEL);
+        valid &= g->chord_n == generator_voices(v);
+        for (uint32_t j = 1; j < g->chord_n; j++) valid &= g->chord[j] > g->chord[j - 1u];
+        for (uint32_t j = 0; j < g->chord_n; j++) valid &= generator_note(TSEL, g->chord[j]) != KB_SILENT;
+    }
+    bad += check("every VOICING builds distinct ascending playable voices", valid);
+    g->p[GN_COLOR] = GV_7TH; g->p[GN_HARMONY] = GH_CIRCLE; g->anchor = g->root = 0; g->chord_n = 0; generator_identity(g);
+    generator_voicing(TSEL); valid = 1;
+    for (uint32_t i = 0; i < 70u; i++) {
+        generator_next_chord(TSEL);
+        for (uint32_t j = 0; j < g->chord_n; j++) valid &= g->chord[j] >= -7 && g->chord[j] <= 14;
+    }
+    bad += check("voice leading keeps a long cycle of fifths in the played register", valid);
+    return bad;
+}
+static uint32_t gen_onsets(uint8_t *out, uint32_t max)
+{
+    generator_t *g = &generator[0]; uint32_t n = 0;
+    for (uint32_t i = 0; i < g->length && n < max; i++) if ((g->rhythm >> i) & 1u) out[n++] = g->phrase[i];
+    return n;
+}
+static int styles(void)
+{
+    static const uint8_t expect[9][8] = {{0}, {60,64,67,60,64,67,60,64}, {67,64,60,67,64,60,67,64}, {60,64,67,64,60,64,67,64},
+        {60,67,64,60,67,64,60,67}, {60,67,64,67,60,67,64,67}, {60,64,60,67,60,64,60,67}, {60,67,64,67,60,67,64,67},
+        {60,64,67,64,67,60,67,60}};
+    int valid = 1, bad = 0;
+    for (uint32_t style = AS_UP; style < AS_COUNT; style++) {
+        gen_fixture(GEN_LOOP); generator_t *g = &generator[0];
+        g->p[GN_ASTYLE] = (int16_t)style; g->p[GN_PALETTE] = 0; g->p[GN_LENGTH] = g->p[GN_FILL] = 8;
+        seq_start(); generator_tick(TSEL, 0);
+        uint8_t notes[8]; uint32_t n = gen_onsets(notes, 8);
+        valid &= n == 8u && !memcmp(notes, expect[style], 8);
+        seq_stop();
+    }
+    bad += check("UP/DOWN/BOUNCE/INWARD/PINKY/THUMB/ALBERTI/STAIRS arpeggiate the chord in their orders", valid);
+    valid = 1;
+    for (uint32_t style = AS_DRIFT; style < AS_COUNT; style++) {
+        gen_fixture(GEN_LOOP); generator_t *g = &generator[0];
+        g->p[GN_ASTYLE] = (int16_t)style; g->p[GN_EVOLVE] = 60; g->p[GN_RANGE] = 3; g->p[GN_HARMONY] = GH_MARKOV; g->p[GN_CHANGE] = 0;
+        g->p[GN_FILL] = 7; g->p[GN_LENGTH] = 12; g->p[GN_GATE] = 127;
+        seq_start(); generator_tick(TSEL, 0); uint32_t period = seq_div_samples(g->rate);
+        for (uint32_t i = 0; i < 4096u; i++) {
+            generator_tick(TSEL, period / 2u);
+            valid &= g->n <= 1u && gen_gates(TSEL) <= 1u;
+            for (uint32_t j = 0; j < g->n; j++) {
+                int32_t d = generator_degree(TSEL, g->note[j]);
+                valid &= d >= g->anchor - 7 && d < g->anchor + 14 && ((scale_mask(TSEL) >> (g->note[j] % 12u)) & 1u);
+            }
+        }
+        seq_stop();
+    }
+    bad += check("every ARP style holds one note in its range and scale through evolving journeys", valid);
+    /* DRIFT sings: mostly steps and thirds, and the phrase ends on a chord tone. */
+    uint32_t steps = 0, leaps = 0, cadences = 0, phrases = 0;
+    for (uint32_t seed = 1; seed <= 24u; seed++) {
+        gen_fixture(GEN_LOOP); generator_t *g = &generator[0];
+        g->p[GN_SEED] = (int16_t)seed; g->p[GN_RANGE] = 2; g->p[GN_LENGTH] = g->p[GN_FILL] = 16;
+        seq_start(); generator_tick(TSEL, 0);
+        uint8_t notes[16]; uint32_t n = gen_onsets(notes, 16);
+        for (uint32_t i = 1; i < n; i++) {
+            int32_t d = generator_degree(TSEL, notes[i]) - generator_degree(TSEL, notes[i - 1u]);
+            if (d < 0) d = -d;
+            steps += d <= 2; leaps += d >= 5;
+        }
+        uint32_t last = generator_mod(generator_degree(TSEL, notes[n - 1u]), 7), member = 0;
+        for (uint32_t c = 0; c < g->chord_n; c++) member |= last == generator_mod(g->chord[c], 7);
+        cadences += member; phrases++;
+        seq_stop();
+    }
+    bad += check("DRIFT melodies move mostly by step and resolve each phrase on a chord tone", steps > leaps * 4u && cadences == phrases);
+    /* Bass figures. */
+    static const int8_t figure[4][8] = {{0,0,0,0,0,0,0,0}, {0,7,0,7,0,7,0,7}, {0,-3,0,-3,0,-3,0,-3}, {0,2,4,7,4,2,0,2}};
+    static const uint8_t ids[4] = {BS_ROOT, BS_OCTAVE, BS_FIFTH, BS_ARP};
+    valid = 1;
+    for (uint32_t f = 0; f < 4u; f++) {
+        gen_fixture(GEN_WALK); generator_t *g = &generator[0];
+        g->p[GN_BSTYLE] = ids[f]; g->p[GN_LENGTH] = g->p[GN_FILL] = 8;
+        generator_input(TSEL, 36); generator_input_off(TSEL, 36);
+        seq_start(); generator_tick(TSEL, 0);
+        uint8_t notes[8]; uint32_t n = gen_onsets(notes, 8);
+        valid &= n == 8u;
+        for (uint32_t i = 0; i < 8u; i++) valid &= generator_degree(TSEL, notes[i]) - g->root == figure[f][i];
+        seq_stop();
+    }
+    bad += check("ROOT/OCTAVE/FIFTH/ARP basses play their figures from the chord root", valid);
+    gen_fixture(GEN_WALK); generator_t *g = &generator[0];
+    g->p[GN_BSTYLE] = BS_WALK; g->p[GN_HARMONY] = GH_POP; g->p[GN_CHANGE] = 0;
+    g->p[GN_RATE] = 0; g->p[GN_LENGTH] = g->p[GN_FILL] = 4; g->p[GN_GATE] = 110;
+    generator_input(TSEL, 36); generator_input_off(TSEL, 36);
+    seq_start(); generator_tick(TSEL, 0); valid = 1;
+    uint32_t bar = seq_beat_samples() * 4u, beat = seq_beat_samples();
+    for (uint32_t b = 0; b < 16u; b++) {
+        int32_t walk[4];
+        for (uint32_t i = 0; i < 4u; i++) {
+            walk[i] = g->n ? generator_degree(TSEL, g->note[0]) : -100;
+            if (i) { int32_t d = walk[i] - walk[i - 1u]; valid &= d != 0 && d >= -4 && d <= 4; }
+            generator_tick(TSEL, beat);
+        }
+        int32_t next = g->n ? generator_degree(TSEL, g->note[0]) : -100, d = next - walk[3];
+        valid &= generator_mod(next - g->root, 7) == 0 && (d == 1 || d == -1);
+    }
+    (void)bar;
+    bad += check("WALK steps through the bar and approaches each next root by a scale step", valid);
+    seq_stop();
+    gen_fixture(GEN_CHORD); g = &generator[0];
+    g->p[GN_CSTYLE] = CS_STRIDE; g->p[GN_LENGTH] = g->p[GN_FILL] = 4; g->p[GN_COLOR] = GV_TRIAD;
+    seq_start(); generator_tick(TSEL, 0); valid = 1;
+    uint32_t period = seq_div_samples(g->rate);
+    for (uint32_t i = 0; i < 8u; i++) {
+        valid &= g->n == (i & 1u ? 3u : 1u);
+        if (!(i & 1u)) valid &= generator_degree(TSEL, g->note[0]) < g->chord[0] && generator_mod(generator_degree(TSEL, g->note[0]) - g->root, 7) == 0;
+        generator_tick(TSEL, period);
+    }
+    bad += check("STRIDE alternates the root below the voicing with the chord", valid);
+    seq_stop();
+    return bad;
+}
+static void gen_jam_fixture(uint32_t feel)
+{
+    gen_fixture(GEN_OFF); song.ntrk = 4;
+    for (uint32_t i = 0; i < 4u; i++) {
+        track_t *t = &trk[i];
+        set_engine_of(t, ENGI_PROPHET); t->engine = t->eng_req;
+        t->p[P_SCALE] = i == 2u ? 2 : 1; t->p[P_ROOT] = t->p[P_TRANS] = 0; t->p[P_QUANT] = Q_SNAP; t->p[P_VOICE] = V_POLY;
+        generator_defaults(i); generator_mode(t, GEN_OFF);
+    }
+    events_block(0);
+    generator_input(&trk[0], 62); generator_input_off(&trk[0], 62);
+    generator_jam_set(0, feel);
+}
+static int jam_band(void)
+{
+    gen_jam_fixture(GJ_POP);
+    int valid = generator[0].p[GN_MODE] == GEN_CHORD && generator[1].p[GN_MODE] == GEN_WALK &&
+        generator[2].p[GN_MODE] == GEN_LOOP && generator[3].p[GN_MODE] == GEN_ANSWER &&
+        generator[1].p[GN_SOURCE] == 1 && generator[2].p[GN_SOURCE] == 1 && generator[3].p[GN_SOURCE] == 3 && trk[2].p[P_SCALE] == 1;
+    valid &= generator_note(&trk[1], generator[1].anchor) < generator_note(&trk[0], generator[0].anchor) &&
+        generator_note(&trk[0], generator[0].anchor) < generator_note(&trk[2], generator[2].anchor);
+    for (uint32_t i = 1; i < 4u; i++) valid &= generator_mod(generator[i].anchor, 7) == 1;
+    int bad = check("JAM forms a band: chords, bass, arp and an answer in their registers, in the leader's key", valid);
+    uint32_t bar = seq_beat_samples() * 4u, sections = 0, seen = 0, silent = 0, worst = 0;
+    valid = 1;
+    seq_start(); generator_advance(0);
+    bad += check("PLAY starts a JAM with an intro on its first chord", generator[0].section == SEC_INTRO && generator[0].jam_started);
+    uint32_t last = 0xFF;
+    for (uint32_t b = 0; b < 320u; b++) {
+        uint32_t heard = 0;
+        for (uint32_t q = 0; q < 16u; q++) {
+            generator_advance(q < 15u ? bar / 16u : bar - 15u * (bar / 16u));
+            for (uint32_t i = 0; i < 4u; i++) {
+                generator_t *g = &generator[i];
+                heard += g->n;
+                valid &= g->n <= (g->p[GN_MODE] == GEN_CHORD ? 4u : 1u) && !g->link_bad;
+                for (uint32_t j = 0; j < g->n; j++) valid &= (SCALE_MASK[1] >> (g->note[j] % 12u)) & 1u;
+            }
+        }
+        /* Each part starts a slot on every bar line. */
+        for (uint32_t i = 0; i < 4u; i++) valid &= generator[i].left == seq_div_samples(generator[i].rate) || !generator[i].running;
+        silent = heard ? 0 : silent + 1; if (silent > worst) worst = silent;
+        if (generator[0].section != last) { sections++; seen |= 1u << generator[0].section; last = generator[0].section; }
+    }
+    bad += check("an endless JAM stays bounded, in key and on the bar grid", valid);
+    bad += check("JAM moves through verses, choruses and bridges without going silent", sections >= 12u && (seen & (1u << SEC_CHORUS)) &&
+        (seen & (1u << SEC_VERSE)) && (seen & (1u << SEC_BRIDGE)) && worst < 2u);
+    generator_t before[4]; memcpy(before, generator, sizeof before);
+    generator_advance(bar * 7u + 333u);
+    generator_t batched[4]; memcpy(batched, generator, sizeof batched);
+    for (uint32_t i = 0; i < 4u; i++) generator_release(&trk[i]);
+    memcpy(generator, before, sizeof before);
+    uint32_t left = bar * 7u + 333u;
+    while (left) { uint32_t n = left > 173u ? 173u : left; generator_advance(n); left -= n; }
+    bad += check("a JAM is identical for small blocks and MIDI-sized batches", !memcmp(batched, generator, sizeof batched));
+    gen_theme_t themes[3]; memcpy(themes, generator[0].theme, sizeof themes);
+    generator_action(&trk[2], GA_NEW);
+    generator_advance(bar * 4u);
+    bad += check("New idea on any member starts a new song", memcmp(themes, generator[0].theme, sizeof themes) != 0 && !generator[0].jam_new);
+    generator[0].p[GN_VARIETY] = 0;
+    generator_advance(bar * 16u); uint32_t hold = generator[0].section, form = generator[0].form_pos;
+    generator_advance(bar * 64u);
+    bad += check("VARIETY zero holds the current section", generator[0].section == hold && generator[0].form_pos == form);
+    generator[0].p[GN_VARIETY] = 50;
+    seq_stop();
+    /* JAM switched on while playing: the band comes in together on the next bar line. */
+    gen_jam_fixture(GJ_OFF);
+    generator_mode(&trk[0], GEN_CHORD);
+    seq_start(); seq_advance(0); seq_advance(bar / 3u);
+    fm1_irq_off(); generator_jam_set(0, GJ_JAZZ); fm1_irq_on();
+    seq_advance(bar / 3u); valid = 1;
+    for (uint32_t i = 0; i < 4u; i++) valid &= !generator[i].n;
+    seq_advance(bar - 2u * (bar / 3u)); valid &= generator[1].p[GN_BSTYLE] == BS_WALK;
+    for (uint32_t i = 0; i < 3u; i++) valid &= generator[i].n || generator[i].condition == GW_REST;
+    bad += check("JAM joined mid-bar starts the whole band on the next bar line", valid);
+    seq_stop();
+    return bad;
+}
+
 #ifndef GENERATOR_NO_MAIN
 int main(void)
 {
-    int bad = answers_and_expression() + harmonic_journeys() + navigation() + isolation() + repeatability() + harmony_and_scales() + lifecycle() + rhythm_and_transport() + phrase_contract() + memory_contract() + palette_contract() + memory_scales_and_resume();
+    int bad = progressions() + styles() + jam_band() + capture() + answers_and_expression() + harmonic_journeys() + navigation() + isolation() + repeatability() + harmony_and_scales() + lifecycle() + rhythm_and_transport() + phrase_contract() + memory_contract() + palette_contract() + memory_scales_and_resume();
     if (bad) { printf("generator test FAILED: %d\n", bad); return 1; }
     puts("generator test passed");
     return 0;

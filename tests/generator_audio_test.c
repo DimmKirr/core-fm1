@@ -5,6 +5,83 @@
 #define GENERATOR_NO_MAIN 1
 #include "generator_test.c"
 
+/* JAM scenes: one leader track switched to a FEEL forms the band; each part gets a
+ * sound that suits its role. Native engine renders, checked for health and release;
+ * the section/chord log goes to stdout for listening notes. */
+static int jam_scene(const char *dir, uint32_t feel)
+{
+    static const char *const names[] = {"", "jam-pop", "jam-rock", "jam-funk", "jam-jazz", "jam-ballad", "jam-ambient", "jam-epic", "jam-blues"};
+    /* {engine, preset} for CHORD, BASS, ARP, ANSWER */
+    static const uint8_t sound[9][4][2] = {{{0}},
+        {{ENGI_FM6, 0}, {ENGI_FM6, 10}, {ENGI_FM6, 7}, {ENGI_FM6, 1}},
+        {{ENGI_CZ, 11}, {ENGI_CZ, 14}, {ENGI_PROPHET, 19}, {ENGI_FM6, 17}},
+        {{ENGI_FM6, 13}, {ENGI_CZ, 12}, {ENGI_FM6, 7}, {ENGI_FM6, 9}},
+        {{ENGI_FM6, 0}, {ENGI_CZ, 14}, {ENGI_CZ, 42}, {ENGI_FM6, 20}},
+        {{ENGI_FM6, 0}, {ENGI_FM6, 10}, {ENGI_FM6, 18}, {ENGI_FM6, 20}},
+        {{ENGI_FM6, 16}, {ENGI_FM6, 10}, {ENGI_FM6, 11}, {ENGI_FM6, 19}},
+        {{ENGI_FM6, 15}, {ENGI_FM6, 22}, {ENGI_PROPHET, 19}, {ENGI_FM6, 9}},
+        {{ENGI_FM6, 14}, {ENGI_CZ, 14}, {ENGI_CZ, 10}, {ENGI_CZ, 22}}};
+    static const uint8_t bpm[9] = {0, 100, 120, 104, 132, 72, 70, 92, 96}, scale[9] = {0, 1, 2, 3, 1, 1, 1, 2, 4};
+    static const uint8_t root[9] = {0, 0, 9, 2, 5, 7, 4, 2, 7}, reverb[9] = {0, 14, 8, 6, 12, 30, 42, 24, 10};
+    gen_fixture(GEN_OFF); song.ntrk = 4;
+    song.g[G_BPM] = bpm[feel]; song.master_q12 = 9216;
+    for (uint32_t tr = 0; tr < 4u; tr++) {
+        track_t *t = &trk[tr];
+        set_engine_of(t, ENGI_FM6); t->engine = t->eng_req;   /* synths: the band forms on every track */
+        t->p[P_SCALE] = scale[feel]; t->p[P_ROOT] = root[feel]; t->p[P_TRANS] = 0; t->p[P_QUANT] = Q_SNAP;
+        generator_defaults(tr); generator_mode(t, GEN_OFF);
+    }
+    generator_input(&trk[0], 60u + root[feel]); generator_input_off(&trk[0], 60u + root[feel]);
+    generator_jam_set(0, feel);
+    for (uint32_t tr = 0; tr < 4u; tr++) {
+        track_t *t = &trk[tr];
+        uint32_t role = generator[tr].p[GN_MODE] == GEN_CHORD ? 0u : generator[tr].p[GN_MODE] == GEN_WALK ? 1u :
+            generator[tr].p[GN_MODE] == GEN_LOOP ? 2u : 3u;
+        set_engine_of(t, sound[feel][role][0]); apply_preset_to(t, sound[feel][role][1]);
+        t->p[P_LEVEL] = role == 0u ? 58 : role == 1u ? 74 : role == 2u ? 56 : 50;
+        if (role != 1u) t->p[P_VOICE] = V_POLY;            /* (no unison stacks: one voice a note) */
+        t->p[P_FXTYPE] = FX_REVERB; t->p[P_FXMIX] = reverb[feel]; t->p[P_FXRATE] = 40; t->p[P_FXCHAR] = 48;
+    }
+    events_block(0);
+    uint32_t play = 96u, frames = (play + 4u) * FS, peak = 0, max_gates[NTRK] = {0}, last_section = 0xFF, last_root = 0xFFFF;
+    uint64_t energy = 0;
+    FILE *file = 0; char path[512];
+    if (dir) {
+        snprintf(path, sizeof path, "%s/%s.wav", dir, names[feel]);
+        file = fopen(path, "wb");
+        if (!file) { perror(path); return 1; }
+        wav_hdr(file, frames);
+    }
+    seq_start(); generator_advance(0);
+    printf("  %s at %u BPM:", names[feel], bpm[feel]);
+    for (uint32_t frame = 0; frame < frames; frame += CTL) {
+        int32_t samples[CTL * 2u];
+        if (frame >= play * FS && song.playing) seq_stop();
+        mix_block(samples, CTL);
+        const generator_t *lead = &generator[0];
+        if (song.playing && lead->section != last_section) { printf("\n    %5.1fs %s:", (double)frame / FS, GEN_SECTION[lead->section % 5u]); last_section = lead->section; last_root = 0xFFFF; }
+        if (song.playing && (uint32_t)generator_mod(lead->root, 7) != last_root) {
+            static const char *const R[7] = {"I", "ii", "iii", "IV", "V", "vi", "vii"};
+            last_root = generator_mod(lead->root, 7);
+            printf(" %s", R[(last_root + 7u - generator_mod(lead->anchor, 7)) % 7u]);
+        }
+        for (uint32_t tr = 0; tr < 4u; tr++) { uint32_t held = gen_gates(&trk[tr]); if (held > max_gates[tr]) max_gates[tr] = held; }
+        for (uint32_t i = 0; i < CTL && frame + i < frames; i++) {
+            int32_t l = samples[2u*i], r = samples[2u*i+1u];
+            uint32_t magnitude = (uint32_t)(l < 0 ? -l : l);
+            if (magnitude > peak) peak = magnitude;
+            energy += magnitude;
+            if (file) wav_put(file, l, r);
+        }
+    }
+    if (file) fclose(file);
+    int bounded = 1;
+    for (uint32_t tr = 0; tr < 4u; tr++) bounded &= max_gates[tr] <= (generator[tr].p[GN_MODE] == GEN_CHORD ? 4u : 2u) && !gen_gates(&trk[tr]);
+    printf("\n  generator audio %s: peak %u, mean absolute %llu, held %u/%u/%u/%u\n", names[feel], peak,
+        (unsigned long long)(energy / frames), max_gates[0], max_gates[1], max_gates[2], max_gates[3]);
+    return check("a JAM band renders audibly, bounded, without clipping, and releases on STOP", energy > FS * 1000u && peak < 32768u && bounded);
+}
+
 int main(int argc, char **argv)
 {
     static const char *const names[] = {"reference-dry-pluck", "memory-dry-pluck", "memory-evolving-pluck",
@@ -128,5 +205,6 @@ int main(int argc, char **argv)
             (unsigned long long)(energy / frames), max_gates[0], max_gates[1], max_gates[2], max_gates[3], gen_gates(TSEL));
         bad += check("native memory audio is audible, bounded, and releases on STOP", energy > FS * 1000u && peak < 32768u && bounded);
     }
+    for (uint32_t feel = GJ_POP; feel < GJ_COUNT; feel++) bad += jam_scene(argc > 1 ? argv[1] : 0, feel);
     return bad ? 1 : 0;
 }

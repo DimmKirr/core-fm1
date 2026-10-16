@@ -638,23 +638,25 @@ static void qsave_poll(void)
  * bars end at the bar playing when a note in it was played, else at its start. EDIT held undoes it */
 static void capture_take(void)
 {
-    track_t *t = TSEL;
-    if (generator_on(t)) { ui_message("GEN: NO CAPTURE"); return; }
+    track_t *t = TSEL;                                  /* (a generating track: its generated notes) */
     uint32_t k = song.sel, n = 0, i, now, first = 0xFFFFu, last = 0, end, w, start, put = 0, full = 0, j = 0, from;
     uint64_t touched = 0;
     int empty;
-    cap_ev_t captured[CAP_N];
-    uint32_t until;
+    cap_ev_t captured[CAP_N / 2u];                      /* the track's newest events, oldest first */
+    uint32_t until = 0;
     if (chain_busy()) { ui_message("STOP SONG TO CAPTURE"); return; }
     if ((song.rec >> k) & 1u) { ui_message("RECORDING"); return; }
-    fm1_irq_off();                                      /* the selected track's events of this run: the newest, the oldest */
+    fm1_irq_off();                                      /* the selected track's events of this run (the ring is shared) */
     now = cap_now(t);
     from = cap_w - cap_from > CAP_N ? cap_w - CAP_N : cap_from;
-    until = cap_w;
-    memcpy(captured, cap_ev, sizeof captured);
+    for (i = cap_w; i != from && until < NELEM(captured); i--)
+        if ((cap_ev[(i - 1u) % CAP_N].tr & 127u) == k) until++;
+    for (i = cap_w, j = until; j; i--)
+        if ((cap_ev[(i - 1u) % CAP_N].tr & 127u) == k) captured[--j] = cap_ev[(i - 1u) % CAP_N];
     fm1_irq_on();
+    from = 0;
     for (i = from; i != until; i++) {
-        const cap_ev_t *e = &captured[i % CAP_N];
+        const cap_ev_t *e = &captured[i];
         uint32_t back = (uint16_t)((now >> 8) - e->step);
         if ((e->tr & 127u) != k || back >= 64u)
             continue;
@@ -675,7 +677,7 @@ static void capture_take(void)
     if (empty)
         t->p[P_SLEN] = (int16_t)w;
     for (i = from; i != until; i++) {
-        const cap_ev_t *e = &captured[i % CAP_N];
+        const cap_ev_t *e = &captured[i];
         uint32_t actual = (uint16_t)(e->step - start), on = (uint32_t)e->on << 8, view, dur, exp;
         recorded_note_t r;
         if ((e->tr & 127u) != k || actual >= w)
@@ -1011,18 +1013,21 @@ static void edit_param(uint32_t slot, int32_t steps)
     const param_desc_t *d;
     int32_t v;
     if (pg->scope == SC_GEN) {
-        uint32_t id = pg->id[slot];
-        generator_defaults(song.sel);
-        generator_t *g = &generator[song.sel];
+        uint32_t id = pg->id[slot], tr = song.sel;
+        generator_defaults(tr);
+        if (id == GN_STYLE) id = generator_style_id(&generator[tr]);
+        else if (generator_jam_id(id)) { tr = generator_jam_owner(tr); generator_defaults(tr); }
+        generator_t *g = &generator[tr];
         const param_desc_t *gd = &GEN_PARAM[id];
         int32_t value = clamp(g->p[id] + steps, gd->min, gd->max);
         if (id == GN_SOURCE && value == (int32_t)song.sel + 1)
             value = clamp(value + (steps > 0 ? 1 : -1), gd->min, gd->max);
         if (value == (int32_t)song.sel + 1 && id == GN_SOURCE) value = gd->max - 1;
         if (value == g->p[id]) return;
-        if (id == GN_MODE && value && chord_kit(TSEL)) { ui_message("GEN NEEDS A SYNTH"); return; }
+        if ((id == GN_MODE || id == GN_JAM) && value && chord_kit(&trk[tr])) { ui_message("GEN NEEDS A SYNTH"); return; }
         uint32_t guard = motion_guard();
         if (id == GN_MODE) generator_mode(TSEL, (uint32_t)value);
+        else if (id == GN_JAM) generator_jam_set(tr, (uint32_t)value);   /* OFF -> a FEEL: the band forms */
         else {
             g->p[id] = (int16_t)value;
             if (id == GN_CHANGE) g->harmony_left = seq_beat_samples() * 4u * (1u << value);

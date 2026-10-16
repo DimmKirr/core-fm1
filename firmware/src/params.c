@@ -55,18 +55,25 @@ static const char *const N_ENGNAME[] = {"-", "-", MELODEE_LEGACY_EXTRAS ? "PHASE
 
 #include "generator_state.h"
 static const char *const N_GEN_MODE[] = {"OFF", "ARP", "BASS", "CHORD", "ANSWER"};
-static const char *const N_GEN_HARMONY[] = {"HOLD", "NEAR", "PATH"};
+static const char *const N_GEN_HARMONY[] = {"HOLD", "NEAR", "PATH", "MARKOV", "POP", "AXIS", "DOOWOP", "CANON",
+    "ROYAL", "CIRCLE", "JAZZ", "FALL", "RISE", "VAMP", "BLUES"};
 static const char *const N_GEN_CHANGE[] = {"1", "2", "4", "8", "16"};
-static const char *const N_GEN_COLOR[] = {"TRIAD", "7TH", "OPEN", "9/11", "SUS2"};
+static const char *const N_GEN_COLOR[] = {"TRIAD", "7TH", "OPEN", "9/11", "SUS2", "ADD9", "SUS4", "6/9", "QUARTAL", "SHELL"};
 static const char *const N_GEN_SOURCE[] = {"LOCAL", "T1", "T2", "T3", "T4"};
 static const char *const N_GEN_ANSWER[] = {"ECHO", "REVERSE", "TURN", "INVERT", "BRANCH", "CHORD"};
-static const char *const N_GEN_CONDITION[] = {"ALWAYS", "ODD", "EVEN", "4TH"};
-static const char *const N_GEN_DYNAMICS[] = {"FLAT", "PHRASE"};
+static const char *const N_GEN_CONDITION[] = {"ALWAYS", "ODD", "EVEN", "4TH", "REST"};
+static const char *const N_GEN_DYNAMICS[] = {"FLAT", "PHRASE", "SWELL", "HUMAN"};
+static const char *const N_GEN_ASTYLE[] = {"DRIFT", "UP", "DOWN", "BOUNCE", "INWARD", "PINKY", "THUMB", "ALBERTI", "STAIRS"};
+static const char *const N_GEN_BSTYLE[] = {"DRIFT", "ROOT", "OCTAVE", "FIFTH", "WALK", "ARP", "BOOGIE", "PEDAL"};
+static const char *const N_GEN_CSTYLE[] = {"BLOCK", "STRIDE"};
+static const char *const N_GEN_JAM[] = {"OFF", "POP", "ROCK", "FUNK", "JAZZ", "BALLAD", "AMBIENT", "EPIC", "BLUES"};
 static const param_desc_t GEN_PARAM[GN_COUNT] = {
     PE("ROLE", N_GEN_MODE, 0), PE("RATE", N_DIV, 1), PD("RANGE", F_INT, 1, 4, 1), PD("FILL", F_INT, 0, 16, 5),
     PD("LENGTH", F_INT, 1, 16, 8), PD("CHANGE", F_INT, 0, 100, 0), PD("GATE", F_PCT, 1, 127, 80), PD("SEED", F_INT, 1, 127, 11),
     PE("HARMONY", N_GEN_HARMONY, 0), {"EVERY", F_ENUM, 0, 4, 2, N_GEN_CHANGE, "bar"}, PE("VOICING", N_GEN_COLOR, 0), PD("WANDER", F_INT, 0, 100, 35), PD("COLOR", F_INT, 0, 100, 35), PE("SOURCE", N_GEN_SOURCE, 0),
-    PE("ANSWER", N_GEN_ANSWER, 0), PE("WHEN", N_GEN_CONDITION, 0), PE("DYNAMICS", N_GEN_DYNAMICS, 1), {"STRUM", F_INT, 0, 100, 0, 0, "ms"}
+    PE("STYLE", N_GEN_ANSWER, 0), PE("WHEN", N_GEN_CONDITION, 0), PE("DYNAMICS", N_GEN_DYNAMICS, 1), {"STRUM", F_INT, 0, 100, 0, 0, "ms"},
+    PE("STYLE", N_GEN_ASTYLE, 0), PE("STYLE", N_GEN_BSTYLE, 0), PE("STYLE", N_GEN_CSTYLE, 0),
+    PE("JAM", N_GEN_JAM, 0), PD("DRIVE", F_INT, 0, 100, 60), PD("SPICE", F_INT, 0, 100, 35), PD("VARY", F_INT, 0, 100, 50)
 };
 
 /* FM6's pages (an FM6 track only): the selected track's patch (fm6_patch), its operator switches and the FM6 function
@@ -611,10 +618,11 @@ static const page_t PAGES[] = {
     {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, G_BOOT, G_LOAD, G_SAVE}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    {"GENERATE", FAM_ARP, SC_GEN, GR_ARP, {GN_MODE, GN_RATE, GN_FILL, GN_EVOLVE}},
+    {"GEN JAM", FAM_ARP, SC_GEN, GR_ARP, {GN_JAM, GN_ENERGY, GN_TENSION, GN_VARIETY}},   /* the ensemble's: its leader's */
+    {"GENERATE", FAM_ARP, SC_GEN, GR_ARP, {GN_MODE, GN_STYLE, GN_RATE, GN_FILL}},          /* STYLE: the role's own list */
     {"GEN PHRASE", FAM_ARP, SC_GEN, GR_ARP, {GN_LENGTH, GN_GATE, GN_RANGE, GN_PALETTE}},
     {"GEN CHORD", FAM_ARP, SC_GEN, GR_ARP, {GN_HARMONY, GN_CHANGE, GN_COLOR, GN_SOURCE}},
-    {"GEN ANSWER", FAM_ARP, SC_GEN, GR_ARP, {GN_ANSWER, GN_CONDITION, GN_DYNAMICS, GN_STRUM}},
+    {"GEN EVOLVE", FAM_ARP, SC_GEN, GR_ARP, {GN_EVOLVE, GN_CONDITION, GN_DYNAMICS, GN_STRUM}},
     {"NOTES", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"TEMPO", FAM_SEQ, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_TRK_RECQ, 0xFF}},   /* the project's: saved with it; QNT: the
@@ -737,8 +745,11 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
 {
     uint32_t id = pg->id[slot];
     if (pg->scope == SC_GEN) {
-        generator_defaults(song.sel);
-        *valp = &generator[song.sel].p[id];
+        uint32_t tr = song.sel;
+        generator_defaults(tr);
+        if (id == GN_STYLE) id = generator_style_id(&generator[tr]);
+        else if (generator_jam_id(id)) { tr = generator_jam_owner(tr); generator_defaults(tr); }
+        *valp = &generator[tr].p[id];
         return &GEN_PARAM[id];
     }
     if(pg->scope==SC_P5 || pg->scope==SC_P5STORE){

@@ -501,6 +501,8 @@ static uint32_t pv_curve_sig(void)
     if (pg->scope == SC_GEN) {
         const generator_t *g = &generator[song.sel];
         for (c = 0; c < GN_COUNT; c++) h = (h ^ (uint32_t)g->p[c]) * 16777619u;
+        const generator_t *lead = &generator[generator_jam_owner(song.sel)];
+        h = (h ^ lead->path_pos ^ (uint32_t)lead->path_len << 5 ^ (uint32_t)lead->path_valid << 10) * 16777619u;
         return h ^ g->step * 131u ^ (uint32_t)(g->root + 256) * 8191u ^ g->n * 65537u ^ ux.gen * 977u ^
             ux.pal * 31u ^ ui.page * 7919u ^ song.sel * 13u ^ (uint32_t)(pv_hot() + 1) * 40503u;
     }
@@ -560,8 +562,31 @@ static void pv_arp(int32_t h)
             uint16_t color = !generator_on(TSEL) ? T_DIM : song.playing && g->step && (g->cursor + length - 1u) % length == i ? T_TEXT : T_THEME;
             cv_rrect(x, hit ? y : h - 36, w - 3, hit ? 8 : 2, 1, hit ? color : T_LINE, T_PANEL);
         }
-        cv_free_text(12, h - TY_LB->h - 6, TY_LB,
-            !generator_on(TSEL) ? "Turn ROLE to enable" : "Hold OCT+: idea tools", T_MID, T_PANEL, PV_PANEL_W - 24);
+        /* The leader's harmonic cycle as numerals from home, the sounding chord bright
+         * (a window from it when the cycle is wider than the panel). */
+        uint32_t lead_i = generator_jam_owner(song.sel);
+        generator_t lead;
+        fm1_irq_off(); lead = generator[lead_i]; fm1_irq_on();
+        const track_t *lt = &trk[lead_i];
+        uint32_t count = generator_count(lt), home = generator_mod(lead.anchor, count);
+        uint32_t cycle = generator_on(TSEL) && lead.path_valid ? lead.path_len : 0u, first = 0;
+        char tok[16][8];
+        int32_t width = 0, room = PV_PANEL_W - 24, x = 12;
+        for (uint32_t i = 0; i < cycle && i < 16u; i++) {
+            static const char *const R[7] = {"I", "II", "III", "IV", "V", "VI", "VII"};
+            uint32_t degree = lead.path[i], rel = (degree + count - home) % count;
+            if (count != 7u) fmt_int(tok[i], (int32_t)rel + 1);
+            else {
+                str_cpy(tok[i], R[rel], sizeof tok[i]);
+                if (generator_minor(lt, (int32_t)degree) || generator_dim(lt, (int32_t)degree))
+                    for (char *c = tok[i]; *c; c++) *c = (char)(*c + 32);
+            }
+            width += text_w(TY_LB, tok[i]) + 10;
+        }
+        if (width > room) first = lead.path_pos;
+        for (uint32_t i = first; i < cycle && i < 16u && x < 12 + room; i++)
+            x = cv_free_text(x, h - TY_LB->h - 6, TY_LB, tok[i], song.playing && i == lead.path_pos ? T_TEXT : T_MID,
+                T_PANEL, 12 + room - x) + 10;
         return;
     }
     static const uint8_t DEF[3] = {48, 52, 55};

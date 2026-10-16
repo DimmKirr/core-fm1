@@ -198,6 +198,10 @@ and incremental redraws when the state ends or the selected track changes (`test
   Replaces GEN RUN until the next phrase commits it (a played root commits at
   the next note). Shares its priority and location; clears on apply, disable,
   track change or project reset. Never shown as a toast.
+- **INTRO / VERSE / CHORUS / BRIDGE / BREAK:** the selected track belongs to an
+  ensemble whose leader runs a JAM. The song section replaces GEN NEXT/LOCK/RUN
+  (a JAM changes settings at every section, so GEN NEXT would never rest); source,
+  key, stopped and waiting states still outrank it. Clears on JAM OFF.
 - All generator labels disappear on ROLE OFF, a change to a nongenerating track,
   project load or power-off. They replace the right-hand context in the shared
   header, including browser, song and scale screens. Generator enablement never

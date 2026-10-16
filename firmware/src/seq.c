@@ -336,11 +336,12 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
 
 /* Capture: every note played (keys, MIDI, a chord's notes) while the transport runs and its track is not recording,
  * with its place: the steps the track has entered since PLAY (cap_step) and the 1/256 of the step, as recording.c
- * keeps them. A ring of 8-byte events (RAM is the audio arena's: kept small); REC held writes the selected track's last
- * bars into its pattern (ui_input.c capture_take). Durations in 1/256 of a step; tr bit 7: still held */
-#define CAP_N 128u
+ * keeps them. A ring of 8-byte events in the pool, sized for a jam of four generated parts (generator.c); REC held
+ * writes the selected track's last bars into its pattern (ui_input.c capture_take). Durations in 1/256 of a step;
+ * tr bit 7: still held */
+#define CAP_N 256u
 typedef struct { uint16_t step, dur; uint8_t on, note, vel, tr; } cap_ev_t;
-static cap_ev_t cap_ev[CAP_N];
+static cap_ev_t cap_ev[CAP_N] __attribute__((section(".pool")));   /* (generated parts write here too: generator.c) */
 static uint32_t cap_w, cap_from;                /* events written; the first of this run of the transport */
 static uint16_t cap_step[NTRK];                 /* the step playing, counted from PLAY (65535 before the first) */
 static uint32_t cap_frac(const track_t *t)      /* RECORD_UNIT fraction of the step playing */
@@ -359,14 +360,26 @@ static uint32_t cap_len(const cap_ev_t *e, uint32_t now)   /* its length (held: 
     uint32_t d = (e->tr & 128u) ? (now - ((uint32_t)e->step << 8) - e->on) & 0xFFFFFFu : e->dur;
     return d < 1u ? 1u : d > 65535u ? 65535u : d;
 }
+/* A generated note's own place: generator.c runs after the step timeline has reached the end of the block,
+ * cap_ahead samples later than the note (0 for played notes) */
+static uint32_t cap_ahead;
+static uint32_t cap_place(const track_t *t)
+{
+    uint32_t now = cap_now(t), span;
+    if (!cap_ahead)
+        return now;
+    span = step_samples(t, seq_div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx);
+    return span ? (now - (cap_ahead << 8) / span) & 0xFFFFFFu : now;
+}
 static void cap_on(const track_t *t, uint32_t note, uint32_t vel)
 {
-    uint32_t k = trk_index(t);
+    uint32_t k = trk_index(t), at;
     cap_ev_t *e = &cap_ev[cap_w % CAP_N];
-    if (!song.playing || chain.running || rec_on(t) || generator_on(t))
+    if (!song.playing || chain.running || rec_on(t))
         return;
-    e->step = t->seq_pos >= 0x7FFFFFFFu ? (uint16_t)(cap_step[k] + 1u) : cap_step[k];
-    e->on = (uint8_t)(cap_frac(t) >> 8);
+    at = cap_place(t);
+    e->step = (uint16_t)(at >> 8);
+    e->on = (uint8_t)at;
     e->dur = 0;
     e->note = (uint8_t)note;
     e->vel = (uint8_t)vel;
@@ -382,7 +395,7 @@ static void cap_off(const track_t *t, uint32_t note)
     for (i = 0; i < cap_w - cap_from && i < CAP_N; i++) {
         cap_ev_t *e = &cap_ev[(cap_w - 1u - i) % CAP_N];
         if (e->tr == (k | 128u) && e->note == note) {
-            e->dur = (uint16_t)cap_len(e, cap_now(t));
+            e->dur = (uint16_t)cap_len(e, cap_place(t));
             e->tr = (uint8_t)k;
         }
     }

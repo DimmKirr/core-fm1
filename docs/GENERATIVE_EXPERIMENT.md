@@ -1,181 +1,196 @@
-# Generative ARP experiment: memory and harmonic journeys
+# Generative ARP experiment: an endless jam band
 
 Experimental, session-only implementation on **`experiment/generative-arp`**,
-branched from nightly. The earlier contour/DP
-planner is replaced. The first single-chord memory comparison was not musically
-accepted: the user requested more variety and depth in the progressions. These
-controls now include a shared harmonic source and complete harmonic journeys;
-listening and hardware evaluation are still required.
+branched from nightly. Native renders exist; listening on hardware is still
+required. Plan, research and history: [GENERATIVE_ARP_PLAN.md](GENERATIVE_ARP_PLAN.md).
 
-Hold **ARP** for about 0.7 seconds to open GENERATE. This only opens the controls.
-Turn ROLE to enable a track; PLAY starts generation. HOME leaves it running. A
-short ARP tap opens the ordinary arpeggiator. ROLE OFF returns the track to its
-stored pattern. Kits cannot generate melodic parts.
+Hold **ARP** for about 0.7 seconds to open the generator pages. This only opens the
+controls. A short ARP tap still opens the ordinary arpeggiator. HOME leaves the
+generator running. Kits cannot generate; they keep playing their patterns, so a
+drum track makes a natural rhythm section for a jam.
 
-Enabled tracks bypass pattern/motion playback and reject REC, REC+PLAY and
-retrospective capture. Existing patterns remain intact; other tracks work
-normally. Generation is not stored in a project or sent as MIDI notes. Project
-load and power-off clear it, including kept ideas. Record audio to preserve a take.
+## Quick start: a backing band in one turn
 
-## Controls
+1. Choose sounds on your tracks (a pad or keys, a bass, a pluck or bell, a lead).
+2. Select the track whose key you want, hold ARP, turn **JAM** to a feel.
+3. Press PLAY. Play along; never stops, keeps changing.
 
-Turn SELECT through these four pages:
+Turning JAM from OFF to a feel makes that track the band leader (CHORD unless it
+already has a role) and every other synth track joins: free tracks take the
+missing roles in track order, **BASS**, then **ARP**, then an **ANSWER** to the
+arp, each in its own register around the leader's home note, all in the leader's
+key (scale, root, transpose and tuning are copied). Tracks that already generate
+keep their roles and follow the leader. Switched on while playing, the band comes
+in together on the next bar line.
+
+The leader writes a song: sections of about 4, 8 or 16 bars (INTRO, VERSE,
+CHORUS, BRIDGE, BREAK) from three themes. A theme is a progression, a change rate
+and each part's style; a returning chorus plays its own progression and the same
+melodic seed, so you recognise it. Each section has its own energy: the intro and
+breaks thin out (parts rest), choruses lift, and the second half of a section that
+leads into a chorus builds. After a whole form, VARY renews some themes, so the
+song keeps moving without losing its identity. The header shows the section.
+
+### JAM page (any member edits the leader's)
+
+| Knob | Control | What it does |
+| --- | --- | --- |
+| 1 | **JAM** | OFF, POP, ROCK, FUNK, JAZZ, BALLAD, AMBIENT, EPIC, BLUES. Another feel starts a new song at the next chord change. |
+| 2 | **DRIVE** | Energy: rhythmic density, faster subdivisions, wider register, velocity, shorter gates. |
+| 3 | **SPICE** | Harmonic richness: triads -> add9/shell -> sevenths -> 6/9, 9/11, quartal (by feel), and more passing colour in melodies. |
+| 4 | **VARY** | How fast the song changes: section length (16, 8, 4 bars), theme renewal each form, melodic evolution. Zero holds the current section forever. |
+
+The feels choose progressions, part styles and timing:
+
+| Feel | Progressions | Parts |
+| --- | --- | --- |
+| POP | POP, AXIS, DOOWOP, ROYAL | 1/8 arps (UP, BOUNCE, PINKY) or a melody, root/octave/fifth bass, quarter chords, light strum |
+| ROCK | VAMP, RISE, POP, FALL | eighth strums (alternate down/up strokes), root bass, THUMB/STAIRS arps |
+| FUNK | VAMP, one-chord HOLD, JAZZ, MARKOV | syncopated sixteenth stabs (rotated Euclidean rhythms), octave bass |
+| JAZZ | JAZZ (ii V I vi), CIRCLE, MARKOV | walking bass, triplet comping or stride, shell/7th/9 voicings, melodic DRIFT |
+| BALLAD | CANON, FALL, DOOWOP, ROYAL | half-note chords, ALBERTI arps, fifth/arp bass, wide strum |
+| AMBIENT | PATH, NEAR, MARKOV | whole-note pads, pedal bass, slow drifting bells, open/quartal voicings |
+| EPIC | POP, RISE, FALL, ROYAL | sixteenth arps, octave bass, wide voicings |
+| BLUES | twelve-bar BLUES, VAMP, JAZZ | shuffle (8T Euclid 8 of 12) stride chords, boogie/walking bass |
+
+JAM writes the parts' ordinary settings (STYLE, RATE, LENGTH, FILL, GATE, RANGE,
+COLOR, VOICING, WHEN, DYNAMICS, STRUM, SEED; HARMONY and EVERY on the leader), so
+every change commits at the part's own phrase boundary and you can watch the knobs
+move. Hand-tuning a part lasts until the next chord change; turn JAM OFF to keep
+your own settings (the band keeps playing as it is).
+
+**New idea** (Idea tools) on any member starts a new song at the next change.
+**Keep idea / Return to kept** snapshot and restore the whole band, including the
+song form and section.
+
+## Keep what you hear: hold REC
+
+Holding **REC** on a generating track captures what it just played into the
+track's pattern, exactly like capturing notes you played without recording (the
+same window and quantising rules; it is undoable). Generation keeps running, so
+the jam goes on; turn ROLE OFF (or JAM OFF and ROLE OFF) to hear the captured
+pattern. Capture one track at a time: select each band member and hold REC.
+Tapping REC, REC+PLAY and live recording stay disabled on generating tracks.
+
+## Pages
+
+Turn SELECT through five pages:
 
 | Page | Knob 1 | Knob 2 | Knob 3 | Knob 4 |
 | --- | --- | --- | --- | --- |
-| GENERATE | ROLE: OFF / ARP / BASS / CHORD / ANSWER | RATE: note division | FILL: exact onsets | CHANGE: melodic memory replacement, 0–100 |
-| GEN PHRASE | LENGTH: 1–16 clock slots | GATE: fraction of one slot | RANGE: 1–4 scale periods | COLOR: preferred tones toward full scale, 0–100 |
-| GEN CHORD | HARMONY: HOLD / NEAR / PATH | EVERY: 1 / 2 / 4 / 8 / 16 bars | VOICING: TRIAD / 7TH / OPEN / 9/11 / SUS2 | SOURCE: LOCAL / T1 / T2 / T3 / T4 |
-| GEN ANSWER | ANSWER: ECHO / REVERSE / TURN / INVERT / BRANCH / CHORD | WHEN: ALWAYS / ODD / EVEN / 4TH | DYNAMICS: FLAT / PHRASE | STRUM: 0–100 ms |
+| GEN JAM | JAM | DRIVE | SPICE | VARY |
+| GENERATE | ROLE: OFF / ARP / BASS / CHORD / ANSWER | STYLE: the role's own list | RATE | FILL: exact onsets |
+| GEN PHRASE | LENGTH: 1–16 slots | GATE | RANGE: 1–4 scale periods | COLOR: chord tones toward the full scale |
+| GEN CHORD | HARMONY | EVERY: 1 / 2 / 4 / 8 / 16 bars | VOICING | SOURCE: LOCAL / T1–T4 |
+| GEN EVOLVE | CHANGE: memory replacement 0–100 | WHEN: ALWAYS / ODD / EVEN / 4TH / REST | DYNAMICS: FLAT / PHRASE / SWELL / HUMAN | STRUM: 0–100 ms |
 
-- **ARP** holds at most one generated melodic note. **BASS** favors the current
-  root and fifth scale degree interval. **CHORD** plays a bounded voiced chord:
-  three notes for TRIAD/OPEN/SUS2, four for 7TH/9/11. Mono sounds use one voice.
-  These are held-note limits; sound releases/reverb can continue after note-off.
-- **FILL** produces exactly `min(FILL, LENGTH)` Euclidean onsets per phrase;
-  FILL zero is silent. Melody changes cannot secretly change rhythm or length.
-- **GATE** is finite and never exceeds a slot. Repeated pitches retrigger. Tiny
-  gates round to the minimum audible control duration. A long synth release is
-  separate from note length.
-- **CHANGE zero** repeats the retained melodic memory. Raising it gradually
-  replaces decisions at phrase boundaries. It does not turn ARP/BASS into chords.
-  STOP/PLAY retains the evolved memory and harmonic position, restarting rhythm.
-- **COLOR zero** restricts melodies to preferred tones; higher values explore
-  more of the selected scale. The first onset favors the current chord (the root
-  for BASS) and takes a nearby register. RANGE/COLOR reshape the same decisions;
-  returning their settings recovers a locked idea while harmony is unchanged.
-- **RANGE one** covers a scale period upward from the played register; larger
-  ranges expand around it. Edge-of-MIDI pitches are filtered to playable notes.
-  RANGE shapes melodic roles; chord register comes from the input and voicing.
-- Tap a note to set a starting register/root. Hold several notes to establish a
-  preferred palette on a LOCAL part; releasing them latches it. The next first
-  press replaces it. On linked parts, played notes set register while the source
-  controls harmonic pitch classes. Input does not play extra notes or record.
-- **HOLD** keeps harmony still. **NEAR** chooses related chords, favoring common
-  tones and small pitch movement. **PATH** plans eight harmonic changes, including
-  departure, preparation, tension, a deceptive middle and return. Its choices
-  vary by seed; it avoids exhausting the journey on two repeating chords.
-  Diatonic scales use functional families; other scales use a pitch-distance and
-  common-tone graph with a planned return, without forcing Western functions.
-- Chromatic and pentatonic chord shapes choose nearby legal thirds/fifths by
-  pitch distance; they do not mistake two scale steps for a third in every scale.
-- **9/11** uses seventh, third and ninth with the fifth omitted to fit four
-  voices. On diatonic chords where that ninth would be flat, it uses an eleventh
-  instead. Voicings minimize movement between parts of successive chords.
-- **EVERY** counts four-beat bars. The LOCAL source applies a due change at its
-  next phrase boundary. Followers update their harmonic context at that same
-  timestamp, keeping independent rhythms, register and finite gates. Already
-  sounding notes finish their gate; future onsets follow the new harmony.
-- Linked tracks require the same scale, root, transpose and effective tuning
-  mode. SOURCE chains are supported; cycles or unavailable/disabled/kit sources
-  suspend affected parts with **GEN SRC**. Incompatible tuning shows **GEN KEY**.
-  Fix the source or use **Match source key** in the tools. A track cannot select
-  itself as its source. LOCAL always lets it run independently.
-- RATE/LENGTH/FILL/GATE/RANGE/COLOR/VOICING/SEED commit at the next phrase boundary.
-  Played gestures take effect at the next onset. Source routing applies on the
-  next scheduler call. The shared header shows **GEN NEXT** for queued changes,
-  **GEN LOCK** for locked melody, **GEN RUN** for evolving melody, **GEN STOP**
-  while stopped; source/key errors take priority. Melodic lock does not freeze
-  harmonic movement—use HARMONY HOLD on the source for that.
+The page picture shows the chord's notes, the phrase (height = pitch, bright =
+playing) and the leader's harmonic cycle as numerals from home, the sounding
+chord bright.
 
-## Answering and developing a part
+### Styles
 
-**ROLE ANSWER requires an explicit SOURCE track.** It waits for that track's first
-completed audible phrase (**GEN WAIT**), then derives its material from the heard
-onsets, excluding rests. Each answer retains its own LENGTH/FILL/RATE/GATE and
-register. It copies the source material at its own phrase boundary, so an answer
-stays recognizable for that phrase. New harmony remaps the retained relative
-intervals into the active chord context. No history grows beyond sixteen notes.
+- **ARP:** DRIFT (Marbles-style memory melody, below), UP, DOWN, BOUNCE, INWARD
+  (outside-in), PINKY (alternating with the top note), THUMB (alternating with the
+  bottom), ALBERTI (low-high-mid-high), STAIRS (overlapping rising threes). The
+  patterns arpeggiate the current chord (or a latched multi-note palette) across
+  RANGE octaves, one onset at a time; COLOR lets memory-chosen offbeats take the
+  scale note above, CHANGE evolves which ones.
+- **BASS:** DRIFT (root-and-fifth weighted memory), ROOT, OCTAVE, FIFTH (root,
+  fifth below), WALK, ARP (1-3-5-8-5-3), BOOGIE (1-3-5-6-7-6-5-3), PEDAL (home
+  note under every chord). **WALK** sees the next chord before it arrives: it
+  steps through the bar from the root, chord tones on strong beats, and approaches
+  the next root from a scale step, keeping its octave close to the last note so
+  the line keeps walking. When the chord stays, it plays one of four classic
+  figures (1-3-5-6, 1-2-3-5, 1-7-6-5, 1-5-6-7).
+- **CHORD:** BLOCK (the voicing on each onset) or STRIDE (the root below the
+  voicing on even onsets, the chord between). Strummed chords alternate down- and
+  up-strokes and soften toward the last string.
+- **ANSWER:** ECHO / REVERSE / TURN / INVERT / BRANCH / CHORD (below).
 
-ANSWER styles on GEN ANSWER:
+**DRIFT melodies** keep Marbles' repeatable memory but shape each draw like a sung
+line: steps and thirds are likelier than leaps, a leap is followed by a step back
+(gap fill), strong beats favour chord tones and the phrase's last onset resolves on
+one (the root most often). RANGE/COLOR still reshape the same decisions reversibly.
 
-- **ECHO** follows the source's relative intervals in its own register/harmony.
-- **REVERSE** reverses the heard onset order; **TURN** rotates it by half;
-  **INVERT** reflects the relative intervals around the active root.
-- **BRANCH** uses a bounded Fibonacci grammar (`A -> AB`, `B -> A`). A follows
-  the parent order; B reverses it and nudges one selected-scale step. Over twelve
-  phrases the grammar grows through five generations, retreats, and returns to
-  the parent. At most thirteen symbols shape the fixed phrase; this cannot
-  extend LENGTH, add onsets or create extra held notes.
-- **CHORD** is a single-note harmonic companion: it follows the source contour
-  using nearby tones of the current chord. It does not become a polyphonic pad.
+### Harmony
 
-**WHEN** applies to all roles. ALWAYS plays every phrase; ODD plays the first,
-third, etc.; EVEN plays the second, fourth, etc.; 4TH plays every fourth phrase.
-FILL remains exact on active phrases; inactive phrases are intentionally silent.
-History retains the last completed audible phrase during a source's silent turn.
-**DYNAMICS** chooses constant velocity or restrained phrase accents. **STRUM**
-staggers CHORD's onsets only, shrinking when necessary to retain audible finite
-gates inside the slot. STOP, disabling, and source errors cancel pending notes.
-These expression/style settings commit at the part's next phrase boundary.
+**HOLD** stays. **NEAR** chains related chords (common tones, small movement).
+**PATH** plans an eight-change journey through Western function families with a
+deceptive middle and a return; other scales use a pitch-distance graph. **MARKOV**
+draws from Walter Piston's table of usual root progressions (a minor-key reading
+for minor homes), avoids repeating heard chords, prepares the return with a
+dominant or plagal chord and comes home every eight changes. Named progressions
+(scale-degree offsets from your home, read in major or minor by its third):
 
-For a conversation, use the quartet below but set Track 1 to ANSWER, SOURCE T4,
-LENGTH 8, FILL 4, ANSWER REVERSE, WHEN EVEN. Set Track 4 WHEN ODD. For ambient
-branching, set Track 1 LENGTH 13, WHEN ALWAYS, ANSWER BRANCH; restore Track 4 WHEN
-ALWAYS. Try ANSWER CHORD for the quieter harmonic companion. Set the pad STRUM
-around 45 ms for gentle movement. Keep/return includes the answer parent history
-and its development phase as well as the linked harmony.
+| Name | Major home | Minor home |
+| --- | --- | --- |
+| POP | I V vi IV | i VI III VII |
+| AXIS | vi IV I V | iv VI i VII |
+| DOOWOP | I vi IV V | i VI iv v |
+| CANON | I V vi iii IV I IV V (Pachelbel) | same degrees |
+| ROYAL | IV V iii vi (royal road) | VI VII v i |
+| CIRCLE | I IV vii iii vi ii V (descending fifths) | same degrees |
+| JAZZ | ii V I vi | ii v i VI (V in harmonic minor) |
+| FALL | IV iii ii I | i VII VI v (Andalusian; V in harmonic minor) |
+| RISE | I ii IV V | i iv VI VII |
+| VAMP | I IV | i iv (Dorian: i IV) |
+| BLUES | twelve-bar I I I I IV IV I I V IV I V | same degrees |
 
-## Keep a discovery
+A named progression starts on its own first chord at PLAY or when you tap a new
+home note. A diminished chord where a progression expects a stable one becomes the
+chord a third below (vii -> V) or above; CIRCLE and JAZZ keep their colour. Named
+progressions and MARKOV need a twelve-tone seven-note scale; other scales and
+tunings use PATH's graph. Every moving harmony plans its whole cycle ahead, so
+followers can see the next chord.
 
-On a generator page, hold **OCT+** to open Idea tools:
+**VOICING:** TRIAD, 7TH, OPEN, 9/11, SUS2, ADD9, SUS4, 6/9, QUARTAL, SHELL (root,
+third, seventh). Voices move as little as possible between chords, with a gentle
+pull back to the played register so long journeys never drift up or down.
 
-- **Keep idea:** snapshots the whole linked group: memories, random histories,
-  heard phrase settings, register, tuning and harmonic plan. This is temporary
-  session memory, not pattern recording or a saved project.
-- **Return to kept:** restores the group together at its original source's next
-  phrase boundary. Parts with different lengths restart together. While stopped,
-  restoration is immediate. An incomplete/replaced group snapshot is rejected.
-- **Remix melody:** rearranges retained decisions without admitting fresh ones.
-- **New idea:** changes the seed and builds fresh melodic memory and harmonic
-  choices at the next phrase boundary.
-- **Remix rhythm:** rotates the exact-onset rhythm independently of pitch memory.
-- **Lock melody:** sets CHANGE zero, retaining the current melodic decisions.
-- **Seed:** directly select another repeatable starting identity.
-- **Match source key:** copies scale/root/transpose/quantization from the selected
-  source. This explicitly changes the follower's tuning settings.
+### Timing
 
-## Soundscape: progressing quartet
+Every part's slots carry their remainders exactly, so parts at different rates
+stay on one bar grid however long a jam runs; a part that starts while the
+transport runs waits for the next bar line. FILL is exact (Euclidean); WHEN REST
+silences a part's phrases (JAM uses it for intros and breaks).
 
-Use the same **C MAJOR** on all four tracks. Begin dry so you can hear chord changes.
-Set tempo to **90 BPM**, choose POLY sounds, and keep levels moderate.
+## Manual ensembles (JAM OFF)
 
-1. **Track 4 — harmonic source and high bells.** Choose a soft bell. Hold ARP;
-   ROLE ARP, RATE 1/8, FILL 3, CHANGE 12. On GEN PHRASE: LENGTH 8, GATE about
-   58%, RANGE 1, COLOR 18. On GEN CHORD: HARMONY PATH, EVERY 2 bars, VOICING
-   9/11, SOURCE LOCAL. Tap a high C.
-2. **Track 2 — moving pad.** Choose a soft pad. ROLE CHORD, RATE 1/2, FILL 4,
-   CHANGE 0; LENGTH 4, GATE about 91%; HARMONY HOLD, VOICING 9/11, SOURCE T4.
-   Tap middle C. If GEN KEY appears, choose Match source key in Idea tools.
-3. **Track 3 — bass.** Choose a rounded bass. ROLE BASS, RATE 1/4, FILL 2,
-   CHANGE 0; LENGTH 8, GATE about 71%, RANGE 1, COLOR 0; SOURCE T4. Tap C two
-   octaves below middle C. This part follows roots, independently of pad rhythm.
-4. **Track 1 — exploring melody.** Choose a quiet mallet. ROLE ARP, RATE 1/8,
-   FILL 5, CHANGE 12; LENGTH 13, GATE about 58%, RANGE 1, COLOR 18; SOURCE T4.
-   Tap middle C. Its thirteen-slot phrase drifts against the harmony's bar grid.
-5. PLAY for at least 45 seconds. Listen for departure and a return after eight
-   changes. Keep idea from any group member. Try Remix melody on Track 1, then
-   Return to kept to recover the ensemble together.
-6. Try C MINOR on all tracks, slower tempo (72 BPM), softer levels and moderate
-   reverb. Keep the same routing. Allow about a minute for the whole journey.
+Everything still works by hand: give tracks roles, link followers with SOURCE,
+choose HARMONY on the LOCAL leader. ANSWER requires an explicit SOURCE and waits
+(**GEN WAIT**) for its first completed phrase. Linked tracks need the same key
+(**GEN KEY**, fix with Match source key); cycles or missing sources show **GEN SRC**.
+The header shows GEN NEXT / GEN LOCK / GEN RUN / GEN STOP as before.
 
-The rendered `journey-major-dry`, `journey-minor-dry`, and `journey-ambient` WAVs in
-`build/generator-harmonic-journeys` use these relationships. They are native engine
-renders, not recordings from flashed hardware.
+ANSWER styles: **ECHO** follows the source's intervals in its own register;
+**REVERSE** reverses the heard order; **TURN** rotates it by half; **INVERT**
+mirrors intervals around the root; **BRANCH** grows a bounded Fibonacci word over
+twelve phrases and returns; **CHORD** is a one-note companion on nearby chord tones.
 
-## Scope and validation
+### Idea tools (hold OCT+ on a generator page)
 
-The memory component adapts Marbles' random sequence algorithm with its MIT
-notice intact. A pinned upstream C++ reference checks 327,680 decision transitions.
-The scale mapper, harmonic journey, role routing, scheduler and UI integration
-are original Melodee work. Reference provenance is in `tests/reference/README.md`.
-No claim of historical uniqueness is made.
+Keep idea, Return to kept, Remix melody, New idea, Remix rhythm, Lock melody,
+Seed, Match source key, as before; New idea in a JAM starts a new song.
 
-Tests cover all scales and pitch limits, deterministic small/batched scheduling,
-finite gates, recording isolation, keyboard/MIDI ownership, source chains/cycles,
-tuning compatibility, group KEEP/RETURN and project reset. Native renders check
-output health and release on STOP. These do not establish musical quality or
-physical-device timing/controls. Answer/branch/companion renders need listening
-feedback; versioned project persistence remains deferred until the musical model
-settles, as specified in
-[GENERATIVE_ARP_PLAN.md](GENERATIVE_ARP_PLAN.md).
+## Renders
+
+`build/generator-jam/jam-*.wav` (one per feel, 96 s, native engines, role-chosen
+FM6/CZ/Prophet presets) and the earlier memory/journey scenes, from:
+
+```sh
+cc -O1 -ffp-contract=off -w -Ibuild/gen -Ifirmware/src -o build/host/generator_audio_test tests/generator_audio_test.c -lm
+build/host/generator_audio_test build/generator-jam build/host/generator_reference_notes.txt
+```
+
+They print each section and its chords. They are host renders, not hardware
+recordings, and do not establish musical quality.
+
+## Scope
+
+The memory component adapts Marbles' random sequence algorithm with its MIT notice
+intact (reference check in `tests/reference/`). Piston's root-progression habits,
+the named progressions, arpeggiator orders, walking-bass practice and Euclidean
+rhythms are common musical knowledge; their implementations, the JAM director,
+scale mapping, scheduler and UI are original Melodee work. Generation is not stored
+in projects; project load and power-off clear it (capture a pattern to keep a part).

@@ -1964,7 +1964,7 @@ static void designer_sweep(const char *out)
 }
 static void generator_sweep(const char *out)
 {
-    static const char *const titles[] = {"GENERATE", "GEN PHRASE", "GEN CHORD", "GEN ANSWER", "PRESETS", "SONG", "SCALES"};
+    static const char *const titles[] = {"GEN JAM", "GENERATE", "GEN PHRASE", "GEN CHORD", "GEN EVOLVE", "PRESETS", "SONG", "SCALES"};
     for (uint32_t font = 0; font < 2u; font++) for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++) {
         render_pixel = (int)font;
         for (uint32_t page = 0; page < NELEM(titles); page++) {
@@ -1988,7 +1988,7 @@ static void generator_sweep(const char *out)
                 snprintf(file, sizeof file, "generator_%u", page);
                 write_ppm(out, font ? "PIXEL" : "NIGHT", file);
             }
-            if (page < 4u) for (uint32_t col = 0; col < 4u; col++) {
+            if (page < 5u) for (uint32_t col = 0; col < 4u; col++) {
                 int16_t *value;
                 const param_desc_t *desc = page_desc(cur_page(), col, &value);
                 int16_t old = *value;
@@ -2025,6 +2025,17 @@ static void generator_sweep(const char *out)
             for (uint32_t i = 0; i < nscr; i++) found |= !strcmp(scr[i].s, "GEN WAIT");
             if (!found) { fprintf(rep, "MISSING %s: first answer history status\n", name); nfind++; }
             g->answer_wait = 0;
+            nscr = npend = 0; ui_draw();
+            /* A JAM shows its song section in place of the generator state. */
+            for (uint32_t sec = 0; sec < 5u; sec++) {
+                g->p[GN_JAM] = GJ_POP; g->jam_started = 1; g->section = (uint8_t)sec;
+                nscr = npend = 0; ui_draw(); lint();
+                found = 0;
+                for (uint32_t i = 0; i < nscr; i++) found |= !strcmp(scr[i].s, GEN_SECTION[sec]);
+                if (!found) { fprintf(rep, "MISSING %s: JAM section %s\n", name, GEN_SECTION[sec]); nfind++; }
+                if (p == 0u && page == 0u && sec == 2u) write_ppm(out, font ? "PIXEL" : "NIGHT", "generator_jam_chorus");
+            }
+            g->p[GN_JAM] = GJ_OFF; g->jam_started = 0; g->section = 0;
             nscr = npend = 0; ui_draw();
             /* The state outlives action feedback, then clears without a full redraw. */
             for (uint32_t frame = 0; frame < 65u; frame++) { nscr = npend = 0; ui_draw(); }

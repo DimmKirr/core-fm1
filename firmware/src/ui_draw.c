@@ -234,6 +234,8 @@ static void draw_head(void)
     head_chip_text(chip);
     sig = (uint32_t)generator_on(TSEL) * 1000003u + (uint32_t)generator_pending(TSEL) * 2000003u +
           (uint32_t)(generator[song.sel].p[GN_EVOLVE] == 0) * 4000003u + (uint32_t)generator[song.sel].link_bad * 8000009u + (uint32_t)generator[song.sel].answer_wait * 16000007u +
+          (generator[generator_jam_owner(song.sel)].p[GN_JAM] && generator[generator_jam_owner(song.sel)].jam_started ?
+              (generator[generator_jam_owner(song.sel)].section + 1u) * 32452843u : 0u) +
           (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
@@ -277,8 +279,11 @@ static void draw_head(void)
     } else if (msg) {                                   /* a message, or the layer's name (may hold a keycap) */
         cv_free_hint(x + 6, ty_y(H_HEAD / 2, TY_TX), ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - x - 6);
     } else if (generator_on(TSEL)) {
+        const generator_t *g = &generator[song.sel], *lead = &generator[generator_jam_owner(song.sel)];
         cv_text_r(236, ty_y(H_HEAD / 2, TY_TX), TY_TX,
-            generator[song.sel].link_bad == 2 ? "GEN KEY" : generator[song.sel].link_bad ? "GEN SRC" : !song.playing ? "GEN STOP" : generator[song.sel].answer_wait ? "GEN WAIT" : generator_pending(TSEL) ? "GEN NEXT" : !generator[song.sel].p[GN_EVOLVE] ? "GEN LOCK" : "GEN RUN", T_THEME, T_BG);
+            g->link_bad == 2 ? "GEN KEY" : g->link_bad ? "GEN SRC" : !song.playing ? "GEN STOP" : g->answer_wait ? "GEN WAIT" :
+            lead->p[GN_JAM] && lead->jam_started ? GEN_SECTION[lead->section % 5u] :   /* JAM: the song's section */
+            generator_pending(TSEL) ? "GEN NEXT" : !g->p[GN_EVOLVE] ? "GEN LOCK" : "GEN RUN", T_THEME, T_BG);
     } else {
         int32_t cw = text_w(TY_TX, chip) + 4;           /* (where you are: plain words in the track's colour;
                                                          * PATTERNS plain, the grid is in colour) */

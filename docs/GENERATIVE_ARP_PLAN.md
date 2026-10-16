@@ -1,8 +1,86 @@
 # Generative ARP: research, implementation plan, and handoff
 
-Updated: 2026-10-15, Europe/Brussels.
+Updated: 2026-10-16, Europe/Brussels.
 
-## Execution update: implemented experiment, listening and final checks
+## v2 (2026-10-16): an endless, self-arranging jam band
+
+Requests that set this stage, in the user's words: "Make it as amazing and
+beautiful sounding as possible. Use all possible popular algorithms to generate
+chords, arpeggiations, bass lines." Then: "Make it as automated as possible with
+generalized tweaking, like a guitar jam backing track that never ends and always
+changes. We can pull patterns from holding REC the same way we do normal random
+presses without record."
+
+Reading of the first-stage results that shaped v2: the v1 parts were tidy but
+generic. ARP was only a weighted random walk, BASS a weighted root/fifth draw, the
+only progressions were HOLD/NEAR/PATH, no part could see the next chord, and every
+ensemble had to be wired by hand over four pages per track. Parts at different
+rates also drifted apart at most tempos (truncated slot lengths), which an endless
+jam would expose.
+
+### Implemented (all session-only, no project/preset/editor format change)
+
+- **JAM director** (`generator_jam.c`): JAM on a track forms a band (leader CHORD,
+  then BASS, ARP and an ANSWER to the arp on free synth tracks, own registers, the
+  leader's key) and writes a song: four 8-section forms over INTRO, VERSE, CHORUS,
+  BRIDGE and BREAK; three themes (progression, change rate, part styles, seed,
+  comping rotation) with recurring choruses; section energy, dropouts (WHEN REST)
+  and a build into each chorus; VARY renews themes per form. Eight feels (POP,
+  ROCK, FUNK, JAZZ, BALLAD, AMBIENT, EPIC, BLUES) choose progressions, styles and
+  timing. Three macros: DRIVE (energy), SPICE (harmonic richness), VARY (rate of
+  change). The director only writes ordinary settings, committed per phrase.
+- **Progressions:** MARKOV from Piston's usual root progressions with a cadence
+  every eight changes; POP, AXIS, DOOWOP, CANON, ROYAL, CIRCLE, JAZZ, FALL
+  (Andalusian in minor), RISE, VAMP, twelve-bar BLUES, read in major or minor by
+  the home chord's third; diminished substitutes; every moving harmony plans its
+  cycle ahead (`generator_upcoming`). Restricted to twelve-tone heptatonic scales;
+  other scales and tunings keep PATH's pitch graph.
+- **Styles:** ARP DRIFT/UP/DOWN/BOUNCE/INWARD/PINKY/THUMB/ALBERTI/STAIRS; BASS
+  DRIFT/ROOT/OCTAVE/FIFTH/WALK/ARP/BOOGIE/PEDAL with a look-ahead walking bass;
+  CHORD BLOCK/STRIDE; strums alternate down/up strokes.
+- **DRIFT melody:** step/third preference, gap fill after leaps, chord tones on
+  strong beats, cadence on a chord tone; still a pure function of memory, so
+  locked ideas and reversible RANGE/COLOR are kept.
+- **Voicings:** + ADD9, SUS4, 6/9, QUARTAL, SHELL; register gravity in voice leading.
+- **Dynamics:** + SWELL, HUMAN; a JAM sets a level per part from energy.
+- **Timing:** Bresenham slot lengths (no drift between rates); parts starting
+  mid-play wait for the next bar line; JAM switched on while playing restarts the
+  band on the next bar.
+- **Capture:** at the user's request, generated notes now enter the retrospective
+  capture ring at their exact times; hold REC keeps a generating part's last bars
+  as its pattern while generation continues. The ring grew to 256 events in the
+  pool; the capture copy is a filtered 1 KB stack buffer. REC/REC+PLAY stay off.
+- **UI:** GEN JAM page first; GENERATE gains a role-specific STYLE slot; GEN
+  ANSWER became GEN EVOLVE (ANSWER styles moved to STYLE); header shows the JAM
+  section; the page picture's hint row became the leader's progression in numerals.
+
+### Checkpoint (2026-10-16)
+
+- `ALL HOST TESTS PASSED in 66 s`; generator test adds progressions, Markov,
+  voicings, every style's order/bounds, DRIFT step/cadence statistics, walking
+  approaches, STRIDE, JAM band/sections/bar grid/batch independence/VARY 0/New
+  idea/mid-bar join, and generated-note capture.
+- UI renders: 0 lint findings, 0 MONO pixels off gray (pre-existing fx_tape
+  ellipsis only); section labels verified in both fonts and all palettes.
+- Eight JAM renders (`build/generator-jam/jam-*.wav`, 96 s each) pass output
+  health, held-voice bounds and STOP release. **Not listened to yet.**
+- Build: image 541,448 B (+10.7 KB; body limit 573,440 B); `.data+.bss` 94,744 B
+  (-1 KB); pool 171,336 B; audio working arena 160,512 B (-2.5 KB, minimum 142,336).
+- Not pushed, not flashed.
+
+### Next (ordered)
+
+1. Listen to the eight renders; tune per-feel tables (rates, densities, levels,
+   which progressions belong to which feel) by ear. Then a hardware audition.
+2. Drums for kit tracks: a JAM-aware groove generator (genre Euclidean templates,
+   fills into sections, energy-driven density) so the band includes its rhythm
+   section without stored patterns.
+3. Optional "band sounds" action: load role-suited presets onto band tracks.
+4. Push/anticipation (chords landing an eighth early), swing following the
+   project, and a turnaround fill on the last bar of a section.
+5. Versioned persistence of generator and JAM state once the model settles.
+
+## v1 execution update: implemented experiment, listening and final checks
 
 Current development branch: **`experiment/generative-arp`**, created at the
 user’s request on 2026-10-15 from nightly base
@@ -81,8 +159,8 @@ waits for the musical model to settle; do not change project formats prematurely
 
 ## Read this first after compaction
 
-Read the execution update before acting on the older research/proposal sections.
-The old WEAVE/WALK contour planner is gone; do not start stage 1 again. The current
+Read the v2 section first, then the v1 execution update, before acting on the older
+research/proposal sections. The old WEAVE/WALK contour planner is gone; do not start stage 1 again. The current
 musical direction is progressing linked parts, with the user's qualified positive
 feedback above. Check actual branch, working tree and package state.
 
@@ -322,15 +400,15 @@ the web tool because access was blocked. Do not invent feedback from those threa
 
 ## Interface — implemented experimental mapping
 
-Hold ARP opens four pages. The original three-page proposal gained a fourth
-page for the accepted next experiment in related parts and expression:
+Hold ARP opens five pages (v2; v1 had four, without GEN JAM and STYLE):
 
 | Page | Knob 1 | Knob 2 | Knob 3 | Knob 4 |
 | --- | --- | --- | --- | --- |
-| GENERATE | Role / OFF | Rate | Fill | Change |
-| PHRASE | Length | Gate | Range | Color |
+| GEN JAM | Jam feel / OFF | Drive | Spice | Vary |
+| GENERATE | Role / OFF | Style (the role's own) | Rate | Fill |
+| GEN PHRASE | Length | Gate | Range | Color |
 | GEN CHORD | Harmony | Every (bars) | Voicing | Source |
-| GEN ANSWER | Answer style | When | Dynamics | Strum |
+| GEN EVOLVE | Change | When | Dynamics | Strum |
 
 Use the existing action sheet for KEEP, RETURN, REMIX, NEW, and lock operations.
 Make selected-track versus linked-group scope visible. Avoid accidental loss of
@@ -390,9 +468,9 @@ Do not repeat the previous mistake of presenting test success as musical approva
 
 Keep and extend the existing correct transport, input, note-off, REC exclusion,
 capture exclusion, and pattern-bypass work. Stored patterns and motion remain
-intact. Do not route generated events back through recording or retrospective
-capture. Normal arp, ordinary tracks, song/bank timing, and external MIDI clock
-must retain their behavior.
+intact. Do not route generated events through live recording; since v2 they do
+enter retrospective capture (hold REC), as the user asked. Normal arp, ordinary
+tracks, song/bank timing, and external MIDI clock must retain their behavior.
 
 The device has four synth tracks sharing a weighted voice budget, not an unlimited
 polyphony allocation for each track. Respect the existing allocator and voice
@@ -423,7 +501,7 @@ versioned design, validation, and compatibility tests in stage 4.
 
 | Area | Current files |
 | --- | --- |
-| Generator state and music | `firmware/src/generator_state.h`, `firmware/src/generator.c`, `generator_memory.h`, `generator_harmony.c`, `generator_branch.h` |
+| Generator state and music | `firmware/src/generator_state.h`, `firmware/src/generator.c`, `generator_memory.h`, `generator_harmony.c`, `generator_branch.h`, `generator_jam.c` |
 | Scale/tuning and chord helpers | `firmware/src/seq.c`, `firmware/src/microtonal.h`, `firmware/src/chord.c` |
 | Transport, recording, input routing | `firmware/src/seq.c`, `firmware/src/midi_control.c` |
 | Descriptors/pages and lifecycle | `firmware/src/params.c`, `firmware/src/ui.c`, `firmware/src/project.c` |
