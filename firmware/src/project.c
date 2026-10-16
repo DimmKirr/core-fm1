@@ -611,6 +611,7 @@ static void project_quick_save(void)
  * saved to when it differs from what that slot holds ("SAVED B"); a new project (no slot yet) waits for a save */
 static void project_autosave(void)
 {
+    if(AUDIO_LAB_GUARDED())return;
     project_t *p = &proj_scratch;
     uint32_t slot = proj_cur;
     if (slot >= 4u || transport_busy())
@@ -915,6 +916,7 @@ static void glo_restore(void)                     /* power-on, before the BOOT p
 /* main loop: a kept value changed (a knob, the editor, a project load): saved 1.5 s after the last change, stopped */
 static void glo_poll(void)
 {
+    if(AUDIO_LAB_GUARDED())return;
     static uint32_t t;
     static uint8_t dirty;
     uint32_t k;
@@ -1239,6 +1241,7 @@ static uint32_t chain_prepare(void)
 
 static void settings_poll(void)
 {
+    if(AUDIO_LAB_GUARDED())return;
 #if MELODEE_FLASH
     persist_t p;
 #if MELODEE_SLICE

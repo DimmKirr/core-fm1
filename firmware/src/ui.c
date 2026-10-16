@@ -610,8 +610,9 @@ static int seq_is_empty(const track_t *t)
  * loads changed (held again: the level before, EDIT + OCT+ redoes), so steps recorded after a sound load, or a sound
  * edited after a pattern load, stay as they are. Loads in a row on one track with nothing changed in between (the
  * PRESETS knob through the list, one pattern after the other, an editor audition) keep the copy from before the first,
- * so the undo goes back past the whole browse. Eight levels fit in ordinary SRAM,
- * leaving the data cache available for flash reads. Not snapshotted: power-on, projects (a project load drops them all) */
+ * so the undo goes back past the whole browse. Eight levels use ordinary SRAM or validated cache RAM.
+ * The resident/cache profile keeps one SRAM fallback level if cache startup fails.
+ * Not snapshotted: power-on, projects (a project load drops them all) */
 enum { UNDO_SOUND = 1, UNDO_PAT = 2 };
 #include "step_snapshot.h"
 typedef struct {
@@ -634,9 +635,16 @@ typedef struct {
 } undo_t;
 #define UNDO_LV_MAX 8u
 _Static_assert(UNDO_LV_MAX * sizeof(undo_t) <= UI_CACHE_BYTES, "undo levels fit the cache RAM's UI part");
-static undo_t undo_sram[UNDO_LV_MAX] __attribute__((section(".pool")));
+#if MELODEE_RAM_AUDIO && MELODEE_CACHE_RAM
+/* Reserve the engine arena even when cache startup fails. Never borrow a live
+ * audio allocation from the UI or use unvalidated cache memory. */
+#define UNDO_SRAM_LEVELS 1u
+#else
+#define UNDO_SRAM_LEVELS UNDO_LV_MAX
+#endif
+static undo_t undo_sram[UNDO_SRAM_LEVELS] __attribute__((section(".pool")));
 static undo_t *undo_lv = undo_sram;
-static uint8_t undo_nlv = UNDO_LV_MAX, undo_top, undo_cnt;   /* levels; undoable 0 .. top-1, redoable top .. cnt-1 */
+static uint8_t undo_nlv = UNDO_SRAM_LEVELS, undo_top, undo_cnt;   /* levels; undoable 0 .. top-1, redoable top .. cnt-1 */
 static undo_t *undo_last(void) { return &undo_lv[undo_top ? undo_top - 1u : 0u]; }
 #define undo (*undo_last())      /* the latest level (tests, the layers: undo.keep); none: level 0 */
 static void undo_clear(void) { undo_top = undo_cnt = 0; undo_lv[0].trk = undo_lv[0].keep = 0; }

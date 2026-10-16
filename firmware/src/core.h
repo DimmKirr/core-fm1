@@ -168,6 +168,14 @@ enum {                          /* global parameters */
 };
 static int param_master_fx(uint32_t id){return id>=G_MFXTYPE && id<=G_MFX3CHAR;}
 #define G_DRLVL G_RESERVED25         /* (their meaning in a project from before 1.0: proj_drums_to_part) */
+/* GLO > WEIGHTS: device settings shown on unused ids (params.c page_desc). Never song.g, never in a project
+ * or the editor's tables: global_reserved() stays true for them. */
+#define G_WP5 G_RESERVED4
+#define G_WCZ G_RESERVED5
+#define G_WFM6 G_RESERVED6
+#define G_WSID G_RESERVED7
+#define G_WDRUM G_RESERVED8
+#define G_SAFETY G_RESERVED9
 #define G_DRREV G_RESERVED26
 
 static int param_reserved(uint32_t id)

@@ -2678,8 +2678,10 @@ static int test_product_ux(void)
     bad += check("MIXER K3 is inert, never changes sequence length", TSEL->p[P_SLEN] == len && TSEL->p[P_RESERVED36] == send);
     press(B_GLO); ok = cur_page()->fam == FAM_GLO && str_eq(cur_page()->title, "GLOBAL");
     press(B_GLO); ok &= str_eq(cur_page()->title, "SYSTEM");
+    press(B_GLO); ok &= str_eq(cur_page()->title, "WEIGHTS");
+    press(B_GLO); ok &= str_eq(cur_page()->title, "WEIGHTS 2");
     press(B_GLO); ok &= cur_page()->graph == GR_TRK;
-    bad += check("GLO cycles MIXER > GLOBAL > SYSTEM > MIXER", ok);
+    bad += check("GLO cycles MIXER > GLOBAL > SYSTEM > WEIGHTS > WEIGHTS 2 > MIXER", ok);
     go_home(); hold(B_SEQ);
     bad += check("long SEQ goes directly to PATTERNS (the song under it) with no tap on release", cur_page()->graph == GR_PATGRID);
     turn(EN_SELECT, 1);
@@ -3460,10 +3462,14 @@ static int test_tempo_select(void)
     turn(EN_SELECT, 1);
     ok = song.g[G_BPM] == 120 && str_eq(cur_page()->title, "SYSTEM");
     turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "WEIGHTS");
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "WEIGHTS 2");
+    turn(EN_SELECT, 1);
     ok &= str_eq(cur_page()->title, "GLOBAL");
     turn(EN_SELECT, -1);
-    bad += check("SELECT on GLO: GLOBAL -> SYSTEM -> GLOBAL (wraps), back the other way; the BPM untouched",
-                 ok && str_eq(cur_page()->title, "SYSTEM") && song.g[G_BPM] == 120);
+    bad += check("SELECT on GLO: GLOBAL -> SYSTEM -> WEIGHTS -> WEIGHTS 2 -> GLOBAL (wraps), back the other way; the BPM untouched",
+                 ok && str_eq(cur_page()->title, "WEIGHTS 2") && song.g[G_BPM] == 120);
     go_title("NOTES");
     cursor_set(4);
     turn(EN_SELECT, 1);
@@ -4940,33 +4946,50 @@ static int test_capture(void)
     return bad;
 }
 
-/* undo levels in the cache RAM's UI part (resources.c ui_cache): loads on two tracks, EDIT held twice undoes both
- * (newest first), EDIT + OCT+ redoes the older; without cache RAM one level */
+/* Exercise both cache readiness states in the same binary. The resident/cache
+ * profile keeps one fallback level; validated cache always supplies all eight. */
 static int test_undo_levels(void)
 {
     int bad = 0;
-    uint8_t p0, p1;
-    resource_host_cache_enabled = 0;
-    undo_lv = undo_sram; undo_nlv = UNDO_LV_MAX;
-    ui_power_on();
-    stop_transport();
-    p0 = trk[0].preset;
-    turn(EN_PRESET, 1);                                 /* T1: a sound load */
-    track_select(1);
-    p1 = trk[1].preset;
-    turn(EN_PRESET, 1);                                 /* T2: another (a level of its own) */
-    hold(B_EDIT);
-    hold(B_EDIT);
-    bad += check("ordinary SRAM: eight undo levels; EDIT held twice undoes T2's load, then T1's", undo_nlv == UNDO_LV_MAX &&
-                 trk[0].preset == p0 && trk[1].preset == p1 && msg_is("UNDO T1"));
-    edit_redo();
-    bad += check("  EDIT + OCT+ redoes the older first (T1), T2 stays undone", trk[0].preset != p0 && trk[1].preset == p1 &&
-                 msg_is("REDO T1"));
-    turn(EN_PRESET, 1);                                 /* a new load: the redo levels go */
-    edit_redo();
-    bad += check("  a new load drops what was left to redo", msg_is("NOTHING TO REDO"));
-    undo_lv = undo_sram;
-    undo_nlv = UNDO_LV_MAX;
+    for (uint32_t cache = 0; cache < 2u; cache++) {
+        resource_host_cache_enabled = cache;
+        undo_lv = undo_sram; undo_nlv = UNDO_SRAM_LEVELS;
+        ui_power_on();
+        stop_transport();
+        uint8_t p0 = trk[0].preset;
+        turn(EN_PRESET, 1);
+        track_select(1);
+        uint8_t p1 = trk[1].preset;
+        turn(EN_PRESET, 1);
+        uint32_t levels = cache ? UNDO_LV_MAX : UNDO_SRAM_LEVELS;
+        bad += check("undo uses only validated cache; fallback depth matches its storage",
+                     undo_nlv == levels && undo_lv == (cache ? (undo_t *)(void *)ui_cache() : undo_sram));
+        hold(B_EDIT);
+        bad += check("latest sound load is undoable with and without cache", trk[1].preset == p1);
+        hold(B_EDIT);
+        bad += check("older history is retained at full depth, bounded on cache failure",
+                     levels > 1u ? trk[0].preset == p0 && msg_is("UNDO T1") :
+                                   trk[0].preset != p0 && msg_is("NOTHING TO UNDO"));
+        edit_redo();
+        bad += check("redo uses the available history without crossing storage",
+                     levels > 1u ? trk[0].preset != p0 && trk[1].preset == p1 && msg_is("REDO T1") :
+                                   trk[1].preset != p1 && msg_is("REDO T2"));
+        turn(EN_PRESET, 1);
+        edit_redo();
+        bad += check("a new load drops redo", msg_is("NOTHING TO REDO"));
+        /* Fill past the ring depth on alternating tracks so browse coalescing
+         * cannot hide a write past the smaller failure-path buffer. */
+        for (uint32_t k = 0; k < 12u; k++) {
+            track_select(k % NTRK);
+            turn(EN_PRESET, 1);
+        }
+        bad += check("load history remains bounded after repeated loads", undo_top == levels && undo_cnt == levels);
+        for (uint32_t k = 0; k < levels; k++) hold(B_EDIT);
+        bad += check("all available load levels can be undone", undo_top == 0u);
+        for (uint32_t k = 0; k < levels; k++) edit_redo();
+        bad += check("all available load levels can be redone", undo_top == levels);
+    }
+    undo_lv = undo_sram; undo_nlv = UNDO_SRAM_LEVELS;
     resource_host_cache_enabled = 0;
     ui_power_on();
     return bad;
