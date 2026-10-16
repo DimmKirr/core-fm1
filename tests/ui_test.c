@@ -150,6 +150,7 @@ static void ui_power_on(void)
     memset(&favorites, 0, sizeof favorites);
     memset(&brw, 0, sizeof brw);                  /* the browser: nothing pending, LIST ALL, RECENT empty */
     list_recent = 0;
+    list_forget();
     recent_n = 0;
     undo_clear();
     memset(pat_last, 0, sizeof pat_last);
@@ -1573,6 +1574,35 @@ static int test_browser(void)
     e = recent[0];
     turn(EN_PRESET, 1);
     bad += check("RECENT: browsing it loads the next one and keeps the order", recent[0] == e && preset_pos(&total) == 1u);
+
+    ui_power_on();                                         /* LIST is each track's (a user's report: a brass track, then
+                                                            * a bass one; PRESETS on the brass track loaded a bass) */
+    PREF_BITS |= PREF_ACCEL_OFF;
+    go_page(GR_BROWSE);
+    list_set(list_cat(CAT_BRASS));
+    turn(EN_K2, 1);
+    cur_entry(&src, &k);
+    ok = entry_cat(src, k) == CAT_BRASS;
+    track_select(1);
+    list_set(list_cat(CAT_BASS));
+    turn(EN_K2, 1);
+    cur_entry(&src, &k);
+    ok &= song.sel == 1u && entry_cat(src, k) == CAT_BASS;
+    track_select(0);
+    go_home();
+    turn(EN_PRESET, 1);
+    cur_entry(&src, &k);
+    bad += check("LIST is each track's: PRESETS on the brass track loads a brass after the bass track picked BASS",
+                 ok && song.sel == 0u && list_mode() == list_cat(CAT_BRASS) && entry_cat(src, k) == CAT_BRASS);
+    track_select(1);
+    bad += check("LIST: the bass track keeps BASS", list_mode() == list_cat(CAT_BASS));
+    track_select(0);
+    list_forget();                                         /* (a project loaded) */
+    turn(EN_PRESET, 1);
+    cur_entry(&src, &k);
+    bad += check("LIST: a track without one browses the category of its sound, not the last one picked",
+                 list_lcat == CAT_BASS && list_mode() == list_cat(CAT_BRASS) && entry_cat(src, k) == CAT_BRASS);
+    PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
     list_set(LM_ALL);
     return bad;
 }

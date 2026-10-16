@@ -162,6 +162,7 @@ static void track_blank(uint32_t k)
     fm1_irq_on();
     pat_sig[k % NTRK] = steps_sig(t);                   /* (empty: not the user's) */
     pat_last[k % NTRK] = 0;
+    list_trk[k % NTRK] = 0;                             /* (the browser: the last LIST picked) */
 }
 
 /* the next track in use (Stage's sheet): a new one, selected, the browser open on it (OCT- keeps its power-on sound) */
