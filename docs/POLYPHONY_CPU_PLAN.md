@@ -59,8 +59,11 @@ benchmark support are compiled in; the fixed-benchmark bypass and persistence
 guard are inactive. `MELODEE_RAM_AUDIO=0` and `MELODEE_ADMISSION=0` preserve the
 actual baseline layout and weight policy. Controlled candidate-only screens
 have started; baseline/candidate device comparisons remain pending. No voice
-allowance or production default has increased. The new cache revision remains
-uninstalled; the installed package still contains the original cache.
+allowance or production default has increased. That installation is now
+historical: a later read-only query on 2026-10-16 reported FM-1_900, so the
+device's current package is unconfirmed. The current prepared comparison set
+is `cpu-cap12` (twelve candidates), `cpu-ref10` (profiling reference) and
+`cpu-cap0` (normal); none has been installed.
 
 Detailed measurements, package hashes, reproduction commands and known limits
 are recorded in [POLYPHONY_CPU_PROGRESS.md](POLYPHONY_CPU_PROGRESS.md).
