@@ -3,7 +3,7 @@ FM Lab -- audio ISR load, measured on the device
 
 How
 ---
-Flash the build, select a voice, press FX to clear PK, then:
+Flash the build (PK starts at zero with the FM-1), select a voice, then:
 
     python tools/load_test.py            # 1, 2, 4, 6, 8 notes held, 10 s each
 
@@ -136,9 +136,10 @@ ever took longer than the frame, the main loop would stall in cv_begin and the
 keys would go with it. On the hardware it does not: nothing feels slow. If a
 later change makes it feel slow, the first thing to try is drawing it less often.
 
-To measure anything that you cannot watch the meter during, press FX to clear PK,
-do the thing, then go to GLOBAL and read it: PK holds until it is cleared, and
-GLOBAL is the only page the meter is on now.
+To measure anything that you cannot watch the meter during, switch the FM-1 on
+(PK starts at zero), do the thing, then go to GLOBAL and read it: PK holds until
+the power goes, and GLOBAL is the only page the meter is on now. FX used to clear
+it; the filter has that button now.
 
 The knob legend
 ---------------
@@ -451,3 +452,43 @@ And one measurement fact: 10 ms RMS windows hear the partials beating (+-8 %)
 as much as an ~8 Hz LFO, and 120 ms windows hide the LFO completely. 10 ms
 windows averaged three at a time separate a modulated note from a steady one
 by about 70x. Any future check on a slow modulation should start there.
+
+
+The filter
+----------
+The second per-sample thing in app_audio, as the global envelope's entry said it
+would be: one state-variable filter on the finished mono sum, after the DC
+blocker and before the spectrum's tap.
+
+  image   118868 B -> 122536 B   (+3668)
+  RAM     31064 B  -> 31128 B    (+64)
+  cpu     29 % / PK 33 %  ->  30 % / PK 36 %   with the filter and the global
+          envelope both on
+
+2026-10-15, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+One point, because it runs once per sample on the sum rather than once per
+voice: five int64 multiplies and a clamp, the same whether one note sounds or
+eight. TYPE OFF skips it entirely and zeroes the two integrators, so an
+instrument with the filter off reads what it read before.
+
+The coefficients need a division, so they are worked out in the main loop by
+flt_sync() only when one of the three bytes moves, and handed to the ISR in a
+double buffer flipped by a volatile index -- the pbuf idea again. The division
+is 2^54 / d, and RULES.md forbids 64-bit division, so udiv64_32 is a 64-step
+shift-subtract by hand. It runs once per click; nothing in the ISR divides.
+
+The +3668 is mostly the five tables (tan(pi f / fs) and 1/Q in Q28, the Hz
+labels, log2 tan in Q12 for the plot, and a 17-entry exp2), draw_flt_plot and
+the response arithmetic. The +64 of RAM is the coefficient double buffer and
+the two integrators.
+
+A trap, recorded because it hung the host build: sp_log2_q8 finds the top bit
+with `while (x >> (p + 1u))`, which never ends for an x with bit 31 set --
+x >> 32 is undefined in C and is x on x86. lg64 reduces below 2^31 before
+calling it for that reason. Anything else that borrows sp_log2_q8 must too.
+
+Watch this number again after:
+  - the filter moving inside the voice (it would then cost eight times this)
+  - CUT or RESO gaining modulation that recomputes the coefficients often:
+    flt_sync is cheap per call but not per sample

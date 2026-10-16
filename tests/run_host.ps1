@@ -80,6 +80,10 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'lfo.txt') {
     python tests\lfocheck.py $out            # and the depth and the sensitivity it needs
     if ($LASTEXITCODE) { throw 'the LFO is not what it should be' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'fx.txt') {
+    python tests\fxcheck.py $out             # the filter, heard and drawn
+    if ($LASTEXITCODE) { throw 'the filter is not what it should be' }
+}
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'corners.txt') {
     python tests\cornercheck.py $out         # and the battery and the pips at the top
     if ($LASTEXITCODE) { throw 'the corners are not saying what they should' }

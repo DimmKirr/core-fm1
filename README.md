@@ -109,6 +109,7 @@ the title says what moved instead — `OP1 LVL 69`, or `OP3 x2.00` — for a sec
 | **ENV** | ENVELOPE | hold for the page: the envelope drawn to scale, attack, decay, sustain and release, then the four raw segments a rate and level at a time — or tap it for `ATK DEC SUS REL` without leaving HOME |
 | **LFO** | LFO | hold for the page: the LFO drawn over speed, delay and wave, then pitch mod, amp mod and pitch mod sensitivity, then key sync — or tap it for this operator's `A M SENS` without leaving HOME |
 | **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope and **SPECTRUM** |
+| **FX** | FILTER | hold for the page: the filter's curve over cutoff, resonance and type — or tap it for `CUT RESO TYPE` without leaving HOME |
 
 ### Ratio, and the two bytes under it
 
@@ -131,7 +132,8 @@ most bells and all of the breath and click at the front of a sound are made.
 
 ### A tap, and a hold
 
-**EDIT**, **ENV** and **LFO** can be pressed two ways, and the only difference is how long you hold them.
+**EDIT**, **ENV**, **LFO** and **FX** can be pressed two ways, and the only difference is how long you hold
+them.
 
 **Hold** either for a moment and you get its page, which is what those buttons have always done. Once you
 are there, pressing it again — tap or hold, it no longer matters — walks that page's banks of parameters and
@@ -141,7 +143,7 @@ wraps round, exactly as every other page button does. **HOME** is the way back o
 that page's first few rows for a single operator. **EDIT** gives you `LEVEL`, `RATIO` and `DETUNE`; **ENV**
 gives you `ATK`, `DEC`, `SUS` and `REL`. The fourth knob under **EDIT** is deliberately blank: it is being
 kept for the operator's waveform. **LFO** gives you one knob, `A M SENS`, for the reason
-[the LFO](#the-lfo) gives.
+[the LFO](#the-lfo) gives. **FX** gives you the whole of [the filter](#the-filter), which is three knobs.
 
 The **EDIT** and **ENV** knobs are literally the first rows of the page the button would have opened,
 driven by the same code that drives them there. A tap is a shortcut to the top of a menu, not a second set of
@@ -265,6 +267,31 @@ hiding it. Any operator with `A M SENS` above zero loses about a tenth of its le
 zero: Dexed's sensitivity curve does not start at nothing. Raising a sensitivity with no depth is not
 silent, only steady.
 
+## The filter
+
+A DX7 has no filter, and FM does not need one: a modulator's level already decides how bright a sound is. That
+is exactly why there is one here. It is the other way of shaping a sound — the subtractive way, the way almost
+every other synth works — sitting right next to the FM way, so you can hear what each is good at. Take the top
+off a bright patch with `LOW PASS`, then try to get the same thing by turning a modulator down. The two sound
+different, and why they do is a good part of what FM is: the filter only takes away partials that are already
+there, while the modulator stops making them.
+
+It is one filter on the finished sound, after every voice: `LOW PASS`, `BAND PASS` or `HIGH PASS`, or `OFF`,
+which is where it starts and where it costs nothing at all. `CUT` runs from 20 Hz to 20 kHz evenly by
+pitch, so a click is about half an octave, and the cells say the frequency it is at. `RESO` raises a peak at
+the cutoff, from none at all to one about 21 dB tall, and the bottom half of the knob is the subtle half.
+
+**Tap FX** and the three are under the knobs on HOME, with the filter's curve where the algorithm diagram was;
+a second tap steps the type. Tap it on the spectrum screen instead and the curve is drawn in green over the
+live sound, which is the best view of the three: the partials under the slope are the ones it is taking away,
+and with `RESO` up you can watch one of them stand up as the peak crosses it. None of it is an operator's, so
+the black keys go on playing. **Hold FX** for the FILTER page, the same curve above three cells. The curve is
+the filter's own arithmetic rather than a sketch of a filter, so a peak is as tall on the screen as it is in
+the sound.
+
+Like [the global envelope](#one-envelope-over-everything) it belongs to the instrument and not to the voice,
+so it is saved with the octave, it is under every voice you load, and a bank saved here stays a true DX7 dump.
+
 ## Taking it apart
 
 You cannot hear what an operator does by reading its numbers. You hear it by taking it away and putting it
@@ -372,8 +399,6 @@ the raw banks at any time and you can see exactly what the four knobs did.
 The voice name shows a `*` while you have changed anything. To throw an edit away, turn **PRESETS** off the
 voice and back onto it — it is reloaded from the bank.
 
-**FX** clears the `PK` reading on the meter.
-
 Nothing retriggers. Every edit is handed to the audio ISR, which recomputes the operators and leaves every
 phase and envelope exactly where it stood — so a note you are holding bends into its new shape rather than
 starting again.
@@ -437,13 +462,13 @@ No patches are shipped with FM Lab. The test bank in `tests/mksyx.py` is generat
 
 **GLOBAL**'s very bottom line, below the knob legend, reads `OCT+0  VOX3  CPU 26% PK 33%`: the octave, how
 many voices sound, how much of the audio ISR's budget the smoothed load is, and the worst single block since
-you last pressed **FX**. The ISR has 5804 µs to render 256 frames; over 100 % and it cannot keep up, at
+the FM-1 was switched on. The ISR has 5804 µs to render 256 frames; over 100 % and it cannot keep up, at
 which point FM Lab drops its quietest voice rather than glitch. It is there because the whole point is to
 see the cost of what you are doing.
 
 It lives on **GLOBAL** alone, so that it is out of the way while you are playing and programming. `PK` holds
-until you clear it, so to measure something you cannot watch at the same time — the spectrum screen, say —
-press **FX**, do the thing, then come to **GLOBAL** and read it.
+until the FM-1 is switched off, so to measure something you cannot watch at the same time — the spectrum
+screen, say — switch it on, do the thing, then come to **GLOBAL** and read it.
 
 ## The two corners
 
@@ -523,6 +548,7 @@ tests/run_host.sh tests/fast.txt          # four clicks, against four clicks wit
 tests/run_host.sh tests/corners.txt       # the battery and the HOME pips, by the pixel
 tests/run_host.sh tests/global.txt        # the envelope over the whole voice, screens and sound
 tests/run_host.sh tests/lfo.txt           # depth against sensitivity, by ear; the page, the tap, GLOBAL
+tests/run_host.sh tests/fx.txt            # the filter, harmonic by harmonic; the page, the tap, the overlay
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -647,6 +673,16 @@ the title and the picture, a second tap there has to change the picture and not 
 has to put everything back. Changing the wave has to change the plot, and changing it back has to give the
 same pixels — which is what says the picture is a function of the bytes. Last, it walks to OPERATOR 2/4 and
 reads `A M SENS` off its own row, full, which proves the one knob under the tap wrote that operator's byte.
+
+`tests/fxcheck.py` measures the filter on one steady note, `ORGAN` on middle C, by the level of its
+harmonics: once with the filter off, and then through each setting, so that the voice cancels out and the
+difference is the filter. `LOW PASS` at 230 Hz has to keep the fundamental within a dB and take more than
+20 dB off the eighth harmonic, two octaves up; `HIGH PASS` at 1.86 kHz has to do the opposite; `LOW PASS` set
+right on a partial has to leave it 3 dB down, which is what a cutoff means; and full `RESO` there has to stand
+it up by more than 15 dB without touching the fundamental. It measures 26, 46, 2.9 and 24. On the screen, a
+tap has to swap the diagram for the curve and a second tap change the curve and not the knobs; `OFF` has to
+draw nothing in the curve's colour; the curve has to appear over the spectrum and go again with **HOME**; and
+the page has to be three cells under the curve, with one bank, so its own button leaves it where it is.
 
 ## Where to go next
 

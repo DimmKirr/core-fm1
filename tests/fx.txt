@@ -1,0 +1,85 @@
+# FM Lab -- the filter on FX: a tap puts it under the knobs on HOME, a hold gives its page.
+#
+#   build/host/fmlab build/host/fx tests/fx.txt
+#
+# One filter on the finished sound, LOW PASS, BAND PASS or HIGH PASS, or off. The sound is checked
+# by measuring the harmonics of one steady note -- ORGAN on middle C has partials at 131, 262, 523,
+# 1046 and 1570 Hz and holds them -- once with the filter off and then through each setting, so
+# what the filter took away is the difference and the voice cancels out.
+#
+# The screens: a tap of FX on HOME puts CUTOFF RESONANCE TYPE under the knobs and the filter's
+# curve where the diagram was; a second tap steps the type; on the spectrum the curve is drawn over
+# the sound instead; the black keys go on playing, because none of it belongs to an operator; and
+# a hold of FX gives the FILTER page, the curve over three cells.
+200 enc 6 10
+400 shot
+
+# ---- a tap: the filter's knobs on HOME, and its picture -- flat, because it starts off
+600 btn 2
+1000 shot
+
+# the note everything is measured against, through no filter at all
+1200 keys 0x80
+2400 keys 0
+
+# LOW PASS at 230 Hz: the fundamental through, everything above it going
+2600 enc 2 -99
+2700 enc 2 7
+2900 btn 2
+3200 shot
+3400 keys 0x80
+4600 keys 0
+
+# two more taps, BAND PASS and then HIGH PASS, at 1.86 kHz: the other way round
+4800 btn 2
+4900 btn 2
+5000 enc 2 6
+5200 shot
+5400 keys 0x80
+6600 keys 0
+
+# round to LOW PASS again, and with SEL held for single steps, at 1.06 kHz -- on the eighth harmonic
+6800 btn 2
+7000 btn 2
+7100 btn 3 800
+7200 enc 2 -8
+7500 shot
+7600 keys 0x80
+8800 keys 0
+
+# the same, with all the resonance there is: the harmonic under the cutoff should stand up
+9000 enc 3 20
+9200 shot
+9400 keys 0x80
+10600 keys 0
+
+# the black key the panel prints OP1 under is still a key here: nothing on the filter is an
+# operator's
+10800 keys 0x2
+11400 keys 0
+
+# HOME leaves the filter's knobs, and the diagram comes back
+11600 btn 8
+11800 shot
+
+# ---- the spectrum, and a tap of FX over it: the curve on the sound
+12000 btn 8
+12200 btn 2
+12400 keys 0x80
+13000 shot
+13200 keys 0
+13400 btn 8
+13600 keys 0x80
+14200 shot
+14400 keys 0
+
+# ---- a hold: the FILTER page, the curve over three cells
+14600 btn 2 600
+15400 shot
+15600 enc 4 1
+15800 shot
+
+# the button whose page this is walks its banks, and it has only the one
+16000 btn 2
+16200 shot
+16400 end
