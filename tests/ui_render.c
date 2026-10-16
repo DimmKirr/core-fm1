@@ -2037,6 +2037,23 @@ static void generator_sweep(const char *out)
             }
             g->p[GN_JAM] = GJ_OFF; g->jam_started = 0; g->section = 0;
             nscr = npend = 0; ui_draw();
+            /* Borrowed and secondary chords in the cycle's numerals; the Idea tools sheet. */
+            {
+                int16_t scale = TSEL->p[P_SCALE]; TSEL->p[P_SCALE] = 1; generator_advance(0);
+                gen_ctx_t c; gen_context(TSEL, generator_mod(g->anchor, 7), &c);
+                gen_genome_t x = {8, {0, 3, 5, 6, 1, 4, 2, 5}, {0, GM_MIX, GM_MIX, GM_MIX, GM_SEC, 0, GM_SEC, 0}};
+                gen_normalize(&x); gen_to_path(g, &c, &x); g->path_valid = 1; g->path_pos = 1;
+                nscr = npend = 0; ui.force = 1; ui_draw(); lint();
+                if (p == 0u && page == 0u) write_ppm(out, font ? "PIXEL" : "NIGHT", "generator_borrowed");
+                g->path_valid = 0; TSEL->p[P_SCALE] = scale; generator_advance(0);
+                sheet_open("Idea tools", "Band", SHEET_GENERATOR, NELEM(SHEET_GENERATOR));
+                for (uint32_t r = 0; r < NELEM(SHEET_GENERATOR); r++) {
+                    pop.sel = (uint8_t)r; nscr = npend = 0; ui.force = 1; ui_draw(); lint();
+                }
+                if (p == 0u && page == 0u) write_ppm(out, font ? "PIXEL" : "NIGHT", "generator_ideas");
+                pop_close();
+                nscr = npend = 0; ui.force = 1; ui_draw();
+            }
             /* The state outlives action feedback, then clears without a full redraw. */
             for (uint32_t frame = 0; frame < 65u; frame++) { nscr = npend = 0; ui_draw(); }
             generator_mode(TSEL, GEN_OFF);

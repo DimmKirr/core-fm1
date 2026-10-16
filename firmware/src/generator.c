@@ -23,13 +23,20 @@ static uint32_t generator_count(const track_t *t)
     return count ? count : 1u;
 }
 
+/* The sounding chord's scale: a borrowed or secondary chord's (EVOLVE), else the key's.
+ * A linked part copies its leader's with the root. */
+static uint32_t generator_mask(const track_t *t)
+{
+    uint32_t mask = generator[trk_index(t)].mask;
+    return mask && !micro_active(t) ? mask : scale_mask(t);
+}
 static uint32_t generator_note(const track_t *t, int32_t degree)
 {
     if (micro_active(t)) return micro_degree_map(t, degree, 0, 1);
     int32_t count = (int32_t)generator_count(t), oct = degree / count;
     degree %= count;
     if (degree < 0) { degree += count; oct--; }
-    uint32_t mask = scale_mask(t), i;
+    uint32_t mask = generator_mask(t), i;
     for (i = 0; i < 12u; i++) if ((mask >> i) & 1u) { if (!degree) break; degree--; }
     int32_t note = 60 + t->p[P_ROOT] + t->p[P_TRANS] + oct * 12 + (int32_t)i;
     return note < 0 || note > 127 ? KB_SILENT : (uint32_t)note;
@@ -62,7 +69,7 @@ static int32_t generator_mapped_degree(const track_t *t, uint32_t note)
     int32_t relative = (int32_t)note - 60 - t->p[P_ROOT] - t->p[P_TRANS];
     int32_t octave = relative / 12, pc = relative % 12;
     if (pc < 0) { pc += 12; octave--; }
-    uint32_t mask = scale_mask(t) & ((1u << pc) - 1u), degree = 0;
+    uint32_t mask = generator_mask(t) & ((1u << pc) - 1u), degree = 0;
     while (mask) { degree += mask & 1u; mask >>= 1; }
     return octave * (int32_t)generator_count(t) + (int32_t)degree;
 }
@@ -83,9 +90,9 @@ static int32_t generator_pitch(const track_t *t, int32_t d)
 }
 
 static int generator_diatonic(const track_t *t);
-/* Relative scale pitch without MIDI-register clipping. Used only for choosing
- * intervals; generator_note still validates every note that can sound. */
-static int32_t generator_tone(const track_t *t, int32_t degree)
+/* Relative scale pitch without MIDI-register clipping, in the sounding chord's scale (or
+ * the key's). Used only for choosing intervals; generator_note validates every note. */
+static int32_t generator_scale_tone(const track_t *t, int32_t degree, uint32_t mask)
 {
     int32_t count = (int32_t)generator_count(t), octave = degree / count;
     degree %= count; if (degree < 0) { degree += count; octave--; }
@@ -93,10 +100,12 @@ static int32_t generator_tone(const track_t *t, int32_t degree)
         const micro_scale_t *s = micro_scale(t);
         return octave * s->pitch[count] + s->pitch[degree];
     }
-    uint32_t mask = scale_mask(t), semi = 0;
+    uint32_t semi = 0;
     for (; semi < 12u; semi++) if ((mask >> semi) & 1u) { if (!degree) break; degree--; }
     return (octave * 12 + (int32_t)semi) * 10000;
 }
+static int32_t generator_tone(const track_t *t, int32_t degree) { return generator_scale_tone(t, degree, generator_mask(t)); }
+static int32_t generator_key_tone(const track_t *t, int32_t degree) { return generator_scale_tone(t, degree, scale_mask(t)); }
 /* VOICING shapes: scale steps above the root in a seven-note scale; a zero fourth
  * entry means three voices. Other scales aim for the semitone targets instead. */
 static const uint8_t GEN_SHAPE[GV_COUNT][4] = {
@@ -432,11 +441,11 @@ static void generator_plan(track_t *t, int boundary)
     int32_t low = g->anchor - (int32_t)(count * (g->range / 2u));
     int32_t span = (int32_t)(count * g->range);
     uint32_t role = (uint32_t)g->p[GN_MODE], style = g->style, onsets = generator_bits(g->rhythm);
-    int drift = role == GEN_CHORD || (role == GEN_LOOP && style == AS_DRIFT) || (role == GEN_WALK && style == BS_DRIFT);
+    int drift = role == GEN_CHORD || (role == GEN_LOOP && (style == AS_DRIFT || style == AS_MOTIF)) || (role == GEN_WALK && style == BS_DRIFT);
     /* The harmonic leader: its home (a pedal), its coming chord (a walking approach). */
     uint32_t error; int lead_at = generator_source(trk_index(t), &error);
     const generator_t *lead = lead_at >= 0 ? &generator[lead_at] : g;
-    int32_t home = lead->anchor, goal = g->root, walk_root = g->root;
+    int32_t home = lead->anchor + (lead->p[GN_JAM] && lead->jam_started ? lead->jam_home : 0), goal = g->root, walk_root = g->root;
     if (role == GEN_WALK && style == BS_WALK) {
         /* A walking line keeps going: the root takes the octave nearest the last walked
          * note, and the next root the octave that leaves about one step per onset. */
@@ -521,6 +530,7 @@ static void generator_plan(track_t *t, int boundary)
         }
     }
     g->walk = (int16_t)last_walk;
+    if (role == GEN_LOOP && style == AS_MOTIF) generator_motif(t, g, boundary, low, span, anchor_slot);
 }
 
 /* A part that starts while the transport runs waits for the next bar line, so it joins
@@ -589,6 +599,7 @@ static void generator_mode(track_t *t, uint32_t mode)
     }
     midi_forget_track(trk_index(t));
     g->p[GN_MODE] = (int16_t)mode;
+    g->mask = 0;
     if (!mode) g->jam_lead = 0;
     t->seq_idx = (uint16_t)(t->p[P_SLEN] - 1);
     t->seq_pos = 0x7FFFFFFFu;
@@ -645,6 +656,38 @@ static void generator_keep_track(uint32_t tr, uint32_t group)
     if (g->running && g->source_used) saved->p[GN_SOURCE] = g->route_used;
     generator_keep[tr].valid = 1; generator_keep[tr].group = (uint8_t)group;
 }
+/* The player's verdict on what plays now: More/Less like this, Keep idea, New idea, a
+ * capture. Teaches the leader's taste (progression and every MOTIF part's melody);
+ * Less like this also moves a JAM on at the next change and refreshes the motifs.
+ * UI calls with audio interrupts guarded. */
+static void generator_feedback(uint32_t tr, int32_t signal)
+{
+    uint32_t lead = generator_jam_owner(tr), error;
+    generator_t *L = &generator[lead];
+    gen_evo_t *e = &gen_evo[lead];
+    track_t *lt = &trk[lead];
+    if (signal > 0) e->likes++; else e->dislikes++;
+    if (generator_functional(lt) && L->path_valid && L->path_len >= 2u) {
+        gen_ctx_t c; uint32_t home = generator_home(L, 7u);
+        gen_context(lt, home, &c);
+        gen_genome_t x; gen_from_path(L, home, &x);
+        int16_t f[GEN_PFEAT]; gen_fitness(&c, e, &x, 0, 0, 0, 0, f);
+        gen_learn(e->pref, e->mean, f, GEN_PFEAT, signal);
+    }
+    for (uint32_t i = 0; i < trk_n(); i++) {
+        generator_t *g = &generator[i];
+        if (!generator_on(&trk[i]) || generator_source(i, &error) != (int)lead || g->p[GN_MODE] != GEN_LOOP ||
+            g->style != AS_MOTIF || !g->motif_ok || !g->length) continue;
+        uint8_t slot[16]; uint32_t n = 0, count = generator_count(&trk[i]);
+        for (uint32_t s = 0; s < g->length && n < g->motif_n; s++) if ((g->rhythm >> s) & 1u) slot[n++] = (uint8_t)s;
+        if (n != g->motif_n) continue;
+        int16_t f[GEN_MFEAT];
+        gen_motif_fit(&trk[i], g, e, g->motif_rel, n, slot, g->anchor - (int32_t)(count * (g->range / 2u)), (int32_t)(count * g->range), f);
+        gen_learn(e->mpref, e->mmean, f, GEN_MFEAT, signal);
+        if (signal < 0) g->motif_ok = 0;
+    }
+    if (signal < 0 && L->p[GN_JAM]) L->jam_skip = 1;
+}
 static int generator_action(track_t *t, uint32_t action)
 {
     uint32_t tr = trk_index(t), error;
@@ -659,7 +702,9 @@ static int generator_action(track_t *t, uint32_t action)
         return 1;
     }
     if (action == GA_LOCK) { g->p[GN_EVOLVE] = 0; return 1; }
+    if (action == GA_LIKE || action == GA_DISLIKE) { generator_feedback(tr, action == GA_LIKE ? 1 : -1); return 1; }
     if (action == GA_KEEP) {
+        generator_feedback(tr, 1);
         int source = g->running && g->source_used ? (int)g->source_used - 1 : generator_source(tr, &error);
         if (source < 0 || !generator_on(&trk[source])) return 0;
         uint32_t group = 0;
@@ -681,6 +726,7 @@ static int generator_action(track_t *t, uint32_t action)
         if (!running) for (uint32_t i = 0; i < NTRK; i++) if (group & (1u << i)) generator_plan(&trk[i], 1);
         return 1;
     }
+    if (action == GA_NEW) generator_feedback(tr, -1);
     if (action == GA_NEW && generator[generator_jam_owner(tr)].p[GN_JAM]) {
         generator[generator_jam_owner(tr)].jam_new = 1;   /* a new song from the next change */
         return 1;
@@ -835,11 +881,11 @@ static void generator_run(uint32_t mask, uint32_t n)
                 uint32_t count = generator_count(&trk[i]);
                 int16_t root = (int16_t)(g->anchor - (int32_t)generator_mod(g->anchor, count) +
                     (int32_t)generator_mod(generator[source].root, count));
-                if (g->root != root || g->source_used != (uint32_t)source + 1u) {
-                    g->root = root; g->dirty = 1;
+                if (g->root != root || g->mask != generator[source].mask || g->source_used != (uint32_t)source + 1u) {
+                    g->root = root; g->mask = generator[source].mask; g->dirty = 1;
                     generator_voicing_for(&trk[i], g->color);
                 }
-            }
+            } else if (source == (int)i && !g->p[GN_HARMONY] && !g->p[GN_JAM]) g->mask = 0;
             g->source_used = (uint8_t)(source + 1); g->route_used = (uint8_t)g->p[GN_SOURCE]; g->harmony_due = g->p[GN_SOURCE] ? 0 : g->harmony_due;
             if ((boundary & (1u << i)) && g->color != g->p[GN_COLOR]) generator_voicing(&trk[i]);
             if (boundary & (1u << i)) generator_plan(&trk[i], 1);

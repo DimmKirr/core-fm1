@@ -725,6 +725,7 @@ static void capture_take(void)
         t->seq_active = 1;
     load_end(t);
     if (!put) { ui_message("NOTHING TO CAPTURE"); return; }
+    if (generator_on(t)) { fm1_irq_off(); generator_feedback(k, 2); fm1_irq_on(); }   /* (kept: the band learns it) */
     {
         char b[16];
         fmt_int(b, (int32_t)(w % 16u ? w : w / 16u));

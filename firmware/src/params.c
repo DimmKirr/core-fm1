@@ -56,14 +56,14 @@ static const char *const N_ENGNAME[] = {"-", "-", MELODEE_LEGACY_EXTRAS ? "PHASE
 #include "generator_state.h"
 static const char *const N_GEN_MODE[] = {"OFF", "ARP", "BASS", "CHORD", "ANSWER"};
 static const char *const N_GEN_HARMONY[] = {"HOLD", "NEAR", "PATH", "MARKOV", "POP", "AXIS", "DOOWOP", "CANON",
-    "ROYAL", "CIRCLE", "JAZZ", "FALL", "RISE", "VAMP", "BLUES"};
+    "ROYAL", "CIRCLE", "JAZZ", "FALL", "RISE", "VAMP", "BLUES", "EVOLVE"};
 static const char *const N_GEN_CHANGE[] = {"1", "2", "4", "8", "16"};
 static const char *const N_GEN_COLOR[] = {"TRIAD", "7TH", "OPEN", "9/11", "SUS2", "ADD9", "SUS4", "6/9", "QUARTAL", "SHELL"};
 static const char *const N_GEN_SOURCE[] = {"LOCAL", "T1", "T2", "T3", "T4"};
 static const char *const N_GEN_ANSWER[] = {"ECHO", "REVERSE", "TURN", "INVERT", "BRANCH", "CHORD"};
 static const char *const N_GEN_CONDITION[] = {"ALWAYS", "ODD", "EVEN", "4TH", "REST"};
 static const char *const N_GEN_DYNAMICS[] = {"FLAT", "PHRASE", "SWELL", "HUMAN"};
-static const char *const N_GEN_ASTYLE[] = {"DRIFT", "UP", "DOWN", "BOUNCE", "INWARD", "PINKY", "THUMB", "ALBERTI", "STAIRS"};
+static const char *const N_GEN_ASTYLE[] = {"DRIFT", "UP", "DOWN", "BOUNCE", "INWARD", "PINKY", "THUMB", "ALBERTI", "STAIRS", "MOTIF"};
 static const char *const N_GEN_BSTYLE[] = {"DRIFT", "ROOT", "OCTAVE", "FIFTH", "WALK", "ARP", "BOOGIE", "PEDAL"};
 static const char *const N_GEN_CSTYLE[] = {"BLOCK", "STRIDE"};
 static const char *const N_GEN_JAM[] = {"OFF", "POP", "ROCK", "FUNK", "JAZZ", "BALLAD", "AMBIENT", "EPIC", "BLUES"};

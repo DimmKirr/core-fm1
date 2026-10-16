@@ -60,10 +60,11 @@ static int jam_scene(const char *dir, uint32_t feel)
         mix_block(samples, CTL);
         const generator_t *lead = &generator[0];
         if (song.playing && lead->section != last_section) { printf("\n    %5.1fs %s:", (double)frame / FS, GEN_SECTION[lead->section % 5u]); last_section = lead->section; last_root = 0xFFFF; }
-        if (song.playing && (uint32_t)generator_mod(lead->root, 7) != last_root) {
-            static const char *const R[7] = {"I", "ii", "iii", "IV", "V", "vi", "vii"};
-            last_root = generator_mod(lead->root, 7);
-            printf(" %s", R[(last_root + 7u - generator_mod(lead->anchor, 7)) % 7u]);
+        if (song.playing && ((uint32_t)generator_mod(lead->root, 7) | (uint32_t)lead->mask << 4) != last_root) {
+            char b[8];
+            last_root = (uint32_t)generator_mod(lead->root, 7) | (uint32_t)lead->mask << 4;
+            generator_numeral(&trk[0], generator_mod(lead->anchor, 7), generator_mod(lead->root, 7), lead->mask, b);
+            printf(" %s", b);
         }
         for (uint32_t tr = 0; tr < 4u; tr++) { uint32_t held = gen_gates(&trk[tr]); if (held > max_gates[tr]) max_gates[tr] = held; }
         for (uint32_t i = 0; i < CTL && frame + i < frames; i++) {

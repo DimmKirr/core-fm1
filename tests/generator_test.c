@@ -720,7 +720,7 @@ static int progressions(void)
     for (uint32_t scale = 0; scale < SCALE_TOTAL; scale++) {
         TSEL->p[P_SCALE] = (int16_t)scale; TSEL->p[P_QUANT] = Q_SNAP;
         if (!generator_functional(TSEL)) continue;
-        for (uint32_t type = GH_MARKOV; type < GH_COUNT; type++) for (uint32_t home = 0; home < 7u; home++) {
+        for (uint32_t type = GH_MARKOV; type < GH_EVOLVE; type++) for (uint32_t home = 0; home < 7u; home++) {
             g->p[GN_HARMONY] = (int16_t)type; g->anchor = g->root = (int16_t)home; g->path_valid = 0;
             generator_identity(g);
             for (uint32_t i = 0; i < 12u; i++) {
@@ -782,7 +782,7 @@ static int styles(void)
         {60,67,64,60,67,64,60,67}, {60,67,64,67,60,67,64,67}, {60,64,60,67,60,64,60,67}, {60,67,64,67,60,67,64,67},
         {60,64,67,64,67,60,67,60}};
     int valid = 1, bad = 0;
-    for (uint32_t style = AS_UP; style < AS_COUNT; style++) {
+    for (uint32_t style = AS_UP; style <= AS_STAIRS; style++) {
         gen_fixture(GEN_LOOP); generator_t *g = &generator[0];
         g->p[GN_ASTYLE] = (int16_t)style; g->p[GN_PALETTE] = 0; g->p[GN_LENGTH] = g->p[GN_FILL] = 8;
         seq_start(); generator_tick(TSEL, 0);
@@ -909,7 +909,7 @@ static int jam_band(void)
                 generator_t *g = &generator[i];
                 heard += g->n;
                 valid &= g->n <= (g->p[GN_MODE] == GEN_CHORD ? 4u : 1u) && !g->link_bad;
-                for (uint32_t j = 0; j < g->n; j++) valid &= (SCALE_MASK[1] >> (g->note[j] % 12u)) & 1u;
+                for (uint32_t j = 0; j < g->n; j++) valid &= (generator_mask(&trk[i]) >> (g->note[j] % 12u)) & 1u;
             }
         }
         /* Each part starts a slot on every bar line. */
@@ -921,10 +921,11 @@ static int jam_band(void)
     bad += check("JAM moves through verses, choruses and bridges without going silent", sections >= 12u && (seen & (1u << SEC_CHORUS)) &&
         (seen & (1u << SEC_VERSE)) && (seen & (1u << SEC_BRIDGE)) && worst < 2u);
     generator_t before[4]; memcpy(before, generator, sizeof before);
+    static gen_evo_t evo_before[NTRK]; memcpy(evo_before, gen_evo, sizeof evo_before);
     generator_advance(bar * 7u + 333u);
     generator_t batched[4]; memcpy(batched, generator, sizeof batched);
     for (uint32_t i = 0; i < 4u; i++) generator_release(&trk[i]);
-    memcpy(generator, before, sizeof before);
+    memcpy(generator, before, sizeof before); memcpy(gen_evo, evo_before, sizeof evo_before);
     uint32_t left = bar * 7u + 333u;
     while (left) { uint32_t n = left > 173u ? 173u : left; generator_advance(n); left -= n; }
     bad += check("a JAM is identical for small blocks and MIDI-sized batches", !memcmp(batched, generator, sizeof batched));
@@ -945,9 +946,194 @@ static int jam_band(void)
     fm1_irq_off(); generator_jam_set(0, GJ_JAZZ); fm1_irq_on();
     seq_advance(bar / 3u); valid = 1;
     for (uint32_t i = 0; i < 4u; i++) valid &= !generator[i].n;
-    seq_advance(bar - 2u * (bar / 3u)); valid &= generator[1].p[GN_BSTYLE] == BS_WALK;
+    seq_advance(bar - 2u * (bar / 3u)); valid &= generator[1].p[GN_BSTYLE] == BS_WALK || generator[1].p[GN_BSTYLE] == BS_FIFTH;
     for (uint32_t i = 0; i < 3u; i++) valid &= generator[i].n || generator[i].condition == GW_REST;
     bad += check("JAM joined mid-bar starts the whole band on the next bar line", valid);
+    seq_stop();
+    return bad;
+}
+
+/* The fingerprint of what the band plays: the leader's cycle and every part's settings. */
+static uint32_t gen_jam_print(void)
+{
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < generator[0].path_len; i++) h = (h ^ generator[0].path[i]) * 16777619u;
+    for (uint32_t tr = 0; tr < 4u; tr++) {
+        const generator_t *g = &generator[tr];
+        h = (h ^ (uint32_t)g->p[generator_style_id(g)]) * 16777619u; h = (h ^ (uint32_t)g->p[GN_SEED]) * 16777619u;
+        h = (h ^ (uint32_t)g->p[GN_COLOR]) * 16777619u; h = (h ^ (uint32_t)g->p[GN_FILL]) * 16777619u;
+    }
+    return h;
+}
+static int jam_variety(void)
+{
+    uint32_t bar, songs[8], distinct = 0;
+    for (uint32_t run = 0; run < 8u; run++) {
+        gen_jam_fixture(GJ_POP); fm1_ms += 7919u * (run + 1u);
+        generator_jam_set(0, GJ_OFF); generator_jam_set(0, GJ_POP);
+        bar = seq_beat_samples() * 4u; songs[run] = 2166136261u;
+        seq_start(); generator_advance(0);
+        for (uint32_t b = 0; b < 32u; b++) { songs[run] = (songs[run] ^ gen_jam_print()) * 16777619u; generator_advance(bar); }
+        seq_stop();
+    }
+    for (uint32_t i = 0; i < 8u; i++) { int seen = 0; for (uint32_t j = 0; j < i; j++) seen |= songs[i] == songs[j]; distinct += !seen; }
+    int bad = check("each JAM start of the same feel writes a different song", distinct == 8u);
+    gen_jam_fixture(GJ_JAZZ); bar = seq_beat_samples() * 4u;
+    seq_start(); generator_advance(0);
+    uint32_t prints[128], n = 0, kinds = 0, returned = 0, last_form = 0xFF, cycles[3][16], ncycle[3] = {0};
+    for (uint32_t b = 0; b < 480u; b++) {
+        const generator_t *g = &generator[0];
+        if (!g->jam_count && g->form_pos != last_form) {
+            last_form = g->form_pos;
+            uint32_t print = gen_jam_print(), cycle = 2166136261u;
+            for (uint32_t i = 0; i < g->path_len; i++) cycle = (cycle ^ g->path[i]) * 16777619u;
+            int seen = 0; for (uint32_t i = 0; i < n; i++) seen |= prints[i] == print;
+            if (!seen && n < 128u) prints[n++] = print;
+            kinds++;
+            uint32_t w = g->jam_theme % 3u, again = 0;
+            for (uint32_t i = 0; i < ncycle[w]; i++) again |= cycles[w][i] == cycle;
+            returned += again;
+            if (ncycle[w] < 16u) cycles[w][ncycle[w]++] = cycle;
+        }
+        generator_advance(bar);
+    }
+    bad += check("a long JAM keeps changing its sections while themes still return", kinds >= 30u && n * 2u >= kinds && returned >= 3u);
+    uint32_t form = generator[0].form_pos, section_print = gen_jam_print();
+    seq_stop(); seq_start(); generator_advance(0);
+    bad += check("PLAY after STOP carries the song on with its next section",
+        (generator[0].form_pos != form || gen_jam_print() != section_print) && !generator[0].jam_count);
+    seq_stop();
+    return bad;
+}
+
+static uint32_t gen_colour(const gen_ctx_t *c, const gen_genome_t *x)
+{
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < x->len; i++) { gen_chord_t ch; gen_chord(c, x, i, &ch, 0); n += ch.mode != 0; }
+    return n;
+}
+static int evolution(void)
+{
+    static const uint8_t seeds[6] = {GH_POP, GH_AXIS, GH_EVOLVE, GH_ROYAL, GH_CANON, GH_EVOLVE};
+    gen_fixture(GEN_CHORD); track_t *t = TSEL; t->p[P_SCALE] = 1;
+    gen_ctx_t c; gen_context(t, 0, &c);
+    gen_chord_t ch[4];
+    gen_genome_t x = {4, {3, 5, 6, 0}, {GM_MIX, GM_MIX, GM_MIX, 0}}, y = {4, {0, 1, 4, 5}, {0, GM_SEC, 0, 0}},
+        z = {4, {0, 2, 5, 4}, {0, GM_SEC, 0, 0}}, w = {4, {0, 1, 4, 0}, {0, GM_LYDIAN, 0, 0}};
+    gen_normalize(&y); gen_normalize(&z);
+    int valid = 1;
+    for (uint32_t i = 0; i < 3u; i++) gen_chord(&c, &x, i, &ch[i], 0);
+    valid &= ch[0].root == 5 && ch[0].quality == 1 && ch[1].root == 8 && !ch[1].quality && ch[2].root == 10 && !ch[2].quality;
+    gen_chord(&c, &y, 1, &ch[0], 0); gen_chord(&c, &z, 1, &ch[1], 0); gen_chord(&c, &w, 1, &ch[2], 0);
+    valid &= ch[0].ok && ch[0].root == 2 && !ch[0].quality && ((ch[0].mask >> 6) & 1u);     /* V/V: D, with F# */
+    valid &= ch[1].ok && ch[1].root == 4 && !ch[1].quality && ((ch[1].mask >> 8) & 1u);     /* V/vi: E, with G# */
+    valid &= ch[2].ok && ch[2].root == 2 && !ch[2].quality;                                  /* lydian II: D major */
+    int bad = check("chord scales give iv, bVI, bVII, II and secondary dominants with their own notes", valid);
+    gen_evo_t *e = &gen_evo[0];
+    uint32_t colour[2] = {0, 0}, distinct = 0, repeats = 0; valid = 1;
+    gen_genome_t seen[16];
+    for (uint32_t spice = 0; spice < 2u; spice++) {
+        memset(e, 0, sizeof *e); e->random = 4242;
+        for (uint32_t k = 0; k < 16u; k++) {
+            gen_genome_t out; gen_breed(&c, e, k & 1u ? 8u : 4u, 40, spice ? 100u : 0u, 60, 0, 4, seeds, 6, &out);
+            for (uint32_t i = 0; i < out.len; i++) {
+                gen_chord_t a, b; gen_chord(&c, &out, i, &a, 0); gen_chord(&c, &out, (i + 1u) % out.len, &b, 0);
+                valid &= a.ok && a.quality != 3u;
+                if (out.mode[i] == GM_SEC) valid &= (b.root + 7u) % 12u == a.root;   /* resolves a fifth down */
+            }
+            colour[spice] += gen_colour(&c, &out);
+            if (spice) {
+                for (uint32_t a = 0; a < 3u && a < e->archive_n; a++) repeats += !gen_distance(&out, &e->archive[(e->archive_at + 7u - a) & 7u]);
+                int dup = 0; for (uint32_t j = 0; j < k; j++) dup |= seen[j].len == out.len && !gen_distance(&out, &seen[j]);
+                distinct += !dup; seen[k] = out;
+            }
+            gen_remember(&c, e, &out);
+        }
+    }
+    bad += check("bred progressions are valid, secondary dominants resolve, and SPICE sets their colour", valid && colour[1] > colour[0] * 2u + 4u);
+    bad += check("breeding never replays one of the last progressions and keeps finding new ones", !repeats && distinct >= 12u);
+    gen_genome_t parent, child; uint32_t near = 1;
+    gen_breed(&c, e, 8, 50, 50, 50, 0, 4, seeds, 6, &parent);
+    for (uint32_t k = 0; k < 6u; k++) {
+        gen_breed(&c, e, 8, 50, 50, 50, &parent, 2, seeds, 6, &child);
+        uint32_t d = gen_distance(&child, &parent);
+        near &= d <= 10u; parent = child;
+    }
+    bad += check("a developing section stays related to the progression it grows from", near);
+    uint32_t trained[2] = {0, 0};
+    for (uint32_t run = 0; run < 2u; run++) {
+        memset(e, 0, sizeof *e); e->random = 777;
+        for (uint32_t k = 0; k < 60u; k++) {
+            gen_genome_t out; gen_breed(&c, e, 4, 40, 30, 50, 0, 4, seeds, 6, &out); gen_remember(&c, e, &out);
+            uint32_t n = gen_colour(&c, &out);
+            if (k >= 30u) trained[run] += n;
+            if (run && k < 30u) { int16_t f[GEN_PFEAT]; gen_fitness(&c, e, &out, 0, 0, 0, 0, f); gen_learn(e->pref, e->mean, f, GEN_PFEAT, n ? 1 : -1); }
+        }
+    }
+    bad += check("liking coloured progressions teaches the band to play more of them", trained[1] >= trained[0] * 2u + 8u);
+    /* A linked ensemble on EVOLVE: borrowed chords reach every part with their scale. */
+    gen_link_fixture(); generator[3].p[GN_HARMONY] = GH_EVOLVE; generator[3].p[GN_TENSION] = 100; generator[3].p[GN_VARIETY] = 80;
+    memset(&gen_evo[3], 0, sizeof gen_evo[3]);
+    seq_start(); generator_advance(0); valid = 1;
+    uint32_t bar = seq_beat_samples() * 4u, borrowed = 0, cycles = 0, last = 0;
+    gen_genome_t prev = {0};
+    for (uint32_t b = 0; b < 96u; b++) {
+        for (uint32_t q = 0; q < 8u; q++) {
+            generator_advance(q < 7u ? bar / 8u : bar - 7u * (bar / 8u));
+            for (uint32_t i = 0; i < 4u; i++) {
+                valid &= generator[i].mask == generator[3].mask;
+                for (uint32_t j = 0; j < generator[i].n; j++) valid &= (generator_mask(&trk[i]) >> ((generator[i].note[j] + 12u * 10u) % 12u)) & 1u;
+            }
+            borrowed += generator[3].mask != 0;
+        }
+        if (generator[3].path_valid && generator[3].changes != last && !generator[3].path_pos) {
+            gen_genome_t now; gen_from_path(&generator[3], generator_mod(generator[3].anchor, 7), &now);
+            if (prev.len && gen_distance(&now, &prev)) cycles++;
+            prev = now;
+        }
+        last = generator[3].changes;
+    }
+    bad += check("EVOLVE grows a new related cycle each time and every part plays the borrowed scales", valid && borrowed > 0 && cycles >= 3u);
+    seq_stop();
+    /* MOTIF develops phrase by phrase, within its range, and holds with CHANGE zero. */
+    gen_fixture(GEN_LOOP); generator_t *g = &generator[0];
+    g->p[GN_ASTYLE] = AS_MOTIF; g->p[GN_EVOLVE] = 70; g->p[GN_LENGTH] = g->p[GN_FILL] = 8; g->p[GN_RANGE] = 2;
+    seq_start(); generator_tick(TSEL, 0);
+    uint32_t period = seq_div_samples(g->rate), developed = 0, related = 0;
+    int8_t before[16]; memcpy(before, g->motif_rel, sizeof before); valid = g->motif_ok && g->motif_n == 8u;
+    for (uint32_t p = 0; p < 40u; p++) {
+        generator_tick(TSEL, period * 8u);
+        if (memcmp(before, g->motif_rel, 8)) {
+            uint32_t same = 0; for (uint32_t k = 0; k < 8u; k++) same += before[k] == g->motif_rel[k];
+            developed++; related += same >= 1u && same <= 7u;
+        }
+        memcpy(before, g->motif_rel, sizeof before);
+        for (uint32_t i = 0; i < 16u; i++) if ((g->rhythm >> i) & 1u) {
+            int32_t d = generator_degree(TSEL, g->phrase[i]);
+            valid &= d >= g->anchor - 7 && d < g->anchor + 7;
+        }
+    }
+    g->p[GN_EVOLVE] = 0; memcpy(before, g->motif_rel, sizeof before);
+    generator_tick(TSEL, period * 8u * 6u);
+    bad += check("MOTIF develops a related line phrase by phrase, in range, and holds when CHANGE is zero",
+        valid && developed >= 10u && related * 10u >= developed * 7u && !memcmp(before, g->motif_rel, 8));
+    seq_stop();
+    /* Taste from the player: More/Less like this. */
+    gen_jam_fixture(GJ_POP); seq_start(); generator_advance(0);
+    bar = seq_beat_samples() * 4u; generator_advance(bar * 6u);
+    hold(B_ARP); press(B_OCTUP);
+    valid = pop.on == POP_SHEET && pop.rows == SHEET_GENERATOR;
+    uint32_t like_row = 0;
+    for (uint32_t r = 0; r < pop.n; r++) if (!strcmp(SHEET_GENERATOR[r].label, "More like this")) like_row = r;
+    pop_close();
+    uint16_t likes = gen_evo[0].likes;
+    generator_action(&trk[2], GA_LIKE);
+    valid &= like_row && gen_evo[0].likes == likes + 1u;
+    uint32_t section = generator[0].section, form = generator[0].form_pos;
+    generator_action(&trk[1], GA_DISLIKE);
+    generator_advance(bar * 2u);
+    valid &= gen_evo[0].dislikes >= 1u && !generator[0].jam_skip && (generator[0].form_pos != form || generator[0].section != section);
+    bad += check("More/Less like this teach the leader and Less moves the jam on at the next change", valid);
     seq_stop();
     return bad;
 }
@@ -955,7 +1141,7 @@ static int jam_band(void)
 #ifndef GENERATOR_NO_MAIN
 int main(void)
 {
-    int bad = progressions() + styles() + jam_band() + capture() + answers_and_expression() + harmonic_journeys() + navigation() + isolation() + repeatability() + harmony_and_scales() + lifecycle() + rhythm_and_transport() + phrase_contract() + memory_contract() + palette_contract() + memory_scales_and_resume();
+    int bad = progressions() + styles() + jam_band() + jam_variety() + evolution() + capture() + answers_and_expression() + harmonic_journeys() + navigation() + isolation() + repeatability() + harmony_and_scales() + lifecycle() + rhythm_and_transport() + phrase_contract() + memory_contract() + palette_contract() + memory_scales_and_resume();
     if (bad) { printf("generator test FAILED: %d\n", bad); return 1; }
     puts("generator test passed");
     return 0;

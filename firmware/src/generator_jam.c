@@ -1,50 +1,69 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* JAM: an endless backing band, original Melodee work. The leader (a LOCAL source)
- * writes a song form from three themes of its FEEL (verse, chorus, bridge), each a
- * progression, a change rate and the parts' styles. Sections last whole progression
- * cycles; their energy, VARIETY's renewal of themes and a build into each chorus keep
- * it moving, while a returning chorus keeps its seed and so its melody. Every linked
- * part derives rate, length, fill, gate, register, voicing and dynamics from its role,
- * the theme and three macros (ENERGY, TENSION, VARIETY). The director only writes
+ * writes a song form from three themes of its FEEL (verse, chorus, bridge): each a
+ * progression (a named one turned and partly re-harmonised, or a journey), a home that
+ * may move to a related degree, a change rate, the parts' styles, voicing step,
+ * comping and register. Every song starts from fresh entropy, so the same feel never
+ * plays the same song twice. A theme returns recognisably, but each return varies (a
+ * substituted chord, another arp or bass style, a new melody, another comping rhythm)
+ * with VARY's chance, alternate passes inside a section lift, the second half of a
+ * section before a chorus builds, and each round of the form renews themes. Every
+ * linked part derives rate, length, fill, gate, register, voicing and dynamics from its
+ * role, the theme and three macros (DRIVE, SPICE, VARY). The director only writes
  * ordinary generator settings, so each change commits at the part's own phrase
  * boundary and shows on its knobs; JAM OFF hands the settings back to the player. */
 enum { SEC_INTRO, SEC_VERSE, SEC_CHORUS, SEC_BRIDGE, SEC_BREAK };
 static const char *const GEN_SECTION[] = {"INTRO", "VERSE", "CHORUS", "BRIDGE", "BREAK"};
 static const int8_t GEN_SECTION_LIFT[5] = {-35, -10, 18, 0, -30};
 static const uint8_t GEN_SECTION_THEME[5] = {0, 0, 1, 2, 1};
-static const uint8_t GEN_FORM[4][8] = {
-    {SEC_VERSE, SEC_VERSE, SEC_CHORUS, SEC_VERSE, SEC_CHORUS, SEC_BRIDGE, SEC_CHORUS, SEC_CHORUS},
-    {SEC_VERSE, SEC_CHORUS, SEC_VERSE, SEC_CHORUS, SEC_BREAK, SEC_BRIDGE, SEC_CHORUS, SEC_CHORUS},
-    {SEC_VERSE, SEC_VERSE, SEC_CHORUS, SEC_CHORUS, SEC_BRIDGE, SEC_BREAK, SEC_CHORUS, SEC_VERSE},
-    {SEC_VERSE, SEC_CHORUS, SEC_CHORUS, SEC_BRIDGE, SEC_VERSE, SEC_CHORUS, SEC_BREAK, SEC_CHORUS}};
-/* Voicing families by TENSION: bright, jazz, wide. */
+#define V SEC_VERSE
+#define C SEC_CHORUS
+#define B SEC_BRIDGE
+#define K SEC_BREAK
+static const uint8_t GEN_FORM[8][8] = {
+    {V, V, C, V, C, B, C, C}, {V, C, V, C, K, B, C, C}, {V, V, C, C, B, K, C, V}, {V, C, C, B, V, C, K, C},
+    {V, C, V, C, B, C, K, C}, {V, V, C, B, V, C, C, K}, {C, V, C, V, B, B, C, C}, {V, K, V, C, B, C, V, C}};
+#undef V
+#undef C
+#undef B
+#undef K
+/* Voicing families by SPICE: bright, jazz, wide. */
 static const uint8_t GEN_VOICING[3][4] = {
     {GV_TRIAD, GV_ADD9, GV_7TH, GV_69},
     {GV_SHELL, GV_7TH, GV_911, GV_69},
     {GV_OPEN, GV_ADD9, GV_SUS2, GV_QUARTAL}};
 typedef struct {
-    uint8_t harmony[4], arp[4], bass[4], chord[2], answer[2];
+    uint8_t harmony[6], arp[6], bass[4], chord[2], answer[3];
     uint8_t pulse, chord_rate, every, gate, strum, voicing;   /* RATE ids; EVERY id; GATE; ms; family */
 } gen_feel_t;
 static const gen_feel_t GEN_FEEL[GJ_COUNT - 1] = {
-    /* POP */     {{GH_POP, GH_AXIS, GH_DOOWOP, GH_ROYAL}, {AS_UP, AS_BOUNCE, AS_DRIFT, AS_PINKY},
-                   {BS_ROOT, BS_OCTAVE, BS_FIFTH, BS_ROOT}, {CS_BLOCK, CS_BLOCK}, {0, 2}, 1, 0, 0, 80, 10, 0},
-    /* ROCK */    {{GH_VAMP, GH_RISE, GH_POP, GH_FALL}, {AS_UP, AS_THUMB, AS_DRIFT, AS_STAIRS},
-                   {BS_ROOT, BS_ROOT, BS_OCTAVE, BS_FIFTH}, {CS_BLOCK, CS_BLOCK}, {0, 3}, 1, 1, 0, 70, 14, 0},
-    /* FUNK */    {{GH_VAMP, GH_HOLD, GH_JAZZ, GH_MARKOV}, {AS_DRIFT, AS_THUMB, AS_PINKY, AS_STAIRS},
-                   {BS_OCTAVE, BS_ROOT, BS_DRIFT, BS_OCTAVE}, {CS_BLOCK, CS_BLOCK}, {2, 0}, 2, 2, 1, 50, 4, 1},
-    /* JAZZ */    {{GH_JAZZ, GH_CIRCLE, GH_MARKOV, GH_JAZZ}, {AS_DRIFT, AS_DRIFT, AS_STAIRS, AS_UP},
-                   {BS_WALK, BS_WALK, BS_WALK, BS_WALK}, {CS_BLOCK, CS_STRIDE}, {0, 5}, 4, 4, 0, 64, 0, 1},
-    /* BALLAD */  {{GH_CANON, GH_FALL, GH_DOOWOP, GH_ROYAL}, {AS_ALBERTI, AS_UP, AS_BOUNCE, AS_DRIFT},
-                   {BS_FIFTH, BS_ARP, BS_ROOT, BS_FIFTH}, {CS_BLOCK, CS_BLOCK}, {5, 0}, 1, 6, 0, 96, 35, 2},
-    /* AMBIENT */ {{GH_PATH, GH_NEAR, GH_MARKOV, GH_NEAR}, {AS_DRIFT, AS_INWARD, AS_DRIFT, AS_UP},
-                   {BS_PEDAL, BS_PEDAL, BS_DRIFT, BS_PEDAL}, {CS_BLOCK, CS_BLOCK}, {5, 4}, 1, 7, 1, 110, 60, 2},
-    /* EPIC */    {{GH_POP, GH_RISE, GH_FALL, GH_ROYAL}, {AS_UP, AS_BOUNCE, AS_INWARD, AS_STAIRS},
-                   {BS_OCTAVE, BS_ROOT, BS_OCTAVE, BS_ROOT}, {CS_BLOCK, CS_BLOCK}, {0, 2}, 2, 0, 0, 72, 6, 2},
-    /* BLUES */   {{GH_BLUES, GH_BLUES, GH_VAMP, GH_JAZZ}, {AS_DRIFT, AS_DRIFT, AS_THUMB, AS_STAIRS},
-                   {BS_BOOGIE, BS_WALK, BS_BOOGIE, BS_WALK}, {CS_STRIDE, CS_BLOCK}, {0, 1}, 4, 4, 0, 80, 12, 1}};
+    /* POP */     {{GH_POP, GH_AXIS, GH_EVOLVE, GH_ROYAL, GH_CANON, GH_EVOLVE}, {AS_UP, AS_BOUNCE, AS_MOTIF, AS_PINKY, AS_STAIRS, AS_MOTIF},
+                   {BS_ROOT, BS_OCTAVE, BS_FIFTH, BS_ARP}, {CS_BLOCK, CS_BLOCK}, {0, 2, 5}, 1, 0, 0, 80, 10, 0},
+    /* ROCK */    {{GH_VAMP, GH_RISE, GH_EVOLVE, GH_FALL, GH_POP, GH_EVOLVE}, {AS_UP, AS_THUMB, AS_MOTIF, AS_STAIRS, AS_PINKY, AS_BOUNCE},
+                   {BS_ROOT, BS_ROOT, BS_OCTAVE, BS_FIFTH}, {CS_BLOCK, CS_BLOCK}, {0, 3, 1}, 1, 1, 0, 70, 14, 0},
+    /* FUNK */    {{GH_VAMP, GH_HOLD, GH_EVOLVE, GH_MARKOV, GH_JAZZ, GH_EVOLVE}, {AS_MOTIF, AS_THUMB, AS_PINKY, AS_STAIRS, AS_INWARD, AS_DRIFT},
+                   {BS_OCTAVE, BS_ROOT, BS_DRIFT, BS_OCTAVE}, {CS_BLOCK, CS_BLOCK}, {2, 0, 1}, 2, 2, 1, 50, 4, 1},
+    /* JAZZ */    {{GH_JAZZ, GH_CIRCLE, GH_EVOLVE, GH_JAZZ, GH_EVOLVE, GH_MARKOV}, {AS_MOTIF, AS_DRIFT, AS_STAIRS, AS_MOTIF, AS_INWARD, AS_DRIFT},
+                   {BS_WALK, BS_WALK, BS_FIFTH, BS_WALK}, {CS_BLOCK, CS_STRIDE}, {0, 5, 2}, 4, 4, 0, 64, 0, 1},
+    /* BALLAD */  {{GH_CANON, GH_FALL, GH_EVOLVE, GH_ROYAL, GH_AXIS, GH_EVOLVE}, {AS_ALBERTI, AS_UP, AS_BOUNCE, AS_MOTIF, AS_INWARD, AS_PINKY},
+                   {BS_FIFTH, BS_ARP, BS_ROOT, BS_PEDAL}, {CS_BLOCK, CS_BLOCK}, {5, 0, 2}, 1, 6, 0, 96, 35, 2},
+    /* AMBIENT */ {{GH_PATH, GH_NEAR, GH_EVOLVE, GH_MARKOV, GH_EVOLVE, GH_CANON}, {AS_DRIFT, AS_INWARD, AS_MOTIF, AS_UP, AS_BOUNCE, AS_MOTIF},
+                   {BS_PEDAL, BS_PEDAL, BS_DRIFT, BS_FIFTH}, {CS_BLOCK, CS_BLOCK}, {5, 4, 0}, 1, 7, 1, 110, 60, 2},
+    /* EPIC */    {{GH_POP, GH_RISE, GH_EVOLVE, GH_FALL, GH_ROYAL, GH_EVOLVE}, {AS_UP, AS_BOUNCE, AS_INWARD, AS_STAIRS, AS_MOTIF, AS_ALBERTI},
+                   {BS_OCTAVE, BS_ROOT, BS_OCTAVE, BS_FIFTH}, {CS_BLOCK, CS_BLOCK}, {0, 2, 3}, 2, 0, 0, 72, 6, 2},
+    /* BLUES */   {{GH_BLUES, GH_BLUES, GH_VAMP, GH_BLUES, GH_EVOLVE, GH_BLUES}, {AS_MOTIF, AS_DRIFT, AS_THUMB, AS_STAIRS, AS_PINKY, AS_MOTIF},
+                   {BS_BOOGIE, BS_WALK, BS_BOOGIE, BS_WALK}, {CS_STRIDE, CS_BLOCK}, {0, 1, 2}, 4, 4, 0, 80, 12, 1}};
 
+/* A song's first random word: the clock, a running count and the settings, mixed. */
+static uint32_t generator_entropy(const generator_t *g)
+{
+    static uint32_t songs;
+    uint32_t x = fm1_ms * 2654435761u ^ ++songs * 0x9E3779B9u ^ (uint32_t)g->p[GN_SEED] * 40503u ^
+        (uint32_t)g->p[GN_JAM] * 0x85EBCA6Bu ^ beat_pos * 0xC2B2AE35u;
+    x ^= x >> 16; x *= 0x7FEB352Du; x ^= x >> 15; x *= 0x846CA68Bu; x ^= x >> 16;
+    return x ? x : 1u;
+}
 static uint32_t generator_jam_length(uint32_t rate, uint32_t bars_max)
 {
     static const uint8_t slots[10] = {4, 8, 16, 32, 12, 24, 2, 1, 1, 1};
@@ -59,21 +78,27 @@ static int16_t generator_jam_fill(uint32_t length, uint32_t density)
     return (int16_t)(fill < 1u ? 1u : fill > length ? length : fill);
 }
 static const gen_feel_t *generator_feel(const generator_t *g) { return &GEN_FEEL[(uint32_t)(g->p[GN_JAM] - 1) % (GJ_COUNT - 1u)]; }
+/* Passes of the section's progression so far: alternate passes lift. */
+static uint32_t generator_jam_pass(const generator_t *g)
+{
+    uint32_t unit = (generator_template(&trk[g - generator], g->harmony_used) || g->harmony_used == GH_EVOLVE) && g->path_len ? g->path_len : 4u;
+    return g->jam_count / unit;
+}
 /* One part's settings for the section: everything but its role, register and sound. */
 static void generator_jam_part(uint32_t tr, uint32_t lead, uint32_t e)
 {
     generator_t *g = &generator[tr], *L = &generator[lead];
     const gen_feel_t *f = generator_feel(L);
-    const gen_theme_t *th = &L->theme[GEN_SECTION_THEME[L->section % 5u]];
+    const gen_theme_t *th = &L->theme[L->jam_theme % 3u];
     uint32_t x = (uint32_t)L->p[GN_TENSION], v = (uint32_t)L->p[GN_VARIETY], sec = L->section, rest = 0;
-    uint32_t bars_max = tr == lead ? 1u << th->every : 2u, rate, length, density;
-    int32_t level = 60 + (int32_t)e * 45 / 100;
+    uint32_t bars_max = tr == lead ? 1u << th->every : 2u, rate, length, density, odd = generator_jam_pass(L) & 1u;
+    int32_t level = 60 + (int32_t)e * 45 / 100, voicing = (int32_t)(x * 4u / 101u) + th->voice - 1;
     int16_t *p = g->p;
     g->jam_lead = (uint8_t)(lead + 1u);
     p[GN_SEED] = (int16_t)(1u + (th->seed + tr * 17u) % 127u);
     p[GN_DYNAMICS] = GD_HUMAN; p[GN_STRUM] = 0; p[GN_RANGE] = 1;
     p[GN_PALETTE] = (int16_t)(10u + x * 3u / 5u);
-    p[GN_COLOR] = GEN_VOICING[f->voicing][x * 4u / 101u];
+    p[GN_COLOR] = GEN_VOICING[f->voicing][voicing < 0 ? 0 : voicing > 3 ? 3 : voicing];
     switch (g->p[GN_MODE]) {
     case GEN_WALK: {
         uint32_t style = th->bstyle;
@@ -82,9 +107,9 @@ static void generator_jam_part(uint32_t tr, uint32_t lead, uint32_t e)
             style == BS_ARP ? 1u : f->pulse == 4u ? 4u : e < 25u ? 0u : f->pulse;
         length = generator_jam_length(rate, 1u);
         density = style == BS_WALK || style == BS_FIFTH || style == BS_PEDAL ? 100u :
-            style == BS_BOOGIE ? (rate == 4u ? 67u : 100u) : 45u + e * 55u / 100u;
+            style == BS_BOOGIE ? (rate == 4u ? 67u : 100u) : 45u + e * 55u / 100u - th->comp * 8u;
         p[GN_GATE] = (int16_t)(style == BS_WALK ? 100 : style == BS_PEDAL ? 122 : style == BS_FIFTH ? 90 : f->gate - 6);
-        p[GN_PALETTE] = 0; p[GN_EVOLVE] = (int16_t)(v / 6u); p[GN_DYNAMICS] = GD_PHRASE;
+        p[GN_PALETTE] = 0; p[GN_EVOLVE] = (int16_t)(v / 4u); p[GN_DYNAMICS] = GD_PHRASE;
         level += 4; rest = sec == SEC_BREAK || (sec == SEC_INTRO && e < 20u);
         g->rhythm_shift = 0;
         break;
@@ -95,34 +120,36 @@ static void generator_jam_part(uint32_t tr, uint32_t lead, uint32_t e)
         if (rate == 7u && e >= 55u) rate = 6u;
         else if (rate == 6u && e < 35u) rate = 7u;
         else if (rate == 1u && e < 40u) rate = 0u;
-        else if (rate == 0u && e >= 75u && f->voicing != 1u) rate = 1u;
+        else if (rate == 0u && (e >= 75u || (th->comp == 2u && e >= 30u)) && f->voicing != 1u) rate = 1u;
         length = generator_jam_length(rate, bars_max);
-        density = rate >= 6u ? 100u : rate == 0u ? (e < 35u ? 50u : 100u) : rate == 2u ? 20u + e * 30u / 100u :
-            rate == 4u ? (th->cstyle == CS_STRIDE ? 67u : 17u + e * 25u / 100u) : 50u + e / 2u;
+        density = rate >= 6u ? 100u : rate == 0u ? (e < 35u || th->comp == 0u ? 50u : 100u) : rate == 2u ? 20u + e * 30u / 100u :
+            rate == 4u ? (th->cstyle == CS_STRIDE ? 67u : 17u + e * 25u / 100u) : th->comp == 2u ? 38u : 50u + e / 2u;
         p[GN_GATE] = (int16_t)(rate >= 6u ? 124 : rate == 2u ? 34 : rate == 4u ? 64 : rate == 1u ? 72 : e > 70u ? 84 : 104);
         p[GN_STRUM] = f->strum; p[GN_DYNAMICS] = GD_PHRASE; p[GN_EVOLVE] = 0;
         level -= 6;
-        /* Comping rhythms (funk sixteenths, jazz triplets) take the theme's rotation. */
-        g->rhythm_shift = (uint8_t)(rate == 2u || (rate == 4u && th->cstyle != CS_STRIDE) ? th->shift % length : 0u);
+        /* Comping rhythms (pushed eighths, funk sixteenths, jazz triplets) take the theme's rotation. */
+        g->rhythm_shift = (uint8_t)(rate == 2u || (rate == 4u && th->cstyle != CS_STRIDE) || (rate == 1u && th->comp == 2u) ? th->shift % length : 0u);
         break;
     case GEN_ANSWER:
         p[GN_ANSWER] = th->answer;
         rate = f->pulse; length = generator_jam_length(rate, 2u); density = 30u + e * 40u / 100u;
-        p[GN_GATE] = f->gate; p[GN_EVOLVE] = 0; p[GN_RANGE] = (int16_t)(1u + (e >= 60u));
+        p[GN_GATE] = f->gate; p[GN_EVOLVE] = (int16_t)(v / 5u); p[GN_RANGE] = (int16_t)(1u + (e >= 60u));
         rest = sec == SEC_INTRO || sec == SEC_BREAK || (sec == SEC_VERSE && e < 50u);
         g->rhythm_shift = 0;
         break;
     default:
-        p[GN_ASTYLE] = th->astyle;
+        /* Alternate passes may switch to the theme's second arp style. */
+        p[GN_ASTYLE] = odd && v >= 40u ? th->astyle2 : th->astyle;
         rate = f->pulse;
         if (rate == 1u && e >= 72u && f->voicing != 1u) rate = 2u;
         else if (rate == 1u && e < 20u) rate = 0u;
         else if (rate == 2u && e < 30u) rate = 1u;
         length = generator_jam_length(rate, bars_max);
-        density = th->astyle == AS_DRIFT ? 35u + e * 65u / 100u : 55u + e * 45u / 100u;
+        density = p[GN_ASTYLE] == AS_DRIFT || p[GN_ASTYLE] == AS_MOTIF ? 35u + e * 65u / 100u : 55u + e * 45u / 100u;
         p[GN_GATE] = (int16_t)(f->gate - e / 6u);
-        p[GN_RANGE] = (int16_t)(1u + (e >= 55u) + (f->voicing == 2u && e >= 35u));
-        p[GN_EVOLVE] = (int16_t)(th->astyle == AS_DRIFT ? 5u + v / 3u : v / 5u);
+        p[GN_RANGE] = (int16_t)(1u + (e >= 55u) + (f->voicing == 2u && e >= 35u) + th->lift);
+        if (p[GN_RANGE] > 3) p[GN_RANGE] = 3;
+        p[GN_EVOLVE] = (int16_t)(p[GN_ASTYLE] == AS_MOTIF ? 20u + v * 3u / 5u : p[GN_ASTYLE] == AS_DRIFT ? 8u + v / 2u : v / 3u);
         rest = sec == SEC_INTRO;
         g->rhythm_shift = 0;
         break;
@@ -139,89 +166,166 @@ static void generator_jam_apply(track_t *t, uint32_t energy)
     for (uint32_t i = 0; i < trk_n(); i++)
         if (generator_on(&trk[i]) && generator_source(i, &error) == (int)lead) generator_jam_part(i, lead, energy);
 }
-static void generator_jam_theme(generator_t *g, uint32_t which, const gen_feel_t *f)
+/* Breed a theme's progression from the leader's population: about 4 or 8 chords, a
+ * tension that rises from verse to chorus to bridge; `develop` starts from the
+ * theme's own progression, so a returning section grows instead of being replaced. */
+static void generator_jam_breed(track_t *t, uint32_t which, int develop)
+{
+    static const uint8_t TENSION[3] = {35, 50, 72};
+    generator_t *g = &generator[trk_index(t)];
+    gen_theme_t *th = &g->theme[which];
+    if (!generator_functional(t)) return;
+    const gen_feel_t *f = generator_feel(g);
+    gen_ctx_t c; gen_context(t, generator_mod(g->anchor + th->home, generator_count(t)), &c);
+    gen_genome_t parent = th->genome;
+    uint32_t len = develop && parent.len ? parent.len : (generator_word(&g->jam_random) % 100u < 60u ? 4u : 8u);
+    gen_breed(&c, &gen_evo[trk_index(t)], len, TENSION[which % 3u], (uint32_t)g->p[GN_TENSION], (uint32_t)g->p[GN_VARIETY],
+        develop && parent.len ? &parent : 0, develop ? 2u : 4u, f->harmony, 6u, &th->genome);
+}
+/* A fresh theme for slot `which` (verse, chorus, bridge). VARY sets how far it strays:
+ * a rotated progression, substituted chords, a bridge or verse on a related degree. */
+static void generator_jam_theme(track_t *t, uint32_t which, const gen_feel_t *f)
+{
+    static const uint8_t AWAY[2][3] = {{5, 3, 4}, {2, 5, 3}};   /* major home: vi IV V; minor home: III VI iv */
+    generator_t *g = &generator[trk_index(t)];
+    gen_theme_t *th = &g->theme[which];
+    uint32_t r = generator_word(&g->jam_random), q = generator_word(&g->jam_random), v = (uint32_t)g->p[GN_VARIETY];
+    th->harmony = f->harmony[r % 6u];
+    for (uint32_t i = 1; i < 6u && th->harmony != GH_BLUES; i++) {   /* (themes differ; twelve bars may recur) */
+        uint32_t clash = 0;
+        for (uint32_t w = 0; w < 3u; w++) clash |= w != which && g->theme[w].harmony == th->harmony;
+        if (!clash) break;
+        th->harmony = f->harmony[(r + i) % 6u];
+    }
+    th->every = (uint8_t)(f->every + (which == 2u && ((r >> 3) & 1u) && f->every < 2u));
+    th->astyle = f->arp[(r >> 5) % 6u]; th->astyle2 = f->arp[(r >> 8) % 6u]; th->bstyle = f->bass[(r >> 11) & 3u];
+    th->cstyle = f->chord[(r >> 13) & 1u]; th->answer = f->answer[(r >> 14) % 3u];
+    th->seed = (uint8_t)(1u + (r >> 16) % 127u); th->shift = (uint8_t)((r >> 23) & 15u);
+    th->voice = (uint8_t)(q % 3u); th->comp = (uint8_t)((q >> 2) % 3u); th->lift = (uint8_t)((q >> 4) % 100u < v / 3u);
+    th->mut = (uint8_t)(q >> 8);
+    th->muts = (uint8_t)(((q >> 16) % 100u < v) + ((q >> 16) % 100u < v / 2u));
+    th->rot = (uint8_t)((q >> 24) % 100u < v / 2u ? 1u + (q >> 26) % 3u : 0u);
+    uint32_t away = which == 2u ? 55u : which == 0u ? v / 4u : 0u;
+    th->home = (uint8_t)((q >> 12) % 100u < away ?
+        AWAY[generator_home_minor(t, generator_mod(g->anchor, generator_count(t)))][(q >> 20) % 3u] : 0u);
+    memset(&th->genome, 0, sizeof th->genome);
+    if (th->harmony == GH_EVOLVE) generator_jam_breed(t, which, 0);
+}
+/* A returning theme varies with VARY's chance: one to three of a substituted chord,
+ * another arp, bass or answer style, a voicing step, a new melody, another comping
+ * rhythm or register. Its progression, change rate and home stay: it is recognisable. */
+static void generator_jam_vary(generator_t *g, uint32_t which, const gen_feel_t *f)
 {
     gen_theme_t *th = &g->theme[which];
-    uint32_t r = generator_word(&g->jam_random);
-    th->harmony = f->harmony[r & 3u];
-    for (uint32_t i = 1; i < 4u && which && th->harmony == g->theme[which - 1u].harmony; i++)
-        th->harmony = f->harmony[(r + i) & 3u];
-    th->every = (uint8_t)(f->every + (which == 2u && ((r >> 3) & 1u) && f->every < 2u));
-    th->astyle = f->arp[(r >> 5) & 3u]; th->bstyle = f->bass[(r >> 7) & 3u];
-    th->cstyle = f->chord[(r >> 9) & 1u]; th->answer = f->answer[(r >> 10) & 1u];
-    th->seed = (uint8_t)(1u + (r >> 11) % 127u); th->shift = (uint8_t)((r >> 20) & 15u);
+    uint32_t v = (uint32_t)g->p[GN_VARIETY], n = 1u + (v >= 40u) + (v >= 80u);
+    if (generator_word(&g->jam_random) % 100u >= v) return;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t r = generator_word(&g->jam_random);
+        switch (r & 7u) {
+        case 0: th->mut = (uint8_t)(r >> 8); th->muts = (uint8_t)(1u + (r >> 16) % 2u);
+            if (th->harmony == GH_EVOLVE) generator_jam_breed(&trk[g - generator], which, 1);   /* develop it */
+            break;
+        case 1: th->astyle = f->arp[(r >> 8) % 6u]; break;
+        case 2: th->bstyle = f->bass[(r >> 8) & 3u]; break;
+        case 3: th->voice = (uint8_t)((r >> 8) % 3u); break;
+        case 4: th->seed = (uint8_t)(1u + (r >> 8) % 127u); break;
+        case 5: th->shift = (uint8_t)((r >> 8) & 15u); th->comp = (uint8_t)((r >> 12) % 3u); break;
+        case 6: th->lift ^= 1u; th->astyle2 = f->arp[(r >> 8) % 6u]; break;
+        default: th->answer = f->answer[(r >> 8) % 3u]; th->cstyle = f->chord[(r >> 11) & 1u]; break;
+        }
+    }
 }
 static uint32_t generator_jam_peek(const generator_t *g) { return g->form_pos < 7u ? g->form[g->form_pos + 1u] : SEC_VERSE; }
-/* Section length in chord changes: about 4, 8 or 16 bars (VARIETY high to low), whole
- * cycles of a named progression, an even number of bars so two-bar phrases stay
+/* Section length in chord changes: about 4, 8 or 16 bars (VARY high to low), whole
+ * cycles of a named or bred progression, an even number of bars so two-bar phrases stay
  * aligned. A journey (PATH, NEAR, MARKOV) may stop anywhere: the next section starts
- * from its own first chord. VARIETY zero keeps the current section forever. */
+ * from its own first chord. VARY zero keeps the current section forever. */
 static uint32_t generator_jam_len(const generator_t *g)
 {
     uint32_t v = (uint32_t)g->p[GN_VARIETY];
     if (!v) return 0;
     uint32_t bars = v < 34u ? 16u : v < 67u ? 8u : 4u, every = 1u << g->p[GN_CHANGE];
     if (g->section == SEC_INTRO || g->section == SEC_BREAK) bars /= 2u;
-    uint32_t len = generator_template(&trk[g - generator], g->harmony_used) && g->path_len ? g->path_len : 1u;
+    uint32_t len = (generator_template(&trk[g - generator], g->harmony_used) || g->harmony_used == GH_EVOLVE) && g->path_len ? g->path_len : 1u;
     uint32_t changes = (bars + every - 1u) / every;
     if (changes < len) changes = len;
     changes = (changes + len - 1u) / len * len;
     if (every == 1u && (changes & 1u)) changes += len;
     return changes > 48u ? 48u : changes;
 }
-/* Section energy: ENERGY, the section's lift and a build through the second half of
- * a section that leads into a chorus. */
+/* Section energy: DRIVE, the section's lift, a lift on alternate passes and a build
+ * through the second half of a section that leads into a chorus. */
 static uint32_t generator_jam_energy(const generator_t *g)
 {
     int32_t e = g->p[GN_ENERGY] + GEN_SECTION_LIFT[g->section % 5u];
+    if (g->p[GN_VARIETY] && (generator_jam_pass(g) & 1u)) e += 8;
     if (generator_jam_peek(g) == SEC_CHORUS && g->section != SEC_CHORUS && g->jam_len >= 2u && g->jam_count >= g->jam_len / 2u)
         e += 24 * (int32_t)(g->jam_count - g->jam_len / 2u + 1u) / (int32_t)(g->jam_len - g->jam_len / 2u);
     return (uint32_t)(e < 0 ? 0 : e > 100 ? 100 : e);
 }
-static void generator_jam_section(track_t *t, uint32_t section)
+/* The first chord the next section plays (a walking bass approaches it). */
+static uint32_t generator_jam_first(track_t *t, const gen_theme_t *th)
 {
     generator_t *g = &generator[trk_index(t)];
-    g->section = (uint8_t)section; g->jam_count = 0;
+    uint32_t count = generator_count(t), home = generator_mod(g->anchor + th->home, count);
+    if (th->harmony == GH_EVOLVE && th->genome.len && generator_functional(t)) return (home + th->genome.deg[0]) % 7u;
+    if (!generator_template(t, th->harmony)) return home;
+    return generator_template_chord(t, th->harmony, home, generator_home_minor(t, home),
+        th->harmony == GH_BLUES ? 0u : th->rot % GEN_TEMPLATE[th->harmony - GH_POP].len);
+}
+static void generator_jam_section(track_t *t, uint32_t section, int vary)
+{
+    generator_t *g = &generator[trk_index(t)];
+    uint32_t which = GEN_SECTION_THEME[section % 5u];
+    /* A theme heard before returns varied. */
+    if (vary && ((g->jam_heard >> which) & 1u)) generator_jam_vary(g, which, generator_feel(g));
+    g->jam_heard |= (uint8_t)(1u << which);
+    g->section = (uint8_t)section; g->jam_count = 0; g->jam_theme = (uint8_t)which;
+    g->jam_home = section == SEC_INTRO ? 0 : g->theme[which].home;   /* (the intro states the key) */
     generator_jam_apply(t, generator_jam_energy(g));
     generator_harmony_restart(t);
     g->jam_len = (uint8_t)generator_jam_len(g);
-    uint32_t count = generator_count(t), next = GEN_SECTION_THEME[generator_jam_peek(g)];
-    g->jam_first = (uint8_t)generator_first_chord(t, g->theme[next].harmony, generator_mod(g->anchor, count));
+    g->jam_first = (uint8_t)generator_jam_first(t, &g->theme[GEN_SECTION_THEME[generator_jam_peek(g)]]);
 }
 static void generator_jam_song(track_t *t)
 {
     generator_t *g = &generator[trk_index(t)];
     const gen_feel_t *f = generator_feel(g);
-    if (!g->jam_started || g->jam_feel != g->p[GN_JAM]) {
-        g->jam_random = ((uint32_t)g->p[GN_SEED] * 2654435761u) ^ ((uint32_t)g->p[GN_JAM] * 40503u) ^ 0x51ED270Bu;
-        if (!g->jam_random) g->jam_random = 1;
-    }
-    for (uint32_t w = 0; w < 3u; w++) generator_jam_theme(g, w, f);
-    memcpy(g->form, GEN_FORM[generator_word(&g->jam_random) & 3u], sizeof g->form);
-    g->form_pos = 0; g->jam_cycle = 0;
-    uint32_t first = g->jam_started ? g->form[0] : SEC_INTRO;
-    g->jam_started = 1; g->jam_feel = (uint8_t)g->p[GN_JAM]; g->jam_new = 0;
-    generator_jam_section(t, first);
+    uint32_t first = g->jam_started && g->jam_feel == g->p[GN_JAM] ? 1u : 0u;   /* (New idea: no second intro) */
+    if (g->jam_feel != g->p[GN_JAM]) gen_evo[trk_index(t)].pop_n = 0;   /* another feel breeds from its own seeds; taste stays */
+    g->jam_random = generator_entropy(g);
+    memset(g->theme, 0, sizeof g->theme);
+    for (uint32_t w = 0; w < 3u; w++) generator_jam_theme(t, w, f);
+    memcpy(g->form, GEN_FORM[generator_word(&g->jam_random) & 7u], sizeof g->form);
+    g->form_pos = 0; g->jam_cycle = 0; g->jam_heard = 0;
+    g->jam_started = 1; g->jam_feel = (uint8_t)g->p[GN_JAM]; g->jam_new = 0; g->jam_skip = 0;
+    generator_jam_section(t, first ? g->form[0] : SEC_INTRO, 0);
 }
 static void generator_jam_next(track_t *t)
 {
     generator_t *g = &generator[trk_index(t)];
     if (++g->form_pos >= 8u) {
-        /* Round again: VARIETY renews each theme with its chance; a new form. */
+        /* Round again: VARY renews each theme with its chance, the bridge more often; a new form. */
         const gen_feel_t *f = generator_feel(g);
+        uint32_t v = (uint32_t)g->p[GN_VARIETY];
         g->form_pos = 0; g->jam_cycle++;
         for (uint32_t w = 0; w < 3u; w++)
-            if (generator_word(&g->jam_random) % 100u < (uint32_t)g->p[GN_VARIETY]) generator_jam_theme(g, w, f);
-        memcpy(g->form, GEN_FORM[generator_word(&g->jam_random) & 3u], sizeof g->form);
+            if (generator_word(&g->jam_random) % 100u < (w == 2u ? v + (100u - v) / 2u : v)) {
+                generator_jam_theme(t, w, f);
+                g->jam_heard &= (uint8_t)~(1u << w);
+            }
+        memcpy(g->form, GEN_FORM[generator_word(&g->jam_random) & 7u], sizeof g->form);
     }
-    generator_jam_section(t, g->form[g->form_pos]);
+    generator_jam_section(t, g->form[g->form_pos], 1);
 }
-/* PLAY: a new song the first time (or after a FEEL change), else the section again. */
+/* PLAY: a new song the first time (or after a FEEL change, or New idea), else the song
+ * goes on with its next section. (A stopped Keep idea only re-reads the section.) */
 static void generator_jam_play(track_t *t)
 {
     generator_t *g = &generator[trk_index(t)];
     if (!g->jam_started || g->jam_feel != g->p[GN_JAM] || g->jam_new) generator_jam_song(t);
-    else generator_jam_section(t, g->section);
+    else if (song.playing) generator_jam_next(t);
+    else generator_jam_section(t, g->section, 0);
 }
 /* The leader's change event: the next chord, or the next section after its last. */
 static void generator_jam_change(track_t *t)
@@ -229,10 +333,17 @@ static void generator_jam_change(track_t *t)
     generator_t *g = &generator[trk_index(t)];
     if (!g->jam_started || g->jam_feel != g->p[GN_JAM] || g->jam_new) { generator_jam_song(t); return; }
     g->jam_len = (uint8_t)generator_jam_len(g);
+    if (g->jam_skip) {                                  /* Less like this: renew this theme, move on */
+        g->jam_skip = 0;
+        generator_jam_theme(t, g->jam_theme % 3u, generator_feel(g));
+        g->jam_heard &= (uint8_t)~(1u << (g->jam_theme % 3u));
+        generator_jam_next(t);
+        return;
+    }
     if (g->jam_len && g->jam_count + 1u >= g->jam_len) { generator_jam_next(t); return; }
     g->jam_count++;
     generator_next_chord(t);
-    generator_jam_apply(t, generator_jam_energy(g));   /* the macros now, a build */
+    generator_jam_apply(t, generator_jam_energy(g));   /* the macros now, alternate passes, a build */
 }
 /* JAM on a part: it becomes the leader (CHORD unless it has a role) and every other
  * synth track joins. Free tracks take the missing band roles in track order (BASS,

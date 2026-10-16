@@ -6,12 +6,16 @@ enum { GN_MODE, GN_RATE, GN_RANGE, GN_FILL, GN_LENGTH, GN_EVOLVE, GN_GATE, GN_SE
        GN_ASTYLE, GN_BSTYLE, GN_CSTYLE, GN_JAM, GN_ENERGY, GN_TENSION, GN_VARIETY, GN_COUNT,
        GN_STYLE = GN_COUNT };   /* (a page slot only: the selected role's own style) */
 enum { GEN_OFF, GEN_LOOP, GEN_WALK, GEN_CHORD, GEN_ANSWER };   /* ROLE: ARP, BASS, CHORD, ANSWER */
-enum { GA_KEEP = 1, GA_RETURN, GA_REMIX, GA_NEW, GA_RHYTHM, GA_LOCK, GA_MATCH };
-/* HARMONY: still, a related graph, a planned journey, a Piston-table Markov chain, then
- * well-known progressions as scale-degree offsets from the played home (generator_harmony.c). */
+enum { GA_KEEP = 1, GA_RETURN, GA_REMIX, GA_NEW, GA_RHYTHM, GA_LOCK, GA_MATCH, GA_LIKE, GA_DISLIKE };
+/* HARMONY: still, a related graph, a planned journey, a Piston-table Markov chain,
+ * well-known progressions as scale-degree offsets from the played home (generator_harmony.c),
+ * then EVOLVE: a bred population of progressions (generator_evolve.c). */
 enum { GH_HOLD, GH_NEAR, GH_PATH, GH_MARKOV, GH_POP, GH_AXIS, GH_DOOWOP, GH_CANON, GH_ROYAL,
-       GH_CIRCLE, GH_JAZZ, GH_FALL, GH_RISE, GH_VAMP, GH_BLUES, GH_COUNT };
-enum { AS_DRIFT, AS_UP, AS_DOWN, AS_BOUNCE, AS_INWARD, AS_PINKY, AS_THUMB, AS_ALBERTI, AS_STAIRS, AS_COUNT };
+       GH_CIRCLE, GH_JAZZ, GH_FALL, GH_RISE, GH_VAMP, GH_BLUES, GH_EVOLVE, GH_COUNT };
+enum { AS_DRIFT, AS_UP, AS_DOWN, AS_BOUNCE, AS_INWARD, AS_PINKY, AS_THUMB, AS_ALBERTI, AS_STAIRS, AS_MOTIF, AS_COUNT };
+/* A chord's scale: the key's, a parallel mode's (borrowed chords) or a secondary
+ * dominant's (the key with its target's leading tone and seventh). */
+enum { GM_KEY, GM_MIX, GM_MIXO, GM_DORIAN, GM_LYDIAN, GM_HARMONIC, GM_PHRYGIAN, GM_SEC, GM_COUNT };
 enum { BS_DRIFT, BS_ROOT, BS_OCTAVE, BS_FIFTH, BS_WALK, BS_ARP, BS_BOOGIE, BS_PEDAL, BS_COUNT };
 enum { CS_BLOCK, CS_STRIDE, CS_COUNT };
 enum { GV_TRIAD, GV_7TH, GV_OPEN, GV_911, GV_SUS2, GV_ADD9, GV_SUS4, GV_69, GV_QUARTAL, GV_SHELL, GV_COUNT };
@@ -19,8 +23,13 @@ enum { GJ_OFF, GJ_POP, GJ_ROCK, GJ_FUNK, GJ_JAZZ, GJ_BALLAD, GJ_AMBIENT, GJ_EPIC
 enum { GW_ALWAYS, GW_ODD, GW_EVEN, GW_4TH, GW_REST };
 enum { GD_FLAT, GD_PHRASE, GD_SWELL, GD_HUMAN };
 #include "generator_memory.h"
-/* One JAM theme: what a section type (verse, chorus, bridge) plays each time it returns. */
-typedef struct { uint8_t harmony, every, seed, astyle, bstyle, cstyle, answer, shift; } gen_theme_t;
+/* A progression genome: degrees from home and each chord's scale (GM_*). */
+typedef struct { uint8_t len, deg[8], mode[8]; } gen_genome_t;
+/* One JAM theme: what a section type (verse, chorus, bridge) plays each time it returns,
+ * before that return's own variation: progression (rotated, chord substitutions, a home
+ * moved to a related degree), styles, voicing step, comping and register. */
+typedef struct { uint8_t harmony, every, seed, astyle, astyle2, bstyle, cstyle, answer, shift,
+                         home, rot, mut, muts, voice, comp, lift; gen_genome_t genome; } gen_theme_t;
 typedef struct {
     int16_t p[GN_COUNT];
     uint8_t initialized, running, n, chord_n;
@@ -37,17 +46,38 @@ typedef struct {
     uint8_t history_n, answer_n, answer_style, answer_wait, condition, dynamics, strum, level;
     uint8_t pending_n, pending_note[4], pending_vel[4];
     uint32_t delay[4], pending_gate[4];
-    uint8_t path[16], path_pos, path_valid, path_len, harmony_used, source_used, route_used, link_bad, jam_lead;
+    uint8_t path[16], path_mode[16], path_pos, path_valid, path_len, harmony_used, source_used, route_used, link_bad, jam_lead;
+    uint16_t path_mask[16], mask;   /* each planned chord's scale; the sounding chord's (0: the key's) */
     uint32_t cycles, cycle_origin, harmonic_random, frac;
     uint32_t gate[8], random, left, harmony_left, step, changes, signature;
     int16_t anchor, root, walk, chord[4];
     /* JAM director, on a LOCAL leader (generator_jam.c) */
     gen_theme_t theme[3];
     uint8_t form[8], form_pos, section, jam_count, jam_len, jam_feel, jam_cycle, jam_new, jam_first, jam_energy, jam_started;
+    uint8_t jam_theme, jam_home, jam_heard, jam_skip;
     uint32_t jam_random;
+    /* MOTIF: the developing melody, degrees from the chord root per onset; the last few
+     * statements for novelty (generator_evolve.c) */
+    int8_t motif_rel[16], motif_arch[4][16];
+    uint8_t motif_n, motif_ok, motif_arch_n, motif_arch_at;
+    uint32_t motif_random;
 } generator_t;
 static generator_t generator[NTRK] __attribute__((section(".pool")));
 static struct { generator_t state; uint8_t valid, group; } generator_keep[NTRK] __attribute__((section(".pool")));
+/* What the band has learned this session (never rolled back by Return to kept): the
+ * leader's breeding population, the progressions it played (novelty) and the player's
+ * taste as weights on progression and melody features (generator_evolve.c). */
+#define GEN_PFEAT 10
+#define GEN_MFEAT 6
+typedef struct {
+    gen_genome_t pop[8], archive[8];
+    int8_t pref[GEN_PFEAT], mpref[GEN_MFEAT];
+    int16_t mean[GEN_PFEAT], mmean[GEN_MFEAT];
+    uint8_t pop_n, pop_len, archive_n, archive_at;
+    uint16_t likes, dislikes;
+    uint32_t random;
+} gen_evo_t;
+static gen_evo_t gen_evo[NTRK] __attribute__((section(".pool")));
 static int generator_source(uint32_t tr, uint32_t *error);
 static void generator_defaults(uint32_t tr)
 {

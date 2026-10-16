@@ -2,6 +2,64 @@
 
 Updated: 2026-10-16, Europe/Brussels.
 
+## v3 (2026-10-16): evolution and taste
+
+User request after v2.1: "can we ensure that we have some better algorithms for
+changing notes and progressions? It still feels like the same type all the time after
+a while. I want evolution, self improvement."
+
+Implemented (`firmware/src/generator_evolve.c`):
+- **Chord scales:** per-chord seven-note masks (parallel minor/major, mixolydian,
+  dorian, lydian, harmonic minor, phrygian; secondary dominants built from the target's
+  leading tone and seventh) applied to every linked part through `generator_mask`;
+  only masks that keep one note per letter of the key, so degrees keep their meaning.
+- **Progression GA** (HARMONY EVOLVE, in every JAM feel): 8 genomes per leader, seeded
+  from the feel's progressions and Piston walks; tournament selection, one-point
+  crossover, function-aware mutations, one immigrant per generation; fitness = root
+  motion + Piston habits + common tones + cadence + SPICE colour budget + section
+  tension + novelty vs an 8-entry archive + parent distance when developing + taste.
+  The pick never repeats one of the last three. Returning sections develop (2–5 genes).
+- **MOTIF** ARP style: phrase-by-phrase development by eight classical operators,
+  fittest of eight candidates, 4-motif novelty archive.
+- **Taste learning:** progression (10) and melody (6) feature weights; More/Less like
+  this (new Idea tools rows), Keep (+1), New (-1), hold-REC capture (+2); learning
+  relative to the running feature means. Session-only in `gen_evo` (pool), not rolled
+  back by Return to kept. Less like this renews the theme and moves on.
+- Template variants pick up a borrowed or secondary chord with SPICE.
+- Idea tools trimmed to seven rows (the sheet's fit; v1's eight already overflowed):
+  Seed, Remix rhythm and Lock melody rows removed (actions remain).
+
+Measured (host): borrowed colour grows with SPICE (5 -> 20 coloured chords over 16
+bred progressions); 13–16 distinct of 16 successive progressions, no repeat of the
+last three; 30 likes of coloured progressions raise colour from 16 to 112 per 30
+sections. Tests: `evolution()`. Image 551,668 B (+8.4 KB); arena 157,408 B. Full
+suite passed (79 s). Not yet heard on hardware.
+
+Next: listen; tune fitness weights by ear; consider persisting taste in settings;
+tritone substitutions and chromatic approach chords need a non-letter-preserving
+representation (deferred).
+
+## v2.1 (2026-10-16): JAM variety after the first try
+
+User feedback on v2 (b618fb4): "it is always going the same route instead of
+trying new things. Same genre always pushes the same thing, no variation or change
+whatsoever." Causes found: each song was seeded from SEED x feel (so one feel always
+wrote one song), PLAY restarted the same section, each feel had four progressions
+and two chord styles, named progressions played verbatim, and themes only renewed
+after a whole form (2–3 minutes) with 50 % chance.
+
+Changes: songs seed from fm1_ms, a running count and the settings; six-entry
+progression and arp pools per feel; theme variants (rotation, same-function chord
+substitutions, a home on a related degree for bridges and some verses, voicing
+step, comping rhythm, register, a second arp style); every return of a theme varies
+1–3 aspects with VARY's chance; alternate passes lift; eight forms; the bridge
+renews more often; PLAY carries on with the next section; intro states the key;
+BLUES keeps its twelve bars and dominates its feel. Measured: 10 of 10 restarts of
+one feel differ in their first 32 bars; 600 bars give 46–55 distinct section
+settings from 63–77 section starts while themes still return. Tests:
+`jam_variety()`. Image 543,284 B; arena 160,288 B. Full suite passed (68 s). Not
+listened to on hardware yet.
+
 ## v2 (2026-10-16): an endless, self-arranging jam band
 
 Requests that set this stage, in the user's words: "Make it as amazing and

@@ -573,14 +573,9 @@ static void pv_arp(int32_t h)
         char tok[16][8];
         int32_t width = 0, room = PV_PANEL_W - 24, x = 12;
         for (uint32_t i = 0; i < cycle && i < 16u; i++) {
-            static const char *const R[7] = {"I", "II", "III", "IV", "V", "VI", "VII"};
             uint32_t degree = lead.path[i], rel = (degree + count - home) % count;
-            if (count != 7u) fmt_int(tok[i], (int32_t)rel + 1);
-            else {
-                str_cpy(tok[i], R[rel], sizeof tok[i]);
-                if (generator_minor(lt, (int32_t)degree) || generator_dim(lt, (int32_t)degree))
-                    for (char *c = tok[i]; *c; c++) *c = (char)(*c + 32);
-            }
+            if (count != 7u || micro_active(lt)) fmt_int(tok[i], (int32_t)rel + 1);
+            else generator_numeral(lt, home, degree, lead.path_mask[i], tok[i]);   /* (bVI, iv, II...) */
             width += text_w(TY_LB, tok[i]) + 10;
         }
         if (width > room) first = lead.path_pos;

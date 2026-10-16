@@ -24,12 +24,29 @@ keep their roles and follow the leader. Switched on while playing, the band come
 in together on the next bar line.
 
 The leader writes a song: sections of about 4, 8 or 16 bars (INTRO, VERSE,
-CHORUS, BRIDGE, BREAK) from three themes. A theme is a progression, a change rate
-and each part's style; a returning chorus plays its own progression and the same
-melodic seed, so you recognise it. Each section has its own energy: the intro and
-breaks thin out (parts rest), choruses lift, and the second half of a section that
-leads into a chorus builds. After a whole form, VARY renews some themes, so the
-song keeps moving without losing its identity. The header shows the section.
+CHORUS, BRIDGE, BREAK) in one of eight forms, from three themes (verse, chorus,
+bridge). A theme is a progression, a home, a change rate, each part's style, a
+voicing step, a comping rhythm and a register. Every song starts from fresh
+randomness (the clock and a running count), so the same feel never plays the same
+song twice. How it keeps changing:
+
+- **Progressions** are varied, not just picked: a named progression may start on
+  another of its chords and have a chord or two swapped for one of the same function
+  (I iii vi, ii IV, V vii). A bridge (and sometimes a verse) may sit on a related
+  degree: the relative minor, IV or V (III, VI or iv in a minor key). The intro
+  always states the key; twelve-bar BLUES keeps its form.
+- **Returning themes vary.** A chorus comes back with its own progression and home,
+  so you recognise it, but with VARY's chance each return changes one to three
+  things: a substituted chord, another arp, bass or answer style, a voicing step, a
+  new melody, another comping rhythm (pushed eighths, sparse halves) or register.
+- **Inside a section** alternate passes lift (busier, and the arp may switch to the
+  theme's second style); the second half of a section before a chorus builds; the
+  intro and breaks thin out (parts rest); choruses lift.
+- **Each round of the form** renews themes with VARY's chance (the bridge more
+  often) and picks a new form.
+- **PLAY after STOP** carries the song on with its next section.
+
+The header shows the section.
 
 ### JAM page (any member edits the leader's)
 
@@ -37,21 +54,21 @@ song keeps moving without losing its identity. The header shows the section.
 | --- | --- | --- |
 | 1 | **JAM** | OFF, POP, ROCK, FUNK, JAZZ, BALLAD, AMBIENT, EPIC, BLUES. Another feel starts a new song at the next chord change. |
 | 2 | **DRIVE** | Energy: rhythmic density, faster subdivisions, wider register, velocity, shorter gates. |
-| 3 | **SPICE** | Harmonic richness: triads -> add9/shell -> sevenths -> 6/9, 9/11, quartal (by feel), and more passing colour in melodies. |
-| 4 | **VARY** | How fast the song changes: section length (16, 8, 4 bars), theme renewal each form, melodic evolution. Zero holds the current section forever. |
+| 3 | **SPICE** | Harmonic richness: triads -> add9/shell -> sevenths -> 6/9, 9/11, quartal (by feel), borrowed and secondary chords, and more passing colour in melodies. |
+| 4 | **VARY** | How much and how fast the song changes: section length (16, 8, 4 bars), how far themes stray, how often returns vary and themes renew, melodic evolution. Zero holds the current section forever. |
 
 The feels choose progressions, part styles and timing:
 
 | Feel | Progressions | Parts |
 | --- | --- | --- |
-| POP | POP, AXIS, DOOWOP, ROYAL | 1/8 arps (UP, BOUNCE, PINKY) or a melody, root/octave/fifth bass, quarter chords, light strum |
-| ROCK | VAMP, RISE, POP, FALL | eighth strums (alternate down/up strokes), root bass, THUMB/STAIRS arps |
-| FUNK | VAMP, one-chord HOLD, JAZZ, MARKOV | syncopated sixteenth stabs (rotated Euclidean rhythms), octave bass |
-| JAZZ | JAZZ (ii V I vi), CIRCLE, MARKOV | walking bass, triplet comping or stride, shell/7th/9 voicings, melodic DRIFT |
-| BALLAD | CANON, FALL, DOOWOP, ROYAL | half-note chords, ALBERTI arps, fifth/arp bass, wide strum |
-| AMBIENT | PATH, NEAR, MARKOV | whole-note pads, pedal bass, slow drifting bells, open/quartal voicings |
-| EPIC | POP, RISE, FALL, ROYAL | sixteenth arps, octave bass, wide voicings |
-| BLUES | twelve-bar BLUES, VAMP, JAZZ | shuffle (8T Euclid 8 of 12) stride chords, boogie/walking bass |
+| POP | POP, AXIS, DOOWOP, ROYAL, CANON, MARKOV | 1/8 arps (UP, BOUNCE, PINKY) or a melody, root/octave/fifth bass, quarter chords, light strum |
+| ROCK | VAMP, RISE, POP, FALL, MARKOV, AXIS | eighth strums (alternate down/up strokes), root bass, THUMB/STAIRS arps |
+| FUNK | VAMP, one-chord HOLD, JAZZ, MARKOV, RISE, NEAR | syncopated sixteenth stabs (rotated Euclidean rhythms), octave bass |
+| JAZZ | JAZZ (ii V I vi), CIRCLE, MARKOV, NEAR, FALL | walking or two-feel bass, triplet comping or stride, shell/7th/9 voicings, melodic DRIFT |
+| BALLAD | CANON, FALL, DOOWOP, ROYAL, AXIS, PATH | half-note chords, ALBERTI arps, fifth/arp bass, wide strum |
+| AMBIENT | PATH, NEAR, MARKOV, FALL, CANON | whole-note pads, pedal bass, slow drifting bells, open/quartal voicings |
+| EPIC | POP, RISE, FALL, ROYAL, AXIS, MARKOV | sixteenth arps, octave bass, wide voicings |
+| BLUES | mostly twelve-bar BLUES, VAMP, JAZZ | shuffle (8T Euclid 8 of 12) stride chords, boogie/walking bass |
 
 JAM writes the parts' ordinary settings (STYLE, RATE, LENGTH, FILL, GATE, RANGE,
 COLOR, VOICING, WHEN, DYNAMICS, STRUM, SEED; HARMONY and EVERY on the leader), so
@@ -62,6 +79,47 @@ your own settings (the band keeps playing as it is).
 **New idea** (Idea tools) on any member starts a new song at the next change.
 **Keep idea / Return to kept** snapshot and restore the whole band, including the
 song form and section.
+
+## Evolution: the band develops and learns
+
+**HARMONY EVOLVE** breeds progressions instead of picking them. Each leader keeps a
+population of eight progression genomes (degrees from home plus each chord's scale)
+that breeds at every JAM section (or every cycle by hand): tournament selection,
+crossover, mutations that think in functions (a same-function swap, a falling fifth,
+a borrowed chord, a secondary dominant, IV <-> iv, a step), with immigrants so it
+never settles. Fitness rewards strong root motion, Piston's functional habits,
+common tones, a real cadence, the colour SPICE asks for and the section's tension
+(verse < chorus < bridge), and pays for **novelty**: it never replays one of the last
+three progressions and is pulled away from everything played lately. A returning
+section *develops*: half the population starts from its own progression, and the
+winner stays related (a few chords changed) instead of being replaced.
+
+**Chord scales:** a chord can borrow a parallel mode (iv, bVI, bVII, bIII from the
+minor; II from lydian; bII from phrygian; IV or V major in a minor key) or be a
+secondary dominant (V/V, V/vi, I7 -> IV...). While it sounds, every linked part uses
+that chord's scale, so melodies, arps and bass bend with it (A flat over bVI, F sharp
+over V/V). The page picture shows them (bVI, iv, II). SPICE sets how much colour;
+named progressions also pick up an occasional borrowed or secondary chord at higher
+SPICE. Twelve-tone seven-note scales only.
+
+**ARP MOTIF** develops one melody instead of redrawing it: each phrase, CHANGE is the
+chance that the motif becomes the fittest of eight variants made by classical
+operators: sequence (up or down a step), inversion, retrograde, rotation,
+fragmentation, ornament, interval expansion or contraction, point mutation, or a
+crossover with fresh material. Fitness keeps a singable line (steps, leaps answered),
+chord tones on strong beats, one climax, a resolution, about half of the last
+statement, and something not heard in the last few. The motif is relative to the
+chord root, so it follows the harmony. JAM uses EVOLVE and MOTIF in every feel.
+
+**Teach it ("self improvement").** In Idea tools: **More like this** and **Less like
+this**. Keep idea counts as a like, New idea as a dislike, holding REC (capturing a
+part) as a strong like. Each verdict moves weights on what is playing, measured
+against what the band usually plays: more or fewer borrowed chords, secondary
+dominants, falling fifths, steps, distinct chords, tension, tonic starts, cadences;
+for melodies step-wise motion, leaps, range, chord tones, repetition and arch. The
+population then breeds toward your taste. Less like this also renews the current
+theme and moves the jam on at the next chord change, and refreshes the motifs. The
+taste lasts the session (project loads keep it; power-off forgets it).
 
 ## Keep what you hear: hold REC
 
@@ -90,7 +148,7 @@ chord bright.
 
 ### Styles
 
-- **ARP:** DRIFT (Marbles-style memory melody, below), UP, DOWN, BOUNCE, INWARD
+- **ARP:** DRIFT (Marbles-style memory melody, below), MOTIF (a developing motif, above), UP, DOWN, BOUNCE, INWARD
   (outside-in), PINKY (alternating with the top note), THUMB (alternating with the
   bottom), ALBERTI (low-high-mid-high), STAIRS (overlapping rising threes). The
   patterns arpeggiate the current chord (or a latched multi-note palette) across
@@ -170,8 +228,9 @@ twelve phrases and returns; **CHORD** is a one-note companion on nearby chord to
 
 ### Idea tools (hold OCT+ on a generator page)
 
-Keep idea, Return to kept, Remix melody, New idea, Remix rhythm, Lock melody,
-Seed, Match source key, as before; New idea in a JAM starts a new song.
+Keep idea, Return to kept, More like this, Less like this, Remix melody, New idea,
+Match source key. New idea in a JAM starts a new song. (Seven rows fit the sheet:
+CHANGE zero locks a melody, New idea reseeds; Remix rhythm and Seed left the sheet.)
 
 ## Renders
 
