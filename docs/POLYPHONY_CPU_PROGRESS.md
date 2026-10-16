@@ -1105,3 +1105,84 @@ these manifests:
 Target patch ranking, CPU comparisons, physical transitions and additional
 voice proof remain open. No package was flashed, pushed or used for a hardware
 workload in this continuation. Production defaults/allowances remain unchanged.
+
+## Stage 6: exact native CZ window-4 specialization
+
+Parent `0c9fa79`. `MELODEE_CZ_FAST=1` (default zero) selects a native phase
+kernel once per heard line and block. Window 4's upper half has a window value
+of exactly 2048, so finite carrier evaluation is multiplied by exact zero and
+returns -1. The specialized kernel retains waveform 3's earlier exact-zero
+return and uses the original float-position boundary (not a phase high-bit
+test, which differs at rounded boundaries). Its lower half keeps every original
+phase calculation, sine interpolation and multiplication order. Other windows
+retain the original kernel/symbol. Both line envelopes, phase/toggle counters,
+noise, ring modulation, native DC filters, pitch caches and partial-block
+behavior advance as before; no stored voice/patch state or rate changes.
+The two dispatch pointers are private block-local stack data, not shared state.
+
+The first per-sample window test was bit-exact but added ~7.7% to an unaffected
+row. It was rejected. Retained once-per-block dispatch plus a specialized kernel
+has a worst isolated unaffected row of about +3.9% in the 192 waveform/window/
+phase-pattern rows; affected mixed-phase sounding rows use about 28-30% fewer
+host instructions. Those kernels exclude line/control/DC/mixer work. Full
+native renderer host instructions/sample, including the block loop/call:
+
+| Pattern | Original | Candidate |
+| --- | ---: | ---: |
+| One line, window 0 | 153.45 | 155.97 |
+| One line, window 4 | 164.50 | 139.48 |
+| Both lines, window 0 | 260.33 | 265.00 |
+| Both lines, window 4 | 282.37 | 231.92 |
+| Both lines, window 4 with noise | 294.23 | 243.95 |
+| Both lines, window 4 with ring | 282.16 | 231.91 |
+| Both lines, silent waveform 3 | 174.18 | 178.99 |
+
+The >=10% affected-case and <=4% other-case full-renderer gates pass. This
+measures a particular native window, not all CZ patches or a target limiting
+patch. Log `build/cpu-cz-window-bench.log`. The rejected per-sample-branch costs
+remain in `build/cpu-cz-window-probe.log`; the split-kernel screen is in
+`build/cpu-cz-window-split-probe.log`.
+
+`tests/cz_window_test.c` retains the original Melodee phase/render kernels
+(history `5f71930`/`fa64ef07`, with the applicable BSD/uPD933 notices). All
+65,536 words, eight depth/boundary cases, both toggle states and five phase
+cases compare float bits: 5,242,880 combinations. An additional 20,000 full
+renderer blocks compare exact PCM and complete common/native voice state
+through both lines, all line selections, ring/noise modes, phase boundaries,
+key gates/retriggers, velocity, tuning, modulation, live edits and 0..32-sample
+lengths. ASan/UBSan passes (`build/cpu-cz-window-sanitized.log`).
+
+Combined nine-candidate suite: `ALL HOST TESTS PASSED in 79 s`,
+`build/cpu-cz-window-suite.log`, unchanged goldens and all 1,296 concurrent
+assignments. Target instruction gates retain their budgets; the helper is
+included in the original phase-kernel accounting. Native render cost 585 versus
+583 budget, within the unchanged tolerance. Static phase-helper loop cost is
+zero for both versions; this does not supply a target cycle measurement.
+Log `build/cpu-cz-window-instructions.log`, listing `build/cpu-cz-window.dis`.
+Target register/residency checks pass. Prepared, **not installed**:
+`build/melodee-1.4.0-cpu-cz-window.fwsc`, manifest
+`build/cpu-cz-window-build.json`, log `build/cpu-cz-window-target.log`.
+All nine candidates/profiling/lab support on, RAM_AUDIO=0 and ADMISSION=0.
+Data/BSS 96,912 B, arena 148,704 B, unchanged 142,336-B floor, low-DSP tail
+1,144 B. No additional state RAM, POOL code or low-DSP code; the specialization
+adds 384 B to the application image relative to the FM6 candidate. Exact device
+savings, physical transitions/listening and additional voices remain unproven.
+
+Prepared normal package `build/melodee-1.4.0-cpu-cz-default.fwsc` (manifest
+`build/cpu-cz-default-build.json`, log `build/cpu-cz-default-target.log`) passes:
+all nine candidates/profiling/lab support off, 95,888-B data/BSS, 153,056-B arena.
+New all-candidates-off profiling reference:
+`build/melodee-1.4.0-cpu-reference-v6.fwsc`, manifest
+`build/cpu-reference-v6-build.json`, log `build/cpu-reference-v6-target.log`:
+96,560-B data/BSS, 153,056-B arena. Unchanged instruction gates pass
+(`build/cpu-reference-v6-instructions.log`). Neither is installed.
+
+All current source hashes and package SHA256 values matched these manifests:
+
+- `cpu-cz-window`: `ef64e37513d5703b6381b9ea853c85c6393054f6c57da819f287d7384588bb67`.
+- `cpu-cz-default`: `a8a52cd34feedff30dcf813a0e902cc4ef7da696c3c963e21cc6125abb2d39f0`.
+- `cpu-reference-v6`: `32ecc3816578bcb8d6ce56909da7ee0c85c8450539fbee637ffa50a2af8706cf`.
+
+No hardware workload, installation or publication was performed. SID and
+808/909 exact-path evaluation, wider workload fixtures and all target/device
+acceptance steps remain open; the plan is not complete.
