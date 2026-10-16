@@ -32,7 +32,8 @@ and prepared/installed distinctions are maintained in the progress log:
 - `f5602f9`: count actual displaced notes without counting same-circuit drum retriggers.
 - `db1efe6`: centered mono-send fast path, host/state parity and prepared target builds; default off, not installed.
 - `a60f2a9`: exact Chorus dormancy with kernel and insert/CHAIN/SPLIT trace parity, host/target checks and prepared packages; default off, not installed.
-- A compact overview pitch index has independent scanner parity, measured sparse/dense/rebuild costs and a prepared target package; default off, not installed.
+- `8c3e668`: compact overview pitch index with independent scanner parity, measured sparse/dense/rebuild costs and prepared target packages; default off, not installed.
+- A normal-build ten-minute stress observer is host-tested; hardware execution and additional workload fixtures remain pending.
 
 The full host suites passed in 79 s for the baseline infrastructure, 83 s
 with the original cache and 81 s with the revised cache. Validation includes
@@ -81,8 +82,11 @@ Implemented: 64-bin/64-us assembly-envelope histograms, seven panel subspans
 and `tools/audio_cpu_device.py`. The runner uses explicit shared-budget voice
 counts, bounded in-memory runtime/preferences, blocked persistence, read-only
 committed-object verification and recovery after a failed restore. Profiling
-windows are limited to 120 s to avoid 32-bit span-total wrap. Long production
-stress runs still need a suitable runner. The runner now ranks inclusive spans and covers voice/engine modulation
+windows are limited to 120 s to avoid 32-bit span-total wrap.
+`tools/audio_cpu_stress.py` now provides continuous ten-minute observation of
+a user-supplied performance on normal firmware, with native driver stderr
+and callback evidence. Actual execution and broader workload fixtures remain
+pending. The runner now ranks inclusive spans and covers voice/engine modulation
 routes plus host-paced source changes. It does not yet cover stems, recording
 fixtures, external clock or controlled physical input.
 The uncached `1.4.0-cpu-stage0` package is prepared but has not been installed.

@@ -793,3 +793,57 @@ All firmware source hashes and both packages matched their manifests. Neither
 package was installed. Remaining software includes Stage 6 exact engine
 paths and a production long-stress observer/runner; target comparisons, panel
 electrical checks and calibrated extra voices remain open.
+
+## Stage 0/7: normal-build long-stress observer
+
+Parent `8c3e668`. `tools/audio_cpu_stress.py` observes an ongoing performance
+without editing music, transport, preferences or persistent objects. Only
+its diagnostic counters are reset at the start. It defaults to ten minutes,
+requires shared-budget normal firmware (profiling and benchmark support both
+compiled out), and leaves playback running on completion or failure. No
+snapshot, backup directory or restoration is needed for an observation-only
+session. It never calls the legacy fixture/restore pipeline.
+
+The observer continuously polls complete timing bounds, voice counts, worker,
+allocation and USB errors, accumulating 32-bit counter deltas per poll. It
+records every sample, build manifest/package hash, identity, budget and clock,
+and rejects mid-run timing/build/budget changes, fixed-benchmark bypass,
+faults, exceeding the 80% target or observing no voices for the whole session.
+Sequenced music may legitimately reach zero voices; `--minimum-voices` adds a
+stricter floor for static held-voice workloads. Production runs have no
+profiling totals to wrap at 120 s; diagnostics are not reset between windows
+and the musical workload is not restarted.
+
+Optional int24 stereo USB capture records callback statuses and captures
+native driver stderr through the process file descriptor, including errors
+at stream close. Any native stderr requires review and prevents a clean pass,
+even if callbacks report no error. This handles the class of CoreAudio -10863
+message missed by the previous callback-only report. It does not reinterpret
+or upgrade that earlier failed host-streaming qualification.
+
+Eleven host tests pass (`build/cpu-stress-tests.log`): simulated continuous
+600-second observation, final partial poll, voice gaps/floor, every fault,
+32-bit counter rollover, rejected profiling/lab/clock/frame builds before
+reset, mid-run configuration changes, USB alternates, callback/native stderr,
+CLI failure evidence and closing the connection without silence/transport/
+parameter/persistence commands. The existing 15 baseline/restoration harness
+tests still pass. Firmware is unchanged by this tooling commit; the preceding
+combined firmware suite/build evidence remains applicable.
+
+After explicitly installing a recorded **normal** package, start the desired
+music/clock/controllers and observe it, for example:
+
+```sh
+build/venv/bin/python tools/audio_cpu_stress.py \
+  --build-manifest build/cpu-index-default-build.json \
+  --output build/CHOOSE-A-FRESH-STRESS-OUTPUT --seconds 600 \
+  --label 'Describe the actual pattern, clock and controller workload'
+# Add --usb stereo for bidirectional streaming/capture.
+# Add --minimum-voices N only for a workload that must hold that many voices.
+```
+
+**Not run on hardware.** The installed original `1.4.0-cpu-mod` profiling
+package is deliberately rejected. This observer supplies the long normal
+measurement window, not recording/stem/clock fixtures or physical/listening
+acceptance. Those workload cases and actual stress execution remain pending;
+no extra voice allowance or production default is certified.
