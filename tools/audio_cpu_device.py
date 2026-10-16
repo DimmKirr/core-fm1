@@ -23,6 +23,7 @@ from prophet_device import inventory, pack, param_ids, r32, u32, unpack
 from audio_performance_device import (ReliableDevice, metadata, run,
                                       DEADLINE_US)
 from audio_cpu_usb import capture_driver_stderr, usb_streams, capture_result
+from audio_cpu_sequence import build_fixture, run_sequence, require_disarmed
 
 MAX_RUNTIME_BYTES = 256 * 1024
 PREFERENCE_BYTES = 604
@@ -262,7 +263,7 @@ def main():
     p.add_argument('--build-manifest', type=Path, required=True,
                    help='Manifest identifying the installed package, source and build flags')
     p.add_argument('--assignment', default='0124')
-    p.add_argument('--voices', default='1,1,1,2', help='Four counts, including zero for idle tracks')
+    p.add_argument('--voices', default='1,1,1,2', help='Four held-note counts; recording playback uses its fixture events instead')
     p.add_argument('--seconds', type=float, default=60)
     p.add_argument('--repeat', type=int, default=3)
     p.add_argument('--budget', type=int, default=16)
@@ -274,6 +275,13 @@ def main():
     p.add_argument('--source-churn', action='store_true', help='Host-paced changes through all ten modulation sources')
     p.add_argument('--event-bursts', action='store_true')
     p.add_argument('--usb', choices=('inactive', 'stereo', 'stems'), default='inactive')
+    p.add_argument('--recording-events', type=int, choices=(64, 256, 1024), help='Constructed playback fixture under host-paced USB clock')
+    p.add_argument('--recording-timing', choices=('free', 'grid'), default='free')
+    p.add_argument('--recording-layout', choices=('single', 'all'), default='all')
+    p.add_argument('--recording-tails', choices=('short', 'long'), default='short')
+    p.add_argument('--sequence-bpm', type=float, default=120)
+    p.add_argument('--clock-jitter-ms', type=float, default=2)
+
     a = p.parse_args()
     if len(a.assignment) != 4 or any(c not in '012345' for c in a.assignment):
         p.error('assignment: four category digits 0..5')
@@ -281,7 +289,7 @@ def main():
         voices = list(map(int, a.voices.split(',')))
     except ValueError:
         p.error('voices: four counts 0..16')
-    if len(voices) != 4 or any(v < 0 or v > 16 for v in voices) or not sum(voices):
+    if len(voices) != 4 or any(v < 0 or v > 16 for v in voices) or (not sum(voices) and not a.recording_events):
         p.error('voices: four counts 0..16, at least one sounding voice')
     if not math.isfinite(a.seconds) or a.seconds <= 0 or a.repeat < 1 or not 8 <= a.budget <= 32:
         p.error('seconds/repeat positive; budget 8..32')
@@ -293,6 +301,11 @@ def main():
         p.error('drum-note: GM note 0..127, exactly one voice on each active drum track')
     if (a.modulation_routing != 'voice' or a.source_churn) and not a.modulation:
         p.error('modulation-routing/source-churn require --modulation')
+    if a.recording_events and (a.event_bursts or a.drum_note is not None):
+        p.error('Recording playback cannot use held-note event bursts or drum-note replacement')
+    if a.recording_events and (not math.isfinite(a.sequence_bpm) or not 40 <= a.sequence_bpm <= 240 or
+            not math.isfinite(a.clock_jitter_ms) or not 0 < a.clock_jitter_ms < 60000/(a.sequence_bpm*24)):
+        p.error('Sequence BPM 40..240; positive jitter limit below one clock interval')
     manifest = json.loads(a.build_manifest.read_text())
     package = Path(manifest['package'])
     if hashlib.sha256(package.read_bytes()).hexdigest() != manifest['package_sha256']:
@@ -301,6 +314,8 @@ def main():
         p.error('Output exists; preserve earlier evidence')
     if not sys.stdin.isatty():
         p.error('Run in an interactive terminal so a failed restoration can retain its in-memory snapshot for recovery')
+    fixture, fixture_info = build_fixture(a.recording_events, a.recording_timing, a.recording_layout,
+        a.recording_tails, a.assignment, manifest) if a.recording_events else (None, None)
     a.output.mkdir(parents=True)
     d = ReliableDevice(a.port)
     session = RuntimeSession(d)
@@ -325,17 +340,25 @@ def main():
         d.cpu_event_bursts = a.event_bursts
         d.cpu_source_churn = a.source_churn
         d.cpu_drum_note = a.drum_note
+        d.cpu_sequence_bpm = a.sequence_bpm
+        d.cpu_clock_jitter_ms = a.clock_jitter_ms
         if a.modulation or a.drum_note is not None:
             d.performance_patch_hook = configure_workload
         if a.event_bursts or a.source_churn:
             d.performance_step_hook = control_updates
         (a.output/'run.json').write_text(json.dumps(dict(build=manifest, identity=identity,
-            metadata=m, workload=vars(a), evidence='device screening; physical validation pending'),
+            metadata=m, workload=vars(a), recording_fixture=fixture_info, evidence='device screening; physical validation pending'),
             indent=2, default=str)+'\n')
+        if fixture is not None:
+            require_disarmed(d)
         with session:
             d.silence()
+            if fixture is not None:
+                write_ram(d, 0, fixture)
             _, globals_ = param_ids()
-            values = dict(G_BUDGET=a.budget, G_CLOCK=0, G_ROUTE=0, G_MFXTYPE=0, G_MFX2TYPE=0, G_MFX3TYPE=0)
+            values = dict(G_BUDGET=a.budget, G_CLOCK=1 if fixture is not None else 0, G_ROUTE=0, G_MFXTYPE=0, G_MFX2TYPE=0, G_MFX3TYPE=0)
+            if fixture is not None:
+                values['G_BPM'] = round(a.sequence_bpm)
             if a.fx:
                 values.update(G_FXMODE=0, G_MFXTYPE=9, G_MFXMIX=127, G_MFXRATE=127, G_MFXCHAR=127, G_FXRETURN=127)
             for key, value in values.items():
@@ -344,7 +367,7 @@ def main():
             streams = usb_streams(a.output/'capture.wav', 'int24', a.usb) if a.usb != 'inactive' else contextlib.nullcontext()
             with capture_driver_stderr(a.output/'driver-stderr.log'), streams as stream_statuses, (a.output/'cases-pending.jsonl').open('w') as f:
                 for repeat in range(a.repeat):
-                    row = run(d, list(map(int, a.assignment)), voices, a.variant, a.seconds, False)
+                    row = (run_sequence if fixture is not None else run)(d, list(map(int, a.assignment)), voices, a.variant, a.seconds, False)
                     row['histogram'] = histogram(d, row['metadata']['timer5_max_ticks'])
                     row['host_audio_statuses'] = list(stream_statuses or [])
                     row['host_audio_pending'] = True

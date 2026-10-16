@@ -1475,3 +1475,91 @@ would need independent proof and device ranking before adding complexity.
 No new cache state, firmware flag, target build, hardware workload or production
 change resulted from these rejected probes. Current package/source manifests
 remain valid.
+
+## Stage 0/5/7: constructed recording playback and USB-clock fixtures
+
+Parent `f718a5d`. The guarded CPU runner now accepts `--recording-events
+64|256|1024`, `--recording-timing free|grid`, `--recording-layout single|all`,
+`--recording-tails short|long`, `--sequence-bpm 40..240` and
+`--clock-jitter-ms` (default 2 ms). Held-note mode is unchanged. These are
+constructed **playback** fixtures: grid-aligned onsets are not evidence that
+live quantized capture or overdubbing passed. Physical/TRS timing and listening
+also remain separate. Variable playback voices are reported with their min/max;
+`voices`/`voices_expected` are null rather than claiming the held-note counts.
+No additional voice capacity is established by this mode.
+
+`tests/audio_cpu_fixture.c` creates synthetic 64-step active-bank content using
+the actual firmware serializer/validator. It covers one track or all four,
+original within-cell onsets plus forward/wrapped overview rounding, variable
+velocities and independent short/overlapping durations, generic engine presets
+and 808/909 GM lane ownership. It groups events in the serializer's canonical
+bank order, preserving within-bank equal-onset order. All 168 combinations of
+count/timing/layout/tails/mixed-or-solo-engine assignment pass full event-store
+serialization/restoration and active overview ownership checks. ASan/UBSan
+passes with legacy signed-shift checks excluded. Logs
+`build/cpu-recording-fixture-host.log`, `-sanitized.log`. Large/dense fixtures
+can legitimately exceed the current capacity and fail screening; they do not
+silently lower the requested workload to obtain a pass.
+
+`tools/audio_cpu_sequence.py` checks firmware hashes against the chosen package
+manifest before and after construction, plus hashes of the builder/UI/host
+support sources. It compiles a host helper and receives FBKK bytes over stdout,
+keeping the temporary runtime only in process memory. No personal data enters
+the helper. The original runtime/preferences remain in the existing guarded
+host-memory session. The fixture is transferred only after the guard is active;
+common sound/modulation/FX setup follows, and original restoration verifies on
+success or failure. All tracks must be disarmed; status is checked before
+replacement and before every playback window. No remote REC arming was added.
+
+The USB clock source sends MIDI Start, 24 pulses per quarter at the chosen BPM,
+then Stop. It has its own sender so diagnostic polling does not deliberately
+quantize clocks to the observation interval. Installed Mido's `BaseOutput.send`
+uses the port lock, permitting complete diagnostic messages and clock sends
+without interleaving message bytes. Send-return lateness includes lock/driver
+wait; this is a host bound, not a physical arrival timestamp. Expired pulses
+are skipped rather than emitted as a catch-up burst. Missing pulses, excess
+lateness, no pulses, sender errors or failed shutdown prevent a pass. The final
+row records pulse count, missed pulses, maximum lateness and the configured
+limit. Existing complete-envelope, histogram, worker/resource, capacity and
+USB/host-capture requirements remain in effect. Clock teardown precedes
+runtime restoration. Explicit held-note burst/drum-note replacement options
+are rejected in recording mode rather than silently changing its semantics.
+
+Nine Python tests pass (`build/cpu-recording-sequence-tests.log`): clean 24-PPQN
+clock cadence, scheduling/driver delay and missed-pulse rejection, send failure
+cleanup, invalid arguments, actual bounded in-memory FBKK generation, source
+mismatch rejection before compile, armed/schema rejection, variable-voice
+playback and guarded CLI transfer/restoration. The prior 37 CPU-tool tests
+still pass (`build/cpu-recording-{baseline,stress,usb}-tests.log`). All are
+registered, together with the 168-case C builder and rejected routing probes,
+in the complete suite: **ALL HOST TESTS PASSED in 79 s**,
+`build/cpu-sequence-combined-suite.log`, all eleven candidate flags enabled in
+host compilation. Golden renders and all 1,296 concurrent assignments remain
+unchanged. The target listing is the saved all-off `cpu-ref8`; the separately
+saved `cpu-sid11` candidate also passed unchanged gates. No new firmware code,
+state/RAM, budget limit or package resulted from this tooling work. All three
+current `cpu-sid11`/`cpu-sid0`/`cpu-ref8` source/package hashes reverified.
+
+Example for a future explicitly installed, matching profiling package, from
+an interactive terminal with all tracks disarmed:
+
+```sh
+build/venv/bin/python tools/audio_cpu_device.py \
+  --build-manifest build/cpu-sid11-build.json \
+  --output build/CHOOSE-A-FRESH-RECORDING-SCREEN \
+  --assignment 0124 --budget 32 --seconds 60 --repeat 3 \
+  --recording-events 256 --recording-timing free \
+  --recording-layout all --recording-tails long --sequence-bpm 120
+# Optional: --modulation --source-churn
+# Optional: --usb stereo, or --usb stems after configuring that device layout.
+```
+
+**Not executed on hardware.** No workload, counter reset, installation,
+preference/USB-layout edit or publication occurred in this continuation.
+The installed original `cpu-mod` package remains untouched. Remaining software
+work includes live capture/overdub and internal-clock fixture control where
+supported, deeper measured mixer/engine candidates only where justified, and
+further exact routing-churn investigation if a worthwhile approach emerges.
+Target comparisons, profiling overhead/class calibration, electrical SPI2 and
+physical controls/audio, additional-voice proof and normal ten-minute stress
+remain external acceptance dependencies. Overall plan remains incomplete.
