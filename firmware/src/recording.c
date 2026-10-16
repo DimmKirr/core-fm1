@@ -4,8 +4,11 @@
  * are its editable overview; the original onsets, velocities and independent
  * releases live here. QNT commits a grid to the new take when it finishes. */
 static recorded_note_t recording[RECORD_MAX] __attribute__((section(".pool")));
+#ifndef MELODEE_RECORD_CURSOR
+#define MELODEE_RECORD_CURSOR 1 /* 0: reference scanner for host comparisons */
+#endif
 static struct { uint32_t held, left; } recording_run[RECORD_MAX];
-static uint8_t recording_flags[RECORD_MAX]; /* 1: live hold; 4: heard this loop; 8: captured in this take */
+static uint8_t recording_flags[RECORD_MAX]; /* 1: live hold; 2: runtime list; 4: heard this loop; 8: captured in this take */
 static uint32_t recording_fraction[NTRK];
 /* Index by bank and cache onset arithmetic outside the steady audio tick. */
 #define RECORDING_EMPTY8 RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX
@@ -17,12 +20,39 @@ static uint16_t recording_next[RECORD_MAX];
  * the pool, leaving the full audio reserve alongside CPU1's private stacks. */
 static uint32_t recording_due[RECORD_MAX];
 static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
-static struct { uint32_t period, key; } recording_schedule[NTRK];
+static struct { uint32_t period, key, ordered_period, ordered_key; uint16_t cursor; } recording_schedule[NTRK];
+#if MELODEE_RECORD_CURSOR
+/* Only held/sounding events are visited each tick. Keep the extra index in
+ * the pool, rather than taking the target's remaining data SRAM. */
+static uint16_t recording_live_next[RECORD_MAX] __attribute__((section(".pool")));
+static uint16_t recording_live_head[NTRK] = {RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX};
+#endif
 static volatile uint8_t recording_full;
 static uint8_t recording_tracks;
 static volatile uint32_t recording_generation; /* ISR or UI changed event storage */
 static volatile uint8_t recording_quant_blocked;
 static void recording_prune(track_t *t);
+
+static void recording_live_add(uint32_t i)
+{
+#if MELODEE_RECORD_CURSOR
+    if (recording_flags[i] & 2u) return;
+    uint32_t tr = (recording[i].owner & 31u) / NPAT;
+    recording_live_next[i] = recording_live_head[tr];
+    recording_live_head[tr] = (uint16_t)i;
+    recording_flags[i] |= 2u;
+#endif
+}
+static void recording_live_detach(uint32_t i)
+{
+#if MELODEE_RECORD_CURSOR
+    if (!(recording_flags[i] & 2u)) return;
+    uint16_t *link = &recording_live_head[(recording[i].owner & 31u) / NPAT];
+    while (*link < RECORD_MAX && *link != i) link = &recording_live_next[*link];
+    if (*link == i) *link = recording_live_next[i];
+    recording_flags[i] &= (uint8_t)~2u;
+#endif
+}
 
 static uint32_t recording_owner(const track_t *t) { return trk_index(t) * NPAT + t->pattern; }
 static uint32_t recording_prefix(const track_t *t, uint32_t period, uint32_t idx)
@@ -84,17 +114,24 @@ static void recording_reindex(void)
     for (uint32_t k = 0; k < NTRK * NPAT; k++) recording_head[k] = RECORD_MAX;
     recording_tracks = 0;
     memset(recording_refs, 0, sizeof recording_refs);
+#if MELODEE_RECORD_CURSOR
+    for (uint32_t tr = 0; tr < NTRK; tr++) recording_live_head[tr] = RECORD_MAX;
+    for (uint32_t i = 0; i < RECORD_MAX; i++) recording_flags[i] &= (uint8_t)~2u;
+#endif
     for (uint32_t i = RECORD_MAX; i-- > 0;) if (recording[i].vel) {
         uint32_t owner = recording[i].owner & 31u;
         recording_next[i] = recording_head[owner]; recording_head[owner] = (uint16_t)i;
         recording_tracks |= (uint8_t)(1u << (owner / NPAT));
         if (recording_run[i].left && trk[owner / NPAT].pattern == owner % NPAT) recording_refs[owner / NPAT][recording[i].note]++;
+        if ((recording_run[i].left || (recording_flags[i] & 1u)) && trk[owner / NPAT].pattern == owner % NPAT) recording_live_add(i);
     }
     memset(recording_schedule, 0, sizeof recording_schedule);
 }
 static void recording_unlink(uint32_t i)
 {
     if (!recording[i].vel) return;
+    recording_live_detach(i);
+    recording_schedule[(recording[i].owner & 31u) / NPAT].period = 0;
     uint16_t *link = &recording_head[recording[i].owner & 31u];
     while (*link < RECORD_MAX && *link != i) link = &recording_next[*link];
     if (*link == i) *link = recording_next[i];
@@ -136,6 +173,11 @@ static void recording_stop(track_t *t)
         recording_end(t, i);
         recording_flags[i] &= (uint8_t)~clear;
     }
+#if MELODEE_RECORD_CURSOR
+    uint32_t tr = trk_index(t);
+    for (uint32_t i = recording_live_head[tr]; i < RECORD_MAX; i = recording_live_next[i]) recording_flags[i] &= (uint8_t)~2u;
+    recording_live_head[tr] = RECORD_MAX;
+#endif
 }
 /* Punch-out finishes the take without releasing the pattern's playback voices. */
 static void recording_seal(track_t *t)
@@ -174,20 +216,73 @@ static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_
 {
     return recording_raw_on(t, r, period);
 }
+static uint32_t recording_key(const track_t *t)
+{
+    return (uint32_t)t->p[P_RECQ] | (uint32_t)t->p[P_SSWING] << 4 |
+        (uint32_t)song.g[G_SWING] << 11 | (uint32_t)t->p[P_SLEN] << 18 | (uint32_t)t->pattern << 25;
+}
+static void recording_insert(track_t *t, uint32_t i)
+{
+    uint32_t owner = recording_owner(t), tr = trk_index(t);
+    uint16_t *link = &recording_head[owner];
+#if MELODEE_RECORD_CURSOR
+    uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), key = recording_key(t);
+    if (recording_schedule[tr].ordered_period == period && recording_schedule[tr].ordered_key == key) {
+        /* Inserting one captured/edited event does not recalculate or sort
+         * every retained onset. Equal onsets retain the old prepend order. */
+        recording_due[i] = recording_on(t, &recording[i], period);
+        while (*link < RECORD_MAX && recording_due[*link] < recording_due[i]) link = &recording_next[*link];
+    } else recording_schedule[tr].ordered_period = 0;
+#endif
+    recording_next[i] = *link; *link = (uint16_t)i;
+    recording_schedule[tr].period = 0;
+}
+/* Stable bottom-up merge sort of the bank's existing index. No new event
+ * copies, scratch array, allocation, or recursion in the audio owner. */
+static void recording_sort(uint32_t owner)
+{
+#if MELODEE_RECORD_CURSOR
+    for (uint32_t width = 1;; width *= 2u) {
+        uint32_t p = recording_head[owner], merges = 0;
+        uint16_t head = RECORD_MAX, *tail = &head;
+        while (p < RECORD_MAX) {
+            uint32_t q = p, pn = 0, qn = width;
+            for (uint32_t k = 0; k < width && q < RECORD_MAX; k++) { pn++; q = recording_next[q]; }
+            merges++;
+            while (pn || (qn && q < RECORD_MAX)) {
+                uint32_t i;
+                if (!pn) { i = q; q = recording_next[q]; qn--; }
+                else if (!qn || q >= RECORD_MAX || recording_due[p] <= recording_due[q]) {
+                    i = p; p = recording_next[p]; pn--;
+                } else { i = q; q = recording_next[q]; qn--; }
+                *tail = (uint16_t)i; tail = &recording_next[i];
+            }
+            p = q;
+        }
+        *tail = RECORD_MAX;
+        recording_head[owner] = head;
+        if (merges <= 1u) break;
+    }
+#endif
+}
 static void recording_sync(track_t *t, uint32_t period)
 {
-    uint32_t tr = trk_index(t), q = (uint32_t)t->p[P_RECQ], key = q | (uint32_t)t->p[P_SSWING] << 4 |
-        (uint32_t)song.g[G_SWING] << 11 | (uint32_t)t->p[P_SLEN] << 18 | (uint32_t)t->pattern << 25;
+    uint32_t tr = trk_index(t), key = recording_key(t);
     if (recording_schedule[tr].period == period && recording_schedule[tr].key == key) return;
     recording_schedule[tr].period = period; recording_schedule[tr].key = key;
-    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
-        /* Prepare the end-of-take target while capturing. It does not affect
-         * live or pre-finish playback; punch-out reuses this cached arithmetic. */
-        recording_due[i] = (recording_flags[i] & 8u) && q ? recording_quant_on(t, &recording[i], period, q) : recording_on(t, &recording[i], period);
+    if (!MELODEE_RECORD_CURSOR || recording_schedule[tr].ordered_period != period || recording_schedule[tr].ordered_key != key) {
+        for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+            recording_due[i] = recording_on(t, &recording[i], period);
+        recording_sort(recording_owner(t));
+        recording_schedule[tr].ordered_period = period;
+        recording_schedule[tr].ordered_key = key;
+    }
+    recording_schedule[tr].cursor = recording_head[recording_owner(t)];
 }
 static uint32_t recording_play_on(const track_t *t, uint32_t i, uint32_t period)
 {
-    return (recording_flags[i] & 8u) && t->p[P_RECQ] ? recording_raw_on(t, &recording[i], period) : recording_due[i];
+    (void)t; (void)period;
+    return recording_due[i];
 }
 static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step)
 {
@@ -213,10 +308,10 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
     recording_unlink(free);
     recorded_note_t *r = &recording[free];
     *r = (recorded_note_t){(uint16_t)on, 1, (uint8_t)note, (uint8_t)vel, (uint8_t)owner, (uint8_t)(actual | (step != actual ? 64u : 0u) | (step == 0u && actual ? 128u : 0u))};
-    recording_next[free] = recording_head[owner]; recording_head[owner] = (uint16_t)free;
-    recording_schedule[trk_index(t)].period = 0;
+    recording_insert(t, free);
     memset(&recording_run[free], 0, sizeof recording_run[free]);
     recording_flags[free] = 13;
+    recording_live_add(free);
     t->step[step].flags |= SF_RECORDED;
     recording_tracks |= (uint8_t)(1u << trk_index(t));
     recording_generation++;
@@ -257,11 +352,11 @@ static void recording_prune(track_t *t)
 }
 static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
 {
+    recording_live_detach(i);
     recording[i] = r;
     memset(&recording_run[i], 0, sizeof recording_run[i]);
     recording_flags[i] = 0;
-    recording_next[i] = recording_head[recording_owner(t)];
-    recording_head[recording_owner(t)] = (uint16_t)i;
+    recording_insert(t, i);
     recording_tracks |= (uint8_t)(1u << trk_index(t));
     recording_schedule[trk_index(t)].period = 0;
     recording_generation++;
@@ -353,12 +448,23 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
         if (was && recording_refs[trk_index(t)][r->note]) recording_refs[trk_index(t)][r->note]--;
         recording_off(t, r->note);
     }
+    if (recording_run[i].left) recording_live_add(i);
 }
 static void recording_zero(track_t *t)
 {
     uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     uint32_t phase = recording_prefix(t, period, t->seq_idx) + t->seq_pos;
     recording_sync(t, period);
+#if MELODEE_RECORD_CURSOR
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) recording_flags[i] &= (uint8_t)~4u;
+    uint32_t i = recording_head[recording_owner(t)];
+    while (i < RECORD_MAX && recording_due[i] <= phase) {
+        uint32_t next = recording_next[i];
+        if (recording_active(t, i)) recording_fire(t, i, period, phase - recording_due[i]);
+        i = next;
+    }
+    recording_schedule[trk_index(t)].cursor = (uint16_t)i;
+#else
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         recording_flags[i] &= (uint8_t)~4u;
         if (recording_active(t, i)) {
@@ -366,6 +472,7 @@ static void recording_zero(track_t *t)
             if (on <= phase) recording_fire(t, i, period, phase - on);
         }
     }
+#endif
 }
 static void recording_tick(track_t *t, uint32_t n)
 {
@@ -384,6 +491,28 @@ static void recording_tick(track_t *t, uint32_t n)
         elapsed = (uint32_t)(ticks / period);
     }
     recording_sync(t, period);
+#if MELODEE_RECORD_CURSOR
+    uint16_t *link = &recording_live_head[tr];
+    while (*link < RECORD_MAX) {
+        uint32_t i = *link;
+        if (recording_flags[i] & 1u) recording_run[i].held = (uint32_t)clamp((int32_t)(recording_run[i].held + elapsed), 0, 8388607);
+        if (recording_run[i].left) {
+            if (!recording_active(t, i) || recording_run[i].left <= n) recording_end(t, i);
+            else recording_run[i].left -= n;
+        }
+        if (!(recording_flags[i] & 1u) && !recording_run[i].left) {
+            *link = recording_live_next[i];
+            recording_flags[i] &= (uint8_t)~2u;
+        } else link = &recording_live_next[i];
+    }
+    uint32_t i = recording_schedule[tr].cursor;
+    while (i < RECORD_MAX && recording_due[i] <= b) {
+        uint32_t next = recording_next[i];
+        if (recording_due[i] > a && recording_active(t, i)) recording_fire(t, i, period, b - recording_due[i]);
+        i = next;
+    }
+    recording_schedule[tr].cursor = (uint16_t)i;
+#else
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         if ((recording_flags[i] & 1u)) recording_run[i].held = (uint32_t)clamp((int32_t)(recording_run[i].held + elapsed), 0, 8388607);
         if (recording_run[i].left) {
@@ -398,4 +527,5 @@ static void recording_tick(track_t *t, uint32_t n)
             if (on > a && on <= b && recording_active(t, i)) recording_fire(t, i, period, b - on);
         }
     }
+#endif
 }

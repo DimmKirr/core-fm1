@@ -875,6 +875,10 @@ static void recording_quantize(track_t *t)
     uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), blocked = 0;
     uint32_t a = step_samples(t, period, 0), b = step_samples(t, period, 1);
     recording_sync(t, period);
+    /* Playback always caches captured onsets. Only punch-out prepares the
+     * quantized targets; no alternate grid enters the playback cursor. */
+    for (uint32_t i = recording_head[owner]; i < RECORD_MAX; i = recording_next[i])
+        if (recording_flags[i] & 8u) recording_due[i] = recording_quant_on(t, &recording[i], period, q);
     if (q) for (uint32_t i = recording_head[owner]; i < RECORD_MAX; i = recording_next[i]) {
         if (!(recording_flags[i] & 8u) || !recording_active(t, i)) continue;
         uint32_t at = recording_due[i], actual = at / (a + b) * 2u, pos = at % (a + b), span = a;
@@ -910,6 +914,8 @@ static void recording_quantize(track_t *t)
     if (touched) {
         seq_erase_rebuild(t, touched);
         recording_generation++;
+        recording_schedule[trk_index(t)].period = 0;
+        recording_schedule[trk_index(t)].ordered_period = 0;
     }
     if (blocked) recording_quant_blocked |= (uint8_t)(1u << trk_index(t));
 }
