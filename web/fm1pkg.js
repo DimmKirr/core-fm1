@@ -246,6 +246,26 @@ export async function validateStockPackage(bytes) {
   return { product: pkg.product, image: logicalImage(bytes), sha256: STOCK_V15_SHA256 };
 }
 
+// Keep the verified stock flash image byte-for-byte, but install it with Melodee's
+// application-only loader. The vendor loader rewrites the device's boot data and
+// is refused when that data differs, even on an otherwise compatible FM-1.
+export async function buildStockRestorePackage(stockBytes, melodeeBytes, product) {
+  await validateStockPackage(stockBytes);
+  const stock = new Package(stockBytes), donor = new Package(melodeeBytes);
+  const ota = donor.entries.find(e => e.type === 100 && e.name === "ota.bin");
+  const off = ota && ota.dataOff + donor.skew;
+  const loader = ota && donor.raw.subarray(off, off + ota.size);
+  const own = loader && String.fromCharCode(...loader.subarray(0x48, 0x98)).includes("FELUCCA-LOADER-1");
+  if (!/^FM-1_9\d+$/.test(product) || donor.product !== product ||
+      donor.flashSize !== stock.flashSize || donor.appBase !== stock.appBase ||
+      !ota || ota.size < 0x80 || ota.size > 0x4E20 || off + ota.size > donor.raw.length ||
+      crc16(loader) !== ota.dcrc || !own)
+    throw new Error("The Melodee restore loader is unavailable or invalid. Refresh the installer and try again.");
+  donor.flash.set(stock.flash);
+  donor.setProduct(stock.product);
+  return donor.serialize();
+}
+
 // official V15 + Melodee app -> installable package (Uint8Array)
 export async function buildMelodeePackage(stockBytes, appBytes, product) {
   const sha = await sha256hex(stockBytes);

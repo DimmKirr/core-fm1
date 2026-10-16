@@ -209,6 +209,12 @@ int main(int argc, char **argv)
         reset_dev();rc=ota_session();bad+=check("an older Melodee partition (0x89000) still installs (its own loader)",rc==0&&committed);
         memcpy(logical,saved,sizeof saved);
     }
+    /* An application-only loader must also work on a different compatible head. */
+    reset_dev();
+    nor[0x100] ^= 1u;
+    rc = ota_session();
+    bad += check("own loader accepts a different device head without changing it",
+                 rc == 0 && committed && nor[0x100] == (uint8_t)(logical[0x500] ^ 1u));
     /* full session */
     reset_dev();
     rc = ota_session();

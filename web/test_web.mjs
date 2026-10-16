@@ -1505,7 +1505,7 @@ async function stockRestore() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace("/*META*/{}", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc"}}));
-  async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false, motionVersion = 2, backupVersion = 1, backupCaps = 1} = {}) {
+  async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false, motionVersion = 2, backupVersion = 1, backupCaps = 1, loaderError = false} = {}) {
     const calls = [], elements = new Map();
     const element = (id) => {
       if (!elements.has(id)) elements.set(id, {checked:false, disabled:false, textContent:"", value:0, listeners:{}, options:[],
@@ -1520,8 +1520,14 @@ async function stockRestore() {
       document:{documentElement:{}, querySelectorAll:() => [], getElementById:element,
         body:{append() {}}, createElement:() => ({click() { calls.push("save"); }, remove() {}})},
       window:{addEventListener() {}},
-      fetch:async () => ({ok:true, arrayBuffer:async () => new ArrayBuffer(0)}),
-      productOf:() => "FM-1_9010", logicalImage:() => new Uint8Array(),
+      fetch:async () => ({ok:!loaderError, status:503, arrayBuffer:async () => Uint8Array.of(2).buffer}),
+      STOCK_V15_SIZE:1,
+      validateStockPackage:async () => ({product:"FM-1_015",image:Uint8Array.of(0)}),
+      buildStockRestorePackage:async (stock, donor, product) => {
+        if (stock[0] !== 1 || donor[0] !== 2 || product !== "FM-1_9010") throw Error("Wrong restore inputs");
+        calls.push("prepare-loader"); return Uint8Array.of(3);
+      },
+      productOf:() => "FM-1_9010", logicalImage:bytes => bytes,
       URL:{createObjectURL:() => "blob:test", revokeObjectURL() {}}, Blob, setTimeout:() => 0,
       confirm:(message) => { calls.push("confirm"); calls.push(message); return confirm; },
       Updater:class {
@@ -1529,8 +1535,14 @@ async function stockRestore() {
           const id = {model:loader ? "ota-FM-1" : "FM-1"};
           return filter(id) ? {link:{input:{},output:{},close() {}}} : null;
         }
-        async install() { calls.push("install"); }
-        async resume() { calls.push("resume"); return true; }
+        async install(image, product) {
+          if (image[0] !== 3 || product !== "FM-1_015") throw Error("Original vendor loader reached install");
+          calls.push("install");
+        }
+        async resume(image, step, product) {
+          if (image[0] !== 3 || product !== "FM-1_015") throw Error("Original vendor loader reached resume");
+          calls.push("resume"); return true;
+        }
       },
       BackupConnection:class {
         constructor() { calls.push("backup-open"); }
@@ -1541,7 +1553,8 @@ async function stockRestore() {
     });
     vm.runInContext(script, context);
     await new Promise(resolve => setImmediate(resolve));
-    vm.runInContext('stock = {image:new Uint8Array(),product:"FM-1_015"};', context);
+    element("stock-file").files = [{size:1,arrayBuffer:async () => Uint8Array.of(1).buffer}];
+    await element("stock-file").listeners.change();
     element("stock-skip-backup").checked = skip;
     element("stock-recovery").checked = recovery;
     element("stock-skip-backup").listeners.change();
@@ -1552,8 +1565,11 @@ async function stockRestore() {
   let r = await run();
   ok(!r.calls.includes("install") && r.status.includes("select Skip backup") && r.calls.includes("backup-close") && r.unlocked,
     "stock: unsupported backups block flashing by default, explain opt-out");
+  r = await run({skip:true, loaderError:true});
+  ok(!r.calls.includes("install") && !r.calls.includes("resume") && !r.calls.includes("confirm")
+    && r.status.includes("HTTP 503"), "stock: loader download failure never falls back to the vendor loader");
   r = await run({skip:true});
-  ok(r.calls.includes("install") && !r.calls.includes("info") && !r.calls.includes("backup-open")
+  ok(r.calls.includes("prepare-loader") && r.calls.includes("install") && !r.calls.includes("info") && !r.calls.includes("backup-open")
     && r.calls.some(c => c.includes("without creating a backup")) && r.label.includes("without backup") && r.unlocked,
     "stock: explicit skip bypasses backup protocol and confirms data loss");
   r = await run({skip:true, confirm:false});
