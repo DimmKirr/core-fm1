@@ -8,21 +8,58 @@ budget against the combined result.
 
 Planning baseline: `experiment/recording-release-queue`, commit `b296f57`,
 2026-10-16. The recording release queue has passed host tests and a target
-build; its CPU benefit still needs device measurement. This plan describes
-future implementation and validation.
+build; its CPU benefit still needs device measurement. Implementation has
+started; completed work and remaining validation are distinguished below.
+
+## Progress as of 2026-10-16
+
+Implementation is on `experiment/recording-release-queue`, through `8c1f104`:
+
+- `70c3baf`: guarded CPU baseline tooling, bounded timing histograms and panel
+  cost spans, with source/package manifests and host-memory runtime restoration.
+- `875332f`: retain the in-memory original after restoration failure, support
+  interactive recovery and reject transfers if the persistence guard is lost.
+- `292aa13`: independently switchable modulation-routing cache, disabled by
+  default and enabled in the installed comparison build.
+- `dc7c5ce`: cache destination layouts independently of live source selections;
+  reduce source-change cost and cache memory to 256 B. Prepared, not installed.
+- `05ace19`: screen the larger statistics/histogram timing bound, rank inclusive
+  spans and exercise engine destinations with optional host-paced source changes.
+- `8c1f104`: retry timed-out idempotent runtime reads without retrying writes.
+
+The full host suites passed in 79 s for the baseline infrastructure, 83 s
+with the original cache and 81 s with the revised cache. Validation includes
+unchanged golden renders, all 1,296 ordered concurrent engine assignments, reference-state comparisons and
+ASan/UBSan. Target lab and normal builds, memory and register checks, and
+target instruction checks passed. These results do not establish device CPU
+savings, physical input/audio behavior or increased usable polyphony.
+
+The user-requested flash installed `build/melodee-1.4.0-cpu-mod.fwsc`, SHA256
+`6908de941a24344b27810be3979452139acc61c57a5d3804fb65d20e05a46625`.
+Post-install reads verified `MELODEE v1.4.0-cpu-mod`, model `FM-1_91040`,
+360 MHz, 128-frame halves and budget 16. The modulation cache, profiling and
+benchmark support are compiled in; the fixed-benchmark bypass and persistence
+guard are inactive. `MELODEE_RAM_AUDIO=0` and `MELODEE_ADMISSION=0` preserve the
+actual baseline layout and weight policy. Controlled candidate-only screens
+have started; baseline/candidate device comparisons remain pending. No voice
+allowance or production default has increased. The new cache revision remains
+uninstalled; the installed package still contains the original cache.
+
+Detailed measurements, package hashes, reproduction commands and known limits
+are recorded in [POLYPHONY_CPU_PROGRESS.md](POLYPHONY_CPU_PROGRESS.md).
 
 ## Execution order and experiment boundaries
 
-| Stage | Path | First deliverable |
-| --- | --- | --- |
-| 0 | Current device baseline | Repeatable timing and voice-capacity results |
-| 1 | Panel scanning | Cost breakdown and hardware routing feasibility |
-| 2 | Control preparation | Cached modulation routing and exact change detection |
-| 3 | Core scheduling | Better workload estimates and less completion wait |
-| 4 | FX and mixing | Fewer buffer passes and correct effect dormancy |
-| 5 | Sequencer indexing | Prepared ownership for recorded step notes |
-| 6 | Engine fast paths | Exact specializations for measured expensive cases |
-| 7 | Polyphony calibration | Validated voice allowances and combined stress results |
+| Stage | Path | Current status | Next deliverable |
+| --- | --- | --- | --- |
+| 0 | Current device baseline | Candidate-only screens and ranked spans started; comparison pending | Baseline/candidate runs, profiling-cost measurement and broader workloads |
+| 1 | Panel scanning | Panel costs measured in screening; SPI2 routing appears feasible; no scan change | Electrical timing acceptance, then a bounded prototype |
+| 2 | Control preparation | Source-change revision host-tested; original cache installed; default off | Device comparisons of revision; structural churn and pitch/control work |
+| 3 | Core scheduling | Not started | Measured job classes and assignment comparison |
+| 4 | FX and mixing | Not started | Ranked buffer-pass and effect-state costs |
+| 5 | Sequencer indexing | Not started beyond the preceding onset/release queues | Ownership-scan measurements and compact index candidate |
+| 6 | Engine fast paths | Not started | Rank limiting patches after infrastructure measurements |
+| 7 | Polyphony calibration | Not started; allowances unchanged | Validated additional voices and combined stress results |
 
 Start each candidate from a recorded, tested parent and keep it separately
 switchable for host comparisons. Commit each accepted change separately; run
@@ -32,6 +69,16 @@ hardware work. Production defaults change only after the relevant device
 checks pass. Firmware installation remains a separate requested action.
 
 ## Stage 0 Establish the current device baseline
+
+Implemented: 64-bin/64-us assembly-envelope histograms, seven panel subspans
+and `tools/audio_cpu_device.py`. The runner uses explicit shared-budget voice
+counts, bounded in-memory runtime/preferences, blocked persistence, read-only
+committed-object verification and recovery after a failed restore. Profiling
+windows are limited to 120 s to avoid 32-bit span-total wrap. Long production
+stress runs still need a suitable runner. The runner now ranks inclusive spans and covers voice/engine modulation
+routes plus host-paced source changes. It does not yet cover stems, recording
+fixtures, external clock or controlled physical input.
+The uncached `1.4.0-cpu-stage0` package is prepared but has not been installed.
 
 Use the same clock, audio configuration, patches, input traffic and voice
 counts for each before/after comparison. Keep 128-frame halves, 32-sample
@@ -64,12 +111,14 @@ existing overload protection. Historical capped-package results in
 [AUDIO_PERFORMANCE.md](AUDIO_PERFORMANCE.md) do not certify this shared-budget
 branch or a higher voice allowance.
 
-Reuse the device protocol and diagnostic tools. Adapt the older performance
-harness before using it: it currently requires an existing backup directory
-and has assumptions inherited from fixed per-track reservations. Tests must
-use the current shared budget. Keep temporary runtime fixtures and restoration
-in memory, verify persistent data by reads, and avoid autosaves during setup.
-Creating a backup is not a prerequisite for this work.
+Use the new shared-budget runner for the implemented screening cases. The
+older performance harness still requires an existing backup directory and
+retains fixed-reservation assumptions; it has not been converted into the new
+runner. Keep temporary runtime fixtures and restoration in memory, verify
+persistent data by reads, and avoid autosaves during setup. Creating a backup
+is not a prerequisite. The serialized restore clears undo and running engine/
+FX state, so start stopped with all voices released; it preserves project
+content rather than an interrupted performance's sample-exact state.
 
 **Exit:** a reproducible baseline, a ranked time breakdown and a list of
 workloads whose next additional voice is currently too expensive.
@@ -78,6 +127,12 @@ workloads whose next additional voice is currently too expensive.
 
 Owners: `firmware/hal/fm1_input.h`, `firmware/hal/fm1_led_pwm.h`,
 `firmware/hal/fm1_gpio.h` and `firmware/src/main.c`.
+
+Initial feasibility: SDK SPI2 port C maps CLK/DO to PA3/PA4, matching the
+shift-register wiring. SPI0 serves flash and SPI1 serves the LCD. SPI2's DI
+route is PA2, also the LCD backlight, so a prototype must stay transmit-only
+and preserve that pad and unrelated PWM/IOMAP ownership. No peripheral scan
+path has been implemented or electrically validated; GPIO timing is unchanged.
 
 An older device trace measured about 10 microseconds per input tick. At
 10 kHz this is a material fixed cost on CPU0. Remeasure it on the current
@@ -111,6 +166,26 @@ hardware routing is unsuitable, retain only verified software improvements.
 
 Owners: `firmware/src/mod.c`, `firmware/src/voice.c`,
 `firmware/src/mix.c` and the engine control preparation functions.
+
+Implemented candidate: `MELODEE_MOD_CACHE=1` caches merged destinations and
+ranges in 256 B across four tracks. Raw destinations, engine and valid-source/
+amount-zero membership key the layout. Sources, amounts, polarity, evolving
+values and bases stay live. Voice dependencies are rebuilt from those live
+sources at their original rate, without rebuilding the destination layout.
+
+The original installed revision used 352 B and regressed source changes by
+27–48%. The uninstalled revision uses about 31% fewer host instructions for
+four engine destinations, including moving sources and amounts. Voice-only
+routing is approximately unchanged or slightly cheaper. These are routing-only
+host measurements, not complete device CPU savings. Continuously changing
+destinations, engine or amount-zero membership still costs 9–31% more in the
+expanded benchmark because it rebuilds the layout. Keep that limit visible.
+
+Reference-state parity, unchanged golden/concurrent tests, sanitizers and lab/
+normal target checks pass. The original installed candidate has initial device
+screens with ranked spans, including failed screens; the revised candidate has
+not been installed or compared. Stage 2 exit criteria remain unsatisfied and
+production defaults remain unchanged.
 
 Several engine coefficient caches already exist. Start with repeated work
 outside those caches, especially the modulation routing rebuilt in `mod_begin`.
@@ -300,12 +375,26 @@ apply old fixed-capacity guarantees to the expanded voice budget.
 
 ## Shared constraints and completion criteria
 
-The baseline build uses 95,888 of 98,304 bytes of data/BSS and leaves a
-153,056-byte contiguous audio arena against a 142,336-byte minimum. New caches,
-indices and descriptors must fit measured memory limits and the intended
-simultaneous engine/FX workloads. Any code relocation must retain the checked
-resident audio graph. No new unbounded wait, allocation, sort or lock belongs
-in the steady audio path.
+Measured builds retain the same 153,056-B contiguous audio arena and
+142,336-B minimum in the baseline layout:
+
+| Build | Data/BSS of 98,304 B |
+| --- | ---: |
+| Baseline / normal build, cache and profiling off | 95,888 B |
+| Profiling baseline, cache off | 96,512 B |
+| Installed profiling candidate, original cache | 96,864 B |
+| Prepared profiling candidate, revised cache | 96,768 B |
+
+The recorded baseline has FM6 kernels in internal DSP SRAM; full audio-graph
+residency was opt-in, not enabled in that package. The attempted full-residency
+profiling build failed its separate 49,152-B minimum-arena check. No minimum
+was lowered. Resolve that configuration's memory fit separately before using
+it in comparisons. Preserve the existing checked SRAM kernels and keep layout,
+clock, weight policy and workload identical within each CPU comparison.
+
+New caches, indices and descriptors must fit measured memory limits and the
+intended simultaneous engine/FX workloads. No new unbounded wait, allocation,
+sort or lock belongs in the steady audio path.
 
 Keep projects, preset formats, free recording timing and independent note
 lengths compatible. Retain source provenance and applicable notices when
