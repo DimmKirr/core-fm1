@@ -16,6 +16,7 @@ static int make_fixture(uint32_t count,uint32_t quant,uint32_t spread,uint32_t t
     if(quant>1u || spread>1u || tails>1u || strlen(assignment)!=NTRK)return 0;
     for(uint32_t k=0;k<NTRK;k++)if(assignment[k]<'0' || assignment[k]>'5')return 0;
     ui_power_on();seq_stop();song.rec=song.rec_latch=0;recording_reset();
+    song.ntrk=NTRK; /* unused tracks would take no notes or mixer CPU */
     for(uint32_t k=0;k<NTRK;k++){
         track_t *t=&trk[k];uint32_t category=(uint32_t)(assignment[k]-'0');
         host_preset(t,cpu_engines[category],0);
@@ -49,8 +50,9 @@ static int make_fixture(uint32_t count,uint32_t quant,uint32_t spread,uint32_t t
     project_capture(&proj_scratch);
     if(!bank_pack(fixture_raw,&proj_scratch,1) || !bank_valid(fixture_raw,sizeof fixture_raw))return 0;
     if(memcmp(proj_scratch.recording,fixture_notes,sizeof fixture_notes))return 0;
-    if(project_restore_runtime(&proj_scratch))return 0;
+    if(proj_scratch.parts!=NTRK || project_restore_runtime(&proj_scratch))return 0;
     bank_restore(fixture_raw);
+    if(trk_n()!=NTRK)return 0;
     if(memcmp(recording,fixture_notes,sizeof fixture_notes))return 0;
     uint32_t active=0,owners=0;
     for(uint32_t i=0;i<RECORD_MAX;i++)if(recording[i].vel){

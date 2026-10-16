@@ -275,7 +275,8 @@ def main():
     p.add_argument('--source-churn', action='store_true', help='Host-paced changes through all ten modulation sources')
     p.add_argument('--event-bursts', action='store_true')
     p.add_argument('--usb', choices=('inactive', 'stereo', 'stems'), default='inactive')
-    p.add_argument('--recording-events', type=int, choices=(64, 256, 1024), help='Constructed playback fixture under host-paced USB clock')
+    p.add_argument('--recording-events', type=int, choices=(64, 256, 1024), help='Constructed recording playback fixture')
+    p.add_argument('--sequence-clock', choices=('usb', 'internal'), default='usb')
     p.add_argument('--recording-timing', choices=('free', 'grid'), default='free')
     p.add_argument('--recording-layout', choices=('single', 'all'), default='all')
     p.add_argument('--recording-tails', choices=('short', 'long'), default='short')
@@ -303,6 +304,8 @@ def main():
         p.error('modulation-routing/source-churn require --modulation')
     if a.recording_events and (a.event_bursts or a.drum_note is not None):
         p.error('Recording playback cannot use held-note event bursts or drum-note replacement')
+    if a.sequence_clock != 'usb' and not a.recording_events:
+        p.error('sequence-clock requires recording-events')
     if a.recording_events and (not math.isfinite(a.sequence_bpm) or not 40 <= a.sequence_bpm <= 240 or
             not math.isfinite(a.clock_jitter_ms) or not 0 < a.clock_jitter_ms < 60000/(a.sequence_bpm*24)):
         p.error('Sequence BPM 40..240; positive jitter limit below one clock interval')
@@ -342,6 +345,7 @@ def main():
         d.cpu_drum_note = a.drum_note
         d.cpu_sequence_bpm = a.sequence_bpm
         d.cpu_clock_jitter_ms = a.clock_jitter_ms
+        d.cpu_sequence_clock = a.sequence_clock
         if a.modulation or a.drum_note is not None:
             d.performance_patch_hook = configure_workload
         if a.event_bursts or a.source_churn:
@@ -356,7 +360,7 @@ def main():
             if fixture is not None:
                 write_ram(d, 0, fixture)
             _, globals_ = param_ids()
-            values = dict(G_BUDGET=a.budget, G_CLOCK=1 if fixture is not None else 0, G_ROUTE=0, G_MFXTYPE=0, G_MFX2TYPE=0, G_MFX3TYPE=0)
+            values = dict(G_BUDGET=a.budget, G_CLOCK=int(fixture is not None and a.sequence_clock == 'usb'), G_ROUTE=0, G_MFXTYPE=0, G_MFX2TYPE=0, G_MFX3TYPE=0)
             if fixture is not None:
                 values['G_BPM'] = round(a.sequence_bpm)
             if a.fx:

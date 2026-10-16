@@ -1563,3 +1563,97 @@ further exact routing-churn investigation if a worthwhile approach emerges.
 Target comparisons, profiling overhead/class calibration, electrical SPI2 and
 physical controls/audio, additional-voice proof and normal ten-minute stress
 remain external acceptance dependencies. Overall plan remains incomplete.
+
+
+## Stage 0/5/7: guarded native transport/REC controls and internal-clock playback
+
+Parent `eca2ef7`. Editor command 101 (`firmware/src/editor_cpu_lab.h`) exists
+only when **both** `MELODEE_AUDIO_PROFILE=1` and `MELODEE_AUDIO_BENCH=1`. Every
+operation, including query, requires the existing persistence guard. It queues
+the same `transport_req` Start/Stop as PLAY and arms/disarms through native
+`rec_set`, adding no persistent/runtime state and no audio-tick work. Start
+refuses external clock, playing/count-in, any pending request, song chain,
+momentary snapshot and old/foreign template states. Arming refuses chain,
+momentary, old-template states and tracks beyond the tracks in use; Stop and
+disarm need only the guard so cleanup remains possible. Re-arming an armed
+track keeps its latch mode. The ten-byte reply is one snapshot taken with audio
+interrupts paused. The wire format is documented in `web/EDITOR_PROTOCOL.md`,
+together with the previously undocumented editor 98 histogram, guard and
+committed-header requests it depends on.
+
+Final review found and fixed four defects in the uncommitted checkpoint:
+
+- Start called `transport_busy()` inside the reply's `cli` section. Target
+  `cli`/`sti` do not nest, so its `sti` re-enabled interrupts before the queued
+  request and status snapshot. Start now reads the same fields directly. The
+  editor host stubs now count nested masking; the lab test asserts one coherent
+  section per request. Re-running the test against the original header fails
+  (`!host_irq_nested` assertion); the fix passes.
+- Arming accepted tracks beyond `song.ntrk`. Such tracks receive no MIDI input
+  and no mixer CPU, and the panel cannot arm them; arming now replies 3.
+- The runner retried no lost acknowledgement. Query, Stop and disarm are now
+  retried up to three times; Start and arming never resend. A Start failure
+  whose cleanup Stop also fails reports both, with the Start error as cause.
+- Shared `setup()` loaded presets after an unchecked track selection. Firmware
+  ignores selection of a track not in use, so the preset would load into the
+  still-selected track. Setup now refuses. The constructed playback fixture
+  already had four tracks in use only incidentally; it now sets and validates
+  `parts == NTRK`, and its emitted FBKK bytes are unchanged (four cases compared
+  byte-for-byte with the parent builder).
+
+`tools/audio_cpu_device.py --sequence-clock usb|internal` applies only to the
+constructed recording **playback** fixture; USB remains default. Internal mode
+writes CLK INT inside the existing guarded RuntimeSession, queues native Start,
+waits for running/no-pending state, samples running/disarmed INT-clock state
+after every statistics poll and stops through native Stop. No bank chain, MIDI
+clock or fixed-benchmark bypass is used. Restoration is unchanged; editor 67's
+existing flash-stop path also stops a transport left running by a failed Stop.
+
+Host evidence:
+
+- `audio_cpu_lab_test` through the real editor wire and native sequencer/MIDI
+  dispatch: malformed/unguarded/busy/hidden-track requests, pending Start
+  cancellation, count-in, mid-loop WAIT LOOP, latched/one-pass, held-note
+  sealing, free/grid quantization and exact event/runtime restoration. Three
+  absence variants (both off, profiling only, benchmark only). ASan/UBSan, legacy
+  signed shifts excluded: `build/cpu-native-lab-sanitized.log`; fixture
+  sanitizer: `build/cpu-recording-fixture-sanitized.log`.
+- 54 CPU-tool Python tests: baseline 16, normal stress 11, USB 11, sequence 16
+  (`build/cpu-native-{baseline,stress,usb,sequence}-tests.log`). New cases cover
+  lost query/Stop acknowledgements, bounded Stop retry failure, single Start
+  transmission, combined Start/cleanup failure and the setup track check.
+- Complete suite with all eleven candidate flags in host compilation and the
+  fresh candidate listing: **ALL HOST TESTS PASSED in 79 s**,
+  `build/cpu-lab11-suite.log`. Golden renders and all 1,296 concurrent
+  assignments are unchanged; normal/lab absence tests remain in the suite.
+
+Fresh prepared packages, built sequentially from `eca2ef7` plus this change.
+Final source and package hashes match all three manifests
+(`build/cpu-NAME-build.json`, `-target.log`, `-instructions.log`, `.dis`):
+
+| Name | Flags / profiling / lab | Image | Data+BSS | Arena | Package SHA256 |
+| --- | --- | ---: | ---: | ---: | --- |
+| cpu-lab11 | all eleven on / on / on | 523,488 B | 96,912 B | 148,704 B | `05ce77a1ad6d5a70cdd2fb309f7344d39fd7c729c357de513c738a4903d6565d` |
+| cpu-ref9 | all off / on / on | 521,332 B | 96,560 B | 153,056 B | `ce2e26f3c96e06612f3a0f5ba2344533ac2a055ccfcb7eb26247d8c916c40636` |
+| cpu-lab0 | all off / off / off | 518,024 B | 95,888 B | 153,056 B | `2cb8098753ee1772c5556f118f797da2d4acd952929f44cba4b97595aa97ccdb` |
+
+Packages are `build/melodee-1.4.0-NAME.fwsc`, editor identities
+`MELODEE v1.4.0-NAME`, installer identity FM-1_91040. RAM_AUDIO=0/ADMISSION=0
+throughout; contiguous minimum stays 142,336 B; register and residency checks
+and unchanged target instruction gates pass for all three listings. Command 101
+adds 752 B (candidate) or 736 B (reference) of image and 188 `ed_handle`
+instructions to lab builds; data/BSS and
+arenas equal `cpu-sid11`/`cpu-ref8`. The normal image and `ed_handle` (4,778
+instructions) equal `cpu-sid0`. The older `cpu-sid11`/`cpu-sid0`/`cpu-ref8`
+packages are historical: their firmware manifests predate this header.
+
+Device: a read-only `fm1_install.py --info --port Melodee` earlier in this
+continuation returned **FM-1_900 [running]**, unlike the historical FM-1_91040
+snapshot; the installed editor/package identity is unconfirmed. No flash,
+hardware workload, diagnostic reset, guard change, runtime/preferences transfer,
+USB-layout edit, push or publication occurred. No saved-state preservation was
+measured. Internal-clock playback has **not run on hardware**; it is constructed
+playback, not live recording acceptance. Live capture/overdub, TRS clock,
+profiling-overhead/calibration, electrical scanning, physical controls/audio,
+normal ten-minute stress, target before/after comparisons and additional-voice
+qualification remain open. Candidate defaults and voice allowances are unchanged.

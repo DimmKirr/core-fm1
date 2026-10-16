@@ -212,6 +212,21 @@ class CpuBaselineTest(unittest.TestCase):
         self.assertEqual(cpu.configure_workload(d, [0, 5, 2, 4], 0, notes),
                          [(0, 60), (1, 49), (3, 49)])
 
+    def test_setup_refuses_track_not_in_use_before_loading_presets(self):
+        # Firmware ignores selection of a track beyond song.ntrk; the preset
+        # would otherwise load into the still-selected track.
+        sent = []
+        def request(cmd, args=()):
+            sent.append((cmd, tuple(args)))
+            if cmd == 27:
+                return [0, 4]+[0]*28
+            raise AssertionError(f'unexpected command {cmd}')
+        d = SimpleNamespace(request=request, silence=lambda: None, params=lambda *args: None,
+                            performance_categories=[3, None, None, None])
+        with self.assertRaisesRegex(RuntimeError, 'Track 2 is not in use'):
+            legacy.setup(d, [3, 0, 1, 2], [1]*4, 0)
+        self.assertEqual(sent, [(27, (1,))])
+
 
 if __name__ == '__main__':
     unittest.main()

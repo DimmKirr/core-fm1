@@ -110,7 +110,10 @@ def setup(d,categories,voices,variant):
                 if d.request(69,[0,p,*pk])!=[0,p,0]:raise RuntimeError('FM6 algorithm rejected')
             elif c==3:d.params(p,dict(P_E0=variant&1,P_E2=(1,5,6)[variant%3]))
             continue
-        d.request(27,[p]);r=d.request(8,[ENGINES[c],PRESETS[c]])
+        # Track selection ignores tracks not in use; never load into another track.
+        r=d.request(27,[p])
+        if not r or r[0]!=p:raise RuntimeError(f'Track {p+1} is not in use; screening needs all four tracks')
+        r=d.request(8,[ENGINES[c],PRESETS[c]])
         if r[:2]!=[ENGINES[c],PRESETS[c]]:raise RuntimeError(f'Preset rejected: {p}/{c}')
         common=dict(P_VOICE=0,P_LEVEL=getattr(d,'performance_track_level',35),P_ALLOC=0,P_MUTE=0,P_GLIDE=0,P_AMODE=0,P_QUANT=0,P_CHRD=0,P_TRANS=0,P_SPRD=0,
                     P_LD_PIT=0,P_LD_FLT=0,P_LD_SHP=0,P_LD_AMP=0,P_M1AMT=0,P_M2AMT=0,P_M3AMT=0,P_M4AMT=0,

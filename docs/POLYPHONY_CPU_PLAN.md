@@ -40,6 +40,7 @@ and prepared/installed distinctions are maintained in the progress log:
 - `6516ee6`: exact CZ native window-4 kernel, exhaustive phase-function and full-renderer state/PCM parity including ring/noise and partial blocks; default off, not installed.
 - `8e5ce97`: exact 808 zero-transpose and 909 unity-pitch metal preparation candidates, independent numerical and full-state/render comparisons; default off, not installed.
 - Exact SID filter-output specialization avoids unused high-pass arithmetic with full state/PCM parity and host/target checks; default off, not installed.
+- Guarded lab-only native transport/REC control and internal-clock constructed playback; review fixed a nested interrupt-mask defect and track-in-use checks; fresh packages prepared, not installed.
 
 The full host suites passed in 79 s for the baseline infrastructure, 83 s
 with the original cache and 81 s with the revised cache. Validation includes
@@ -98,7 +99,11 @@ capture with final host-driver evidence. Constructed 64/256/1,024-event playback
 fixtures and measured host-paced USB clock are host-tested; device execution
 is unrun. Live capture/overdub, internal/TRS-clock fixtures and controlled
 physical input remain open. Actual stem capture is unrun.
-The uncached `1.4.0-cpu-stage0` package is prepared but has not been installed.
+Guarded native transport/REC control (lab-only editor 101) and an
+internal-clock option for constructed playback are host-tested, with fresh
+`cpu-lab11`/`cpu-ref9`/`cpu-lab0` prepared packages; internal-clock playback is
+unrun on hardware and is not live recording acceptance.
+The uncached `1.4.0-cpu-stage0` package is a historical prepared artifact.
 
 Use the same clock, audio configuration, patches, input traffic and voice
 counts for each before/after comparison. Keep 128-frame halves, 32-sample

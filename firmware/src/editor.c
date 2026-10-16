@@ -285,6 +285,7 @@ static int ed_flash_stop(void)
 #include "editor_native.c"
 #include "editor_library.c"
 #include "editor_prophet.c"
+#include "editor_cpu_lab.h"
 
 static void ed_motion_reply(uint32_t k, uint32_t rc)
 {
@@ -350,6 +351,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_library_handle(cmd,a,na)) { ed_send(); return; }
     if (ed_native_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
+#if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
+    case 101:
+        ed_cpu_reply(a, na);
+        break;
+#endif
     case 100: {
 #ifdef FM1_IRQ_TARGET
         if(na){ed_b(1);break;}
