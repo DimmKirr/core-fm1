@@ -1425,3 +1425,53 @@ stem/USB qualification result. Recording/external-clock workload fixtures,
 physical controls, target baseline comparisons and normal ten-minute stress
 still remain. No installation, workload, counter reset, USB layout edit,
 publication or production-default/budget change occurred in this work.
+
+## Stage 2: rejected routing-rebuild revisions
+
+Parent `6f92a22`. Investigated two bounded, exact alternatives to the current
+256-B routing cache. Neither is retained in firmware. `firmware/src/mod.c`
+is byte-identical to the parent after this evaluation.
+
+- Clear only the five used counts/flags, leaving unused route slots intact.
+  The layout builder overwrites all consumed keys/ranges/slots, so full prepared
+  state and parameter behavior match. Host savings are only about one
+  instruction per rebuild; steady rows are unchanged. This does not materially
+  reduce the existing churn penalty and is insufficient reason to retain stale
+  unused fields in the firmware cache.
+- On a layout miss, remember its key and use the original uncached preparation;
+  build the cache only after the next identical key. This also preserves full
+  behavior without extra RAM, but key bookkeeping plus the original path cost
+  more than rebuilding immediately, and the extra pending-state test also hurts
+  stable hits. Reject it rather than weakening the cost gates.
+
+`tests/mod_churn_bench.c` preserves both probes and an independent current
+cache comparator. The retained cache still occupies 256 B; poisoned initial
+cache contents, all legal/invalid source/destination paths, amounts crossing
+zero, engine changes, duplicate destinations, DEPTH order and detached-track
+fallback all compare against original full modulation-state/parameter behavior.
+All three variants pass that matrix and ASan/UBSan (legacy signed shifts
+excluded). Logs `build/cpu-mod-churn-bench.log`,
+`build/cpu-mod-churn-sanitized.log`; the benchmark is in the host suite.
+
+Host instructions/block with matching indirect calls (routing only):
+
+| Routing / changing input | Uncached | Retained cache | Partial-reset probe | Deferred probe |
+| --- | ---: | ---: | ---: | ---: |
+| Four engine terms / static | 572.4 | 397.0 | 397.0 | 412.1 |
+| Four engine terms / destinations | 553.3 | 644.2 | 643.0 | 679.1 |
+| Four engine terms / zero membership | 521.3 | 613.8 | 612.5 | 650.7 |
+| Four engine terms / engine | 579.2 | 633.0 | 632.1 | 691.2 |
+| Four voice terms / static | 353.1 | 345.2 | 345.1 | 361.0 |
+| Four voice terms / destinations | 359.5 | 467.6 | 466.5 | 485.7 |
+| Four voice terms / zero membership | 330.0 | 435.6 | 434.5 | 459.6 |
+
+Separate pre-integration measurements are retained in
+`build/cpu-mod-churn-before.log`, `-partial.log`, `-deferred.log`. Absolute
+counts differ slightly with call/layout choices; comparisons within a row are
+matched. No host ratio establishes device savings. The present cache's
+structural-churn penalty remains about 9..32%, so Stage 2's no-material-churn-
+penalty exit criterion is explicitly unsatisfied. Further fused preparation
+would need independent proof and device ranking before adding complexity.
+No new cache state, firmware flag, target build, hardware workload or production
+change resulted from these rejected probes. Current package/source manifests
+remain valid.
