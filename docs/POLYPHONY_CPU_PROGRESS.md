@@ -847,3 +847,100 @@ package is deliberately rejected. This observer supplies the long normal
 measurement window, not recording/stem/clock fixtures or physical/listening
 acceptance. Those workload cases and actual stress execution remain pending;
 no extra voice allowance or production default is certified.
+
+## Stage 6: exact Prophet zero-wheel preparation
+
+Parent `2a6f18a`. Existing job ranking remains the starting evidence: the
+103-configuration host report's body rows range about 16,106..20,552
+instructions/job for Prophet, 6,655..10,501 for FM6, 9,705..12,280 for CZ,
+11,957..14,177 for SID and 7,911..14,005 across 808/909 circuits. Each includes
+substantial instruction-query overhead (about 5,714); neither ratios nor
+host ranking establish the target's limiting patch or scheduler weights.
+Target engine/circuit ranking and additional-voice costs are still required.
+
+`MELODEE_PROPHET_FAST=1` (default zero) specializes track-wide wheel
+preparation when its effective amount is exactly zero. It preserves every
+waveform/noise calculation, signed zero in the wheel signal, the noise RNG
+sequence, phase and final LFO value. Both signed zeros yield exactly 1.0 in
+the existing pitch-ratio table expression, so that stateless expression is
+replaced with unity in this case. The selection occurs once per block;
+nonzero held/moving input uses the original separately compiled kernel.
+No voice state, worker inputs/publication/result order, smoothing, envelopes,
+patch formats, tuning or sample-render arithmetic changed. No added RAM.
+
+The first sample-by-sample zero branch was exact but increased the held
+nonzero host row from 65.34 to 69.36 instructions/sample (~6.2%). It was
+rejected. The retained split kernel passes the isolated >=15% zero benefit
+and <=4% other-row cost gates, with matching volatile indirect calls:
+
+| Wheel amount pattern | Reference | Candidate |
+| --- | ---: | ---: |
+| Zero | 65.42 | 43.57 |
+| Held full | 65.57 | 65.80 |
+| Continuously changing 0..127 | 65.48 | 65.75 |
+| Alternating zero/full | 65.58 | 54.83 |
+
+These are host instructions per wheel sample, not target microseconds or
+sample-job/whole-buffer savings. Log `build/cpu-prophet-fast-bench.log`.
+`tests/prophet_fast_test.c` retains the original Melodee-authored kernel as
+an independent comparator (source history `1fbeccdc`, `fa64ef07`, `25a2bef6`).
+All 393,216 combinations of eight waveform selections, every rate/mix byte,
+zero/min/max amounts plus phase boundaries compare the entire part state
+bit-for-bit, including signed zero, wheel arrays and exact RNG advancement.
+The same matrix and ASan/UBSan pass at optional 2x oversampling
+(`build/cpu-prophet-fast-os2-sanitized.log`); full-suite costs are
+64.21->42.28 zero, 64.28->64.39 held full, 64.24->64.36 moving, 64.58->53.46
+alternating. ASan/UBSan passes (`build/cpu-prophet-fast-sanitized.log`).
+
+Full combined six-candidate suite: `ALL HOST TESTS PASSED in 78 s`,
+`build/cpu-prophet-fast-suite.log`, unchanged sound goldens and all 1,296
+ordered concurrent engine assignments. This includes the new long-stress tool
+host tests and complete recording/index and FX routing comparators. Target
+instruction gates pass with unchanged budgets and the original kernel symbol.
+Target/register/residency checks pass: 96,912-B data/BSS, 148,736-B audio arena
+(32 B POOL code beyond the preceding index build), unchanged 142,336-B floor.
+The new kernel uses 448 B of low DSP SRAM code; 1,144 B remains there.
+Prepared, **not installed**: `build/melodee-1.4.0-cpu-prophet-fast.fwsc`, manifest
+`build/cpu-prophet-fast-build.json`, log `build/cpu-prophet-fast-target.log`.
+All six candidates plus profiling/lab support on; RAM_AUDIO=0, ADMISSION=0.
+
+This is the first Stage-6 candidate, in shared Prophet preparation rather
+than its per-voice filter. Broader exact FM6/CZ/SID/808/909 path evaluation,
+target patch ranking and comparisons remain open. Existing FM6 quiet-state,
+phase advancement, envelope/portamento preparation and filter coefficient
+caches must not be bypassed merely because output/operator gain is zero.
+No hardware installation or production default change occurred.
+
+Verified package SHA256, `cpu-prophet-fast`: `85cd3518c0f4a2df866288c32f876651e552f44fde2609f3897aa51bb3165542`.
+
+Verified package SHA256, `cpu-prophet-default`: `a6db05e36ad60d84aeaeb3c6fb6e6679361a3b61f9150effe6141159107c4154`.
+
+Verified package SHA256, `cpu-reference-v3`: `7d337a70afaa7b6a1a5fec6917173222ffec67e7afec8549d3353af2867caace`.
+
+Normal package `build/melodee-1.4.0-cpu-prophet-default.fwsc` (manifest
+`build/cpu-prophet-default-build.json`, log `build/cpu-prophet-default-target.log`)
+passes: 95,888-B data/BSS, 153,056-B arena. All six candidates/profiling/lab
+support off. Current all-candidates-off profiling reference:
+`build/melodee-1.4.0-cpu-reference-v3.fwsc`, manifest
+`build/cpu-reference-v3-build.json`, log `build/cpu-reference-v3-target.log`:
+96,560-B data/BSS, 153,056-B arena. It has the same 32-span instrumentation
+and drum accounting, RAM_AUDIO=0 and ADMISSION=0. The index-enabled candidate
+intentionally uses 4,096 B more POOL RAM, as accounted above; these packages
+must not be described as identical memory layouts. Both retain the unchanged
+142,336-B floor. All current firmware source hashes and all three packages
+match their manifests. Earlier filenames/evidence remain preserved.
+
+Final read-only inspection: installed `MELODEE v1.4.0-cpu-mod`, FM-1_91040,
+port Melodee, 360 MHz, 128-frame halves, budget 32, guard inactive. Runtime
+length 27,904 B, CRC 61439115. No hardware workloads, firmware installations,
+pushes or physical sound/control tests occurred in this continuation. The
+new packages and accounting/index/Chorus/Prophet candidates are not installed.
+
+Next independent software work: finish measured exact engine-path evaluation,
+consider remaining control-routing churn and panel LED precomputation without
+changing GPIO edge/latch/blanking timing, inspect any additional compatible
+buffer passes. Broader recording/stem/external-clock stress fixture coverage
+can extend the tools; the new ten-minute observer does not supply those
+fixtures. Electrical panel acceptance, target class calibration and actual
+reference/candidate runs remain external dependencies. Keep production flags
+and allowances unchanged until their explicit acceptance evidence exists.

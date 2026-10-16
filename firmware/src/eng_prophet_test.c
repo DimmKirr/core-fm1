@@ -175,6 +175,9 @@ static inline __attribute__((always_inline)) float p5_pitch_ratio(float x)
     fm_bits_t scale;scale.u=(uint32_t)(octave+127)<<23;
     return ratio*scale.f;
 }
+#ifndef MELODEE_PROPHET_FAST
+#define MELODEE_PROPHET_FAST 0
+#endif
 /* Rev-4 full-amount triangle swings +-235 cents. Shared by every voice. */
 static __attribute__((section(".dsp_text"))) void p5_mod_samples(p5_part_t *s,const uint8_t *p,uint32_t inc,float amount,float mix)
 {
@@ -188,6 +191,29 @@ static __attribute__((section(".dsp_text"))) void p5_mod_samples(p5_part_t *s,co
     }
     s->lfo=phase;s->lfo_value=(int32_t)(p5_lfo_wave(phase,p)*32768.0f);
 }
+#if MELODEE_PROPHET_FAST
+/* A zero amount gives an exact unity ratio for either signed zero, but the
+ * waveform arithmetic's sign, LFO and noise clocks remain observable state.
+ * Select once per block so moving/held nonzero wheel input uses the original
+ * sample kernel without a new branch in each sample. */
+static __attribute__((noinline,section(".dsp_text"))) void p5_mod_zero(p5_part_t *s,const uint8_t *p,uint32_t inc,float amount,float mix)
+{
+    uint32_t phase=s->lfo;if(!s->mod_noise)s->mod_noise=0x517953;
+    for(uint32_t i=0;i<CTL*P5_OVERSAMPLE;i++){
+        float noise=(float)(int32_t)(noise32(&s->mod_noise)>>8)*(1.0f/16777216.0f)-0.5f;
+        s->wheel[i]=(p5_lfo_wave(phase,p)*(1.0f-mix)+noise*mix)*amount;
+        s->wheel_pitch[i]=1.0f;phase+=inc;
+    }
+    s->lfo=phase;s->lfo_value=(int32_t)(p5_lfo_wave(phase,p)*32768.0f);
+}
+static __attribute__((noinline,section(".audio_text"))) void p5_mod_samples_run(p5_part_t *s,const uint8_t *p,uint32_t inc,float amount,float mix)
+{
+    void (*volatile run)(p5_part_t *,const uint8_t *,uint32_t,float,float)=amount==0.0f?p5_mod_zero:p5_mod_samples;
+    run(s,p,inc,amount,mix);
+}
+#else
+#define p5_mod_samples_run p5_mod_samples
+#endif
 static __attribute__((noinline)) void p5_cache_update(track_t *t,p5_part_t *s,const uint8_t *p)
 {
     if(s->base_valid && !memcmp(s->input_key,p,55u) && !memcmp(s->base_e,t->p+P_E0,sizeof s->base_e))return;
@@ -231,7 +257,7 @@ static void p5_block(track_t *t)
         s->lfo_value=(int32_t)(p5_lfo_wave(s->lfo,p)*32768.0f);return;
     }
     float amount=P5_AMOUNT[clamp(p5_value(p,P5_LFO_INITIAL)+t->mw+(p[P5_PRESS_LFO]?t->at:0),0,127)];
-    void (*volatile run)(p5_part_t *,const uint8_t *,uint32_t,float,float)=p5_mod_samples;
+    void (*volatile run)(p5_part_t *,const uint8_t *,uint32_t,float,float)=p5_mod_samples_run;
     run(s,p,inc,amount,(float)p5_value(p,P5_WHEEL_MIX)*(1.0f/127.0f));
 }
 static uint32_t p5_cap(const track_t *t)

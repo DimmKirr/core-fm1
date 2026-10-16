@@ -389,6 +389,8 @@ if sound && [ $TABLES = 1 ]; then
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/mod_test" build/mod_demo
     t "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, stereo sides and routing" mod_spread_test -O2 $FW
     t "modulation routing cache: independent reference parity and comparison cost" mod_route_test -O2 $FW
+    t "Prophet zero-wheel: exact shared state and static/changing cost" prophet_fast_test -O2 $FW
+    t "Prophet zero-wheel at 2x: exact shared state and static/changing cost" prophet_fast_os2:prophet_fast_test -O2 -DP5_OVERSAMPLE=2 $FW
     t "centered bend fast path: full raw/range oracle and control cost" control_prepare_test -O2 $FW
     job fx_dormancy
     t "mono mixer fast path: output/send/peak/stem reference parity and cost" mix_fast_test -O2 $FW
