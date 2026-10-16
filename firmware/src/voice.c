@@ -693,8 +693,16 @@ static __attribute__((noinline)) void spread_sum(int32_t *out)
 /* render one block of a part into out (cleared here); returns the voices rendered */
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
 static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
+#ifndef MELODEE_CONTROL_FAST
+#define MELODEE_CONTROL_FAST 0
+#endif
 static __attribute__((noinline)) void p5_update_bend(track_t *t)
 {
+#if MELODEE_CONTROL_FAST
+    /* A centered wheel has an exact zero target at every native bend range.
+     * Smoothing still advances above p5_block, including on silent tracks. */
+    if(!t->bend_raw){midi_bend_target[(uint32_t)(t-trk)]=0;return;}
+#endif
     uint32_t ti=(uint32_t)(t-trk);int32_t range=(clamp(p5_patch_of(t)->raw[P5_BEND],0,11)+1)*256;
     midi_bend_target[ti]=t->bend_raw*range/(t->bend_raw<0?8192:8191);
 }

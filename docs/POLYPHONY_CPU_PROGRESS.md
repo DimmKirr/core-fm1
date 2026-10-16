@@ -357,6 +357,62 @@ Baseline/candidate interleaving, profiling overhead, pitch/control preparation,
 electrical panel acceptance and Stages 3–7 remain open. The installed original
 cache and prepared revision must not be conflated when comparing measurements.
 
+## Stage 2 continuation: exact control preparation
+
+Parent `704ad35`. The general per-voice increment cache was evaluated and
+rejected, with an isolated reproducible experiment retained in
+`tests/pitch_prepare_bench.c`. It keys effective clamped pitch, the complete
+fine residual and device A4. Full arithmetic comparison covers all 2,048
+pitches, 400–480 Hz and residuals -96..96 in steps of 16, both misses and hits.
+With matching noinline wrappers under `cc -O2`, host instructions per lookup:
+
+| A4 | Changes | Reference | Cache |
+| --- | --- | ---: | ---: |
+| 432 | None | 42 | 28 |
+| 432 | Pitch or fine every lookup | 42 | 55 |
+| 440 | None | 34 | 28 |
+| 440 | Pitch or fine every lookup | 34 | 47 |
+
+The proposed 768-B cache is absent from firmware. Its 31–38% continuous-motion
+penalty and small default-reference hit gain fail the plan's churn criterion.
+An earlier inlined prototype gave different absolute costs but the same
+rejection. These are host instructions, not device timing.
+
+`MELODEE_CONTROL_FAST=1` instead specializes centered Prophet bend: it writes
+an exact zero target without loading/clamping a native range or dividing.
+It defaults to zero, has no persistent fields or additional RAM, and leaves
+smoothing, silent-track clocks and nonzero arithmetic at their existing rate.
+The independent oracle covers every 14-bit bend value and native range byte
+0–127 on every track. Isolated matching-wrapper host counts are 36→21 for
+centered bend, 36→37 for held/moving nonzero bend (2.8% isolated penalty).
+No complete-buffer saving is inferred. General pitch preparation remains the
+reference arithmetic; existing TUNE and engine caches remain in place.
+
+Full combined routing/control host suite: `ALL HOST TESTS PASSED in 81 s`,
+`build/cpu-control-suite.log`, unchanged goldens and all 1,296 concurrent
+assignments. ASan/UBSan oracle passed with `--parity-only`,
+`build/cpu-control-sanitized.log`. Lab target and target instruction gates
+passed: 96,768-B data/BSS, unchanged 153,056-B arena and 142,336-B floor.
+Logs: `build/cpu-control-bench.log`, `build/cpu-pitch-rejected.log`,
+`build/cpu-control-target.log`. This small fast path is an experimental
+candidate awaiting device comparison, not production acceptance.
+
+Prepared, **not installed**:
+
+```sh
+MELODEE_CONTROL_FAST=1 MELODEE_MOD_CACHE=1 MELODEE_RAM_AUDIO=0 \
+MELODEE_ADMISSION=0 MELODEE_AUDIO_PROFILE=1 MELODEE_AUDIO_BENCH=1 \
+PYTHON="$PWD/build/venv/bin/python" ./build.sh --release 1.4.0-cpu-control \
+  --cpu-manifest build/cpu-control-build.json
+cc -O2 -ffp-contract=off -w -Ibuild/gen -Ifirmware/src \
+  tests/pitch_prepare_bench.c -o build/host/pitch_prepare_bench -lm
+build/host/pitch_prepare_bench
+```
+
+Read-only inspection reconfirmed installed `MELODEE v1.4.0-cpu-mod`,
+FM-1_91040, 360 MHz, 128-frame halves, budget 32, guard inactive and runtime
+CRC 61439115. No installation occurred.
+
 ## Acceptance status
 
 No measured device CPU saving or extra voice allowance is claimed. No engine,

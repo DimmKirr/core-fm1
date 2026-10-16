@@ -54,7 +54,7 @@ are recorded in [POLYPHONY_CPU_PROGRESS.md](POLYPHONY_CPU_PROGRESS.md).
 | --- | --- | --- | --- |
 | 0 | Current device baseline | Candidate-only screens and ranked spans started; comparison pending | Baseline/candidate runs, profiling-cost measurement and broader workloads |
 | 1 | Panel scanning | Panel costs measured in screening; SPI2 routing appears feasible; no scan change | Electrical timing acceptance, then a bounded prototype |
-| 2 | Control preparation | Source-change revision host-tested; original cache installed; default off | Device comparisons of revision; structural churn and pitch/control work |
+| 2 | Control preparation | Routing revision and centered-bend fast path host-tested; default off; general pitch cache rejected | Device comparisons; remaining control preparation and structural churn |
 | 3 | Core scheduling | Not started | Measured job classes and assignment comparison |
 | 4 | FX and mixing | Not started | Ranked buffer-pass and effect-state costs |
 | 5 | Sequencer indexing | Not started beyond the preceding onset/release queues | Ownership-scan measurements and compact index candidate |

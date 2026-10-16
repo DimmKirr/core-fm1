@@ -377,6 +377,7 @@ if sound && [ $TABLES = 1 ]; then
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/mod_test" build/mod_demo
     t "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, stereo sides and routing" mod_spread_test -O2 $FW
     t "modulation routing cache: independent reference parity and comparison cost" mod_route_test -O2 $FW
+    t "centered bend fast path: full raw/range oracle and control cost" control_prepare_test -O2 $FW
     t "CZ: oscillator boundaries, native rate/target envelopes and independent lines" phase_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW
     t "SID: oscillator/LFSR/register semantics, revisions and 32 factory presets" sid_test -O2 $FW
