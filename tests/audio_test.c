@@ -30,6 +30,7 @@ static void check(const char *what, int ok)
 }
 static void fresh(void)
 {
+    settings_safety = 1;  /* overload tests explicitly enable the optional guard */
     uint32_t p;
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);

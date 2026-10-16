@@ -46,7 +46,7 @@ static int16_t settings_budget = VOICE_BUDGET_DEFAULT;
  * built-in rule) and SAFETY (0: overload never cuts voices, audio.c). Device settings (settings_persist.c). */
 #define VOICE_KINDS 5u
 static int16_t settings_vpoints[VOICE_KINDS];
-static int16_t settings_safety = 1;
+static int16_t settings_safety;
 /* Device recording preferences: defaults preserve existing behavior. */
 #include "recording_preferences.h"
 static int16_t boot_cell;
@@ -767,7 +767,7 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     }
     if (pg->scope == SC_GLOBAL && id >= G_WP5 && id <= G_SAFETY) {   /* GLO > WEIGHTS: the device's settings */
         static const param_desc_t weights[] = {PE("P5", N_VPOINTS, 0), PE("CZ-1", N_VPOINTS, 0), PE("FM6", N_VPOINTS, 0),
-            PE("SID", N_VPOINTS, 0), PE("DRUM", N_VPOINTS, 0), PE("GUARD", N_ONOFF, 1)};
+            PE("SID", N_VPOINTS, 0), PE("DRUM", N_VPOINTS, 0), PE("GUARD", N_ONOFF, 0)};
         *valp = id == G_SAFETY ? &settings_safety : &settings_vpoints[id - G_WP5];
         return &weights[id - G_WP5];
     }

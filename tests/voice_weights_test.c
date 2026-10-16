@@ -18,7 +18,7 @@ static uint32_t sounding(const track_t *t)
     for (uint32_t i = 0; i < NVOICE; i++) n += t->v[i].active && t->v[i].stage != 4u;
     return n;
 }
-static void defaults(void) { memset(settings_vpoints, 0, sizeof settings_vpoints); settings_safety = 1; }
+static void defaults(void) { memset(settings_vpoints, 0, sizeof settings_vpoints); settings_safety = 0; }
 static const char *value(const char *title, uint32_t slot, int16_t **vp, const char **label)
 {
     static char v[8];
@@ -76,6 +76,13 @@ int main(void)
     for (uint32_t i = 0; i < 32u; i++) if (i < 8u || i >= 16u) ok &= p.favorites.factory[8][i] == (uint8_t)(0xA0u + i);
     bad += check("defaults store zeros in row 8 bytes 8..15 and keep its stars and FX key map", ok);
 
+    settings_safety = 1;
+    settings_export(&p);
+    defaults();
+    ok = w[0] == 'W' && w[1] == 1u && w[7] == 0u &&
+         settings_import(&p, sizeof p) && settings_safety == 1;
+    bad += check("explicit SAFETY ON survives export/import even with AUTO weights", ok);
+
     static const int16_t custom[VOICE_KINDS] = {3, 0, 1, 15, 2};
     memcpy(settings_vpoints, custom, sizeof custom); settings_safety = 0;
     settings_export(&p);
@@ -87,7 +94,7 @@ int main(void)
 
     persist_t q = p;
     q.favorites.factory[8][8] = 'X';                           /* an untagged older record */
-    ok = settings_import(&q, (int)sizeof q) && settings_safety == 1;
+    ok = settings_import(&q, (int)sizeof q) && settings_safety == 0;
     for (uint32_t k = 0; k < VOICE_KINDS; k++) ok &= !settings_vpoints[k];
     q = p; q.favorites.factory[8][10] = 16;                    /* out of range: AUTO */
     ok &= settings_import(&q, (int)sizeof q) && !settings_vpoints[0] && settings_vpoints[3] == 15 && !settings_safety;
@@ -106,7 +113,9 @@ int main(void)
     value("WEIGHTS 2", 1, &vp, &label);
     ok &= str_eq(label, "BUDGET") && vp == &settings_budget;
     ok &= !page_desc(cur_page(), 2, &vp);
-    ok &= str_eq(value("WEIGHTS 2", 3, &vp, &label), "ON") && str_eq(label, "GUARD") && vp == &settings_safety;
+    ok &= str_eq(value("WEIGHTS 2", 3, &vp, &label), "OFF") && str_eq(label, "GUARD") && vp == &settings_safety;
+    turn(EN_K4, 1);
+    ok &= settings_safety == 1 && str_eq(value("WEIGHTS 2", 3, &vp, &label), "ON");
     turn(EN_K4, -1);
     ok &= settings_safety == 0 && str_eq(value("WEIGHTS 2", 3, &vp, &label), "OFF");
     for (uint32_t id = G_WP5; id <= G_SAFETY; id++) ok &= !song.g[id] && global_reserved(id);
