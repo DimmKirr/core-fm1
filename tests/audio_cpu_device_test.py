@@ -108,6 +108,10 @@ class CpuBaselineTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             cpu.write_ram(Device(), 2, b'project')
 
+    def test_lost_guard_never_sends_preferences_to_persistence(self):
+        with self.assertRaisesRegex(RuntimeError, 'Persistence guard lost'):
+            cpu.write_ram(Device(), 1, bytes(cpu.PREFERENCE_BYTES))
+
     def test_histogram_upper_edges_and_overflow(self):
         bins = [0]*64; bins[1] = 98; bins[63] = 2
         class Histogram:

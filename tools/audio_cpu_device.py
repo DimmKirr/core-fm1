@@ -14,6 +14,7 @@ import contextlib
 import hashlib
 import json
 import math
+import sys
 import time
 import zlib
 from pathlib import Path
@@ -61,6 +62,8 @@ def read_object(d, entry):
 def write_ram(d, ident, raw):
     if ident not in (0, 1) or (ident == 1 and len(raw) != PREFERENCE_BYTES):
         raise ValueError('Only runtime and guarded RAM preferences may be sent')
+    if not guard(d):
+        raise RuntimeError('Persistence guard lost; refusing any restore transaction')
     # Restart a whole idempotent RAM transaction on a lost acknowledgement.
     for attempt in range(3):
         try:
@@ -81,6 +84,7 @@ class RuntimeSession:
     """No snapshot bytes are written to disk, including on an exception."""
     def __init__(self, d):
         self.d = d
+        self.captured = False
         self.result = dict(verified=False)
 
     def __enter__(self):
@@ -96,6 +100,7 @@ class RuntimeSession:
             self.preferences = read_object(d, self.entries[1])
             if len(self.preferences) < PREFERENCE_BYTES:
                 raise RuntimeError('Unsupported live preference layout')
+            self.captured = True
         except BaseException:
             # Setup has not edited runtime. It is safe to release this guard.
             guard(d, False)
@@ -118,6 +123,25 @@ class RuntimeSession:
         guard(d, False)
         self.result = dict(verified=True, runtime_crc=self.entries[0][2],
                            committed_objects=len(self.committed), snapshot_on_disk=False)
+
+
+def recover(session, port):
+    """Retain the only original snapshot while the operator repairs transport.
+
+    A terminal is required before any fixture starts. Exiting after a failed
+    restore would discard the original music held only in this process.
+    """
+    while not session.result['verified']:
+        print('Restoration failed. Original runtime remains in this process; persistence stays guarded.', flush=True)
+        answer = input('Reconnect the same device, then press Enter to retry. Type ABANDON to discard the in-memory original: ')
+        if answer == 'ABANDON':
+            raise RuntimeError('Operator explicitly abandoned in-memory restoration; device guard retained')
+        try:
+            session.d.close()
+            session.d = ReliableDevice(port)
+            session.__exit__(None, None, None)
+        except Exception as error:
+            print(f'Restoration still needs recovery: {error}', flush=True)
 
 
 def histogram(d, timer5_ticks):
@@ -173,12 +197,16 @@ def main():
         p.error('voices: four counts 0..16, at least one sounding voice')
     if a.seconds <= 0 or a.repeat < 1 or not 8 <= a.budget <= 32:
         p.error('seconds/repeat positive; budget 8..32')
+    if a.seconds > 120:
+        p.error('Profiling windows are limited to 120 seconds to avoid 32-bit span-total wrap')
     manifest = json.loads(a.build_manifest.read_text())
     package = Path(manifest['package'])
     if hashlib.sha256(package.read_bytes()).hexdigest() != manifest['package_sha256']:
         p.error('Package no longer matches build manifest')
     if a.output.exists():
         p.error('Output exists; preserve earlier evidence')
+    if not sys.stdin.isatty():
+        p.error('Run in an interactive terminal so a failed restoration can retain its in-memory snapshot for recovery')
     a.output.mkdir(parents=True)
     d = ReliableDevice(a.port)
     session = RuntimeSession(d)
@@ -229,8 +257,12 @@ def main():
                     f.write(json.dumps(row)+'\n');f.flush()
                     print(json.dumps({key:row[key] for key in ('repeat', 'passed', 'voices_min', 'peak_complete_upper_us')}), flush=True)
     finally:
-        (a.output/'restoration.json').write_text(json.dumps(session.result, indent=2)+'\n')
-        d.close()
+        try:
+            if session.captured and not session.result['verified']:
+                recover(session, a.port)
+        finally:
+            (a.output/'restoration.json').write_text(json.dumps(session.result, indent=2)+'\n')
+            session.d.close()
 
 
 if __name__ == '__main__':

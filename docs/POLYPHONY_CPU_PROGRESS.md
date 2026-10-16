@@ -34,9 +34,13 @@ preference restoration imports RAM only. Committed storage headers (length,
 CRC, generation and existence) are read before/after, independently of live
 preference exports. Runtime and preference inventory CRCs must also match.
 Restoration failure leaves persistence guarded; host disconnect cannot expire
-the guard and save a temporary fixture. Do not reboot or close a failed test
-session without resolving restoration: its original snapshot exists only in
-that host process. Hard process loss cannot recover that in-memory snapshot.
+the guard and save a temporary fixture. The runner requires an interactive
+terminal and keeps the original snapshot alive after a failed restoration,
+offering reconnection/retry before it can exit. Every RAM transfer rechecks
+the guard; a rebooted device cannot accidentally receive a persistent settings
+restore. Explicitly typing `ABANDON` discards the host snapshot. Hard process
+loss cannot recover that in-memory snapshot. Do not reboot or kill a failed
+session without resolving restoration.
 
 Tests must start stopped, with all voices released and no momentary edit or
 legacy settings/template conversion pending. The guard rejects active music.
