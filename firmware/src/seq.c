@@ -798,7 +798,10 @@ static __attribute__((noinline)) void audition_tick(uint32_t n)
         audition_stop(); audition_owner=audition_track; audition_left=FS/6u;
         track_t *t=&trk[audition_owner % NTRK];
         drum_event_pitch=audition_pitch;drum_event_length=audition_gate;
-        for(uint32_t i=0;i<audition_count;i++) {
+        /* Only notes_preview publishes this count, with audio IRQs masked.
+         * Engine note-on callbacks cannot change it during this dispatch. */
+        uint32_t count=audition_count;
+        for(uint32_t i=0;i<count;i++) {
             uint32_t note=audition_notes[i];
             if ((live_held[trk_index(t)][note>>5] & (1u<<(note&31u))) || t->arp_note==note) continue;
             audition_played[audition_n++]=(uint8_t)note; trk_note_on(t,note,audition_vel[i]);
