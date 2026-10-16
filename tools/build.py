@@ -477,7 +477,17 @@ def main():
     mode.add_argument("--nightly", action="store_true", help="development package from the current Git commit")
     mode.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_9XY[Z], version string vX.Y[.Z]")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
+    ap.add_argument("--cpu-manifest", type=Path, help="Write source/package identity for CPU experiments")
     a = ap.parse_args()
+    cpu_flags = {}
+    cpu_sources = {}
+    if a.cpu_manifest:
+        for flag in ("MELODEE_RAM_AUDIO", "MELODEE_ADMISSION", "MELODEE_AUDIO_PROFILE", "MELODEE_AUDIO_BENCH"):
+            if os.environ.get(flag) not in ("0", "1"):
+                ap.error(f"--cpu-manifest requires an explicit {flag}=0/1")
+            cpu_flags[flag] = int(os.environ[flag])
+        cpu_sources = {str(p.relative_to(SRC)): hashlib.sha256(p.read_bytes()).hexdigest()
+                       for p in sorted(FW.rglob('*')) if p.is_file()}
     name = "melodee.fwsc"
     if os.environ.get("MELODEE_DUAL_CORE", "1") != "1":
         ap.error("Single-core firmware is retired; MELODEE_DUAL_CORE must be 1")
@@ -521,6 +531,17 @@ def main():
     print(f"app      {OUT / 'melodee.bin'}  {len(img)} B")
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
     print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}")
+    if a.cpu_manifest:
+        if any(hashlib.sha256((SRC / p).read_bytes()).hexdigest() != digest for p, digest in cpu_sources.items()):
+            raise SystemExit("Firmware source changed during CPU experiment build; rebuild before measuring")
+        cpu_flags["MELODEE_DUAL_CORE"] = 1
+        a.cpu_manifest.write_text(json.dumps(dict(package=str((OUT / name).resolve()),
+            package_sha256=hashlib.sha256(pkg).hexdigest(), editor_identity=("MELODEE " + (VERSION or "v1.4.0-rc.4"))[:24],
+            source_revision=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SRC, text=True).strip(),
+            source_status=subprocess.check_output(["git", "status", "--short"], cwd=SRC, text=True).splitlines(),
+            firmware_sha256=cpu_sources, flags=cpu_flags,
+            build_options={k:v for k,v in os.environ.items() if k.startswith(("MELODEE_", "P5_"))},
+            cflags=CFLAGS), indent=2)+'\n')
     if a.release:                   # what a release carries: the package, the app and every licence they need
         rel = OUT / f"release-{a.release}"
         shutil.rmtree(rel, ignore_errors=True)

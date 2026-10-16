@@ -56,6 +56,9 @@
 #if MELODEE_DUAL_CORE
 #include "fm1_multicore.h"
 #endif
+#include "audio_profile.h"
+#define FM1_INPUT_PROFILE_START(name) AP_START(name)
+#define FM1_INPUT_PROFILE_END(id,name) AP_END(id,name)
 #include "fm1_input.h"
 #include "fm1_timer.h"
 #include "fm1_audio.h"

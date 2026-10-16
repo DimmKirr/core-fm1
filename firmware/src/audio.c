@@ -127,6 +127,12 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
     if(fm1_audio_irq_elapsed_ticks>audio_irq_max_ticks)audio_irq_max_ticks=fm1_audio_irq_elapsed_ticks;
     melodee_dbg.in_audio = 1;                   /* first: TIMER5 nests from here on (main.c) */
     p = fm1_audio_pending();
+#if MELODEE_AUDIO_PROFILE
+    /* The wrapper publishes its duration after this C body returns. Consume
+     * the preceding half once; resets discard the pending sample. */
+    if(audio_profile_irq_pending)audio_profile_irq(fm1_audio_irq_elapsed_ticks);
+    audio_profile_irq_pending=(p&FM1_AUDIO_HALF)!=0;
+#endif
     t0 = fm1_ticks();
     t5_nested_ticks = 0;
     fm1_audio_ack_aux(p);

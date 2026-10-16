@@ -268,6 +268,8 @@ if core; then
     t "stock V15 supply startup, timeouts and read-back faults" power_test -O1
     job step "nightly and synth-only site preserve release and editor" python3 tests/nightly_site_test.py
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
+    t "audio profiling: histogram bounds and timer wrap" audio_profile_test
+    run "CPU baseline tool: bounded RAM restore and diagnostic decoding" python3 tests/audio_cpu_device_test.py
     run "target budget: natural loops and FPU decoding" python3 tests/target_budget_test.py
     t "retired synth identities, project/user patch preservation and favorites" engine_retirement_test -O2 $FW
     t "capture gating, derived caches and silent-track clocks" performance_test -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW
@@ -348,6 +350,7 @@ if core && [ $TABLES = 1 ]; then
     t "first boot: reset unsupported preset banks, preserve good entries and retry cuts" preset_boot_reset_test $FW
     t "storage safety: protect unreadable records until confirmed replacement" storage_safety_test $FW
     t "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" backup_test $FW
+    t "CPU laboratory: persistence guard and RAM-only preference restoration" backup_lab:backup_test -DMELODEE_AUDIO_PROFILE=1 $FW
     t "editor: real C protocol, malformed transfers and queue recovery" editor_test $FW
     t "DX7 librarian: USB voice/bank receive, dump replies and malformed frame recovery" fm6_sysex_test $FW
     t "SWING: track + global at most 100, sequencer step lengths, the SWG display" swing_test -O2 $FW

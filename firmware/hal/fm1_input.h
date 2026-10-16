@@ -47,6 +47,10 @@
 #include "fm1_time.h"
 #include "fm1_gpio.h"
 #include "fm1_led_pwm.h"
+#ifndef FM1_INPUT_PROFILE_START
+#define FM1_INPUT_PROFILE_START(name) ((void)0)
+#define FM1_INPUT_PROFILE_END(id,name) ((void)0)
+#endif
 
 #ifndef FM1_INPUT_IDLE
 #define FM1_INPUT_IDLE() ((void)0)
@@ -339,7 +343,10 @@ static void fm1_input_tick(void)
 {
     uint32_t p = fm1__tick_col, n = p + 1u == FM1_NCOL ? 0u : p + 1u;
     uint32_t t0 = fm1_ticks(), g = t0 - fm1_in_stat.last, b = 0;
+    FM1_INPUT_PROFILE_START(blank_start);
     fm1__led_lines(0);
+    FM1_INPUT_PROFILE_END(AP_INPUT_BLANK,blank_start);
+    FM1_INPUT_PROFILE_START(diag_start);
     fm1_in_stat.last = t0;
     while (b < FM1_GAP_BINS - 1u && g >= (150u * FM1_TICKS_PER_US << b))
         b++;
@@ -349,13 +356,25 @@ static void fm1_input_tick(void)
     fm1_in_stat.on[p] += g;
     if (g > fm1_in_stat.on_max[p])
         fm1_in_stat.on_max[p] = g;
+    FM1_INPUT_PROFILE_END(AP_INPUT_DIAGNOSTICS,diag_start);
+    FM1_INPUT_PROFILE_START(rows_start);
     fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick */
+    FM1_INPUT_PROFILE_END(AP_INPUT_ROWS,rows_start);
+    FM1_INPUT_PROFILE_START(shift_start);
     fm1__sr_word(0xFFFFu ^ (1u << n) ^ (n < 2u ? 1u << (11u + n) : 0u));
+    FM1_INPUT_PROFILE_END(AP_INPUT_SHIFT,shift_start);
+    FM1_INPUT_PROFILE_START(led_start);
     fm1__led_col(n);
+    FM1_INPUT_PROFILE_END(AP_INPUT_LED,led_start);
     fm1__tick_col = (uint8_t)n;
+    FM1_INPUT_PROFILE_START(keys_start);
     fm1__keys(p);                                  /* its keys now: no wait for the frame's end */
-    if (n == 0u)
+    FM1_INPUT_PROFILE_END(AP_INPUT_KEYS,keys_start);
+    if (n == 0u) {
+        FM1_INPUT_PROFILE_START(enc_start);
         fm1__frame();
+        FM1_INPUT_PROFILE_END(AP_INPUT_ENCODERS,enc_start);
+    }
     g = fm1_ticks() - t0;
     fm1_in_stat.cost_sum += g;
     fm1_in_stat.ticks++;
