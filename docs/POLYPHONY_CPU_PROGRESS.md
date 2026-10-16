@@ -413,6 +413,85 @@ Read-only inspection reconfirmed installed `MELODEE v1.4.0-cpu-mod`,
 FM-1_91040, 360 MHz, 128-frame halves, budget 32, guard inactive and runtime
 CRC 61439115. No installation occurred.
 
+## Stage 3: scheduling measurement infrastructure
+
+Parent `0a6efbb`. Append four profiling spans without changing the scheduler:
+`batch_prepare` (descriptor copy, assignment/publication and submission,
+excluding a preceding full-batch flush), `batch_merge` (ordered PCM addition),
+`batch_cpu0` and `batch_cpu1` (sample-kernel spans grouped by executing core).
+The kernel spans exclude scratch clearing and overlap existing engine spans.
+CPU0 reads worker elapsed values only after joining. Failed worker spans are
+not reported as successful work; no partially advanced job is replayed.
+Serial fallback is classified on CPU0. Worker callback/wait scalars remain
+available but callback time may include waiting for descriptor publication;
+none of these inclusive/concurrent totals should be added as serial time.
+
+The decoder accepts the original 21-span, panel 28-span and new 32-span layouts.
+Fifteen harness tests pass, including old layouts and single-circuit fixtures.
+A deterministic batch accounting test checks both cores, offline fallback,
+failed-worker PCM drops and stale elapsed invalidation. The profiling-enabled
+real concurrent suite passes 1,536 FM6 + 348 Prophet cases, worker retirement,
+wrap, corruption and shared-FX serial/concurrent equality; see
+`build/cpu-batch-profile-concurrent.log`. Full combined nonprofiling host suite:
+`ALL HOST TESTS PASSED in 79 s`, `build/cpu-batch-profile-suite.log`, unchanged
+sound goldens and 1,296 ordered assignments. Lab target: 96,816-B data/BSS
+(+48 B profiling spans), 153,056-B arena, unchanged 142,336-B floor. Normal
+build: unchanged 95,888-B data/BSS and arena. Both pass register/memory checks;
+full-suite target instruction gates pass.
+
+`tests/audio_job_bench.c` ranks actual queued sample kernels on the host,
+with normal control preparation between jobs. One mono voice is retriggered
+every 32 blocks; the first four blocks are labeled attack and the other 28
+body. It covers two Prophet filter revisions with Poly-Mod amount off/on,
+all 32 FM6 algorithms with one/all nonzero operator levels, four CZ line
+settings, both SID models with one/six oscillators, all sixteen 808 sounds
+and eleven 909 sounds. It measures 103 configurations, two phases each.
+The separate instruction-query overhead is substantial (minimum 5,714 host
+instructions in the recorded run), included in rows and not subtracted.
+No scheduling weight is inferred from these host costs or their ratios.
+The 909 body means span about 10,216 (clap) to 13,987 (tom) instructions,
+including that overhead; a single family estimate hides useful differences.
+Target class costs, CPU0 preemption and coordination still need measurement
+before bounded conservative classes can be calibrated.
+
+```sh
+cc -O2 -ffp-contract=off -w -Ibuild/gen -Ifirmware/src \
+  tests/audio_job_bench.c -o build/host/audio_job_bench -lm
+build/host/audio_job_bench > build/cpu-job-costs.csv 2> build/cpu-job-costs.log
+```
+
+`audio_cpu_device.py --drum-note NOTE` selects a single GM circuit on every
+active drum track, requiring exactly one requested voice there. The default
+mixed fixture remains unchanged. This permits matched per-circuit target
+profiles with the existing assignment/variant controls. Explicitly install a
+recorded package before using its manifest. Profiling overhead remains an
+open before/after measurement, and the old installed package lacks new spans.
+No assignment policy, result ordering or production weight changed.
+
+Prepared, **not installed**: `build/melodee-1.4.0-cpu-batch-profile.fwsc`,
+SHA256 `d34d02072ad91a1377f9c66e076d1ed689748ce930b0e1a32246a778db4b9e0a`,
+manifest `build/cpu-batch-profile-build.json`; flags enable routing/control
+candidates, profiling and lab support, retain RAM_AUDIO=0 and ADMISSION=0.
+Normal package: `build/melodee-1.4.0-cpu-batch-default.fwsc`, SHA256
+`e4e2616115d7d3638943d3d043e9320c4ed5ba9767873a62095ca6c69abd970c`,
+manifest `build/cpu-batch-default-build.json`; all candidates/profiling off.
+Logs: `build/cpu-batch-profile-target.log`, `build/cpu-batch-default-target.log`.
+The earlier control-only package SHA256 is
+`a81f8a7a1035731293bcb7edce8fe64c5b82bf33df1494ba54bf277bb23b7c80`.
+
+## Stage 0 continuation: full screening windows
+
+The installed **original routing cache** completed 3 x 60 s of assignment
+0123, voices 1,1,1,0, engine modulation, inactive USB, budget 16, ordinary
+shared admission and no fixed bypass. Complete upper bounds were
+1,476 / 1,502 / 1,500 us. All three strict screens passed with zero reported
+late/deadline/target failures, shedding, capacity steals, worker faults,
+resource or USB errors, and zero diagnostic retries. Evidence:
+`build/cpu-mod-installed-engine-static-60`. Restoration verified original
+runtime CRC 61439115, preferences and 31 committed objects; no snapshot on
+disk. Original budget 32 restored. These are candidate-only workload screens;
+there is still no baseline/candidate saving or increased voice claim.
+
 ## Acceptance status
 
 No measured device CPU saving or extra voice allowance is claimed. No engine,

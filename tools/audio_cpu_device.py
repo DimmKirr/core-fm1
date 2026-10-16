@@ -178,6 +178,15 @@ def configure_modulation(d, categories, variant, notes):
     return notes
 
 
+def configure_workload(d, categories, variant, notes):
+    if d.performance_modulation:
+        notes = configure_modulation(d, categories, variant, notes)
+    if d.cpu_drum_note is not None:
+        notes = [(track, d.cpu_drum_note if categories[track] >= 4 else note)
+                 for track, note in notes]
+    return notes
+
+
 def control_updates(d, categories, notes, tick):
     if d.cpu_event_bursts:
         from audio_performance_adversarial import events
@@ -231,6 +240,7 @@ def main():
     p.add_argument('--repeat', type=int, default=3)
     p.add_argument('--budget', type=int, default=16)
     p.add_argument('--variant', type=int, default=0)
+    p.add_argument('--drum-note', type=int, help='Single GM circuit per active drum track; requires one voice per drum track')
     p.add_argument('--fx', action='store_true')
     p.add_argument('--modulation', action='store_true')
     p.add_argument('--modulation-routing', choices=('voice', 'engine'), default='voice')
@@ -250,6 +260,10 @@ def main():
         p.error('seconds/repeat positive; budget 8..32')
     if a.seconds > 120:
         p.error('Profiling windows are limited to 120 seconds to avoid 32-bit span-total wrap')
+    if a.drum_note is not None and (not 0 <= a.drum_note <= 127 or
+            not any(int(c) >= 4 and v for c, v in zip(a.assignment, voices)) or
+            any(int(c) >= 4 and v > 1 for c, v in zip(a.assignment, voices))):
+        p.error('drum-note: GM note 0..127, exactly one voice on each active drum track')
     if (a.modulation_routing != 'voice' or a.source_churn) and not a.modulation:
         p.error('modulation-routing/source-churn require --modulation')
     manifest = json.loads(a.build_manifest.read_text())
@@ -282,8 +296,9 @@ def main():
         d.cpu_modulation_routing = a.modulation_routing
         d.cpu_event_bursts = a.event_bursts
         d.cpu_source_churn = a.source_churn
-        if a.modulation:
-            d.performance_patch_hook = configure_modulation
+        d.cpu_drum_note = a.drum_note
+        if a.modulation or a.drum_note is not None:
+            d.performance_patch_hook = configure_workload
         if a.event_bursts or a.source_churn:
             d.performance_step_hook = control_updates
         (a.output/'run.json').write_text(json.dumps(dict(build=manifest, identity=identity,

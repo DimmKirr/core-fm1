@@ -269,6 +269,7 @@ if core; then
     job step "nightly and synth-only site preserve release and editor" python3 tests/nightly_site_test.py
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
     t "audio profiling: histogram bounds and timer wrap" audio_profile_test
+    t "batch profiling: per-core accounting and failed-worker drops" audio_batch_profile_test
     run "CPU baseline tool: bounded RAM restore and diagnostic decoding" python3 tests/audio_cpu_device_test.py
     run "target budget: natural loops and FPU decoding" python3 tests/target_budget_test.py
     t "retired synth identities, project/user patch preservation and favorites" engine_retirement_test -O2 $FW

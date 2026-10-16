@@ -52,10 +52,10 @@ are recorded in [POLYPHONY_CPU_PROGRESS.md](POLYPHONY_CPU_PROGRESS.md).
 
 | Stage | Path | Current status | Next deliverable |
 | --- | --- | --- | --- |
-| 0 | Current device baseline | Candidate-only screens and ranked spans started; comparison pending | Baseline/candidate runs, profiling-cost measurement and broader workloads |
+| 0 | Current device baseline | 3 x 60-s candidate-only screen and ranked spans complete for one workload; comparison pending | Baseline/candidate runs, profiling-cost measurement and broader workloads |
 | 1 | Panel scanning | Panel costs measured in screening; SPI2 routing appears feasible; no scan change | Electrical timing acceptance, then a bounded prototype |
 | 2 | Control preparation | Routing revision and centered-bend fast path host-tested; default off; general pitch cache rejected | Device comparisons; remaining control preparation and structural churn |
-| 3 | Core scheduling | Not started | Measured job classes and assignment comparison |
+| 3 | Core scheduling | Per-core/preparation/merge spans and host job-ranking tooling tested; policy unchanged | Target class measurements, bounded estimates and assignment comparison |
 | 4 | FX and mixing | Not started | Ranked buffer-pass and effect-state costs |
 | 5 | Sequencer indexing | Not started beyond the preceding onset/release queues | Ownership-scan measurements and compact index candidate |
 | 6 | Engine fast paths | Not started | Rank limiting patches after infrastructure measurements |

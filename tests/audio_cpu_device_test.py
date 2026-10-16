@@ -6,6 +6,7 @@ import sys
 import unittest
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 import audio_cpu_device as cpu
@@ -125,13 +126,14 @@ class CpuBaselineTest(unittest.TestCase):
         self.assertEqual(h['overflow_samples'], 2)
 
     def test_old_and_extended_span_decoding(self):
-        for count in (len(legacy.SPANS), len(legacy.SPANS+legacy.PANEL_SPANS)):
+        for count in (len(legacy.SPANS), len(legacy.SPANS+legacy.PANEL_SPANS), len(legacy.SPANS+legacy.PANEL_SPANS+legacy.BATCH_SPANS)):
             class Profile:
                 def request(self, *args):
                     return [0, 1, count]+[x for v in range(count*3+5) for x in cpu.u32(v)]
             result = legacy.profile(Profile())
             self.assertEqual(result['half'], dict(ticks=0, calls=1, max_ticks=2))
             self.assertEqual('input_shift' in result, count > len(legacy.SPANS))
+            self.assertEqual('batch_prepare' in result, count > len(legacy.SPANS+legacy.PANEL_SPANS))
 
     def test_runtime_chunk_read_retries_only_idempotent_requests(self):
         d = legacy.ReliableDevice.__new__(legacy.ReliableDevice)
@@ -200,6 +202,12 @@ class CpuBaselineTest(unittest.TestCase):
         self.assertEqual([s['span'] for s in r['panel_all_ticks']], ['input_shift'])
         self.assertEqual(r['audio_inclusive'][1]['us_per_half'], 50)
         self.assertEqual(r['panel_all_ticks'][0]['mean_us'], .5)
+
+    def test_single_circuit_fixture_retains_melodic_notes_and_count(self):
+        d = SimpleNamespace(performance_modulation=False, cpu_drum_note=49)
+        notes = [(0, 60), (1, 36), (3, 38)]
+        self.assertEqual(cpu.configure_workload(d, [0, 5, 2, 4], 0, notes),
+                         [(0, 60), (1, 49), (3, 49)])
 
 
 if __name__ == '__main__':

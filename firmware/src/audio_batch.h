@@ -43,6 +43,9 @@ static uint8_t audio_batch_started;
 static void audio_batch_worker(void *context)
 {
     audio_batch_job_t *j=context;uint32_t n=j->n,id=j->profile_id;audio_batch_fn run=j->run;
+#if MELODEE_AUDIO_PROFILE
+    j->elapsed=0;
+#endif
     if(!n || n>CTL || id>=AP_COUNT || j->guard!=((uint32_t)(uintptr_t)run^n^id^0x913ab267u)){
         AB_STORE(&audio_batch_invalid,1u);return;
     }
@@ -57,7 +60,9 @@ static void audio_batch_merge(audio_batch_job_t *j)
 #if MELODEE_AUDIO_PROFILE
     audio_profile_add(j->profile_id,j->elapsed);
 #endif
+    AP_START(merge_start);
     for(uint32_t i=0;i<j->n;i++)j->out[i]+=j->pcm[i];
+    AP_END(AP_BATCH_MERGE,merge_start);
 }
 static void audio_batch_parallel(void *context)
 {
@@ -79,7 +84,12 @@ static __attribute__((noinline)) void audio_batch_flush(void)
             uint32_t mask=AB_LOAD(&audio_batch_worker_mask);
             AB_STORE(&audio_batch_closed,1u);
             for(uint32_t k=0;k<audio_batch_count;k++)
-                if(!(mask&(1u<<k)))audio_batch_worker(&audio_batch_jobs[k]);
+                if(!(mask&(1u<<k))){
+                    audio_batch_worker(&audio_batch_jobs[k]);
+#if MELODEE_AUDIO_PROFILE
+                    audio_profile_add(AP_BATCH_CPU0,audio_batch_jobs[k].elapsed);
+#endif
+                }
             int ok=audio_worker_join();audio_batch_pairs++;
             if(AB_LOAD(&audio_batch_invalid)){
                 ok=0;
@@ -93,18 +103,30 @@ static __attribute__((noinline)) void audio_batch_flush(void)
             /* State ownership returns at join. Drop a failed worker's
              * partial PCM without replay; merge in original voice order. */
             for(uint32_t k=0;k<audio_batch_count;k++)
-                if(ok || !(mask&(1u<<k)))audio_batch_merge(&audio_batch_jobs[k]);
+                if(ok || !(mask&(1u<<k))){
+#if MELODEE_AUDIO_PROFILE
+                    /* CPU0 publishes statistics only after ownership returns.
+                     * A failed worker can leave elapsed partially written. */
+                    if(mask&(1u<<k))audio_profile_add(AP_BATCH_CPU1,audio_batch_jobs[k].elapsed);
+#endif
+                    audio_batch_merge(&audio_batch_jobs[k]);
+                }
             audio_batch_count=0;audio_batch_started=0;return;
     }
 #endif
     for(uint32_t k=0;k<audio_batch_count;k++){
-        audio_batch_worker(&audio_batch_jobs[k]);audio_batch_merge(&audio_batch_jobs[k]);
+        audio_batch_worker(&audio_batch_jobs[k]);
+#if MELODEE_AUDIO_PROFILE
+        audio_profile_add(AP_BATCH_CPU0,audio_batch_jobs[k].elapsed);
+#endif
+        audio_batch_merge(&audio_batch_jobs[k]);
     }
     audio_batch_count=0;
 }
 static void audio_batch_push(audio_batch_fn run,const void *data,uint32_t bytes,int32_t *out,uint32_t n,uint32_t profile_id)
 {
     if(audio_batch_count==AUDIO_BATCH_JOBS)audio_batch_flush();
+    AP_START(prepare_start);
     uint32_t k=audio_batch_count++;audio_batch_job_t *j=&audio_batch_jobs[k];
     j->run=run;j->out=out;j->n=n;j->profile_id=profile_id;memcpy(j->data,data,bytes);
     j->guard=(uint32_t)(uintptr_t)run^n^profile_id^0x913ab267u;
@@ -123,4 +145,5 @@ static void audio_batch_push(audio_batch_fn run,const void *data,uint32_t bytes,
     AB_STORE(&audio_batch_published,audio_batch_count);
     if(!k)audio_batch_started=(uint8_t)audio_worker_submit(audio_batch_parallel,0);
 #endif
+    AP_END(AP_BATCH_PREPARE,prepare_start);
 }
