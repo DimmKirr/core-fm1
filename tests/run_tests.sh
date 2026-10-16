@@ -391,6 +391,7 @@ if sound && [ $TABLES = 1 ]; then
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW -- "$OUT/mod_test" build/mod_demo
     t "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, stereo sides and routing" mod_spread_test -O2 $FW
     t "modulation routing cache: independent reference parity and comparison cost" mod_route_test -O2 $FW
+    t "SID filter output: exact full state across models/waves/stacks/modes and costs" sid_filter_test -O2 $FW
     t "808/909 metal preparation: exact pitches, states and steady/changing costs" drum_prepare_test -O2 $FW
     t "CZ native window: exact phase kernel and full renderer through live edits" cz_window_test -O2 $FW
     t "FM6 zero-level preparation: exact state and static/changing costs" fm6_prepare_test -O2 $FW

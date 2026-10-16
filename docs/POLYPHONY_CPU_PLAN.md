@@ -38,7 +38,8 @@ and prepared/installed distinctions are maintained in the progress log:
 - `5da9f0d`: fixed column-word table, no added RAM, unchanged shift-kernel assembly; brightness cache rejected after sparse regressions; default off, not installed.
 - `0c9fa79`: exact FM6 Modern zero-level preparation, full voice-state parity and static/changing cost checks; default off, not installed.
 - `6516ee6`: exact CZ native window-4 kernel, exhaustive phase-function and full-renderer state/PCM parity including ring/noise and partial blocks; default off, not installed.
-- Exact 808 zero-transpose and 909 unity-pitch metal preparation candidates have independent numerical and full-state/render comparisons; default off, not installed.
+- `8e5ce97`: exact 808 zero-transpose and 909 unity-pitch metal preparation candidates, independent numerical and full-state/render comparisons; default off, not installed.
+- Exact SID filter-output specialization avoids unused high-pass arithmetic with full state/PCM parity and host/target checks; default off, not installed.
 
 The full host suites passed in 79 s for the baseline infrastructure, 83 s
 with the original cache and 81 s with the revised cache. Validation includes
@@ -71,7 +72,7 @@ are recorded in [POLYPHONY_CPU_PROGRESS.md](POLYPHONY_CPU_PROGRESS.md).
 | 3 | Core scheduling | Per-core/preparation/merge spans and host job-ranking tooling tested; policy unchanged | Target class measurements, bounded estimates and assignment comparison |
 | 4 | FX and mixing | Centered mono-send and exact Chorus dormancy candidates host/target-tested; all-effect routing trace parity | Device comparisons, physical tails/wakeup and further measured pass work |
 | 5 | Sequencer indexing | Compact active-bank pitch candidate and independent scanner/cost tests implemented | Target query/rebuild/edit timing, external-clock and physical validation |
-| 6 | Engine fast paths | Prophet/FM6/CZ and 808/909 preparation candidates tested, default off | Target patch ranking/comparisons; exact SID and deeper sample-path evaluation |
+| 6 | Engine fast paths | Prophet/FM6/CZ, 808/909 preparation and SID filter candidates tested, default off | Target patch ranking/comparisons and deeper sample-path evaluation |
 | 7 | Polyphony calibration | Not started; allowances unchanged | Validated additional voices and combined stress results |
 
 Start each candidate from a recorded, tested parent and keep it separately

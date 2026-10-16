@@ -1300,3 +1300,70 @@ operator/circuit state; these preparation microbenchmarks do not replace target
 patch ranking. Source/code/state memory headroom and each unchanged gate remain
 constraints. Keep the physical/target acceptance and installation boundaries
 explicit, and keep implementing useful independent work before seeking a flash.
+
+## Stage 6: exact SID filter-output specialization
+
+Parent `8e5ce97`. `MELODEE_SID_FAST=1` (default zero) omits the stateless
+high-pass expression when its contribution to the selected filter sum is zero
+(LP, BP and LP+BP). The LP + BP + HP arithmetic order is preserved for every
+mode. Both filter integrators, the output-stage histories, held sample,
+oscillators, noise/sync/ring counters, envelope, quiet flag and C64 register
+latching continue unchanged. No waveform skipping, silence threshold, cache,
+worker ownership or serialized layout change; no added state or scratch RAM.
+
+`tests/sid_filter_test.c` retains the independent original Melodee renderer
+from the parent. Source attribution was checked through `ac1954d`; reSID
+model/curve provenance remains in `eng_sid.c`. 67,584 variable 0..32-sample
+blocks compare PCM and the complete generic/SID voice state across all four
+models, eight waveforms, eight stacks and eight filter modes, with live pitch,
+pulse width, cutoff/resonance/drive, gates/restarts, phase discontinuities and
+supported 400..480-Hz tuning. ASan/UBSan passes with legacy signed-shift checks
+excluded. The initial test generator incorrectly used 400..500 Hz; sanitizer
+caught its out-of-range lookup in the original oracle. The corrected test uses
+`A4_MIN..A4_MAX`; no unrelated tuning code was changed.
+
+Host instructions/sample (matching volatile renderer calls):
+
+| 6581 case | Original | Candidate |
+| --- | ---: | ---: |
+| ONE pulse, LP | 205.95 | 196.04 |
+| ONE pulse, BP | 205.82 | 195.90 |
+| ONE pulse, HP | 205.81 | 201.96 |
+| ONE pulse, NOTCH | 205.81 | 202.03 |
+| ONE pulse, LP+BP | 205.81 | 195.98 |
+| Moving pitch/shape/filter/drive | 196.78 | 190.89 |
+
+129 rows cover both chip revisions, ONE/DETUNE/SYNC/RING/SUB, pulse/saw/
+triangle/noise/combined waveforms, all modes including OFF and moving controls.
+LP/BP/LP+BP require at least 2% host benefit, all rows require <=4% regression;
+all pass. Ratios range 0.9485..0.9881. OFF and HP-containing rows have smaller
+compiler-layout benefits; do not attribute them to omitted HP work or infer
+device cycles from these host counts. Logs `build/cpu-sid-filter-host.log`,
+`build/cpu-sid-filter-sanitized.log`. Target loop estimate is 978 versus the
+current reference's 976 (unchanged historical budget 1204): the static checker
+counts both sides of branches and does not establish a target speedup.
+
+Full combined host suite: **ALL HOST TESTS PASSED in 80 s**,
+`build/cpu-sid11-suite.log`, all eleven candidate flags enabled. Golden renders
+and all 1,296 concurrent assignments are unchanged. Explicit combined target
+gates passed before the suite (`build/cpu-sid11-instructions.log`); the normal
+build was also produced while the host suite finished, so the suite's own
+final target listing may be normal. The independently saved candidate and
+normal/reference listings all pass unchanged gates. No limits were raised.
+
+Prepared, **not installed**; manifests, target logs and listings share these
+short names (for example `build/cpu-sid11-build.json`, `-target.log`, `.dis`):
+
+| Name | Flags / profiling / lab | Data+BSS | Arena | Package SHA256 |
+| --- | --- | ---: | ---: | --- |
+| cpu-sid11 | all eleven on / on / on | 96,912 B | 148,704 B | `1fdae2d20239a99174b7a8571ce73dba6e09128890346977358ebb08caa0eba0` |
+| cpu-sid0 | all off / off / off | 95,888 B | 153,056 B | `771195194f8880f8953c1907adfa28a9a4ae88aa4b1115d4ff4af913414f2fa1` |
+| cpu-ref8 | all off / on / on | 96,560 B | 153,056 B | `8496d38fb3de86a0bb6dc1b4080b47ebfc05c02797a7aad1aace03bc7083adb9` |
+
+Packages are `build/melodee-1.4.0-NAME.fwsc`; final source and package hashes
+match all three manifests. RAM_AUDIO=0/ADMISSION=0 throughout; contiguous
+minimum stays 142,336 B. Combined image 522,736 B (16 B smaller than drum10),
+low-DSP tail 1,144 B. Register/residency checks pass. Read-only installer query
+still reports FM-1_91040 / Melodee; no hardware workload, diagnostics reset,
+installation, publication or allowance/default change occurred. Device patch
+ranking, baseline comparisons and extra-voice/physical acceptance remain open.
