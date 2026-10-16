@@ -367,7 +367,10 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1], ph2 = v->ph[2];
     int32_t s0 = v->s[0], s1 = v->s[1], s4 = v->s[4], s5 = v->s[5], s6 = v->s[6], s7 = v->s[7];
     uint32_t keep = e->keep;
-    capacity_steals+=(uint32_t)(sounding && (v->note!=note || !v->gate));
+    /* MIDI replaces a repeated press by releasing its old owner first. A
+     * same-pitch one-shot then retriggers the same circuit regardless of gate;
+     * it has not displaced another note or consumed another budget slot. */
+    capacity_steals+=(uint32_t)(sounding && (v->note!=note || (!v->gate && !e->oneshot)));
     voice_was = (uint8_t)(!v->active ? 0u : v->gate ? 2u : 1u);
     v->note = (uint8_t)note;
     v->vel = (uint8_t)vel;

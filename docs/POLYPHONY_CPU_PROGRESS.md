@@ -492,6 +492,27 @@ runtime CRC 61439115, preferences and 31 committed objects; no snapshot on
 disk. Original budget 32 restored. These are candidate-only workload screens;
 there is still no baseline/candidate saving or increased voice claim.
 
+## Stage 0: same-circuit drum retrigger accounting
+
+The failed initial 0124 drum screen is retained as a failed historical row.
+Investigation reproduced an accounting defect through the real MIDI ownership
+path. A repeated MIDI note-on first releases its old owner; `voice_start`
+counted a sounding gate-off voice as capacity replacement even when DRUM
+reuses the same pitch's one-shot circuit without allocating another voice.
+
+The correction excludes only same-pitch one-shot reuse from that `voice_start`
+classification. Different-pitch lane replacement and actual budget-driven
+kills still count. It changes no allocation, gate, envelope, sound or stealing
+policy. The regression plays 100 MIDI retriggers on each of two drum circuits;
+it failed before the correction and passes afterward. Different-pitch lane
+replacement and real shared-budget pressure checks both pass. Logs:
+`build/cpu-drum-accounting-before.log`, `build/cpu-drum-accounting-after.log`.
+Full host suite (with the first opt-in mixer experiment) passed in 82 s,
+`build/cpu-mix-fast-suite.log`, unchanged goldens and concurrent assignment
+matrix. The correction is **not installed**. Do not reinterpret old device
+rows as passes or subtract assumed retriggers from them; remeasure the drum
+fixture on a recorded corrected package before qualifying capacity.
+
 ## Acceptance status
 
 No measured device CPU saving or extra voice allowance is claimed. No engine,
