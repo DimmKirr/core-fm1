@@ -295,6 +295,9 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_time(fx_state_t *r
  * the SRAM sample loop only ramps, interpolates and mixes with integers.
  * Reuse the idle reverb output fields for Q16 delay positions. */
 #define FX_CHORUS_BYTES 2048u
+#ifndef MELODEE_FX_DORMANT
+#define MELODEE_FX_DORMANT 0
+#endif
 static inline __attribute__((always_inline)) int32_t fx_chorus_read(const int16_t *mem,uint32_t pos,uint32_t ch,int32_t delay)
 {
     uint32_t whole=(uint32_t)delay>>16,frac=((uint32_t)delay>>8)&255u;
@@ -315,6 +318,33 @@ static __attribute__((noinline,section(".audio_text"))) void fx_chorus(fx_state_
     }
     f->pos=pos;f->rev_l=l;f->rev_r=r;f->mix=mix;
 }
+/* Chorus has no feedback. A whole ring of zero input proves that every tap
+ * is zero, independently of RATE/DEPTH and ring position. Reuse its otherwise
+ * idle echo field as a conservative zero-write count; no persistent/RAM fields.
+ * Keep the ordinary kernel separate so active input exits the scan early. */
+#if MELODEE_FX_DORMANT
+static __attribute__((noinline,section(".audio_text"))) void fx_chorus_run(fx_state_t *restrict f,int16_t *restrict mem,uint32_t n,const int32_t *step,int32_t target)
+{
+    uint32_t signal=n?(uint32_t)fx_left[0]|(uint32_t)fx_right[0]:0u;
+    if(!signal)for(uint32_t i=0;i<n;i++)signal|=(uint32_t)fx_left[i]|(uint32_t)fx_right[i];
+    if(!signal){
+        if(f->echo==512){
+            /* The dry copy is also zero. Repeated integer increments and the
+             * monotone mix slew have exactly these closed forms. Phase/design
+             * still run at their original block rate in fx_slot_run. */
+            f->pos=(f->pos+n)&511u;
+            f->rev_l+=step[0]*(int32_t)n;f->rev_r+=step[1]*(int32_t)n;
+            f->mix+=clamp(target-f->mix,-(int32_t)n*128,(int32_t)n*128);
+            return;
+        }
+        f->echo=clamp(f->echo+(int32_t)n,0,512);
+    }else f->echo=0;
+    void (*volatile run)(fx_state_t *,int16_t *,uint32_t,const int32_t *,int32_t)=fx_chorus;
+    run(f,mem,n,step,target);
+}
+#else
+#define fx_chorus_run fx_chorus
+#endif
 /* Eight-line orthogonal feedback tank, preceded by four input diffusers and
  * followed by two allpasses per output. Runs at FS/8 with input low-pass and
  * interpolated wet output. 1900 int16 samples fit one 4 KiB allocation.
@@ -598,7 +628,7 @@ static __attribute__((noinline,section(".audio_text"))) int fx_slot_run(const fx
         f->phase+=LFO_INC[f->rate]*n/CTL;
         int32_t depth=f->character*2,delay=256*65536+fx_sine(f->phase)*depth;
         int32_t step[2]={(delay-f->rev_l)/(int32_t)n,(512*65536-delay-f->rev_r)/(int32_t)n};
-        void (*volatile run)(fx_state_t *,int16_t *,uint32_t,const int32_t *,int32_t)=fx_chorus;run(f,mem,n,step,target);
+        void (*volatile run)(fx_state_t *,int16_t *,uint32_t,const int32_t *,int32_t)=fx_chorus_run;run(f,mem,n,step,target);
     }else if(f->type==FX_REVERB){
         /* Design the slow drift beside the other block-rate coefficients,
          * keeping sine lookup calls outside the small SRAM sample kernel. */

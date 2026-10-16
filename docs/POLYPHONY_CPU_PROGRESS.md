@@ -625,3 +625,67 @@ span decoders, bounded snapshots, restoration after workload errors, guarded
 restore failure, changed committed storage, invalid preferences and blocked
 flash writes. Physical input, audible behavior and device before/after savings
 remain untested.
+
+## Stage 4 continuation: exact Chorus dormancy
+
+Parent `db1efe6`. `MELODEE_FX_DORMANT=1` (default zero) skips Chorus's
+sample kernel only after 512 consecutive zero input writes prove the complete
+stereo ring is zero. Any nonzero sample wakes it before processing that block.
+It retains ring ownership/allocation, position, block-rate phase/design, delay
+ramps and the exact integer mix slew. Its otherwise idle `echo` field holds a
+conservative zero-write count; there are no additional state or cache bytes.
+No threshold truncation, changed effect IDs or changed project bytes. Other
+effects retain their existing processing, including their tails and smoothing.
+Epoch resets, type changes and failed-worker retirement clear the proof with
+the existing state reset. A zero-sized block preserves state.
+
+`tests/fx_dormant_test.c` retains the parent Melodee-authored Chorus kernel as
+an independent comparator. 40,000 blocks cover lengths 0..32, hot and tiny
+positive/negative stereo inputs, late-only input, arbitrary delay/mix changes,
+ring wraps, long silence and repeated wakeups. PCM, the entire ring and every
+original state field compare exactly. The one extra derived count is checked
+against actual ring contents. ASan/UBSan passes (`build/cpu-fx-dormant-sanitized.log`).
+Separate candidate/reference executables compare complete insert/CHAIN/SPLIT
+traces with each other effect in the middle slot, three-slot Chorus chains,
+RATE/DEPTH/MIX/PAN/spread edits, bypass/type changes, epoch resets, long tails
+and attacks after silence. Both traces hash to `d949a9df622d3f3b`; histories,
+allocated ring contents and shared master output are included.
+
+Matching indirect-call host instructions/sample (including identical input
+reset work), `build/cpu-fx-dormant-bench.log`:
+
+| Input | Reference | Candidate |
+| --- | ---: | ---: |
+| Dormant zero | 90.50 | 19.53 |
+| Continuous stereo signal | 90.48 | 91.11 |
+| Only last sample nonzero | 90.48 | 92.97 |
+| Attack followed by silence | 90.50 | 39.09 |
+
+The initial early-exit scan regressed the late-only row by 8.4%; it was replaced
+by a first-sample check plus a full OR reduction. Retained gates require 30%
+dormant gain and at most 4% overhead in each other row. These are host kernel
+costs with host compiler/SIMD behavior, not target microseconds or extra voices.
+Full combined routing/control/mixer/dormancy suite: `ALL HOST TESTS PASSED in
+79 s`, `build/cpu-fx-dormant-suite.log`, unchanged goldens and all 1,296
+concurrent assignments. Target instruction checks pass without budget changes.
+The existing Chorus kernel symbol and normal-build direct path are retained.
+
+Lab target/register/residency checks pass: 96,816-B data/BSS, 152,864-B arena
+(the new helper consumes 192 B of POOL code space), unchanged 142,336-B floor.
+Prepared, **not installed**: `build/melodee-1.4.0-cpu-fx-dormant.fwsc`, manifest
+`build/cpu-fx-dormant-build.json`, log `build/cpu-fx-dormant-target.log`.
+All four candidates, profiling and lab support on; RAM_AUDIO=0, ADMISSION=0.
+No production default or voice allowance changed. Device comparisons and
+physical transition/listening checks remain pending. The installed firmware
+is still the original `1.4.0-cpu-mod` package; a read-only installer query
+confirmed running FM-1_91040 on port Melodee. No installation occurred.
+
+Verified package SHA256, `cpu-fx-dormant`: `6139af331eec6f9c01d999e5db31324518d5d419e4993ccc915a2103b045ec20`.
+
+Verified package SHA256, `cpu-fx-default`: `65ec92a513db68ee01551c616dd93a2d4774946c62aa00d1a348cfa90cc4df7b`.
+
+Normal package `build/melodee-1.4.0-cpu-fx-default.fwsc` (manifest
+`build/cpu-fx-default-build.json`, log `build/cpu-fx-default-target.log`)
+passes target/register/residency checks: 95,888-B data/BSS, 153,056-B arena,
+unchanged floor. All four candidates, profiling and bypass support off. Both
+packages and all firmware sources match their manifests. Neither is installed.

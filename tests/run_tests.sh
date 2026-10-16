@@ -225,6 +225,15 @@ dsp_tracks() {
     step "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" \
         env TRACKS=build/tracks_demo "$OUT/hostsim" 15 0 1 "$OUT/tracks.wav"
 }
+fx_dormancy() {
+    build fx_dormant_test fx_dormant_test -O2 $FW -UMELODEE_FX_DORMANT -DMELODEE_FX_DORMANT=1 || return
+    step "Chorus dormancy: independent kernel PCM/state/ring parity and cost" "$OUT/fx_dormant_test"
+    build fx_dormant_reference fx_dormant_test -O2 $FW -UMELODEE_FX_DORMANT -DMELODEE_FX_DORMANT=0 || return
+    "$OUT/fx_dormant_reference" --trace > "$OUT/fx-dormant-reference.trace" || fail "FX reference route trace"
+    "$OUT/fx_dormant_test" --trace > "$OUT/fx-dormant-candidate.trace" || fail "FX candidate route trace"
+    step "FX dormant/active: exact insert/CHAIN/SPLIT traces with all other effects, tails, edits and wakeups" \
+        cmp "$OUT/fx-dormant-reference.trace" "$OUT/fx-dormant-candidate.trace"
+}
 prophet() {
     build prophet_test prophet_test -O2 $FW || return
     step "Prophet native frames, five voices, filters, sync and Poly-Mod" "$OUT/prophet_test"
@@ -379,6 +388,7 @@ if sound && [ $TABLES = 1 ]; then
     t "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, stereo sides and routing" mod_spread_test -O2 $FW
     t "modulation routing cache: independent reference parity and comparison cost" mod_route_test -O2 $FW
     t "centered bend fast path: full raw/range oracle and control cost" control_prepare_test -O2 $FW
+    job fx_dormancy
     t "mono mixer fast path: output/send/peak/stem reference parity and cost" mix_fast_test -O2 $FW
     t "CZ: oscillator boundaries, native rate/target envelopes and independent lines" phase_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW
