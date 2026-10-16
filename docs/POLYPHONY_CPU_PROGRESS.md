@@ -1186,3 +1186,117 @@ All current source hashes and package SHA256 values matched these manifests:
 No hardware workload, installation or publication was performed. SID and
 808/909 exact-path evaluation, wider workload fixtures and all target/device
 acceptance steps remain open; the plan is not complete.
+
+## Stage 6: exact 808/909 metal preparation
+
+Parent `6516ee6`. `MELODEE_DRUM_FAST=1` (default zero) retains two small,
+stateless preparation specializations. 808 metal at zero transpose copies the
+six literal increments directly: the former ratio calculation had no consumer.
+Nonzero transpose keeps the original ratio and products. 909 synthesized metal
+at exact unity pitch uses twelve constant fp32-product results (six each for
+the normal and 1.48 ride cases, 48 B in flash); all other pitches keep the
+original ordered products. Nothing in their per-sample circuits, noise RNG,
+phases, filters, envelope anchoring, countdowns, retrigger/choke handling, pan
+ramps, distortion, scratch ownership or accumulation order changes. No cache,
+writer invalidation, added state RAM, truncation threshold or update-rate change.
+
+The first 808 zero-copy implementation used a second six-entry loop and passed
+numerical/sanitizer checks, but failed the unchanged target loop budget: 12
+versus 8 for `dr_metal_tune`. It was rejected. Its initial package
+`build/melodee-1.4.0-cpu-drum-prepare.fwsc` and logs/manifests remain historical
+failed-gate evidence, not the final candidate. Explicit stores keep the final
+helper at the original loop cost 8 without relaxing the budget. No failed
+package was installed. The successful intermediate `cpu-drum-fast` name is
+superseded below by a shorter, distinguishable editor identity; all earlier
+artifacts are retained.
+
+`tests/drum_prepare_test.c` retains the original Melodee metal preparation and
+render oracles. All 6,144 808 pitch steps (-3072..3071) and 262,148 909 kind/pitch
+values compare exactly. A further 40,000 full blocks compare exact PCM, complete
+circuit state and scratch over 0..32 samples, pitches/retriggers, every 808
+circuit, four 909 metal kinds, mono/stereo pan ramps and distortion. ASan/UBSan
+passes (`build/cpu-drum-fast-sanitized.log`). Existing source notices are kept;
+the synthesized metal paths are Melodee-authored, rather than 9W9 recorded
+cymbal playback.
+
+Host instructions per isolated preparation, loop/call included:
+
+| Mode | Original | Candidate |
+| --- | ---: | ---: |
+| 808 zero transpose | 96.03 | 29.02 |
+| 808 held nonzero | 99.09 | 99.09 |
+| 808 changing transpose | 111.02 | 110.98 |
+| 808 alternating zero/nonzero | 111.07 | 77.51 |
+| 909 unity | 41.01 | 29.01 |
+| 909 held non-unity | 42.01 | 44.01 |
+| 909 changing pitch | 53.01 | 55.01 |
+| 909 alternating unity/non-unity | 46.04 | 41.03 |
+
+The 909 prep-only non-unity overhead is explicit (~4.8% held); it must not be
+hidden by the default case. Full 909 metal render measurements (four kinds,
+unity/held/moving pitch) pass the <=4% other-case gate: approximately
+127.1..127.4 original versus 126.8..127.5 candidate host instructions/sample.
+The complete default-pitch gain is small (about 0.3 instructions/sample), not
+a claim of substantial whole-engine or buffer improvement. The 808 number is
+preparation-only; its circuit sample kernels are unchanged. Log
+`build/cpu-drum-fast-bench.log`. These host screens do not supply target cycles,
+limiting-patch ranking or additional voice capacity.
+
+The combined ten-flag suite passes after the explicit-store correction:
+`ALL HOST TESTS PASSED in 79 s`, `build/cpu-drum-fast-suite.log`, unchanged
+sound goldens and all 1,296 concurrent engine assignments. The final package
+uses a shorter version to distinguish it from earlier drum prototypes within
+the editor's 24-byte identity field: `MELODEE v1.4.0-cpu-drum1` versus normal
+`MELODEE v1.4.0-cpu-drum0`. The longer `cpu-drum-fast` and failed `cpu-drum-prepare`
+identities both truncate to the same text, so do not use identity alone to
+select those older artifacts. Source hashes and exact package hashes remain
+required. Shortening the version changes no firmware logic; current target
+checks were rerun on the final identity build.
+
+Prepared, **not installed**, final combined package:
+`build/melodee-1.4.0-cpu-drum10.fwsc`, manifest `build/cpu-drum10-build.json`,
+log `build/cpu-drum10-target.log`, listing `build/cpu-drum10.dis`.
+All ten flags/profiling/lab support enabled; RAM_AUDIO=0 and ADMISSION=0.
+Unchanged target instruction budgets pass (`build/cpu-drum10-instructions.log`),
+including `dr_metal_tune` at 8/8. Register/residency checks pass. Data/BSS
+96,912 B, arena 148,704 B, unchanged 142,336-B floor and 1,144-B low-DSP tail.
+No added state RAM, POOL code or low-DSP code; final image 522,752 B.
+
+Read-only live inspection still reports `MELODEE v1.4.0-cpu-mod`, FM-1_91040,
+360 MHz, 128-frame halves, budget 32, profiling/lab support enabled and
+persistence guard inactive. Current runtime inventory: 27,904 B, CRC 482686799
+(`build/cpu-oct16-continuation-device-read.json`). This is a current read,
+not a preservation/restoration experiment; the older handoff CRC is historical.
+No new package, counters reset or workload was sent to hardware in this
+continuation. No installation, publication, budget increase or production
+flag change occurred. Target comparisons/electrical acceptance, baseline and
+class/voice calibration, physical transitions/listening and normal ten-minute
+workload qualification remain external work; the overall plan is incomplete.
+
+The twelve compiled 909 increments were also read from the final target listing
+and matched the ordered fp32 products independently
+(`build/cpu-drum10-constants.json`); this is a static check, not device execution.
+Normal all-ten-flags/profiling/lab-off package:
+`build/melodee-1.4.0-cpu-drum0.fwsc`, manifest `build/cpu-drum0-build.json`,
+log `build/cpu-drum0-target.log`: 95,888-B data/BSS, 153,056-B arena. New current
+all-candidates-off profiling reference:
+`build/melodee-1.4.0-cpu-reference-v7.fwsc`, manifest
+`build/cpu-reference-v7-build.json`, log `build/cpu-reference-v7-target.log`:
+96,560-B data/BSS, 153,056-B arena. Register/residency checks and unchanged
+reference instruction gates pass (`build/cpu-reference-v7-instructions.log`).
+All retain the 142,336-B floor. None is installed.
+
+Verified current firmware-source and package hashes against all three manifests:
+
+- `cpu-drum10`: `5f6ba36c3f241b75e49bd06d28b5ea3848130e283a5cb5ee26cfad463b390a47`.
+- `cpu-drum0`: `5c743d5303efc7a6a6c3a4b1967fa992698cc45d73fcdc3e7df68ff61284a0f9`.
+- `cpu-reference-v7`: `799b981000c55b3ae592ab6ddba3c8fb6249ea39f88c65af035dc9391597b438`.
+
+Next independent software work: exact SID path evaluation (and justified rejected
+probes), remaining modulation-routing/control churn, other compatible mixer/FX
+passes where exact history permits, and broader recording/stem/external-clock
+workload fixtures. Further sample-kernel paths must preserve all evolving
+operator/circuit state; these preparation microbenchmarks do not replace target
+patch ranking. Source/code/state memory headroom and each unchanged gate remain
+constraints. Keep the physical/target acceptance and installation boundaries
+explicit, and keep implementing useful independent work before seeking a flash.
