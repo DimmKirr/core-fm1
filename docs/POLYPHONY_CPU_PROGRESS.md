@@ -944,3 +944,92 @@ can extend the tools; the new ten-minute observer does not supply those
 fixtures. Electrical panel acceptance, target class calibration and actual
 reference/candidate runs remain external dependencies. Keep production flags
 and allowances unchanged until their explicit acceptance evidence exists.
+
+## Stage 1: fixed column words and rejected brightness cache
+
+Parent `01fb13b`. `MELODEE_PANEL_FAST=1`, default zero, replaces the repeated
+column-selection arithmetic with eleven constant 16-bit words (22 B in flash,
+no added RAM). Both polled and interrupt scans use the same helper; column 0/1
+retain their extra octave-indicator selection bits. The 16 read-modify-write
+SER/SRCLK edge pairs and latch operations, the four-us PWM blanking wait,
+10-kHz cadence, row reads, debounce and encoders are unchanged. This is a
+small candidate for target measurement, not an electrically accepted new scan.
+The isolated host loop/call measurement is 20.01 -> 15.01 instructions/column;
+it does not establish complete scan or audio-buffer savings.
+
+A column-brightness cache was investigated and **rejected**. The first full
+column key added 132 B and regressed edits; a revised 12-B duty-combination
+cache plus 256-B exact lookup reduced dense costs but still regressed sparse
+patterns. `tests/panel_prepare_bench.c` retains the independent original
+Melodee PWM path and the rejected prototype outside firmware, for reproduction.
+Its ten rows include all-dark, full-bright, dense planes, changing bright bits,
+raw-mask churn, combined churn, single-row/single-plane, full single-plane,
+partially bright and canonical 0/1/3/7/255 mask changes. Representative final
+host instructions/column, loop/call included:
+
+| Pattern | Original | Rejected probe |
+| --- | ---: | ---: |
+| Dark | 60.01 | 49.01 |
+| All bright | 48.01 | 39.01 |
+| Three full dim planes | 128.02 | 101.01 |
+| Bright bits changing | 88.29 | 87.51 |
+| Raw mask changing | 130.03 | 104.03 |
+| Bright and mask changing | 88.26 | 92.52 |
+| One dim row in one plane | 63.01 | 101.03 |
+| Full single dim plane | 72.03 | 101.01 |
+| Three bright rows | 67.02 | 85.01 |
+| Canonical mask changes | 137.02 | 126.03 |
+
+Retaining only the dense-row win would conceal up to ~60% sparse-row overhead.
+No brightness cache, duty table, writer hook or PWM change enters firmware.
+Correctness evidence for the rejected probe: every byte value of each mask,
+overlapping/ignored plane bits, a cold zero key, 200,000 direct/key-helper edits
+with all eleven columns revisited, PWM/GPIO fallback and timer wrap compare
+register results exactly. ASan/UBSan passes. Logs:
+`build/cpu-panel-prepare-bench.log`, `build/cpu-panel-prepare-sanitized.log`.
+
+The retained fixed words compare independently against the original expression
+for all eleven columns in `led_pwm_test`; both flag variants exercise the full
+mock-MMIO scan, PWM conflict recovery, dim levels and wrap. Combined seven-flag
+suite: `ALL HOST TESTS PASSED in 79 s`, `build/cpu-panel-word-suite.log`, with
+unchanged goldens, all 1,296 concurrent assignments and unchanged target gates.
+This includes the rejected probe's exactness, without a false performance pass.
+Firmware/probe source notices retain their applicable provenance; the original
+PWM preparation is Melodee-authored and the mixed input HAL keeps its notices.
+
+Prepared, **not installed**, combined laboratory package:
+`build/melodee-1.4.0-cpu-panel-word.fwsc`, manifest
+`build/cpu-panel-word-build.json`, log `build/cpu-panel-word-target.log`.
+All seven candidates and profiling/lab support enabled, RAM_AUDIO=0,
+ADMISSION=0. Data/BSS 96,912 B, audio arena 148,736 B, unchanged 142,336-B
+floor and 1,144-B low-DSP tail. The fixed words add no RAM or DSP SRAM code.
+Normal all-candidates/profiling/lab-off package:
+`build/melodee-1.4.0-cpu-panel-default.fwsc`, manifest
+`build/cpu-panel-default-build.json`, log `build/cpu-panel-default-target.log`.
+Its data/BSS is 95,888 B, audio arena 153,056 B. Register/residency checks pass.
+No production flag, voice allowance, GPIO ownership or firmware installation
+changed. Device CPU/electrical/brightness/key-latency acceptance remains open.
+
+A matching six-candidate laboratory control keeps PANEL_FAST=0:
+`build/melodee-1.4.0-cpu-panel-control.fwsc`, manifest
+`build/cpu-panel-control-build.json`, log `build/cpu-panel-control-target.log`.
+It retains the same data/BSS and arena as the panel-word candidate. In the
+compiled interrupt the new address/indexed-halfword loads replace six or seven
+word-construction instructions (depending on the column). The separate
+19-instruction `fm1__sr_word` kernel has identical assembly after resolving
+addresses; GPIO edges/latch code was not tightened. Listings are preserved as
+`build/cpu-panel-word.dis` and `build/cpu-panel-control.dis`. This static count
+is not an electrical or target timing result.
+
+Current all-candidates-off profiling reference, prepared and not installed:
+`build/melodee-1.4.0-cpu-reference-v4.fwsc`, manifest
+`build/cpu-reference-v4-build.json`, log `build/cpu-reference-v4-target.log`.
+It retains 96,560-B data/BSS and 153,056-B arena. Unchanged instruction gates
+pass (`build/cpu-reference-v4-instructions.log`).
+
+Verified package SHA256 (all firmware source hashes match their manifests):
+
+- `cpu-panel-word`: `a1ee4b3242d8f077292b650e99e11c578c7a8580c86c55fa139e7634ae14c789`.
+- `cpu-panel-control`: `4f76d04d98814f0700529f26d0eb25ff939d55a962b312d8edbd82a48046e324`.
+- `cpu-panel-default`: `3591166efd2881f19b957d60c817c972c05b70134b93461ce72ee8731154e559`.
+- `cpu-reference-v4`: `a5f21678d228208c925cb52968f57745ee7d8e18b2348563a48b138bae68c79d`.

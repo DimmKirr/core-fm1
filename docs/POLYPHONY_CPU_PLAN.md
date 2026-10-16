@@ -62,7 +62,7 @@ are recorded in [POLYPHONY_CPU_PROGRESS.md](POLYPHONY_CPU_PROGRESS.md).
 | Stage | Path | Current status | Next deliverable |
 | --- | --- | --- | --- |
 | 0 | Current device baseline | 3 x 60-s candidate-only screen and ranked spans complete for one workload; comparison pending | Baseline/candidate runs, profiling-cost measurement and broader workloads |
-| 1 | Panel scanning | Panel costs measured in screening; SPI2 routing appears feasible; no scan change | Electrical timing acceptance, then a bounded prototype |
+| 1 | Panel scanning | Fixed column-word candidate host/target tested; brightness cache rejected; SPI2 routing appears feasible | Target fixed-word comparison and electrical timing acceptance |
 | 2 | Control preparation | Routing revision and centered-bend fast path host-tested; default off; general pitch cache rejected | Device comparisons; remaining control preparation and structural churn |
 | 3 | Core scheduling | Per-core/preparation/merge spans and host job-ranking tooling tested; policy unchanged | Target class measurements, bounded estimates and assignment comparison |
 | 4 | FX and mixing | Centered mono-send and exact Chorus dormancy candidates host/target-tested; all-effect routing trace parity | Device comparisons, physical tails/wakeup and further measured pass work |
@@ -144,7 +144,11 @@ Initial feasibility: SDK SPI2 port C maps CLK/DO to PA3/PA4, matching the
 shift-register wiring. SPI0 serves flash and SPI1 serves the LCD. SPI2's DI
 route is PA2, also the LCD backlight, so a prototype must stay transmit-only
 and preserve that pad and unrelated PWM/IOMAP ownership. No peripheral scan
-path has been implemented or electrically validated; GPIO timing is unchanged.
+path has been implemented or electrically validated. A separately switchable
+fixed column-word table removes repeated word construction; default off. The
+shift routine, GPIO edge operations and blanking waits are unchanged. A
+brightness-cache probe was rejected after sparse patterns regressed by up to
+60%; it remains a host benchmark only.
 
 An older device trace measured about 10 microseconds per input tick. At
 10 kHz this is a material fixed cost on CPU0. Remeasure it on the current

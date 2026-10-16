@@ -70,6 +70,10 @@
 #define FM1_NKEY 41u              /* ids: 0..13 buttons, 14..40 note keys */
 #define FM1_NENC 7u
 
+#ifndef MELODEE_PANEL_FAST
+#define MELODEE_PANEL_FAST 0
+#endif
+
 
 /* key id at (physical column, packed row bit), -1 = none */
 static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {
@@ -153,6 +157,20 @@ static void fm1__led_col(uint32_t p)
                       fm1_led_pwm_level(4u, bright, dim, fm1_led_dim_mask),
                       fm1_led_pwm_level(8u, bright, dim, fm1_led_dim_mask),
                       fm1_led_pwm_level(16u, bright, dim, fm1_led_dim_mask));
+}
+
+static uint32_t fm1__column_word(uint32_t p)
+{
+#if MELODEE_PANEL_FAST
+    /* Active-low columns 0/1 also select the octave-indicator outputs. */
+    static const uint16_t word[FM1_NCOL] = {
+        0xf7feu, 0xeffdu, 0xfffbu, 0xfff7u, 0xffefu, 0xffdfu,
+        0xffbfu, 0xff7fu, 0xfeffu, 0xfdffu, 0xfbffu
+    };
+    return word[p];
+#else
+    return 0xFFFFu ^ (1u << p) ^ (p < 2u ? 1u << (11u + p) : 0u);
+#endif
 }
 
 static void fm1__sr_word(uint32_t w)
@@ -269,7 +287,7 @@ static void fm1_input_scan(void)
     uint32_t p;
     for (p = 0; p < FM1_NCOL; p++) {
         fm1__led_lines(0);
-        fm1__sr_word(0xFFFFu ^ (1u << p) ^ (p < 2u ? 1u << (11u + p) : 0u));
+        fm1__sr_word(fm1__column_word(p));
         fm1__wait(FM1_SETTLE_US);
         fm1_in.raw[p] = (uint8_t)fm1__rows();
         fm1__keys(p);
@@ -361,7 +379,7 @@ static void fm1_input_tick(void)
     fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick */
     FM1_INPUT_PROFILE_END(AP_INPUT_ROWS,rows_start);
     FM1_INPUT_PROFILE_START(shift_start);
-    fm1__sr_word(0xFFFFu ^ (1u << n) ^ (n < 2u ? 1u << (11u + n) : 0u));
+    fm1__sr_word(fm1__column_word(n));
     FM1_INPUT_PROFILE_END(AP_INPUT_SHIFT,shift_start);
     FM1_INPUT_PROFILE_START(led_start);
     fm1__led_col(n);

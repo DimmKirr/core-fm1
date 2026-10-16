@@ -288,6 +288,8 @@ if core; then
     t "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM -> DRUM, grid records)" upreset_test
     t "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders, fast spins" input_test
     t "LED hardware PWM: pin ownership, duty per scan, overlapping planes, blanking" led_pwm_test
+    t "Panel fixed column words: full scan and GPIO/PWM fallback" led_pwm_fast:led_pwm_test -DMELODEE_PANEL_FAST=1
+    t "Rejected panel brightness cache: exact masks/edits/fallback and sparse/changing costs" panel_prepare_bench -O2
     t "TRS MIDI parser" midi_uart_test
     t "USB audio: routing, clock drift and stream recovery" usb_audio_test
     t "USB audio: endpoint lifecycle and packet ownership" usb_audio_driver_test
