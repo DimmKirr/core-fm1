@@ -394,7 +394,7 @@ static inline __attribute__((always_inline)) int32_t fx_reverb_input(fx_state_t 
     }
     return f->damp[1];
 }
-static __attribute__((noinline,section(".dsp_text"))) void fx_reverb(fx_state_t *restrict f,int16_t *restrict mem,uint32_t n,const int32_t *drift,int32_t target)
+static __attribute__((noinline,section(".dsp_text"))) void fx_reverb(fx_state_t *restrict f,int16_t *restrict mem,uint32_t n,const int32_t *drift,int32_t target,int32_t *left,int32_t *right)
 {
     /* DEPTH retains more body on each round trip and raises the wet return.
      * Keep this work at FS/8: no additional delay memory or synth-rate DSP. */
@@ -402,7 +402,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_reverb(fx_state_t 
     uint32_t phase=f->decim;
     int32_t mix=f->mix,tone=166+f->character*80/127,level=724+f->character*3;
     for(uint32_t i=0;i<n;i++){
-        int32_t mono=fx_div_pow2(fx_left[i]+fx_right[i],1);
+        int32_t mono=fx_div_pow2(left[i]+right[i],1);
         a=(int32_t)((uint32_t)a+(uint32_t)mono);b=(int32_t)((uint32_t)b+(uint32_t)a);
         if(!phase){
             uint32_t comb=(uint32_t)b-(uint32_t)previous;previous=b;
@@ -452,7 +452,10 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_reverb(fx_state_t 
         }
         int32_t l=f->rev_prev_l+fx_div_pow2((f->rev_l-f->rev_prev_l)*(phase+1u),3);
         int32_t r=f->rev_prev_r+fx_div_pow2((f->rev_r-f->rev_prev_r)*(phase+1u),3);
-        fx_return(target,0,0,i,l,r,&mix);
+        int32_t dry_l=left[i],dry_r=right[i];
+        if(mix!=target)mix+=clamp(target-mix,-128,128);
+        left[i]=dry_l+fx_scale(l-dry_l,(uint32_t)mix*2u);
+        right[i]=dry_r+fx_scale(r-dry_r,(uint32_t)mix*2u);
         phase=(phase+1u)&7u;
     }
     f->mix=mix;f->decim=(uint8_t)phase;f->rev_input=a;f->rev_input2=b;f->echo=previous;f->damp[0]=difference;f->damp[1]=low;
@@ -634,7 +637,7 @@ static __attribute__((noinline,section(".audio_text"))) int fx_slot_run(const fx
          * keeping sine lookup calls outside the small SRAM sample kernel. */
         int32_t drift[8];for(uint32_t k=0;k<8u;k++)drift[k]=fx_sine(f->phase*(k+1u)+k*0x23456789u)*f->character/1024;
         f->phase+=n*11380u;void (*volatile setup)(fx_state_t *)=fx_reverb_setup;setup(f);
-        void (*volatile run)(fx_state_t *,int16_t *,uint32_t,const int32_t *,int32_t)=fx_reverb;run(f,mem,n,drift,target);
+        void (*volatile run)(fx_state_t *,int16_t *,uint32_t,const int32_t *,int32_t,int32_t *,int32_t *)=fx_reverb;run(f,mem,n,drift,target,fx_left,fx_right);
     }else if(f->type>=FX_ECHO){void (*volatile run)(fx_state_t *,int16_t *,uint32_t,int32_t)=fx_time;run(f,mem,n,target);}
     else {
         if(f->type==FX_TAPE){void (*volatile design)(fx_state_t *,uint32_t)=fx_tape_design;design(f,n);}
@@ -682,6 +685,77 @@ static inline int fx_process(track_t *t,int32_t *b,uint32_t n)
 #endif
     return result;
 }
+
+#if MELODEE_DUAL_CORE && MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
+/* A following track's one Reverb can overlap the current track's Reverb.
+ * Its tank and PCM are private; the global insert workspace stays on CPU0. */
+typedef struct {
+    fx_state_t *f;int16_t *mem;uint32_t n;int32_t target,left[CTL],right[CTL];
+#if MELODEE_AUDIO_PROFILE
+    uint32_t elapsed;
+#endif
+} fx_reverb_job_t;
+static fx_reverb_job_t fx_reverb_job __attribute__((section(".pool"),aligned(32)));
+static uint8_t fx_reverb_pending;
+#if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
+static volatile uint8_t fx_reverb_parallel_enabled=1;
+#else
+#define fx_reverb_parallel_enabled 1
+#endif
+static int fx_single_reverb(const track_t *t)
+{
+    uint32_t ti=(uint32_t)(t-trk),si=ti*FX_SLOTS;
+#if defined(MELODEE_FX_PROFILE) && MELODEE_FX_PROFILE && defined(FM1_IRQ_TARGET)
+    if(fx_profile_control)return 0;
+#endif
+    if(t->p[P_FXTYPE]!=FX_REVERB || !t->p[P_FXMIX] ||
+       (fx_state[si].type && fx_state[si].type!=FX_REVERB) || fx_state[si].failed)return 0;
+    for(uint32_t k=1;k<FX_SLOTS;k++)if((t->p[P_FXTYPE+k*FX_PARAMS] && t->p[P_FXMIX+k*FX_PARAMS]) ||
+        fx_state[si+k].type || resource[RES_FX0+si+k].size)return 0;
+    return 1;
+}
+static void fx_reverb_private_kernel(void *data)
+{
+    fx_reverb_job_t *j=data;fx_state_t *f=j->f;int32_t drift[8];AP_START(start);
+    for(uint32_t k=0;k<8u;k++)drift[k]=fx_sine(f->phase*(k+1u)+k*0x23456789u)*f->character/1024;
+    f->phase+=j->n*11380u;void (*volatile setup)(fx_state_t *)=fx_reverb_setup;setup(f);
+    void (*volatile run)(fx_state_t *,int16_t *,uint32_t,const int32_t *,int32_t,int32_t *,int32_t *)=fx_reverb;
+    run(f,j->mem,j->n,drift,j->target,j->left,j->right);
+#if MELODEE_AUDIO_PROFILE
+    j->elapsed=AUDIO_PROFILE_TICKS()-start;
+#endif
+}
+static int fx_reverb_private_start(track_t *current,track_t *next,int32_t *pcm,uint32_t n,fx_plan_t *first)
+{
+    fx_plan_t plan;
+    /* Preserve allocation priority if only one tank fits. */
+    fx_slot_prepare(first,(uint32_t)(current-trk)*FX_SLOTS,current->p+P_FXTYPE);
+    if(!first->active || first->f->type!=FX_REVERB)return 0;
+    fx_slot_prepare(&plan,(uint32_t)(next-trk)*FX_SLOTS,next->p+P_FXTYPE);
+    if(!plan.active || plan.f->type!=FX_REVERB)return 0;
+    fx_reverb_job_t *j=&fx_reverb_job;fx_state_t *f=plan.f;
+    j->f=f;j->mem=plan.mem;j->n=n;j->target=plan.target;f->mono=0;
+    for(uint32_t i=0;i<n;i++)j->left[i]=j->right[i]=clamp(pcm[i],-65536,65536);
+    fx_reverb_pending=(uint8_t)audio_worker_submit(fx_reverb_private_kernel,j);
+    if(!fx_reverb_pending)fx_reverb_private_kernel(j);
+    return 1;
+}
+static int fx_reverb_private_take(track_t *t,const int32_t *pcm,uint32_t n)
+{
+    int ok=1;
+    if(fx_reverb_pending){fx_reverb_pending=0;ok=audio_worker_join();}
+    /* Never replay a failed worker's partly advanced tank. */
+    if(!ok)return 0;
+#if MELODEE_AUDIO_PROFILE
+    audio_profile_add(AP_FX,fx_reverb_job.elapsed);
+#endif
+    for(uint32_t i=0;i<n;i++){
+        fx_left[i]=fx_reverb_job.left[i];fx_right[i]=fx_reverb_job.right[i];
+        fx_dry_l[i]=fx_dry_r[i]=clamp(pcm[i],-65536,65536);
+    }
+    fx_post_pan(t,n);return 1;
+}
+#endif
 
 /* Shared send/return: one chain or three independent post-fader buses. CPU0 and CPU1 never
  * access this workspace concurrently; join before events or flash IO. */

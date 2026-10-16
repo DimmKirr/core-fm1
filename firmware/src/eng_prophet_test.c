@@ -355,6 +355,7 @@ static inline __attribute__((always_inline)) uint32_t p5_wheel_inc(uint32_t base
 static __attribute__((section(".dsp_text"))) void p5_samples(p5_voice_t *restrict s,const uint8_t *restrict p,int32_t *restrict out,uint32_t n,const vmod_t *m,const p5_render_params_t *c)
 {
     int32_t last=0;
+    uint32_t fixed_pw_b=p5_pw(c->pwm_b);
     for(uint32_t i=0;i<n;i++){
         float time=(float)i*(1.0f/CTL);
         float fe=c->f0+(c->f1-c->f0)*time,ae=c->a0+(c->a1-c->a0)*time,sum=0.0f;
@@ -362,7 +363,7 @@ static __attribute__((section(".dsp_text"))) void p5_samples(p5_voice_t *restric
             float noise=(float)(noise32(&s->noise)>>8)*(1.0f/16777216.0f)-0.5f;
             float lfo=c->wheel[i*P5_OVERSAMPLE+os],wheel_pitch=c->wheel_pitch[i*P5_OVERSAMPLE+os];
             uint32_t db=p[P5_WHEEL_FREQ_B]?p5_wheel_inc(c->ib,wheel_pitch):c->ib;
-            float b=p5_wave(s->phase[1],db,p5_pw(c->pwm_b+(p[P5_WHEEL_PW_B]?lfo:0.0f)),p[P5_SAW_B],p[P5_PULSE_B],p[P5_TRI_B],&s->triangle);
+            float b=p5_wave(s->phase[1],db,(p[P5_WHEEL_PW_B]?p5_pw(c->pwm_b+lfo):fixed_pw_b),p[P5_SAW_B],p[P5_PULSE_B],p[P5_TRI_B],&s->triangle);
             float bn=b*2.0f;
             uint32_t da=p[P5_POLY_FREQ]?p5_inc(c->ia,fe*c->pa_env+bn*c->pa_b):c->ia;
             if(p[P5_WHEEL_FREQ_A])da=p5_wheel_inc(da,wheel_pitch);

@@ -373,6 +373,25 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     }
     case 98: {
 #if MELODEE_AUDIO_PROFILE
+#if MELODEE_AUDIO_BENCH
+#if MELODEE_DUAL_CORE && MELODEE_BATCH_AUDIO && !MELODEE_LEGACY_EXTRAS
+        if(na && a[0]==7u){
+            if(na>2u || (na==2u && a[1]>1u)){ed_b(1);break;}
+            if(na==2u){if(!AUDIO_LAB_GUARDED()){ed_b(3);break;}fx_reverb_parallel_enabled=a[1];}
+            ed_b(0);ed_b(7);ed_b(fx_reverb_parallel_enabled);break;
+        }
+#endif
+        /* Guarded, RAM-only scheduler calibration. One group's split is
+         * fixed at publication; the next group sees a new allowance. */
+        if(na && a[0]==5u){
+            if((na!=1u && na!=6u) || (na==6u && (a[5]>15u || (ed_bk_r32(a+1u)>31000u && ed_bk_r32(a+1u)!=AUDIO_BATCH_SERVICE_AUTO)))){ed_b(1);break;}
+            if(na==6u){
+                if(!AUDIO_LAB_GUARDED()){ed_b(3);break;}
+                audio_batch_service_allowance=ed_bk_r32(a+1u);
+            }
+            ed_b(0);ed_b(5);ed_bk_u32(audio_batch_service_allowance);break;
+        }
+#endif
         if(na==1u && a[0]==4u){
             /* Actual committed headers, including settings (backup inventory
              * exports live preferences). Reads validate object CRCs as usual. */

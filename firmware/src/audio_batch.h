@@ -4,12 +4,15 @@
 #ifndef MELODEE_BATCH_AUDIO
 #define MELODEE_BATCH_AUDIO 1
 #endif
-/* Eight bounded descriptors, flushed before reuse. Only voice sample work
+/* Twelve bounded descriptors, flushed before reuse. Only voice sample work
  * runs on CPU1; events and control preparation remain on CPU0. Each job owns
  * PCM scratch, so two voices never concurrently add to the same destination. */
 typedef void (*audio_batch_fn)(const void *,int32_t *);
-#define AUDIO_BATCH_BYTES 256u
-#define AUDIO_BATCH_JOBS 8u
+/* The largest current descriptor is Prophet (168 bytes on the 64-bit host);
+ * assertions at each producer bound the slots on both platforms. Twelve slots
+ * keep an eight-voice part and its drums in one parallel group. */
+#define AUDIO_BATCH_BYTES 168u
+#define AUDIO_BATCH_JOBS 12u
 typedef struct {
     audio_batch_fn run;int32_t *out;uint32_t n, profile_id,guard;
 #if MELODEE_AUDIO_PROFILE
@@ -39,7 +42,15 @@ static const uint32_t audio_batch_cost[AP_COUNT] __attribute__((section(".dsp_ta
 #endif
 static volatile uint32_t audio_batch_worker_mask,audio_batch_published,audio_batch_closed,audio_batch_invalid;
 static uint32_t audio_batch_producer_cost,audio_batch_worker_cost;
-static uint8_t audio_batch_started;
+static uint8_t audio_batch_started,audio_batch_fm6_controls;
+/* CPU0 prepares every descriptor and services TIMER5 while CPU1 renders.
+ * Reserve at least one kernel's cost: a fixed 2000 under-reserved Prophet
+ * and CZ work, leaving CPU0 late while CPU1 finished early. Cheaper kernels
+ * retain the previous allowance. Lab builds can compare explicit splits. */
+#define AUDIO_BATCH_SERVICE_AUTO UINT32_MAX
+#if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
+static volatile uint32_t audio_batch_service_allowance=AUDIO_BATCH_SERVICE_AUTO;
+#endif
 static void audio_batch_worker(void *context)
 {
     audio_batch_job_t *j=context;uint32_t n=j->n,id=j->profile_id;audio_batch_fn run=j->run;
@@ -131,11 +142,15 @@ static void audio_batch_push(audio_batch_fn run,const void *data,uint32_t bytes,
     j->run=run;j->out=out;j->n=n;j->profile_id=profile_id;memcpy(j->data,data,bytes);
     j->guard=(uint32_t)(uintptr_t)run^n^profile_id^0x913ab267u;
 #if MELODEE_DUAL_CORE
+    uint32_t cost=audio_batch_cost[profile_id];
     if(!k){
         AB_STORE(&audio_batch_published,0u);AB_STORE(&audio_batch_worker_mask,0u);AB_STORE(&audio_batch_closed,0u);AB_STORE(&audio_batch_invalid,0u);
-        audio_batch_worker_cost=0;audio_batch_producer_cost=2000u;
+        uint32_t service=profile_id==AP_PROPHET && audio_batch_fm6_controls?6000u:2000u;
+        audio_batch_worker_cost=0;audio_batch_producer_cost=cost>service?cost:service;
+#if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
+        if(audio_batch_service_allowance!=AUDIO_BATCH_SERVICE_AUTO)audio_batch_producer_cost=audio_batch_service_allowance;
+#endif
     }
-    uint32_t cost=audio_batch_cost[profile_id];
     if(audio_batch_worker_cost<=audio_batch_producer_cost){
         AB_STORE(&audio_batch_worker_mask,AB_LOAD(&audio_batch_worker_mask)|(1u<<k));audio_batch_worker_cost+=cost;
     }else audio_batch_producer_cost+=cost;

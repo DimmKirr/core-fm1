@@ -41,9 +41,25 @@ static void scenario(int worker,int success)
     assert(audio_profile[AP_BATCH_CPU1].calls==(worker&&success?2:0));
     assert(audio_profile[AP_BATCH_CPU1].ticks==(worker&&success?2:0));
 }
+static void engine_split(uint32_t id)
+{
+    int32_t out[CTL]={0};uint32_t value=1;online=join_ok=1;
+    for(uint32_t j=0;j<8u;j++)audio_batch_push(render,&value,sizeof value,out,CTL,id);
+    /* An eight-voice homogeneous group gives CPU1 five voices, CPU0 three.
+     * Prophet/CZ formerly gave four to each, despite CPU0's service work. */
+    assert(AB_LOAD(&audio_batch_worker_mask)==0xabu);
+    audio_batch_flush();for(uint32_t i=0;i<CTL;i++)assert(out[i]==8);
+}
 int main(void)
 {
     scenario(1,1);scenario(0,1);scenario(1,0);
+    const uint32_t ids[]={AP_PROPHET,AP_FM6,AP_CZ,AP_SID,AP_808,AP_909};
+    for(uint32_t k=0;k<sizeof ids/sizeof ids[0];k++)engine_split(ids[k]);
+    int32_t out[CTL]={0};uint32_t value=1;online=join_ok=1;advances=0;
+    for(uint32_t k=0;k<AUDIO_BATCH_JOBS+3u;k++)audio_batch_push(render,&value,sizeof value,out,CTL,AP_PROPHET);
+    assert(advances==AUDIO_BATCH_JOBS && audio_batch_count==3u);
+    audio_batch_flush();assert(advances==AUDIO_BATCH_JOBS+3u);
+    for(uint32_t i=0;i<CTL;i++)assert(out[i]==(int32_t)(AUDIO_BATCH_JOBS+3u));
     audio_batch_jobs[0].n=0;audio_batch_jobs[0].elapsed=12345;
     audio_batch_worker(&audio_batch_jobs[0]);assert(!audio_batch_jobs[0].elapsed);
     puts("batch profile: producer/worker/merge counts, serial fallback and failed-worker drop exact");

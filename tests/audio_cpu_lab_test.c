@@ -79,6 +79,18 @@ int main(void)
     reset();
 #if MELODEE_AUDIO_PROFILE && MELODEE_AUDIO_BENCH
     prepare();audio_lab_guard=0;
+    uint8_t tune[]={5,112,46,0,0,0}; /* 6000, five seven-bit bytes */
+    assert(request(98,tune,6)==7 && host_wire[5]==3 && audio_batch_service_allowance==AUDIO_BATCH_SERVICE_AUTO);
+    audio_lab_guard=1;
+    assert(request(98,tune,6)==13 && host_wire[5]==0 && audio_batch_service_allowance==6000);
+    assert(request(98,tune,1)==13 && host_wire[5]==0);
+    tune[5]=16;assert(request(98,tune,6)==7 && host_wire[5]==1 && audio_batch_service_allowance==6000);
+    tune[5]=0;tune[1]=127;tune[2]=127;tune[3]=127;
+    assert(request(98,tune,6)==7 && host_wire[5]==1 && audio_batch_service_allowance==6000);
+    assert(request(98,tune,2)==7 && host_wire[5]==1);
+    uint8_t automatic[]={5,127,127,127,127,15};
+    assert(request(98,automatic,6)==13 && host_wire[5]==0 && audio_batch_service_allowance==AUDIO_BATCH_SERVICE_AUTO);
+    audio_lab_guard=0;
     for(uint32_t op=0;op<=5;op++)assert(control(op,op>2?1:0)==3 && !transport_req && !song.rec);
     audio_lab_guard=1;
     for(uint32_t op=0;op<9;op++)for(uint32_t mask=0;mask<32;mask++)
@@ -98,6 +110,13 @@ int main(void)
     puts("CPU lab controls: guarded wire validation, native count-in/WAIT/latched/one-pass/seal/roundtrip passed");
 #else
     assert(control(1,0)==2 && !transport_req && !song.rec);
+    uint8_t tune[]={5,112,46,0,0,0};
+    assert(request(98,tune,6)==7);
+#if MELODEE_AUDIO_PROFILE
+    assert(host_wire[5]==1);
+#else
+    assert(host_wire[5]==2);
+#endif
     puts("CPU lab controls absent without both profiling and benchmark support");
 #endif
     return 0;
