@@ -5229,15 +5229,21 @@ static int test_seq_keys(void)
     frame();
     tap_key(key_at(1, 2));
     bad += check("  .. a black key: nothing (track 1 still)", ui.confirm == CF_PAT_KEY && song.sel == 0u);
+    press(B_OCTDN);
+    bad += check("  .. OCT-: gone, pattern 3 as it was", !ui.confirm && pattern_used(0, 2) && song.grid != 2u);
+    seq_hold_key(w3, 1100u);
     {
         char a[24], b[CF_DETAIL];
+        btn_up(B_SEQ); frame();
+        bad += check("  .. SEQ let go, nothing changed: the dialog stays", ui.confirm == CF_PAT_KEY);
+        btn_down(B_SEQ); frame();
         tap_key(key_at(1, 3));
         confirm_text(a, b);
-        bad += check("  .. C# (black key 4): pattern 3 halved, the dialog stays, its length in the title",
+        bad += check("  .. C# (black key 4): pattern 3 halved, the dialog stays (SEQ held), its length in the title",
                      ui.confirm == CF_PAT_KEY && pattern_at(0, 2)->timing[0] == 16 && msg_is("PATTERN HALVED") &&
                      str_eq(a, "PATTERN 3 \xB7 16 STEPS") && ui.pat_did && song.sel == 0u);
         tap_key(key_at(1, 4));
-        bad += check("  .. D# (black key 5): doubled, 32 steps", ui.confirm == CF_PAT_KEY &&
+        bad += check("  .. D# (black key 5): doubled, 32 steps, still up", ui.confirm == CF_PAT_KEY &&
                      pattern_at(0, 2)->timing[0] == 32 && msg_is("PATTERN DOUBLED"));
         ui_leds();
         for (i = 0; i < 41u; i++)
@@ -5251,9 +5257,17 @@ static int test_seq_keys(void)
         bad += check("  .. a quarter second on: dark (blinking)", !key_light(14u + key_at(1, 3)) &&
                      !key_light(14u + key_at(1, 4)));
         led_pos_init();
+        btn_up(B_SEQ); frame();
+        bad += check("  .. SEQ let go: closed, the keys play, still 32 steps, Stage stays", !ui.confirm &&
+                     song.grid != 2u && pattern_at(0, 2)->timing[0] == 32 && ui.home);
+        btn_down(B_SEQ); frame();
+        seq_hold_key(w3, 1100u);
+        btn_up(B_SEQ); frame();
+        tap_key(key_at(1, 4));
+        bad += check("  .. D# with SEQ already let go: doubled and closed at once", !ui.confirm &&
+                     pattern_at(0, 2)->timing[0] == 64);
+        btn_down(B_SEQ); frame();
     }
-    press(B_OCTDN);
-    bad += check("  .. OCT-: gone, pattern 3 as it was", !ui.confirm && pattern_used(0, 2) && song.grid != 2u);
     seq_hold_key(w3, 1100u);
     tap_key(w3);
     bad += check("  .. its key again: pattern 3 deleted (not the one playing)", !ui.confirm && !pattern_used(0, 2) &&

@@ -108,7 +108,7 @@ static uint32_t arp_led(void)
  * as GLO's mutes) the tracks. A white key tapped switches to its pattern (playing: at the bar); an empty one arms REC
  * with it, one with notes when hit again at once (PAT_DTAP_MS: REC's tap, on or off); held PAT_HOLD_MS, its
  * dialog (CF_PAT_KEY): the key again deletes it, another white key copies it there, the 4th and 5th black keys
- * (C# D#, blinking) halve and double it, OCT- leaves it */
+ * (C# D#, blinking) halve and double it (again while SEQ is held; let go: closed), OCT- leaves it */
 static const uint8_t PAT_KEY[NPAT] = {0, 2, 4, 6, 7, 9, 11, 12};
 static const uint8_t TRK_KEY[NTRK] = {1, 3, 5, 8};
 static const uint8_t LEN_KEY[2] = {8, 10};              /* (its dialog: half, double) */
@@ -337,7 +337,8 @@ static void pattern_key_delete(uint32_t k, uint32_t b)
     ui.force = 1;
 }
 /* .. C# halves it, D# doubles it (motion.c pattern_double: its steps copied after themselves); the dialog stays,
- * saying the length. The pattern playing: undoable (EDIT held) as a load, with recorded notes as a precise clear */
+ * saying the length, while SEQ is held (ui_input closes it as SEQ is let go). The pattern playing: undoable (EDIT
+ * held) as a load, with recorded notes as a precise clear */
 static void pattern_key_len(uint32_t k, uint32_t b, int up)
 {
     track_t *t = &trk[k];
@@ -2220,6 +2221,10 @@ static void ui_input(void)
             ui_confirm_accept();
         } else if (oct & 1u) {
             ui.confirm = 0;
+            ui.force = 1;
+        }
+        if (ui.confirm == CF_PAT_KEY && ui.pat_did && !(fm1_in.buttons & (1u << panel.btn[B_SEQ]))) {
+            ui.confirm = 0;                             /* (its length changed: closed as SEQ is let go) */
             ui.force = 1;
         }
         song.grid = (uint8_t)keys_mode();               /* (closed: the keys play at once) */

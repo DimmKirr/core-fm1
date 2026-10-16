@@ -573,8 +573,8 @@ and automatically disarm. Selecting an empty pattern preserves existing explicit
 Hold a pattern key alone for a second: a small dialog asks what next: press it again to delete the pattern, another
 pattern key to copy it there, OCT- to leave it. In the dialog the 4th and 5th black keys (C#, D#) blink: C# halves the
 pattern (LEN /2, the steps past it kept hidden), D# doubles it (LEN x2, its steps, recorded notes and motion copied
-after themselves; 64 steps at most). The dialog stays, its title saying the length, so either can be pressed again;
-on the pattern playing EDIT held undoes them. With SEQ held the first four black keys (F#, G#, A#, C#) select
+after themselves; 64 steps at most). While SEQ is held the dialog stays, its title saying the length, so either can
+be pressed again; letting go of SEQ closes it. On the pattern playing EDIT held undoes them. With SEQ held the first four black keys (F#, G#, A#, C#) select
 tracks 1–4 (the selected one lit, an armed one breathing). **SEQ + SELECT** also chooses a pattern. While playing,
 destructive edits wait for the track's loop end, as a pattern change does: deleting or clearing a pattern, clearing
 its motion, copying over a pattern in use or the one playing (the header says **… AT LOOP END**, the pattern's key
