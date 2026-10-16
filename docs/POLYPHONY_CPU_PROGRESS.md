@@ -1657,3 +1657,93 @@ playback, not live recording acceptance. Live capture/overdub, TRS clock,
 profiling-overhead/calibration, electrical scanning, physical controls/audio,
 normal ten-minute stress, target before/after comparisons and additional-voice
 qualification remain open. Candidate defaults and voice allowances are unchanged.
+
+## Stage 0/5/7: bounded live REC/overdub takes
+
+Parent `7d3d685`. `tools/audio_cpu_device.py --live-notes 16|64|256` runs a
+bounded live take inside the existing guarded RuntimeSession: `--live-tracks
+single|all`, `--live-mode latched|one-pass`, `--live-base 0|64|256` constructed
+events to overdub, `--recording-timing free|grid` (QNT 1/16 at take end),
+integer `--sequence-bpm 60..160`, `--take-tolerance-ms` (default 8) and
+`--input-lateness-ms` (default 3). It needs a profiling + benchmark package
+(editor 101); the runner now rejects internal-clock playback or live takes
+with any other manifest before connecting.
+
+`tests/audio_cpu_take.c` builds the base FBKK from the playback fixture code
+(64 or 256 events, at most one note per cell on armed tracks), applies the
+runner's common sound setup values, and writes one deterministic schedule:
+the first note at step zero on track 1, later onsets a quarter step into steps
+1..56, releases at 0.65 of a step, gates up to two steps without same-track
+overlap, distinct pitches/lanes in each cell and from the base. Each onset and
+release keeps at least a quarter step from the boundaries that decide its cell,
+overview rounding and TIE conversion. The same helper replays that schedule
+through `midi_enqueue`, `events_block` and `rec_set` (arm stopped, note-started
+internal transport, latched punch-out or one-pass loop end, then Stop) to give
+the expected take. `--inspect` decodes device FBKK with the firmware validator.
+The playback fixture's emitted bytes stayed identical across this refactor.
+
+On the device the runner transfers the base before **every** take, reapplies
+globals (CLK INT, BPM, ROUTE CH1-4), runs the usual preset setup, arms through
+editor 101 while stopped, and sends the schedule from one thread over USB MIDI.
+The first note-on is time zero on both sides. Every message is sent, late ones
+late; send-return lateness is recorded and bounded. Statistics and native state
+are sampled throughout input: every sample must be armed, running, INT clock,
+no count-in or pending request. A latched take is disarmed while still in its
+first pass (a punch-out within 0.25 s of the loop end fails); a one-pass take
+must finish at its loop end with transport running. After Stop, the runtime is
+read back in memory and compared: every base event exact; every scheduled note
+once with identical track, bank, cell, overview flags, note, velocity, pitch
+offset and length; onset and duration within tolerance plus measured input
+lateness; no extra event; identical active-bank overview (fractional gate byte
+excluded). A sender, arming, punch-out, transport or read failure releases held
+notes, disarms and stops (both idempotent; a cleanup failure reports both
+errors) before the existing restoration. A take or CPU failure fails the row.
+The DRUM MIDI channel is decoded from the in-memory preference snapshot with the
+firmware's own layout; a channel in 1..4 is refused before any transfer because
+it would route take input to a drum track.
+
+Host evidence:
+
+- `audio_cpu_take` self-test: nine schedules across single/all tracks,
+  latched/one-pass, free/grid, empty/64/256-event bases, 16/64/256 notes,
+  60..160 BPM and melodic/808/909 tracks. Each checks every note once, exact
+  base retention, all disarmed/stopped; count-in preference cannot change a
+  note-started take; three 6-ms-jitter replays per schedule keep identical
+  structure and bounded onset/duration differences (36 cases). Invalid specs
+  and all 17 drum-channel encodings are checked. `build/cpu-live-take-host.log`.
+- ASan/UBSan with legacy signed shifts and **alignment** excluded:
+  `build/cpu-live-take-sanitized.log`. Alignment is excluded because
+  `drum909_part_t` holds a pointer (8-byte aligned on the 64-bit host) inside
+  the firmware's 4-byte-aligned resource arena; the target pointer is 4 bytes
+  and the 909 state has no 64-bit members. This existing host-only finding is
+  reached because the replay plays 909 notes; firmware is unchanged.
+- 10 Python tests: real helper plans and 4.5-ms-jitter replays pass the
+  comparator, missing/extra/late events, a changed base event and an overview
+  difference fail; specs are rejected before compilation; sender order matches
+  the native replay and a failed send releases both held notes; latched and
+  one-pass state flow; sender failure, late punch-out, one-pass timeout and
+  cleanup failure all disarm/stop or report; validation failure or a dropped
+  arm fails the row; the CLI transfers the base per take inside the guard,
+  writes CLK INT, refuses drum channel 2 with verified restoration and rejects
+  invalid options or a package without benchmark support.
+- Both registered in the complete suite, with all eleven candidate flags in
+  host compilation: **ALL HOST TESTS PASSED in 79 s**,
+  `build/cpu-live-take-suite.log`; its target listing is the saved all-off
+  normal `cpu-lab0`. The 54 earlier CPU-tool tests still pass.
+
+**Not executed on hardware.** Host-paced USB MIDI cannot establish physical
+key timing, TRS clock or listening. The tolerance compares timing; it does not
+measure input latency. No firmware, package, installation, workload, counter
+reset, guard change, preference/USB-layout edit or publication resulted.
+
+Example for a future explicitly installed matching lab package, from an
+interactive terminal with all tracks disarmed:
+
+```sh
+build/venv/bin/python tools/audio_cpu_device.py \
+  --build-manifest build/cpu-lab11-build.json \
+  --output build/CHOOSE-A-FRESH-LIVE-TAKE-SCREEN \
+  --assignment 0124 --budget 32 --repeat 3 \
+  --live-notes 256 --live-tracks all --live-mode latched \
+  --live-base 256 --recording-timing grid --sequence-bpm 120
+```

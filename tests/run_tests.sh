@@ -283,6 +283,7 @@ if core; then
     run "Normal firmware stress: continuous ten-minute polling, faults, wrap and native driver stderr" python3 tests/audio_cpu_stress_test.py
     run "CPU USB capture: stereo/stems, actual frames and final driver errors" python3 tests/audio_cpu_usb_test.py
     run "CPU sequence runner: memory fixtures, external-clock timing and guarded restoration" python3 tests/audio_cpu_sequence_test.py
+    run "CPU live takes: native replay comparison, timed input, failure cleanup and guarded restoration" python3 tests/audio_cpu_take_test.py
     run "target budget: natural loops and FPU decoding" python3 tests/target_budget_test.py
     t "retired synth identities, project/user patch preservation and favorites" engine_retirement_test -O2 $FW
     t "capture gating, derived caches and silent-track clocks" performance_test -DMELODEE_LEGACY_EXTRAS=1 -O2 $FW
@@ -398,6 +399,7 @@ if sound && [ $TABLES = 1 ]; then
     t "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, stereo sides and routing" mod_spread_test -O2 $FW
     t "modulation routing cache: independent reference parity and comparison cost" mod_route_test -O2 $FW
     t "CPU playback fixtures: exact full-bank serialization across densities/timing/engines" audio_cpu_fixture -O2 $FW
+    t "CPU live takes: REC/overdub schedules, native simulation, jitter bounds, FBKK decoding" audio_cpu_take -O2 $FW
     t "routing rebuild probes: full-state parity and rejected steady/changing costs" mod_churn_bench -O2 $FW
     t "SID filter output: exact full state across models/waves/stacks/modes and costs" sid_filter_test -O2 $FW
     t "808/909 metal preparation: exact pitches, states and steady/changing costs" drum_prepare_test -O2 $FW

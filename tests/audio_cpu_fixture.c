@@ -10,10 +10,10 @@
 static const uint8_t cpu_engines[]={19,12,15,3,10,10};
 static uint8_t fixture_raw[BANK_STORE_SIZE];
 static recorded_note_t fixture_notes[RECORD_MAX];
-static int make_fixture(uint32_t count,uint32_t quant,uint32_t spread,uint32_t tails,const char *assignment)
+/* Stopped, disarmed, empty four-track project with the assigned engines. */
+static int fixture_tracks(uint32_t quant,const char *assignment)
 {
-    if(count!=64u && count!=256u && count!=RECORD_MAX)return 0;
-    if(quant>1u || spread>1u || tails>1u || strlen(assignment)!=NTRK)return 0;
+    if(quant>1u || strlen(assignment)!=NTRK)return 0;
     for(uint32_t k=0;k<NTRK;k++)if(assignment[k]<'0' || assignment[k]>'5')return 0;
     ui_power_on();seq_stop();song.rec=song.rec_latch=0;recording_reset();
     song.ntrk=NTRK; /* unused tracks would take no notes or mixer CPU */
@@ -30,6 +30,12 @@ static int make_fixture(uint32_t count,uint32_t quant,uint32_t spread,uint32_t t
         }
     }
     song.g[G_BPM]=120;song.g[G_CLOCK]=0;song.g[G_SWING]=0;
+    return 1;
+}
+static int make_fixture(uint32_t count,uint32_t quant,uint32_t spread,uint32_t tails,const char *assignment)
+{
+    if(count!=64u && count!=256u && count!=RECORD_MAX)return 0;
+    if(spread>1u || tails>1u || !fixture_tracks(quant,assignment))return 0;
     for(uint32_t i=0;i<count;i++){
         uint32_t k=spread?i/(count/NTRK):0u,local=spread?i%(count/NTRK):i,cell=local%NSTEP,group=local/NSTEP;
         track_t *t=&trk[k];uint32_t category=(uint32_t)(assignment[k]-'0');
@@ -62,6 +68,7 @@ static int make_fixture(uint32_t count,uint32_t quant,uint32_t spread,uint32_t t
     }
     return active==count && owners==(spread?15u:1u);
 }
+#ifndef AUDIO_CPU_FIXTURE_NO_MAIN
 int main(int argc,char **argv)
 {
     if(argc==7 && !strcmp(argv[1],"--emit")){
@@ -88,3 +95,4 @@ int main(int argc,char **argv)
     printf("CPU playback fixtures: %u density/timing/layout/tail/engine cases, exact recording roundtrip and overview ownership\n",cases);
     return 0;
 }
+#endif

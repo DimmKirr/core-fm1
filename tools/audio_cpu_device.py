@@ -24,6 +24,7 @@ from audio_performance_device import (ReliableDevice, metadata, run,
                                       DEADLINE_US)
 from audio_cpu_usb import capture_driver_stderr, usb_streams, capture_result
 from audio_cpu_sequence import build_fixture, run_sequence, require_disarmed
+from audio_cpu_take import take_spec, build_take, run_take, drum_channel
 
 MAX_RUNTIME_BYTES = 256 * 1024
 PREFERENCE_BYTES = 604
@@ -282,6 +283,12 @@ def main():
     p.add_argument('--recording-tails', choices=('short', 'long'), default='short')
     p.add_argument('--sequence-bpm', type=float, default=120)
     p.add_argument('--clock-jitter-ms', type=float, default=2)
+    p.add_argument('--live-notes', type=int, choices=(16, 64, 256), help='Bounded live REC take from host-paced USB MIDI')
+    p.add_argument('--live-tracks', choices=('single', 'all'), default='all')
+    p.add_argument('--live-mode', choices=('latched', 'one-pass'), default='latched')
+    p.add_argument('--live-base', type=int, choices=(0, 64, 256), default=0, help='Constructed events to overdub')
+    p.add_argument('--take-tolerance-ms', type=float, default=8)
+    p.add_argument('--input-lateness-ms', type=float, default=3)
 
     a = p.parse_args()
     if len(a.assignment) != 4 or any(c not in '012345' for c in a.assignment):
@@ -306,6 +313,20 @@ def main():
         p.error('Recording playback cannot use held-note event bursts or drum-note replacement')
     if a.sequence_clock != 'usb' and not a.recording_events:
         p.error('sequence-clock requires recording-events')
+    live = None
+    if a.live_notes:
+        if a.recording_events or a.event_bursts or a.drum_note is not None:
+            p.error('Live takes send their own notes; no playback fixture, event bursts or drum-note replacement')
+        if not (math.isfinite(a.take_tolerance_ms) and 0 < a.take_tolerance_ms <= 20 and
+                math.isfinite(a.input_lateness_ms) and 0 < a.input_lateness_ms <= 10):
+            p.error('Take tolerance 0..20 ms; input lateness limit 0..10 ms')
+        try:
+            if a.sequence_bpm != int(a.sequence_bpm):
+                raise ValueError('Live take BPM must be an integer')
+            live = take_spec(int(a.sequence_bpm), a.live_notes, a.live_tracks, a.live_mode,
+                             a.recording_timing, a.live_base, a.assignment)
+        except ValueError as error:
+            p.error(str(error))
     if a.recording_events and (not math.isfinite(a.sequence_bpm) or not 40 <= a.sequence_bpm <= 240 or
             not math.isfinite(a.clock_jitter_ms) or not 0 < a.clock_jitter_ms < 60000/(a.sequence_bpm*24)):
         p.error('Sequence BPM 40..240; positive jitter limit below one clock interval')
@@ -313,12 +334,16 @@ def main():
     package = Path(manifest['package'])
     if hashlib.sha256(package.read_bytes()).hexdigest() != manifest['package_sha256']:
         p.error('Package no longer matches build manifest')
+    if (a.sequence_clock == 'internal' or live) and not (manifest['flags'].get('MELODEE_AUDIO_PROFILE') == 1 and
+            manifest['flags'].get('MELODEE_AUDIO_BENCH') == 1):
+        p.error('Native transport/REC control needs a profiling + benchmark package')
     if a.output.exists():
         p.error('Output exists; preserve earlier evidence')
     if not sys.stdin.isatty():
         p.error('Run in an interactive terminal so a failed restoration can retain its in-memory snapshot for recovery')
     fixture, fixture_info = build_fixture(a.recording_events, a.recording_timing, a.recording_layout,
         a.recording_tails, a.assignment, manifest) if a.recording_events else (None, None)
+    plan = build_take(live, manifest) if live else None
     a.output.mkdir(parents=True)
     d = ReliableDevice(a.port)
     session = RuntimeSession(d)
@@ -351,27 +376,45 @@ def main():
         if a.event_bursts or a.source_churn:
             d.performance_step_hook = control_updates
         (a.output/'run.json').write_text(json.dumps(dict(build=manifest, identity=identity,
-            metadata=m, workload=vars(a), recording_fixture=fixture_info, evidence='device screening; physical validation pending'),
+            metadata=m, workload=vars(a), recording_fixture=fixture_info,
+            live_take=plan['info'] if plan else None, evidence='device screening; physical validation pending'),
             indent=2, default=str)+'\n')
-        if fixture is not None:
+        if fixture is not None or plan:
             require_disarmed(d)
         with session:
             d.silence()
+            if plan:
+                channel = drum_channel(session.preferences)
+                if 1 <= channel <= 4:
+                    raise RuntimeError(f'MIDI IN DRUM channel {channel} would route take input to a drum track; choose another DRUM channel')
             if fixture is not None:
                 write_ram(d, 0, fixture)
             _, globals_ = param_ids()
             values = dict(G_BUDGET=a.budget, G_CLOCK=int(fixture is not None and a.sequence_clock == 'usb'), G_ROUTE=0, G_MFXTYPE=0, G_MFX2TYPE=0, G_MFX3TYPE=0)
-            if fixture is not None:
+            if fixture is not None or plan:
                 values['G_BPM'] = round(a.sequence_bpm)
             if a.fx:
                 values.update(G_FXMODE=0, G_MFXTYPE=9, G_MFXMIX=127, G_MFXRATE=127, G_MFXCHAR=127, G_FXRETURN=127)
-            for key, value in values.items():
-                v = value+8192
-                d.request(3, [1, globals_[key], v & 127, v >> 7])
+            def apply_globals():
+                for key, value in values.items():
+                    v = value+8192
+                    d.request(3, [1, globals_[key], v & 127, v >> 7])
+            def read_runtime(device):
+                entries = {ident: (ident, length, crc) for ident, length, crc in inventory(device)}
+                return read_object(device, entries[0])
+            apply_globals()
             streams = usb_streams(a.output/'capture.wav', 'int24', a.usb) if a.usb != 'inactive' else contextlib.nullcontext()
             with capture_driver_stderr(a.output/'driver-stderr.log'), streams as stream_statuses, (a.output/'cases-pending.jsonl').open('w') as f:
                 for repeat in range(a.repeat):
-                    row = (run_sequence if fixture is not None else run)(d, list(map(int, a.assignment)), voices, a.variant, a.seconds, False)
+                    if plan:
+                        # Every take starts from the same constructed base, inside the guard.
+                        require_disarmed(d)
+                        write_ram(d, 0, plan['base'])
+                        apply_globals()
+                        row = run_take(d, plan, list(map(int, a.assignment)), a.variant, read_runtime,
+                                       a.take_tolerance_ms, a.input_lateness_ms)
+                    else:
+                        row = (run_sequence if fixture is not None else run)(d, list(map(int, a.assignment)), voices, a.variant, a.seconds, False)
                     row['histogram'] = histogram(d, row['metadata']['timer5_max_ticks'])
                     row['host_audio_statuses'] = list(stream_statuses or [])
                     row['host_audio_pending'] = True

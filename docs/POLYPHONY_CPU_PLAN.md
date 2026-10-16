@@ -41,6 +41,7 @@ and prepared/installed distinctions are maintained in the progress log:
 - `8e5ce97`: exact 808 zero-transpose and 909 unity-pitch metal preparation candidates, independent numerical and full-state/render comparisons; default off, not installed.
 - Exact SID filter-output specialization avoids unused high-pass arithmetic with full state/PCM parity and host/target checks; default off, not installed.
 - Guarded lab-only native transport/REC control and internal-clock constructed playback; review fixed a nested interrupt-mask defect and track-in-use checks; fresh packages prepared, not installed.
+- Bounded live REC/overdub take runner with native-replay comparison, failure cleanup and guarded restoration; host-tested, not run on hardware.
 
 The full host suites passed in 79 s for the baseline infrastructure, 83 s
 with the original cache and 81 s with the revised cache. Validation includes
@@ -97,8 +98,10 @@ pending. The runner now ranks inclusive spans and covers voice/engine modulation
 routes plus host-paced source changes. The screening and normal observers now support exact stereo/four-stem USB
 capture with final host-driver evidence. Constructed 64/256/1,024-event playback
 fixtures and measured host-paced USB clock are host-tested; device execution
-is unrun. Live capture/overdub, internal/TRS-clock fixtures and controlled
-physical input remain open. Actual stem capture is unrun.
+is unrun. Bounded live REC/overdub takes from host-paced USB MIDI are compared
+against the firmware's own replay of the same schedule (host-tested, unrun).
+TRS-clock fixtures and controlled physical input remain open. Actual stem
+capture is unrun.
 Guarded native transport/REC control (lab-only editor 101) and an
 internal-clock option for constructed playback are host-tested, with fresh
 `cpu-lab11`/`cpu-ref9`/`cpu-lab0` prepared packages; internal-clock playback is
