@@ -854,6 +854,7 @@ static void draw_uboot(void)
 #define DLG_Y 36
 #define DLG_W 224
 #define DLG_H 168
+#define CF_DETAIL 64                                    /* confirm_text's b: its longest detail and the 0 */
 static void confirm_text(char *a, char *b)
 {
     uint32_t k = ui.confirm_trk;
@@ -950,11 +951,18 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "REPLACE OLD TEMPLATE?", 24);
         str_cpy(b, "Old settings/template replaced", 32);
         break;
-    case CF_PAT_KEY:                                    /* SEQ + a white key held: what its keys do now */
-        str_cpy(a, "PATTERN 1", 24);
-        a[8] = (char)('1' + ui.pat_dlg % NPAT);
-        str_cpy(b, "Again: delete \xB7 other: copy", 32);
+    case CF_PAT_KEY: {                                  /* SEQ + a white key held: its length, what its keys do now
+                                                         * (b: CF_DETAIL) */
+        uint32_t p = ui.pat_dlg % NPAT, n;
+        n = (uint32_t)clamp(p == trk[k % NTRK].pattern ? trk[k % NTRK].p[P_SLEN] : pattern_at(k % NTRK, p)->timing[0],
+                            1, NSTEP);
+        str_cpy(a, "PATTERN 1 \xB7 ", 24);
+        a[8] = (char)('1' + p);
+        fmt_int(a + str_len(a), (int32_t)n);
+        str_cpy(a + str_len(a), n == 1u ? " STEP" : " STEPS", 7);
+        str_cpy(b, "Again: delete \xB7 other: copy\nBlinking: half \xB7 double", CF_DETAIL);
         break;
+    }
     case CF_DEL_TRACK:                                  /* Stage's sheet: the tracks after it move down a place */
         str_cpy(a, "REMOVE TRACK 1?", 24);
         a[13] = (char)('1' + k % NTRK);
@@ -980,13 +988,14 @@ static void confirm_words(char *s)                      /* "OVERWRITE PROJECT A?
 }
 /* the question card: the warning, the question (the text face) and its detail (the label face), each wrapped onto as
  * many lines as it needs (nothing is ever cut), OCT- "No" and OCT+ "Yes" (the track's colour); the card as tall as
- * its words, centred over the page under it (dimmed). SEQ's pattern dialog: smaller, no warning, "Cancel" "Delete" */
+ * its words, centred over the page under it (dimmed). SEQ's pattern dialog: smaller, no warning, "Cancel" ("Done"
+ * once its length changed) "Delete" */
 static void draw_confirm(void)
 {
-    char a[24], b[32], q[TL_MAX][32], d[TL_MAX][32];
+    char a[24], b[CF_DETAIL], q[TL_MAX][32], d[TL_MAX][32];
     const aafont_t *tf = TY_TX, *lf = TY_LB;
     uint32_t nq, nd, i, nc = 0, k, pk = ui.confirm == CF_PAT_KEY;
-    const char *no = pk ? "Cancel" : "No", *yes = pk ? "Delete" : "Yes";
+    const char *no = pk ? (ui.pat_did ? "Done" : "Cancel") : "No", *yes = pk ? "Delete" : "Yes";
     int32_t top, h, y0, sh, cut[2 * TL_MAX + 2], ty = pk ? 14 : 34;   /* (ty: the words' first row) */
     confirm_text(a, b);
     confirm_words(a);

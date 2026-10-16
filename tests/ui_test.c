@@ -875,7 +875,7 @@ static int test_track_count(void)
 {
     int bad = 0, ok;
     uint32_t i, n;
-    char a[32], b[40];
+    char a[32], b[CF_DETAIL];
     ui_power_on();
     stop_transport();
     memset(proj_slot, 0, sizeof proj_slot);
@@ -3352,7 +3352,7 @@ static int test_edit_cycle(void)
  * loads the BOOT project, else the template; CLK TUNE MIDI ROUT kept as last used (glo_poll, glo_restore) */
 static int test_old_storage_ui(void)
 {
-    int bad = 0; char tag[8], name[16], title[32], detail[40];
+    int bad = 0; char tag[8], name[16], title[32], detail[CF_DETAIL];
     ui_power_on(); stop_transport(); set_engine(9u); up_cache_reset();
     up_rec_t *old = up_rec(0); old->used = UP_USED; old->ver = 1; old->engine = 9u;
     for (uint32_t p = 0; p < NPAGES; p++) if (PAGES[p].graph == GR_USER) { ui.page = (uint8_t)p; break; }
@@ -4183,7 +4183,7 @@ static int test_bughunt_ui(void)
     sheet_do("Erase");
     ok = ui.confirm == CF_ERASE_USER && ui.confirm_trk == 1u && up_used(1);
     {
-        char a[24], b[32];
+        char a[24], b[CF_DETAIL];
         confirm_text(a, b);
         ok &= str_eq(a, "ERASE U002?") && b[0];
     }
@@ -5229,6 +5229,29 @@ static int test_seq_keys(void)
     frame();
     tap_key(key_at(1, 2));
     bad += check("  .. a black key: nothing (track 1 still)", ui.confirm == CF_PAT_KEY && song.sel == 0u);
+    {
+        char a[24], b[CF_DETAIL];
+        tap_key(key_at(1, 3));
+        confirm_text(a, b);
+        bad += check("  .. C# (black key 4): pattern 3 halved, the dialog stays, its length in the title",
+                     ui.confirm == CF_PAT_KEY && pattern_at(0, 2)->timing[0] == 16 && msg_is("PATTERN HALVED") &&
+                     str_eq(a, "PATTERN 3 \xB7 16 STEPS") && ui.pat_did && song.sel == 0u);
+        tap_key(key_at(1, 4));
+        bad += check("  .. D# (black key 5): doubled, 32 steps", ui.confirm == CF_PAT_KEY &&
+                     pattern_at(0, 2)->timing[0] == 32 && msg_is("PATTERN DOUBLED"));
+        ui_leds();
+        for (i = 0; i < 41u; i++)
+            led_pos[i] = (uint8_t)((i % FM1_NCOL) << 3 | (1u + i / FM1_NCOL));
+        fm1_ms += 500u - fm1_ms % 500u;
+        ui_leds();
+        bad += check("  .. C# D# lit, the track keys dark", key_light(14u + key_at(1, 3)) == 2u &&
+                     key_light(14u + key_at(1, 4)) == 2u && !key_light(14u + key_at(1, 0)));
+        fm1_ms += 250u;
+        ui_leds();
+        bad += check("  .. a quarter second on: dark (blinking)", !key_light(14u + key_at(1, 3)) &&
+                     !key_light(14u + key_at(1, 4)));
+        led_pos_init();
+    }
     press(B_OCTDN);
     bad += check("  .. OCT-: gone, pattern 3 as it was", !ui.confirm && pattern_used(0, 2) && song.grid != 2u);
     seq_hold_key(w3, 1100u);

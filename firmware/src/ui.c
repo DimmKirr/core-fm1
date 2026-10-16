@@ -119,7 +119,8 @@ static struct {
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
     uint8_t pat_key, pat_copy, pat_track;          /* SEQ + white-key bank gesture */
-    uint8_t pat_tap, pat_dlg;                      /* .. the key last tapped (+1), the one held to its dialog */
+    uint8_t pat_tap, pat_dlg, pat_did;             /* .. the key last tapped (+1), the one held to its dialog, its
+                                                    * length changed there (Cancel: Done) */
     uint32_t pat_ms, pat_tap_ms;                   /* .. when it went down, when the tapped one was let go */
     uint8_t ptc_on, ptc_trk, ptc_src, ptc_dst;     /* PATTERNS' Copy to: track ptc_trk's pattern src to dst
                                                     * (ui_patterns.c) */
@@ -1159,21 +1160,23 @@ static void confirm_open(uint32_t kind, uint32_t trk)
 #include "note_tools.c"
 
 #define TL_MAX 4u
-/* s wrapped into at most m lines of w px in face f (at spaces; a word wider than the line: at the last character that
- * fits), each line up to 31 characters; the number of lines */
+/* s wrapped into at most m lines of w px in face f (at spaces, always at a '\n'; a word wider than the line: at the
+ * last character that fits), each line up to 31 characters; the number of lines */
 static uint32_t text_lines(const char *s, char (*l)[32], uint32_t m, int32_t w, const aafont_t *f)
 {
     uint32_t k = 0;
     while (*s && k < m) {
         uint32_t i, cut = 0;
-        while (*s == ' ')
+        while (*s == ' ' || *s == '\n')
             s++;
         for (i = 1; s[i - 1] && i < 32u; i++) {
             str_cpy(l[k], s, i + 1u);
             if (text_w(f, l[k]) > w)
                 break;
-            if (!s[i] || s[i] == ' ')
+            if (!s[i] || s[i] == ' ' || s[i] == '\n')
                 cut = i;
+            if (s[i] == '\n')
+                break;
         }
         if (!cut) {                                     /* (one long word: as much of it as fits) */
             for (cut = 1; s[cut] && cut < 31u; cut++) {
