@@ -872,18 +872,37 @@ static void one_note(track_t *t, uint32_t i, uint32_t note)
     t->step[i].note[0] = (uint8_t)note;
     t->step[i].vel = 100;
 }
+static uint32_t find_preset(uint32_t e, const char *name);
 static int test_track_count(void)
 {
     int bad = 0, ok;
     uint32_t i, n;
     char a[32], b[CF_DETAIL];
+    static const char *const DEF[NTRK] = {"It's a Prophet 5", "SOLID BASS", "SYNTH.LEAD 1", "808 KIT"};
     ui_power_on();
     stop_transport();
     memset(proj_slot, 0, sizeof proj_slot);
     memset(proj_bank_slot, 0, sizeof proj_bank_slot);
     project_new_blank();
     go_home(); frame();
-    bad += check("a new song: one track, T1 selected", trk_n() == 1u && song.sel == 0);
+    ok = trk_n() == NTRK && song.sel == 0;
+    for (i = 0; i < NTRK; i++)
+        ok &= trk[i].eng_req == TRK_DEF[i][0] && trk[i].preset == find_preset(TRK_DEF[i][0], DEF[i]) &&
+              seq_is_empty(&trk[i]);
+    bad += check("a new song: four tracks, It's a Prophet 5, FM6 SOLID BASS, CZ-1 SYNTH.LEAD 1, 808 KIT; T1 selected",
+                 ok && TRK_DEF[0][0] == ENGI_PROPHET && TRK_DEF[1][0] == ENGI_FM6 && TRK_DEF[2][0] == ENGI_CZ &&
+                 TRK_DEF[3][0] == ENGI_DRUM);
+    bad += check("  NEW SONG without a template: all four", template_tracks() == NTRK);
+    song.ntrk = 1;                                      /* (a song down to one track) */
+    ui.force = 1; frame();
+    bad += check("UNUSED TRACKS SHOW: four rows, the places not in use greyed (Add track)", stage_rows() == NTRK &&
+                 st_row_h() == (ST_ROWS_H - 6) / 4 && stage.col[1] && stage.col[3]);
+    hold(B_HOME); ui.menu_sel = MI_TRACKS; press(B_OCTUP); hold(B_HOME);
+    ui.force = 1; frame();
+    bad += check("  menu UNUSED TRACKS (OCT+): HIDE, the one track the wide card",
+                 (GLO_SELECT & TRACKS_HIDE) && stage_rows() == 1u && st_row_h() == ST_ROWS_H);
+    hold(B_HOME); ui.menu_sel = MI_TRACKS; turn(EN_K1, -1); hold(B_HOME);
+    bad += check("  KNOB 1 left: SHOW again", !(GLO_SELECT & TRACKS_HIDE) && stage_rows() == NTRK && ui.home);
     bad += check("  no pattern at all: Stage's card shows no pattern pill, no steps (a synth)", stage_seq_idle(0));
     one_note(&trk[0], 3, 60);
     ok = !stage_seq_idle(0);
@@ -983,7 +1002,7 @@ static int test_track_count(void)
     bad += check("  and silent", trk_quiet(&trk[3]));
     project_save(1);
     project_new_blank();
-    bad += check("a new song: one track again", trk_n() == 1u);
+    bad += check("a new song: four tracks again", trk_n() == NTRK);
     project_load(1);
     bad += check("a project keeps its count (3)", trk_n() == 3u && trk[2].step[3].note[0] == 63);
     project_load(0);
@@ -1023,6 +1042,7 @@ static int test_home_view(void)
     press(B_HOME);
     bad += check("  HOME from EDIT: back to the page it was on", ui.home && ui.home_pg == 1u);
     song.ntrk = 3;
+    apply_preset_to(&trk[1], find_preset(ENGI_FM6, "PAD"));   /* (a chord: a poly sound, not the power-on bass) */
     for (k = 0; k < NTRK; k++) trk[k].engine = trk[k].eng_req;
     memset(&view, 0, sizeof view);
     track_select(1);
@@ -5071,9 +5091,10 @@ static int test_new_song(void)
     turn(EN_K1, 1); turn(EN_K1, 1);                     /* D */
     turn(EN_K3, 1);
     press(B_OCTUP);
-    bad += check("  OCT+: the ROLES screen, track 1 KEEP, the others -- (no template: one track)", nw.on == 2 &&
-                 nw.role[0] == NR_KEEP && nw.role[1] == NR_NONE && nw.role[3] == NR_NONE);
-    turn(EN_K2, 1); turn(EN_K2, 1); turn(EN_K2, 1);     /* track 2: BASS */
+    bad += check("  OCT+: the ROLES screen, every track KEEP (no template: all four)", nw.on == 2 &&
+                 nw.role[0] == NR_KEEP && nw.role[1] == NR_KEEP && nw.role[3] == NR_KEEP);
+    turn(EN_K2, 1); turn(EN_K2, 1);                     /* track 2: BASS */
+    turn(EN_K3, -1); turn(EN_K4, -1);                   /* tracks 3, 4: -- */
     press(B_OCTUP);
     for (k = 0; k < NTRK; k++) empty &= seq_is_empty(&trk[k]);
     song.sel = 1; cur_entry(&src, &k); song.sel = 0;
@@ -5086,8 +5107,8 @@ static int test_new_song(void)
     turn(EN_K3, 1);
     press(B_OCTUP);
     press(B_OCTUP);
-    turn(EN_K1, -1);                                    /* track 1: -- */
-    turn(EN_K3, 1); turn(EN_K3, 1); turn(EN_K3, 1);     /* track 3: BASS */
+    turn(EN_K1, -1); turn(EN_K2, -1); turn(EN_K4, -1);  /* tracks 1, 2, 4: -- */
+    turn(EN_K3, 1); turn(EN_K3, 1);                     /* track 3: BASS */
     press(B_OCTUP);
     cur_entry(&src, &k);
     bad += check("  track 1 --, track 3 BASS: one track, the BASS sound as track 1", !new_on() && trk_n() == 1u &&

@@ -145,8 +145,13 @@ static void host_preset(track_t *t, uint32_t e, uint32_t pi)
     t->engine = t->eng_req;
 }
 
-/* part k's power-on sound (main.c, TRK_DEF) */
-static void host_power_on_sound(track_t *t, uint32_t k) { host_preset(t, TRK_DEF[k][0], TRK_DEF[k][1]); }
+/* the demo song's bass and pad (k 0, 1): the power-on sounds until 2026-10-16 (TRK_DEF since: a Prophet, FM6 SOLID
+ * BASS, a CZ-1 lead), kept so the sound regressions hear the same song */
+static void host_power_on_sound(track_t *t, uint32_t k)
+{
+    static const uint8_t DEMO[2][2] = {{ENGI_PROPHET, 4}, {ENGI_FM6, 4}};
+    host_preset(t, DEMO[k % 2u][0], DEMO[k % 2u][1]);
+}
 
 /* the plain synth a test plays when the engine is not what it tests (ANALOG's place until 2.0 retired it): CZ-1,
  * on the generic voice path (NPOLY voices, no cap of its own) as ANALOG was */
