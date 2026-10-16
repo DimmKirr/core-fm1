@@ -133,6 +133,63 @@ class CpuBaselineTest(unittest.TestCase):
             self.assertEqual(result['half'], dict(ticks=0, calls=1, max_ticks=2))
             self.assertEqual('input_shift' in result, count > len(legacy.SPANS))
 
+    def row(self):
+        return dict(passed=True, peak_complete_upper_us=1800,
+            histogram=dict(samples=20, complete_max_upper_us=1900),
+            usb_play_alt=0, usb_capture_alt=0, normal_budget_fades=0,
+            delta=dict.fromkeys(('capacity_steals', 'missed_frames', 'play_underruns',
+                'play_overruns', 'cap_underruns', 'cap_overruns', 'bad_packets'), 0))
+
+    def test_histogram_max_controls_acceptance_and_headroom(self):
+        r = self.row()
+        r['histogram']['complete_max_upper_us'] = cpu.DEADLINE_US+1
+        cpu.assess_row(r, 'inactive')
+        self.assertFalse(r['passed'])
+        self.assertFalse(r['deadline_passed'])
+        self.assertFalse(r['target_passed'])
+        self.assertLess(r['headroom_pct'], 0)
+        self.assertEqual(r['stats_peak_complete_upper_us'], 1800)
+
+    def test_screen_keeps_capacity_usb_and_histogram_requirements(self):
+        r = self.row(); cpu.assess_row(r, 'inactive')
+        self.assertTrue(r['passed'])
+        for field in r['delta']:
+            r = self.row(); r['delta'][field] = 1
+            cpu.assess_row(r, 'inactive'); self.assertFalse(r['passed'], field)
+        r = self.row(); r['histogram']['samples'] = 0
+        cpu.assess_row(r, 'inactive'); self.assertFalse(r['passed'])
+        r = self.row(); cpu.assess_row(r, 'stereo'); self.assertFalse(r['passed'])
+        r = self.row(); r['usb_play_alt'] = r['usb_capture_alt'] = 1
+        cpu.assess_row(r, 'stereo'); self.assertTrue(r['passed'])
+
+    def test_engine_modulation_and_source_churn_fixture(self):
+        class Fixture:
+            cpu_modulation_routing = 'engine'
+            cpu_event_bursts = False
+            cpu_source_churn = True
+            def __init__(self): self.values = [{} for _ in range(4)]
+            def params(self, track, values): self.values[track].update(values)
+        d = Fixture(); notes = [(0, 60)]
+        self.assertIs(cpu.configure_modulation(d, [0, 1, 2, 3], 0, notes), notes)
+        for values in d.values:
+            self.assertEqual([values[f'P_M{k+1}DST'] for k in range(4)], [12, 13, 14, 15])
+        seen = set()
+        for tick in range(10):
+            cpu.control_updates(d, [0, 1, 2, 3], notes, tick)
+            for values in d.values:
+                seen.update(values[f'P_M{k+1}SRC'] for k in range(4))
+        self.assertEqual(seen, set(range(1, 11)))
+
+    def test_profile_ranks_overlapping_groups_without_summing(self):
+        profile = dict(half=dict(ticks=4800, calls=2, max_ticks=2600),
+            prophet=dict(ticks=2400, calls=4, max_ticks=800),
+            input_shift=dict(ticks=1200, calls=100, max_ticks=20), worker_ticks=600)
+        r = cpu.ranked_profile(dict(profile=profile))
+        self.assertEqual([s['span'] for s in r['audio_inclusive']], ['half', 'prophet'])
+        self.assertEqual([s['span'] for s in r['panel_all_ticks']], ['input_shift'])
+        self.assertEqual(r['audio_inclusive'][1]['us_per_half'], 50)
+        self.assertEqual(r['panel_all_ticks'][0]['mean_us'], .5)
+
 
 if __name__ == '__main__':
     unittest.main()

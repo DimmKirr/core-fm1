@@ -170,6 +170,55 @@ def histogram(d, timer5_ticks):
                 allowance_ticks=allowance, overflow_samples=bins[-1])
 
 
+def configure_modulation(d, categories, variant, notes):
+    """After the common fixture, select destinations relevant to route caching."""
+    if d.cpu_modulation_routing == 'engine':
+        for track in range(4):
+            d.params(track, {f'P_M{slot+1}DST': 12+slot for slot in range(4)})
+    return notes
+
+
+def control_updates(d, categories, notes, tick):
+    if d.cpu_event_bursts:
+        from audio_performance_adversarial import events
+        events(d, categories, notes, tick)
+    if d.cpu_source_churn:
+        # All ten legal sources, including voice/track dependency transitions.
+        # This is host-paced controller traffic, not one change per audio block.
+        for track in range(4):
+            d.params(track, {f'P_M{slot+1}SRC': 1+(tick+slot)%10 for slot in range(4)})
+
+
+def assess_row(row, usb):
+    """Use the more conservative complete-envelope bound for every decision."""
+    row['stats_peak_complete_upper_us'] = row['peak_complete_upper_us']
+    row['peak_complete_upper_us'] = max(row['peak_complete_upper_us'], row['histogram']['complete_max_upper_us'])
+    row['headroom_pct'] = 100*(1-row['peak_complete_upper_us']/DEADLINE_US)
+    row['deadline_passed'] = row['peak_complete_upper_us'] < DEADLINE_US
+    row['target_passed'] = row['peak_complete_upper_us'] <= .8*DEADLINE_US
+    usb_ok = row['usb_play_alt'] > 0 and row['usb_capture_alt'] > 0 if usb == 'stereo' else row['usb_play_alt'] == row['usb_capture_alt'] == 0
+    row['passed'] = bool(row['passed'] and row['target_passed'] and usb_ok and row['histogram']['samples'] and
+        row['normal_budget_fades'] == 0 and row['delta']['capacity_steals'] == 0 and
+        not any(row['delta'][key] for key in ('missed_frames', 'play_underruns', 'play_overruns',
+            'cap_underruns', 'cap_overruns', 'bad_packets')))
+
+
+def ranked_profile(row):
+    """Inclusive/concurrent spans are individually ranked and never summed."""
+    groups = {'audio_inclusive': [], 'panel_all_ticks': []}
+    halves = row['profile']['half']['calls']
+    for name, span in row['profile'].items():
+        if not isinstance(span, dict) or not span['calls']:
+            continue
+        groups['panel_all_ticks' if name.startswith('input_') else 'audio_inclusive'].append(dict(
+            span=name, calls=span['calls'], mean_us=span['ticks']/span['calls']/24,
+            max_us=span['max_ticks']/24, total_us=span['ticks']/24,
+            us_per_half=span['ticks']/halves/24 if halves else None))
+    for values in groups.values():
+        values.sort(key=lambda span: span['total_us'], reverse=True)
+    return dict(note='Inclusive spans overlap; engine spans can execute concurrently. Do not sum rows.', **groups)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--port', default='Melodee')
@@ -184,6 +233,8 @@ def main():
     p.add_argument('--variant', type=int, default=0)
     p.add_argument('--fx', action='store_true')
     p.add_argument('--modulation', action='store_true')
+    p.add_argument('--modulation-routing', choices=('voice', 'engine'), default='voice')
+    p.add_argument('--source-churn', action='store_true', help='Host-paced changes through all ten modulation sources')
     p.add_argument('--event-bursts', action='store_true')
     p.add_argument('--usb', choices=('inactive', 'stereo'), default='inactive')
     a = p.parse_args()
@@ -199,6 +250,8 @@ def main():
         p.error('seconds/repeat positive; budget 8..32')
     if a.seconds > 120:
         p.error('Profiling windows are limited to 120 seconds to avoid 32-bit span-total wrap')
+    if (a.modulation_routing != 'voice' or a.source_churn) and not a.modulation:
+        p.error('modulation-routing/source-churn require --modulation')
     manifest = json.loads(a.build_manifest.read_text())
     package = Path(manifest['package'])
     if hashlib.sha256(package.read_bytes()).hexdigest() != manifest['package_sha256']:
@@ -226,9 +279,13 @@ def main():
         d.performance_benchmark_support = m['benchmark_support']
         d.performance_fx = a.fx
         d.performance_modulation = a.modulation
-        if a.event_bursts:
-            from audio_performance_adversarial import events
-            d.performance_step_hook = events
+        d.cpu_modulation_routing = a.modulation_routing
+        d.cpu_event_bursts = a.event_bursts
+        d.cpu_source_churn = a.source_churn
+        if a.modulation:
+            d.performance_patch_hook = configure_modulation
+        if a.event_bursts or a.source_churn:
+            d.performance_step_hook = control_updates
         (a.output/'run.json').write_text(json.dumps(dict(build=manifest, identity=identity,
             metadata=m, workload=vars(a), evidence='device screening; physical validation pending'),
             indent=2, default=str)+'\n')
@@ -246,13 +303,8 @@ def main():
                 for repeat in range(a.repeat):
                     row = run(d, list(map(int, a.assignment)), voices, a.variant, a.seconds, False)
                     row['histogram'] = histogram(d, row['metadata']['timer5_max_ticks'])
-                    usb_ok = row['usb_play_alt'] > 0 and row['usb_capture_alt'] > 0 if a.usb == 'stereo' else row['usb_play_alt'] == row['usb_capture_alt'] == 0
-                    row['deadline_passed'] = row['peak_complete_upper_us'] < DEADLINE_US
-                    row['target_passed'] = row['peak_complete_upper_us'] <= .8*DEADLINE_US
-                    row['passed'] = (row['passed'] and usb_ok and bool(row['histogram']['samples']) and
-                        row['normal_budget_fades'] == 0 and row['delta']['capacity_steals'] == 0 and
-                        not any(row['delta'][key] for key in ('missed_frames', 'play_underruns', 'play_overruns',
-                            'cap_underruns', 'cap_overruns', 'bad_packets')))
+                    assess_row(row, a.usb)
+                    row['ranked_profile'] = ranked_profile(row)
                     row['repeat'] = repeat
                     f.write(json.dumps(row)+'\n');f.flush()
                     print(json.dumps({key:row[key] for key in ('repeat', 'passed', 'voices_min', 'peak_complete_upper_us')}), flush=True)
