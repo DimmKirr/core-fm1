@@ -118,10 +118,79 @@ neighbor-column leakage, chords, encoder turns and concurrent USB/TRS traffic
 on hardware before enabling a peripheral path. The original GPIO RMW edges
 remain the production comparator. No scan/brightness timing changed.
 
+## Stage 2: opt-in modulation routing cache
+
+`MELODEE_MOD_CACHE=1` prepares each track's validated modulation routes,
+merged destinations and descriptor ranges. Raw source/destination values,
+engine and amount-zero membership fully key the structural mapping. Amounts,
+LFO polarity, source values and base parameter values remain live reads at
+their original rate. Zero crossings rebuild membership; engine/source/
+destination edits invalidate immediately. Mutation paths need no generation
+counter. Envelopes, LFO/noise, smoothing and worker publication retain their
+original order. The cache occupies 352 B across four tracks, runtime only.
+
+The first candidate keyed every raw amount and made unused matrices 61% slower
+and moving amounts 25–46% slower. It was discarded. The revised candidate
+keeps the original inactive scan and reads active amounts dynamically.
+
+Host instructions per block, `cc -O2`, 200,000 blocks per row, excluding
+synthesis; these do not establish device CPU headroom:
+
+| Routing | Inputs | Reference | Candidate | Change |
+| --- | --- | ---: | ---: | ---: |
+| Inactive | Static | 54.0 | 55.0 | +1.9% |
+| Inactive | Moving amount | 59.0 | 57.0 | -3.4% |
+| Four engine destinations | Static | 567.2 | 433.6 | -23.6% |
+| Four engine destinations | Moving amount | 572.3 | 435.0 | -24.0% |
+| Four engine destinations | Source changes every block | 573.1 | 729.0 | +27.2% |
+| Four voice destinations | Static | 353.1 | 351.0 | -0.6% |
+| Four voice destinations | Moving amount | 358.1 | 353.0 | -1.4% |
+| Four voice destinations | Source changes every block | 357.5 | 530.6 | +48.4% |
+
+Routing churn is an explicit limitation: rebuilding costs more than scanning.
+Device comparisons must include rebuild bursts and automated routing changes.
+Stage 2 is an experimental candidate, not an accepted production optimization.
+
+`tests/mod_route_test.c` compares complete prepared modulation state and
+temporary/restored parameters with the original function in the same process:
+100,000 seeded comparisons, all legal source/destination pairs across five
+engines, duplicates, DEPTH, polarity, invalid destinations, zero crossings and
+changing bases. ASan/UBSan passed. The complete cache-enabled host suite ended
+`ALL HOST TESTS PASSED in 83 s` (`build/cpu-mod-suite.log`), including unchanged
+goldens and 1,296 ordered concurrent engine assignments. Target lab build:
+96,864 B data/BSS, same 153,056-B contiguous arena; register checks pass.
+
+Build the directly comparable cache candidate:
+
+```sh
+MELODEE_MOD_CACHE=1 MELODEE_RAM_AUDIO=0 MELODEE_ADMISSION=0 \
+MELODEE_AUDIO_PROFILE=1 MELODEE_AUDIO_BENCH=1 \
+PYTHON="$PWD/build/venv/bin/python" ./build.sh --release 1.4.0-cpu-mod \
+  --cpu-manifest build/cpu-mod-build.json
+```
+
+Prepared lab packages, neither installed:
+
+| Package in `build/` | SHA256 |
+| --- | --- |
+| `melodee-1.4.0-cpu-stage0.fwsc` | `0571baa0e97a8f2cc87c229623568e18fa85365d61c2be03970e0c88643f49cc` |
+| `melodee-1.4.0-cpu-mod.fwsc` | `6908de941a24344b27810be3979452139acc61c57a5d3804fb65d20e05a46625` |
+
+Build JSON files capture exact firmware hashes and flags, including uncommitted
+experiment content. Editor identity checks the version, not a cryptographic
+readback of installed application bytes. Both packages use the same model
+marker; select the explicit package filename. The earlier
+`melodee-recording-release-queue-b296f57.fwsc` remains untouched.
+
+The normal build also passes with profiling, benchmark support and routing
+cache disabled: 95,888 B data/BSS, contiguous arena 153,056 B. Its package is
+`build/melodee-1.4.0-cpu-default.fwsc`; no experimental cache is enabled.
+
 ## Acceptance status
 
 No measured device CPU saving or extra voice allowance is claimed. No engine,
 FX, scheduler, event format, admission default or project format changed.
+The modulation candidate is disabled by default.
 Stage 0 awaits an authorized profiling flash and controlled measurements.
 Stage 1 awaits electrical measurements. Later software candidates may proceed
 behind explicit comparison switches, with production defaults retained until
