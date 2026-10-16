@@ -33,7 +33,7 @@ class ReliableDevice(Device):
         for attempt in range(3):
             try:return super().request(cmd,args)
             except TimeoutError:
-                safe=cmd in (98,99,100,68,75,27,31,3,8) or (cmd in (69,76) and args and args[0]==0) or (cmd==95 and args and args[0]==2)
+                safe=cmd in (66,98,99,100,68,75,27,31,3,8) or (cmd in (69,76) and args and args[0]==0) or (cmd==95 and args and args[0]==2)
                 if not safe or attempt==2:raise
                 self.diagnostic_retries+=1
                 print(f'Retrying idempotent diagnostic {cmd}',flush=True)

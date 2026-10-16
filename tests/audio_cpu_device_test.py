@@ -133,6 +133,17 @@ class CpuBaselineTest(unittest.TestCase):
             self.assertEqual(result['half'], dict(ticks=0, calls=1, max_ticks=2))
             self.assertEqual('input_shift' in result, count > len(legacy.SPANS))
 
+    def test_runtime_chunk_read_retries_only_idempotent_requests(self):
+        d = legacy.ReliableDevice.__new__(legacy.ReliableDevice)
+        d.diagnostic_retries = 0
+        with patch.object(legacy.Device, 'request', side_effect=[TimeoutError('read'), [0, 0]]), \
+                patch.object(legacy.time, 'sleep'), patch('builtins.print'):
+            self.assertEqual(d.request(66, [0]), [0, 0])
+        self.assertEqual(d.diagnostic_retries, 1)
+        with patch.object(legacy.Device, 'request', side_effect=TimeoutError('write')) as request:
+            with self.assertRaises(TimeoutError): d.request(67, [0])
+            self.assertEqual(request.call_count, 1)
+
     def row(self):
         return dict(passed=True, peak_complete_upper_us=1800,
             histogram=dict(samples=20, complete_max_upper_us=1900),
