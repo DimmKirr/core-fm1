@@ -103,6 +103,9 @@ typedef struct {
     int32_t lvl, gl, gr;
 } mix_cache_t;
 static mix_cache_t mix_cache[NTRK];
+#ifndef MELODEE_MIX_FAST
+#define MELODEE_MIX_FAST 0
+#endif
 static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cache_t *mc)
 {
     mc->level=t->p[P_LEVEL];mc->pan=t->p[P_PAN];mc->valid=1;
@@ -130,7 +133,12 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     }
     t->peak=pk;
 }
-static __attribute__((noinline,section(".dsp_text"))) void mix_mono_samples(track_t *t,int32_t *b,uint32_t n,const mix_cache_t *mc)
+#if MELODEE_MIX_FAST
+#define MIX_MONO_GENERAL mix_mono_general
+#else
+#define MIX_MONO_GENERAL mix_mono_samples
+#endif
+static __attribute__((noinline,section(".dsp_text"))) void MIX_MONO_GENERAL(track_t *t,int32_t *b,uint32_t n,const mix_cache_t *mc)
 {
     uint32_t send=fx_send_on?fx_send_gain(t):0u;
     int32_t lvl=mc->lvl,gl=mc->gl,gr=mc->gr,pk=t->peak;
@@ -144,6 +152,29 @@ static __attribute__((noinline,section(".dsp_text"))) void mix_mono_samples(trac
     }
     t->peak=pk;
 }
+#undef MIX_MONO_GENERAL
+#if MELODEE_MIX_FAST
+static __attribute__((noinline,section(".dsp_text"))) void mix_mono_samples(track_t *t,int32_t *b,uint32_t n,const mix_cache_t *mc)
+{
+    uint32_t send=fx_send_on?fx_send_gain(t):0u;
+    if(mc->pan || !send){mix_mono_general(t,b,n,mc);return;}
+    /* x is clamped to +/-524287, so unity pan multiplication is exact and
+     * cannot overflow. Equal channels also share the send's scaling work.
+     * Keep the original loop separate: duplicating it here hurts noncenter
+     * and dry host paths through register pressure and loop selection. */
+    int32_t lvl=mc->lvl,pk=t->peak;
+    for(uint32_t i=0;i<n;i++){
+        int32_t x=clamp(((clamp(b[i],-884000,884000)>>2)*lvl)>>10,-524287,524287),a=x<0?-x:x;
+#if MELODEE_USB_AUDIO
+        if(track_capture_on)track_capture[i*NTRK+(uint32_t)(t-trk)]=x;
+#endif
+        if(a>pk)pk=a;
+        mix_add(x,x,i,send);
+    }
+    t->peak=pk;
+}
+#endif
+
 static int32_t solo_gain[NPART]={32768,32768,32768,32768};
 static void mix_solo(track_t *t,int32_t *b,uint32_t n)
 {

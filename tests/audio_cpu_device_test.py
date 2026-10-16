@@ -174,6 +174,9 @@ class CpuBaselineTest(unittest.TestCase):
         r = self.row(); cpu.assess_row(r, 'stereo'); self.assertFalse(r['passed'])
         r = self.row(); r['usb_play_alt'] = r['usb_capture_alt'] = 1
         cpu.assess_row(r, 'stereo'); self.assertTrue(r['passed'])
+        r = self.row(); r['usb_play_alt'] = r['usb_capture_alt'] = 1
+        r['host_audio_statuses'] = ['output underflow']
+        cpu.assess_row(r, 'stereo'); self.assertFalse(r['passed'])
 
     def test_engine_modulation_and_source_churn_fixture(self):
         class Fixture:

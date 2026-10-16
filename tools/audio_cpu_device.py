@@ -206,7 +206,7 @@ def assess_row(row, usb):
     row['deadline_passed'] = row['peak_complete_upper_us'] < DEADLINE_US
     row['target_passed'] = row['peak_complete_upper_us'] <= .8*DEADLINE_US
     usb_ok = row['usb_play_alt'] > 0 and row['usb_capture_alt'] > 0 if usb == 'stereo' else row['usb_play_alt'] == row['usb_capture_alt'] == 0
-    row['passed'] = bool(row['passed'] and row['target_passed'] and usb_ok and row['histogram']['samples'] and
+    row['passed'] = bool(row['passed'] and row['target_passed'] and usb_ok and not row.get('host_audio_statuses') and row['histogram']['samples'] and
         row['normal_budget_fades'] == 0 and row['delta']['capacity_steals'] == 0 and
         not any(row['delta'][key] for key in ('missed_frames', 'play_underruns', 'play_overruns',
             'cap_underruns', 'cap_overruns', 'bad_packets')))
@@ -314,10 +314,11 @@ def main():
                 v = value+8192
                 d.request(3, [1, globals_[key], v & 127, v >> 7])
             streams = usb_streams(a.output/'capture.wav', 'int24') if a.usb == 'stereo' else contextlib.nullcontext()
-            with streams, (a.output/'cases.jsonl').open('w') as f:
+            with streams as stream_statuses, (a.output/'cases.jsonl').open('w') as f:
                 for repeat in range(a.repeat):
                     row = run(d, list(map(int, a.assignment)), voices, a.variant, a.seconds, False)
                     row['histogram'] = histogram(d, row['metadata']['timer5_max_ticks'])
+                    row['host_audio_statuses'] = list(stream_statuses or [])
                     assess_row(row, a.usb)
                     row['ranked_profile'] = ranked_profile(row)
                     row['repeat'] = repeat

@@ -513,17 +513,109 @@ matrix. The correction is **not installed**. Do not reinterpret old device
 rows as passes or subtract assumed retriggers from them; remeasure the drum
 fixture on a recorded corrected package before qualifying capacity.
 
+## Stage 4: exact centered mono send path
+
+Parent `f5602f9`. `MELODEE_MIX_FAST=1`, default zero, specializes mono
+tracks whose effective PAN is exactly zero and whose shared send is nonzero.
+The post-level sample is clamped to +/-524287; both unity pan multiplies
+therefore fit signed 32-bit and return that exact sample. The specialized
+loop adds equal dry channels and equal sends; it preserves level arithmetic,
+peak detection and capture placement. Noncenter and dry cases use the
+original separately compiled loop. No pass is moved across the worker join;
+spread, insert processing, smoothing, limiter/DC and FX state are unchanged.
+
+The first branch-in-one-function experiment was exact but regressed dry and
+noncenter host paths. It is rejected. A first split-loop benchmark still
+allowed asymmetric compiler specialization across the two calls; its costs
+are superseded by matching volatile indirect calls below. Do not interpret
+the earlier 6% probe or the unmatched figures as the retained comparison.
+
+`tests/mix_fast_test.c` retains the Melodee-authored parent mono function as
+an independent comparator (source history: `1e473874`, `cb118c95`, `25a2bef6`).
+All 128 levels, 128 pans, sends 0/1/127, capture off/on and four tracks compare
+exactly for both outputs, both sends, peaks and every stem, including
+clipping boundaries, negative rounding and INT32 input extremes. ASan/UBSan
+passes with `--parity-only`, `build/cpu-mix-revised-sanitized.log`.
+
+Host `cc -O2` instructions/sample, including identical fixture-reset work and
+matching indirect-call overhead, with host SIMD/optimizer behavior:
+
+| PAN | Send | Reference | Candidate |
+| --- | --- | ---: | ---: |
+| Center | Off | 40.3 | 40.3 |
+| Center | Full | 57.4 | 15.1 |
+| +17 | Off | 40.2 | 40.3 |
+| +17 | Full | 57.4 | 57.5 |
+
+These isolated host reductions do **not** establish FM-1 time savings.
+The benchmark gates the center/send benefit at 15% and other rows at 4%
+maximum overhead. No allocation or cache RAM is added. Full combined suite:
+`ALL HOST TESTS PASSED in 83 s`, `build/cpu-mix-revised-suite.log`, unchanged
+goldens and all 1,296 concurrent assignments. Lab target/register/residency
+and target instruction checks pass; 96,816-B data/BSS, unchanged 153,056-B
+arena and 142,336-B floor. See `build/cpu-mix-revised-target.log` and
+`build/cpu-mix-fast-revised-bench.log`.
+
+Prepared, **not installed**: `build/melodee-1.4.0-cpu-mix-revised.fwsc`, SHA256
+`7f7ae697da8a13ac93ebdf9011582030c61f7872a5f68f49facec1df759ac469`, manifest
+`build/cpu-mix-revised-build.json`. Routing, centered-bend and mono-send
+candidates are on, profiling/lab support on, RAM_AUDIO=0 and ADMISSION=0.
+A matched all-candidates-off profiling reference is also prepared:
+`build/melodee-1.4.0-cpu-reference-v2.fwsc`, SHA256
+`8c7bec5bb2bd0da0a7a375f10b74b5bdf959c4f010b96b1788bdcc1a3a17bacc`, manifest
+`build/cpu-reference-v2-build.json`. Both contain the same 32-span profiling
+infrastructure and corrected drum accounting, so those changes do not bias
+a matched isolated optimization comparison. Source/package hashes matched
+both manifests before committing. The older installed package has neither
+this instrumentation nor the accounting correction.
+
+The updated normal package also passes: 95,888-B data/BSS, unchanged arena
+and memory floors, register checks and target instruction gates. Package:
+`build/melodee-1.4.0-cpu-mix-default.fwsc`, SHA256
+`321841beceeb68ebf4f4122609080b83342fe5ba429135b1a641176adbe7f002`, manifest
+`build/cpu-mix-default-build.json`, log `build/cpu-mix-default-target.log`.
+All three current packages and firmware source hashes matched their manifests
+at final verification. Final read-only device check confirmed original
+`1.4.0-cpu-mod`, guard off, budget 32 and runtime CRC 61439115.
+
+Exact effect dormancy, other pass fusion, insert/CHAIN/SPLIT comparisons and
+long-tail/wakeup evidence remain open. This candidate is not production
+acceptance of Stage 4.
+
+## Stage 0/4: stereo USB and shared Chorus screen
+
+The original installed cache completed one 60.03-s assignment 0123 screen,
+voices 1,1,1,0, engine modulation, full shared Chorus, bidirectional int24
+stereo USB and budget 16. The complete bound was 1,851 us. Device counters
+passed: zero late/target/deadline failures, shedding, steals, worker/resource
+faults or USB errors; 60,018 packets received and sent; zero diagnostic
+retries. Inclusive means/half include mix 144.1 us, FX 94.8, USB 74.6 and
+output 173.2. They overlap other spans and concurrent work and are not added.
+Evidence: `build/cpu-mod-installed-engine-fx-stereo-60`.
+
+CoreAudio/PortAudio emitted `-10863: cannot do in current context` during the
+session, although `capture.status.json` contains no callback status entries.
+Keep that host error alongside the passing device counters; this is not
+clean end-to-end streaming qualification, glitch-free capture or listening
+validation. The runner now copies host callback statuses into each future
+row and rejects any reported callback error. Fifteen harness tests pass,
+including that rejection. Unstructured host stderr still needs inspection.
+Restoration verified runtime/preferences, CRC 61439115 and 31 committed
+objects, with no disk snapshot and budget 32 restored. No firmware was flashed.
+
 ## Acceptance status
 
-No measured device CPU saving or extra voice allowance is claimed. No engine,
-FX, scheduler, event format, admission default or project format changed.
-The modulation candidate is disabled by default.
-The original profiling cache candidate is installed. The source-change revision
-is prepared and not installed; Stage 0 has candidate-only screens but still
-awaits baseline/candidate measurements. The uncached baseline is not installed.
-Stage 1 awaits electrical measurements. Later software candidates may proceed
-behind explicit comparison switches, with production defaults retained until
-their relevant device checks pass.
+No measured before/after device CPU saving or extra voice allowance is claimed.
+The routing, centered-bend and centered mono-send candidates default off.
+Scheduling policy, sound/FX state, event/project formats and admission defaults
+are unchanged. Same-circuit one-shot reuse accounting is corrected in source.
+Only the original profiling routing candidate is installed. Matched current
+reference/candidate packages are prepared, not installed. Stage 0 still needs
+interleaved comparisons and broader coverage; Stage 1 needs electrical
+measurements; Stage 3 needs target class measurements before changing costs;
+Stage 4 needs device comparisons and further FX work; Stages 5–7 remain open.
+Independent software candidates should continue while hardware dependencies
+remain pending, without silently enabling defaults or raising allowances.
 
 Stage-0 validation: target build passed, data/BSS 96,512/98,304 B,
 contiguous arena 153,056 B (142,336-B floor). Full host suite:

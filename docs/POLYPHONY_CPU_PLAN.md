@@ -13,7 +13,8 @@ started; completed work and remaining validation are distinguished below.
 
 ## Progress as of 2026-10-16
 
-Implementation is on `experiment/recording-release-queue`, through `8c1f104`:
+Implementation is on `experiment/recording-release-queue`; detailed evidence
+and prepared/installed distinctions are maintained in the progress log:
 
 - `70c3baf`: guarded CPU baseline tooling, bounded timing histograms and panel
   cost spans, with source/package manifests and host-memory runtime restoration.
@@ -26,6 +27,10 @@ Implementation is on `experiment/recording-release-queue`, through `8c1f104`:
 - `05ace19`: screen the larger statistics/histogram timing bound, rank inclusive
   spans and exercise engine destinations with optional host-paced source changes.
 - `8c1f104`: retry timed-out idempotent runtime reads without retrying writes.
+- `0a6efbb`: opt-in centered-bend fast path; reject a general pitch cache after churn measurements.
+- `f109b21`: per-core/preparation/merge profiling and sample-job ranking tools.
+- `f5602f9`: count actual displaced notes without counting same-circuit drum retriggers.
+- A centered mono-send fast path has exact host/state parity and prepared target builds; default off, not installed.
 
 The full host suites passed in 79 s for the baseline infrastructure, 83 s
 with the original cache and 81 s with the revised cache. Validation includes
@@ -56,7 +61,7 @@ are recorded in [POLYPHONY_CPU_PROGRESS.md](POLYPHONY_CPU_PROGRESS.md).
 | 1 | Panel scanning | Panel costs measured in screening; SPI2 routing appears feasible; no scan change | Electrical timing acceptance, then a bounded prototype |
 | 2 | Control preparation | Routing revision and centered-bend fast path host-tested; default off; general pitch cache rejected | Device comparisons; remaining control preparation and structural churn |
 | 3 | Core scheduling | Per-core/preparation/merge spans and host job-ranking tooling tested; policy unchanged | Target class measurements, bounded estimates and assignment comparison |
-| 4 | FX and mixing | Not started | Ranked buffer-pass and effect-state costs |
+| 4 | FX and mixing | Centered mono-send candidate host/target-tested; shared-Chorus/stereo screen recorded | Device comparison, FX dormancy and further buffer-pass work |
 | 5 | Sequencer indexing | Not started beyond the preceding onset/release queues | Ownership-scan measurements and compact index candidate |
 | 6 | Engine fast paths | Not started | Rank limiting patches after infrastructure measurements |
 | 7 | Polyphony calibration | Not started; allowances unchanged | Validated additional voices and combined stress results |
