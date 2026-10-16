@@ -908,7 +908,9 @@ static void recording_quantize(track_t *t)
             t->step[view].time = ST_NOTE;
         }
         touched |= (uint64_t)1u << source | (uint64_t)1u << view;
+        recording_pitch_remove(i);
         recording[i] = target;
+        recording_pitch_add(i);
         recording_due[i] = recording_raw_on(t, &recording[i], period);
     }
     if (touched) {
@@ -953,11 +955,7 @@ static void seq_stop(void)
  * recording (not triggered, not released here). */
 static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint32_t period, uint32_t skip)
 {
-    if (s->flags & SF_RECORDED)
-        for (uint32_t r = recording_head[recording_owner(t)]; r < RECORD_MAX; r = recording_next[r]) if (recording_active(t, r) && recording_view(t, &recording[r]) == t->seq_idx) {
-            for (uint32_t k = 0; k < s->n; k++) if (s->note[k] == recording[r].note) skip |= 1u << k;
-            for (uint32_t k = 0; k < NLANE; k++) if (DRUM_LANE_NOTE[k] == recording[r].note) skip |= 1u << (8u + k);
-        }
+    skip = recording_step_skip(t, s, skip);
     uint32_t i, j, gate = step_gate(s) ? period * step_gate(s) / 255u : period * (uint32_t)t->p[P_SGATE] / 128u;
     uint32_t vel = (s->flags & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
     uint32_t slide_in = t->seq_hold && t->seq_n;

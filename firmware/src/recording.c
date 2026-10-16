@@ -191,6 +191,78 @@ static int recording_active(const track_t *t, uint32_t i)
     uint32_t view = recording_view(t, r);
     return t->step[view].time == ST_NOTE && (t->step[view].flags & SF_RECORDED);
 }
+#ifndef MELODEE_RECORD_INDEX
+#define MELODEE_RECORD_INDEX 0
+#endif
+#if MELODEE_RECORD_INDEX
+/* Active banks only: exact pitch bits per rounded overview cell (4096 B).
+ * Dirty cells coalesce deletions/edits; rebuilding scans one bank once, never
+ * once per removed duplicate. Overview flags stay live at query time. The key
+ * includes original-onset LEN eligibility, which differs for wrapped cells. */
+static uint32_t recording_pitch[NTRK][NSTEP][4] __attribute__((section(".pool")));
+static uint32_t recording_pitch_dirty[NTRK][2];
+static uint16_t recording_pitch_key[NTRK],recording_pitch_count[NTRK*NPAT];
+static uint32_t recording_pitch_current(const track_t *t)
+{return 1u+t->pattern+((uint32_t)t->p[P_SLEN]<<3);}
+static void recording_pitch_invalidate(void)
+{memset(recording_pitch_key,0,sizeof recording_pitch_key);}
+static void recording_pitch_remove(uint32_t i)
+{
+    const recorded_note_t *r=&recording[i];uint32_t tr=(r->owner&31u)/NPAT,view=recording_view(&trk[tr],r);
+    if(r->vel && view<NSTEP && (r->owner&31u)==recording_owner(&trk[tr]) && recording_pitch_key[tr]==recording_pitch_current(&trk[tr]))
+        recording_pitch_dirty[tr][view>>5]|=1u<<(view&31u);
+}
+static void recording_pitch_add(uint32_t i)
+{
+    const recorded_note_t *r=&recording[i];uint32_t tr=(r->owner&31u)/NPAT,view=recording_view(&trk[tr],r);
+    if(r->vel && view<NSTEP && (r->step&63u)<(uint32_t)trk[tr].p[P_SLEN] &&
+       (r->owner&31u)==recording_owner(&trk[tr]) && recording_pitch_key[tr]==recording_pitch_current(&trk[tr]))
+        recording_pitch[tr][view][r->note>>5]|=1u<<(r->note&31u);
+}
+static void recording_pitch_prepare(track_t *t)
+{
+    uint32_t tr=trk_index(t),key=recording_pitch_current(t);
+    uint32_t a=recording_pitch_dirty[tr][0],b=recording_pitch_dirty[tr][1];
+    if(recording_pitch_key[tr]!=key)a=b=UINT32_MAX;
+    if(!(a|b))return;
+    for(uint32_t v=0;v<NSTEP;v++)if(((v<32u?a:b)>>(v&31u))&1u)memset(recording_pitch[tr][v],0,sizeof recording_pitch[tr][v]);
+    for(uint32_t i=recording_head[recording_owner(t)];i<RECORD_MAX;i=recording_next[i]){
+        const recorded_note_t *r=&recording[i];uint32_t view=recording_view(t,r);
+        if(r->vel && (r->step&63u)<(uint32_t)t->p[P_SLEN] && view<NSTEP && (((view<32u?a:b)>>(view&31u))&1u))
+            recording_pitch[tr][view][r->note>>5]|=1u<<(r->note&31u);
+    }
+    recording_pitch_key[tr]=(uint16_t)key;recording_pitch_dirty[tr][0]=recording_pitch_dirty[tr][1]=0;
+}
+#else
+#define recording_pitch_invalidate() ((void)0)
+#define recording_pitch_remove(i) ((void)0)
+#define recording_pitch_add(i) ((void)0)
+#define recording_pitch_prepare(t) ((void)0)
+#endif
+/* This mask suppresses only overview duplicates. Timed onset/release ordering
+ * and the separately maintained sounding-pitch reference counts are unchanged. */
+static uint32_t recording_step_skip(track_t *t,const step_t *s,uint32_t skip)
+{
+    if(!(s->flags&SF_RECORDED))return skip;
+#if MELODEE_RECORD_INDEX
+    /* Very sparse banks are cheaper with the original scanner. Counts follow
+     * the same links, so density changes need no additional traversal. */
+    if(recording_pitch_count[recording_owner(t)]>=4u){
+        /* Edits and bank/LEN changes pay one bounded maintenance scan. */
+        if(t->seq_idx>=NSTEP || t->step[t->seq_idx].time!=ST_NOTE || !(t->step[t->seq_idx].flags&SF_RECORDED))return skip;
+        recording_pitch_prepare(t);
+        const uint32_t *bits=recording_pitch[trk_index(t)][t->seq_idx];
+        for(uint32_t k=0;k<s->n;k++)if((bits[s->note[k]>>5]>>(s->note[k]&31u))&1u)skip|=1u<<k;
+        for(uint32_t k=0;k<NLANE;k++)if((bits[DRUM_LANE_NOTE[k]>>5]>>(DRUM_LANE_NOTE[k]&31u))&1u)skip|=1u<<(8u+k);
+        return skip;
+    }
+#endif
+    for(uint32_t r=recording_head[recording_owner(t)];r<RECORD_MAX;r=recording_next[r])if(recording_active(t,r) && recording_view(t,&recording[r])==t->seq_idx){
+        for(uint32_t k=0;k<s->n;k++)if(s->note[k]==recording[r].note)skip|=1u<<k;
+        for(uint32_t k=0;k<NLANE;k++)if(DRUM_LANE_NOTE[k]==recording[r].note)skip|=1u<<(8u+k);
+    }
+    return skip;
+}
 static int recording_owns(const track_t *t, uint32_t note)
 {
     return recording_refs[trk_index(t)][note & 127u] != 0;
@@ -237,6 +309,10 @@ static void recording_queue_refresh(track_t *t)
 #endif
 static void recording_reindex(void)
 {
+    recording_pitch_invalidate();
+#if MELODEE_RECORD_INDEX
+    memset(recording_pitch_count,0,sizeof recording_pitch_count);
+#endif
     recording_generation++;
     for (uint32_t k = 0; k < NTRK * NPAT; k++) recording_head[k] = RECORD_MAX;
     recording_tracks = 0;
@@ -252,6 +328,9 @@ static void recording_reindex(void)
 #endif
     for (uint32_t i = RECORD_MAX; i-- > 0;) if (recording[i].vel) {
         uint32_t owner = recording[i].owner & 31u;
+#if MELODEE_RECORD_INDEX
+        recording_pitch_count[owner]++;
+#endif
         recording_next[i] = recording_head[owner]; recording_head[owner] = (uint16_t)i;
         recording_tracks |= (uint8_t)(1u << (owner / NPAT));
         if (recording_sounding(i) && trk[owner / NPAT].pattern == owner % NPAT) {
@@ -272,11 +351,17 @@ static void recording_reindex(void)
 static void recording_unlink(uint32_t i)
 {
     if (!recording[i].vel) return;
+    recording_pitch_remove(i);
     recording_live_detach(i);
     recording_schedule[(recording[i].owner & 31u) / NPAT].period = 0;
     uint16_t *link = &recording_head[recording[i].owner & 31u];
     while (*link < RECORD_MAX && *link != i) link = &recording_next[*link];
-    if (*link == i) *link = recording_next[i];
+    if (*link == i) {
+        *link = recording_next[i];
+#if MELODEE_RECORD_INDEX
+        recording_pitch_count[recording[i].owner&31u]--;
+#endif
+    }
 }
 static void recording_reset(void)
 {
@@ -381,6 +466,10 @@ static void recording_insert(track_t *t, uint32_t i)
     } else recording_schedule[tr].ordered_period = 0;
 #endif
     recording_next[i] = *link; *link = (uint16_t)i;
+#if MELODEE_RECORD_INDEX
+    recording_pitch_count[owner]++;
+#endif
+    recording_pitch_add(i);
     recording_schedule[tr].period = 0;
 }
 /* Stable bottom-up merge sort of the bank's existing index. No new event
@@ -501,6 +590,7 @@ static void recording_prune(track_t *t)
 }
 static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
 {
+    recording_pitch_remove(i);
     recording_end(&trk[(recording[i].owner & 31u) / NPAT], i);
     recording_live_detach(i);
     recording[i] = r;

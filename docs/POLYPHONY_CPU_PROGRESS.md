@@ -689,3 +689,107 @@ Normal package `build/melodee-1.4.0-cpu-fx-default.fwsc` (manifest
 passes target/register/residency checks: 95,888-B data/BSS, 153,056-B arena,
 unchanged floor. All four candidates, profiling and bypass support off. Both
 packages and all firmware sources match their manifests. Neither is installed.
+
+## Stage 5: compact overview pitch ownership index
+
+Parent `a60f2a9`. `MELODEE_RECORD_INDEX=1` (default zero) stores four
+128-pitch words per overview cell for each active track: 4,096 B in POOL,
+plus 104 B logical metadata (dirty cells, active bank/LEN keys and 32 bank
+counts). Linked target data/BSS grows by 96 B after alignment. The lab build
+has 96,912-B data/BSS and a 148,768-B contiguous audio arena; the 142,336-B
+floor is unchanged. This is an explicitly different experimental memory
+layout; the normal default build omits it. No RAM_AUDIO/admission policy
+change or voice allowance increase is hidden in the index.
+
+The query suppresses the same overview notes/GM lane hits as the original
+linked-bank scanner. Event timings, release heaps, references, quantization,
+voice/MIDI ordering and stored bytes are unchanged. Membership uses original
+onset < LEN but is indexed by rounded/wrapped overview cell. Overview
+TIME/SF_RECORDED stay live. Same-pitch duplicates use OR membership; removal
+marks a cell dirty, so deleting one owner retains all others after rebuilding.
+Sparse banks with fewer than four events retain the scanner, paying a measured
+19 host instructions/query for dispatch instead of bitmap lookup work.
+
+Maintenance is coalesced at the next recorded NOTE query. Unchanged steps do
+no event traversal. Additions update bits directly; dirty rows are cleared
+and all their retained memberships rebuilt in one bank traversal, regardless
+of how many removals preceded the query. Bank/LEN changes and bulk reindexing
+rebuild all cells once. This bounded edit/cold-query burst still needs target
+measurement; it is not claimed to eliminate all edit/loop-boundary spikes.
+No generation counter is assumed to cover all mutation paths.
+
+Mutation audit:
+
+| Path | Maintenance |
+| --- | --- |
+| Capture/replacement, jam capture, note conversion/editor inserts | Existing unlink marks old cell; insertion adds new pitch and bank count |
+| Remove/delete, erase/prune, clear, move/restore | Unlink decrements count and marks old cell; restore also marks any prior membership |
+| Punch-out quantization | Mark old cell before changing original/rounded step; add new cell afterward |
+| Copy/double/halve/track moves, undo/redo, runtime/bank load | Existing `recording_reindex` reconstructs counts and invalidates active keys |
+| Bank switch and LEN edit, including automation/native writes | Complete bank/LEN key checked on query; no writer-specific notification needed |
+| Duration, velocity while nonzero, pitch offsets, release/exponent changes | Ownership unchanged; no extra rebuild |
+| Overview flags/time edits | Evaluated at query time, independently of cached membership |
+
+The moved reference scanner was introduced in Melodee's `b565eab` and indexed
+by `686b98f`; source history confirms Kerem Kilic authorship. Mixed `seq.c`
+notices are preserved; the independently written test/index retain Melodee's
+GPL-3.0-only header.
+
+`tests/recording_index_test.c` has an independent all-slot oracle, separate
+from the original linked-bank benchmark comparator. It covers all 32 banks,
+four tracks, every cell, changing LEN, original versus rounded/wrapped cells,
+live flags/time, 640,000 pitch queries under 20,000 interleaved removals and
+replacements, reindexing, counts, and all 1,024 same-cell/same-pitch owners
+removed in batches. A specific wrapped 15/31 onset case verifies shortening
+and restoring LEN without losing ownership. ASan/UBSan passes; log
+`build/cpu-record-index-sanitized.log`. Existing raw recording tests pass with
+the index enabled, `build/cpu-record-index-existing.log`.
+
+Isolated host instructions/query, including matching indirect calls,
+`build/cpu-record-index-bench.log`:
+
+| Events in active bank | Scanner | Index steady | Full rebuild | One dirty cell rebuild |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 33.3 | 52.3 | 698.7 | 572.7 |
+| 1 | 99.1 | 118.1 | 735.7 | 609.7 |
+| 2 | 133.8 | 152.8 | 765.7 | 630.7 |
+| 3 | 168.7 | 187.6 | 795.7 | 651.7 |
+| 4 | 203.4 | 164.3 | 825.7 | 672.7 |
+| 64 | 2,290.2 | 164.3 | 2,628.9 | 1,932.7 |
+| 256 | 8,966.2 | 164.3 | 8,385.7 | 5,994.9 |
+| 1,024 | 35,673.8 | 164.3 | 31,436.1 | 22,227.7 |
+
+The same tool separately measures unchanged release-queue overview polling,
+without synthesis/onset work or expiring releases: about 45 instructions with
+no sounding events, 93 with one and 757 with all 64 watched cells, independent
+of whether 64, 256 or 1,024 events own them. No further queue-index change is
+justified by these host results. These are host counts, not target savings.
+Rebuild rows are additional to the following query and include measurement
+query overhead; neither they nor sparse dispatch overhead are hidden in the
+steady row. Gates require >75% steady gain at 64+ events and <=24 additional
+instructions in the 0..3 event fallback.
+
+Target/register/residency checks pass, `build/cpu-record-index-target.log`.
+Prepared, **not installed**: `build/melodee-1.4.0-cpu-record-index.fwsc`,
+manifest `build/cpu-record-index-build.json`, all five candidates, profiling
+and lab support on, RAM_AUDIO=0 and ADMISSION=0. Hardware buffer/edit timing,
+external-clock stress and physical validation remain pending.
+
+Full combined routing/control/mixer/dormancy/index host suite: `ALL HOST
+TESTS PASSED in 79 s`, `build/cpu-record-index-suite.log`. Unchanged sound
+goldens, every existing recording/erase/note-editor/undo/persistence/MIDI
+clock test and all 1,296 concurrent engine assignments pass. Target instruction
+checks pass without modified budgets.
+
+Verified package SHA256, `cpu-record-index`: `b668c3ba7d75703d53f55452d1c872941e3c3a58d286d023d74ffa98c6fdbcfc`.
+
+Verified package SHA256, `cpu-index-default`: `56494d0b9a4b3fcfadb716f849f34a585a2b4225c9404e9f50afaee425cd758d`.
+
+Normal package `build/melodee-1.4.0-cpu-index-default.fwsc` (manifest
+`build/cpu-index-default-build.json`, log `build/cpu-index-default-target.log`)
+also passes target/register/residency checks: 95,888-B data/BSS and 153,056-B
+arena, unchanged floor. All five candidates, profiling and lab support off.
+All firmware source hashes and both packages matched their manifests. Neither
+package was installed. Remaining software includes Stage 6 exact engine
+paths and a production long-stress observer/runner; target comparisons, panel
+electrical checks and calibrated extra voices remain open.

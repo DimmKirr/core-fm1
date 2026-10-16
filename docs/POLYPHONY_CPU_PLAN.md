@@ -31,7 +31,8 @@ and prepared/installed distinctions are maintained in the progress log:
 - `f109b21`: per-core/preparation/merge profiling and sample-job ranking tools.
 - `f5602f9`: count actual displaced notes without counting same-circuit drum retriggers.
 - `db1efe6`: centered mono-send fast path, host/state parity and prepared target builds; default off, not installed.
-- Exact Chorus dormancy has kernel and insert/CHAIN/SPLIT trace parity, host/target checks and a prepared package; default off, not installed.
+- `a60f2a9`: exact Chorus dormancy with kernel and insert/CHAIN/SPLIT trace parity, host/target checks and prepared packages; default off, not installed.
+- A compact overview pitch index has independent scanner parity, measured sparse/dense/rebuild costs and a prepared target package; default off, not installed.
 
 The full host suites passed in 79 s for the baseline infrastructure, 83 s
 with the original cache and 81 s with the revised cache. Validation includes
@@ -63,7 +64,7 @@ are recorded in [POLYPHONY_CPU_PROGRESS.md](POLYPHONY_CPU_PROGRESS.md).
 | 2 | Control preparation | Routing revision and centered-bend fast path host-tested; default off; general pitch cache rejected | Device comparisons; remaining control preparation and structural churn |
 | 3 | Core scheduling | Per-core/preparation/merge spans and host job-ranking tooling tested; policy unchanged | Target class measurements, bounded estimates and assignment comparison |
 | 4 | FX and mixing | Centered mono-send and exact Chorus dormancy candidates host/target-tested; all-effect routing trace parity | Device comparisons, physical tails/wakeup and further measured pass work |
-| 5 | Sequencer indexing | Not started beyond the preceding onset/release queues | Ownership-scan measurements and compact index candidate |
+| 5 | Sequencer indexing | Compact active-bank pitch candidate and independent scanner/cost tests implemented | Target query/rebuild/edit timing, external-clock and physical validation |
 | 6 | Engine fast paths | Not started | Rank limiting patches after infrastructure measurements |
 | 7 | Polyphony calibration | Not started; allowances unchanged | Validated additional voices and combined stress results |
 
@@ -286,8 +287,12 @@ behavior and correct tails, wakeup and streaming.
 Owners: `firmware/src/recording.c`, `firmware/src/seq.c` and recording/edit
 operations that change step ownership.
 
-The onset cursor and release queue already handle event timing. `seq_step`
-still searches the selected bank for recorded-note ownership each step.
+The onset cursor and release queue already handle event timing. Production
+`seq_step` still searches the selected bank for ownership each step. The
+opt-in `MELODEE_RECORD_INDEX` candidate uses active-bank pitch bitmaps with
+coalesced edit invalidation and a sparse-bank fallback. Independent scanner
+parity, host query/rebuild measurements and target memory checks pass; device
+maintenance-burst and combined-buffer measurements remain pending.
 
 1. Measure that scan and the release queue's overview checks separately from
    synthesis, capture allocation and ordinary step dispatch.
