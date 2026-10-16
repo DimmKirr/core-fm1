@@ -20,8 +20,9 @@ import zlib
 from pathlib import Path
 
 from prophet_device import inventory, pack, param_ids, r32, u32, unpack
-from audio_performance_device import (ReliableDevice, metadata, run, usb_streams,
+from audio_performance_device import (ReliableDevice, metadata, run,
                                       DEADLINE_US)
+from audio_cpu_usb import capture_driver_stderr, usb_streams, capture_result
 
 MAX_RUNTIME_BYTES = 256 * 1024
 PREFERENCE_BYTES = 604
@@ -200,13 +201,15 @@ def control_updates(d, categories, notes, tick):
 
 def assess_row(row, usb):
     """Use the more conservative complete-envelope bound for every decision."""
-    row['stats_peak_complete_upper_us'] = row['peak_complete_upper_us']
+    row.setdefault('stats_peak_complete_upper_us', row['peak_complete_upper_us'])
     row['peak_complete_upper_us'] = max(row['peak_complete_upper_us'], row['histogram']['complete_max_upper_us'])
     row['headroom_pct'] = 100*(1-row['peak_complete_upper_us']/DEADLINE_US)
     row['deadline_passed'] = row['peak_complete_upper_us'] < DEADLINE_US
     row['target_passed'] = row['peak_complete_upper_us'] <= .8*DEADLINE_US
-    usb_ok = row['usb_play_alt'] > 0 and row['usb_capture_alt'] > 0 if usb == 'stereo' else row['usb_play_alt'] == row['usb_capture_alt'] == 0
-    row['passed'] = bool(row['passed'] and row['target_passed'] and usb_ok and not row.get('host_audio_statuses') and row['histogram']['samples'] and
+    usb_ok = row['usb_play_alt'] > 0 and row['usb_capture_alt'] > 0 if usb != 'inactive' else row['usb_play_alt'] == row['usb_capture_alt'] == 0
+    if usb != 'inactive':
+        usb_ok = usb_ok and row['delta'].get('rx_packets', 0) > 0 and row['delta'].get('tx_packets', 0) > 0
+    row['passed'] = bool(row['passed'] and row['target_passed'] and usb_ok and not row.get('host_audio_statuses') and not row.get('host_audio_stderr_bytes') and row.get('host_capture', {'passed': True})['passed'] and row['histogram']['samples'] and
         row['normal_budget_fades'] == 0 and row['delta']['capacity_steals'] == 0 and
         not any(row['delta'][key] for key in ('missed_frames', 'play_underruns', 'play_overruns',
             'cap_underruns', 'cap_overruns', 'bad_packets')))
@@ -228,6 +231,30 @@ def ranked_profile(row):
     return dict(note='Inclusive spans overlap; engine spans can execute concurrently. Do not sum rows.', **groups)
 
 
+def finalize_cases(directory, usb, statuses):
+    """Publish final rows only after callback/driver shutdown evidence exists.
+
+    Stream opening/close failure leaves cases-pending.jsonl explicitly provisional
+    and no successful final summary. Replay line by line to bound host memory.
+    """
+    capture = capture_result(directory/'capture.wav', usb)
+    stderr_path = directory/'driver-stderr.log'
+    stderr_bytes = stderr_path.stat().st_size if stderr_path.exists() else 0
+    passed, count = True, 0
+    with (directory/'cases-pending.jsonl').open() as source, (directory/'cases.jsonl').open('w') as output:
+        for line in source:
+            row = json.loads(line)
+            row.update(host_audio_pending=False, host_capture=capture,
+                       host_audio_statuses=list(statuses or []), host_audio_stderr_bytes=stderr_bytes)
+            assess_row(row, usb)
+            passed = passed and row['passed']
+            count += 1
+            output.write(json.dumps(row)+'\n')
+    summary = dict(passed=bool(passed and count), cases=count, host_capture=capture,
+                   host_audio_statuses=list(statuses or []), host_audio_stderr_bytes=stderr_bytes)
+    return summary
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--port', default='Melodee')
@@ -246,7 +273,7 @@ def main():
     p.add_argument('--modulation-routing', choices=('voice', 'engine'), default='voice')
     p.add_argument('--source-churn', action='store_true', help='Host-paced changes through all ten modulation sources')
     p.add_argument('--event-bursts', action='store_true')
-    p.add_argument('--usb', choices=('inactive', 'stereo'), default='inactive')
+    p.add_argument('--usb', choices=('inactive', 'stereo', 'stems'), default='inactive')
     a = p.parse_args()
     if len(a.assignment) != 4 or any(c not in '012345' for c in a.assignment):
         p.error('assignment: four category digits 0..5')
@@ -256,7 +283,7 @@ def main():
         p.error('voices: four counts 0..16')
     if len(voices) != 4 or any(v < 0 or v > 16 for v in voices) or not sum(voices):
         p.error('voices: four counts 0..16, at least one sounding voice')
-    if a.seconds <= 0 or a.repeat < 1 or not 8 <= a.budget <= 32:
+    if not math.isfinite(a.seconds) or a.seconds <= 0 or a.repeat < 1 or not 8 <= a.budget <= 32:
         p.error('seconds/repeat positive; budget 8..32')
     if a.seconds > 120:
         p.error('Profiling windows are limited to 120 seconds to avoid 32-bit span-total wrap')
@@ -277,6 +304,7 @@ def main():
     a.output.mkdir(parents=True)
     d = ReliableDevice(a.port)
     session = RuntimeSession(d)
+    summary = dict(passed=False, error='Screening did not complete')
     try:
         d.performance_metadata = True
         m = metadata(d)
@@ -313,25 +341,38 @@ def main():
             for key, value in values.items():
                 v = value+8192
                 d.request(3, [1, globals_[key], v & 127, v >> 7])
-            streams = usb_streams(a.output/'capture.wav', 'int24') if a.usb == 'stereo' else contextlib.nullcontext()
-            with streams as stream_statuses, (a.output/'cases.jsonl').open('w') as f:
+            streams = usb_streams(a.output/'capture.wav', 'int24', a.usb) if a.usb != 'inactive' else contextlib.nullcontext()
+            with capture_driver_stderr(a.output/'driver-stderr.log'), streams as stream_statuses, (a.output/'cases-pending.jsonl').open('w') as f:
                 for repeat in range(a.repeat):
                     row = run(d, list(map(int, a.assignment)), voices, a.variant, a.seconds, False)
                     row['histogram'] = histogram(d, row['metadata']['timer5_max_ticks'])
                     row['host_audio_statuses'] = list(stream_statuses or [])
+                    row['host_audio_pending'] = True
                     assess_row(row, a.usb)
                     row['ranked_profile'] = ranked_profile(row)
                     row['repeat'] = repeat
                     f.write(json.dumps(row)+'\n');f.flush()
-                    print(json.dumps({key:row[key] for key in ('repeat', 'passed', 'voices_min', 'peak_complete_upper_us')}), flush=True)
+                    print(json.dumps({key:row[key] for key in ('repeat', 'passed', 'host_audio_pending', 'voices_min', 'peak_complete_upper_us')}), flush=True)
+        summary = finalize_cases(a.output, a.usb, stream_statuses)
+    except BaseException as error:
+        summary = dict(passed=False, error=f'{type(error).__name__}: {error}')
+        raise
     finally:
         try:
             if session.captured and not session.result['verified']:
                 recover(session, a.port)
         finally:
             (a.output/'restoration.json').write_text(json.dumps(session.result, indent=2)+'\n')
-            session.d.close()
+            summary['restoration'] = session.result
+            summary['passed'] = bool(summary['passed'] and session.result['verified'])
+            try:
+                session.d.close()
+            except Exception as error:
+                summary.update(passed=False, close_error=f'{type(error).__name__}: {error}')
+            (a.output/'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
+            print(json.dumps(summary), flush=True)
+    return 0 if summary['passed'] else 1
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

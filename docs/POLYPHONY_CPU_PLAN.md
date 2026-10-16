@@ -93,8 +93,9 @@ windows are limited to 120 s to avoid 32-bit span-total wrap.
 a user-supplied performance on normal firmware, with native driver stderr
 and callback evidence. Actual execution and broader workload fixtures remain
 pending. The runner now ranks inclusive spans and covers voice/engine modulation
-routes plus host-paced source changes. It does not yet cover stems, recording
-fixtures, external clock or controlled physical input.
+routes plus host-paced source changes. The screening and normal observers now support exact stereo/four-stem USB
+capture with final host-driver evidence. Recording fixtures, external clock
+and controlled physical input remain open. Actual stem capture is unrun.
 The uncached `1.4.0-cpu-stage0` package is prepared but has not been installed.
 
 Use the same clock, audio configuration, patches, input traffic and voice

@@ -151,7 +151,7 @@ class CpuBaselineTest(unittest.TestCase):
             histogram=dict(samples=20, complete_max_upper_us=1900),
             usb_play_alt=0, usb_capture_alt=0, normal_budget_fades=0,
             delta=dict.fromkeys(('capacity_steals', 'missed_frames', 'play_underruns',
-                'play_overruns', 'cap_underruns', 'cap_overruns', 'bad_packets'), 0))
+                'play_overruns', 'cap_underruns', 'cap_overruns', 'bad_packets'), 0) | dict(rx_packets=100, tx_packets=100))
 
     def test_histogram_max_controls_acceptance_and_headroom(self):
         r = self.row()
@@ -166,7 +166,7 @@ class CpuBaselineTest(unittest.TestCase):
     def test_screen_keeps_capacity_usb_and_histogram_requirements(self):
         r = self.row(); cpu.assess_row(r, 'inactive')
         self.assertTrue(r['passed'])
-        for field in r['delta']:
+        for field in (key for key in r['delta'] if key not in ('rx_packets', 'tx_packets')):
             r = self.row(); r['delta'][field] = 1
             cpu.assess_row(r, 'inactive'); self.assertFalse(r['passed'], field)
         r = self.row(); r['histogram']['samples'] = 0

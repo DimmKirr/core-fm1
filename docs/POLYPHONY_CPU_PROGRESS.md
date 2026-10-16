@@ -1367,3 +1367,61 @@ low-DSP tail 1,144 B. Register/residency checks pass. Read-only installer query
 still reports FM-1_91040 / Melodee; no hardware workload, diagnostics reset,
 installation, publication or allowance/default change occurred. Device patch
 ranking, baseline comparisons and extra-voice/physical acceptance remain open.
+
+## Stage 0/7: explicit four-stem capture and final host evidence
+
+Parent `972bfae`. Both CPU runners now accept `--usb inactive|stereo|stems`.
+`tools/audio_cpu_usb.py` shares their duplex capture and native fd-2 stderr
+handling. A stereo run requires a reported two-channel input; stems require
+four. Playback stays stereo. The helper never changes preferences, USB layout
+or connection state: select the desired existing layout before starting a run.
+It rejects a mismatch before opening any stream rather than silently recording
+only two channels from a four-stem device. All four channels are interleaved
+unchanged in the int24 WAV and retained after the run.
+
+Final capture evidence records the selected devices, layout, sample rate,
+capture/playback frame totals, open/close completion and callback statuses.
+Bounded-chunk WAV verification checks actual payload size, width, channel count
+and frame count. Missing/truncated capture, no callbacks, callback errors or
+native-driver stderr fail the final result. Device RX/TX packet counters must
+advance in each measured active-USB window; positive alternate settings alone
+do not establish live duplex streaming.
+
+The guarded screening runner now captures native driver errors too, including
+stream close. Live rows are explicitly provisional in `cases-pending.jsonl`
+and carry `host_audio_pending=true`. Only after streams close and runtime
+restoration verifies does it publish final `cases.jsonl` and a final summary.
+Every final row includes the complete host evidence. A late driver error
+invalidates all cases conservatively. A stream-close failure preserves the
+provisional rows and a failed summary while still restoring runtime. Final
+summary/exit status also includes restoration and connection-close outcome;
+original snapshots remain only in host memory with existing guarded recovery.
+The original statistics peak is retained when the histogram bound is assessed
+again. Nonfinite durations are rejected before connecting.
+
+The normal observer still makes no music/transport/preference/persistence
+edits and requires profiling/lab support compiled out. Its old `observed_audio`
+field is renamed `observed_active_voices`: this is voice-counter evidence,
+not a claim that sound was heard or that each stem contains nonzero audio.
+Actual captured WAV samples remain available for separate analysis/listening.
+
+37 host tests pass: the existing 15 restoration/screen and 11 normal-observer
+tests, plus 11 capture/integration cases (`build/cpu-usb-baseline-tests.log`,
+`build/cpu-usb-stress-tests.log`, `build/cpu-usb-tests.log`). New tests exercise
+both exact channel layouts/sample interleaving, rejected mismatches before
+opening, callback/no-frame/short-frame failures, native shutdown errors, corrupt
+and truncated evidence, packet stagnation, finalization of multiple rows,
+normal stems without music edits, and screening success/failure restoration.
+Both CLI help paths pass. The new tests are registered in the combined suite.
+Firmware and the `cpu-sid11`/`cpu-sid0`/`cpu-ref8` source/package hashes are
+unchanged; no firmware rebuild or duplicate broad suite was needed for this
+host-tooling commit.
+
+For an already configured four-stem device, use `--usb stems` in the existing
+screening or normal-stress command. Run screening from an interactive terminal
+as before; the normal observer needs no snapshot or backup. Hardware execution
+is **not performed**: this supplies the missing stem measurement path, not a
+stem/USB qualification result. Recording/external-clock workload fixtures,
+physical controls, target baseline comparisons and normal ten-minute stress
+still remain. No installation, workload, counter reset, USB layout edit,
+publication or production-default/budget change occurred in this work.

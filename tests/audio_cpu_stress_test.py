@@ -80,7 +80,7 @@ class StressTest(unittest.TestCase):
             row['voices_active'] = 0
         result = self.run_observer(seconds=2, mutate=empty)
         self.assertFalse(result['passed'])
-        self.assertFalse(result['observed_audio'])
+        self.assertFalse(result['observed_active_voices'])
 
     def test_all_faults_and_complete_timing_bound(self):
         for fault in (*stress.FAULTS, 'bench_shed_requests'):
@@ -188,7 +188,7 @@ class StressTest(unittest.TestCase):
         device = SimpleNamespace()
         for seconds, interval, usb, minimum in ((float('nan'), 1, 'inactive', 0),
                 (0, 1, 'inactive', 0), (1, 0, 'inactive', 0), (1, 6, 'inactive', 0),
-                (1, 1, 'stems', 0), (1, 1, 'inactive', -1)):
+                (1, 1, 'unknown', 0), (1, 1, 'inactive', -1)):
             with self.assertRaises(ValueError):
                 stress.observe(device, seconds, interval, usb, minimum)
 

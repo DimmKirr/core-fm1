@@ -14,12 +14,13 @@ import contextlib
 import hashlib
 import json
 import math
-import os
 import sys
 import time
 from pathlib import Path
 
-from audio_performance_device import ReliableDevice, metadata, stats, usb_streams, COUNTERS, DEADLINE_US
+from audio_performance_device import ReliableDevice, metadata, stats, COUNTERS, DEADLINE_US
+
+from audio_cpu_usb import capture_driver_stderr, usb_streams, capture_result
 
 FAULTS = tuple(k for k in COUNTERS if k not in ('rx_packets', 'tx_packets'))
 STABLE_FIELDS = ('clock_mhz', 'half_frames', 'profiling', 'benchmark_support', 'admission', 'budget_points')
@@ -34,8 +35,8 @@ def normal_metadata(m):
 def observe(d, seconds, interval, usb, minimum_voices=0, on_sample=None):
     if not math.isfinite(seconds) or seconds <= 0 or not math.isfinite(interval) or not 0 < interval <= 5:
         raise ValueError('seconds positive and finite; poll interval >0 and <=5 seconds')
-    if usb not in ('inactive', 'stereo') or not 0 <= minimum_voices <= 64:
-        raise ValueError('USB inactive/stereo; minimum voices 0..64')
+    if usb not in ('inactive', 'stereo', 'stems') or not 0 <= minimum_voices <= 64:
+        raise ValueError('USB inactive/stereo/stems; minimum voices 0..64')
     initial = metadata(d)
     if not normal_metadata(initial):
         raise RuntimeError(f'Requires normal shared-budget 360-MHz/128-frame firmware: {initial}')
@@ -55,8 +56,10 @@ def observe(d, seconds, interval, usb, minimum_voices=0, on_sample=None):
         previous = current
         same = all(initial.get(key) == m.get(key) for key in STABLE_FIELDS)
         stable = stable and same
-        usb_ok = (current['play_alt'] > 0 and current['cap_alt'] > 0 if usb == 'stereo'
+        usb_ok = (current['play_alt'] > 0 and current['cap_alt'] > 0 if usb != 'inactive'
                   else current['play_alt'] == current['cap_alt'] == 0)
+        if usb != 'inactive':
+            usb_ok = usb_ok and delta['rx_packets'] > 0 and delta['tx_packets'] > 0
         bound = current['audio_full_max_us']
         active = current['voices_active']
         passed = bool(normal_metadata(m) and same and usb_ok and current['core1_online'] and
@@ -75,29 +78,12 @@ def observe(d, seconds, interval, usb, minimum_voices=0, on_sample=None):
         if on_sample:
             on_sample(row)
     return dict(seconds=time.monotonic()-start, requested_seconds=seconds, samples=samples,
-                passed=bool(all_ok and maximum > 0), observed_audio=maximum > 0,
+                passed=bool(all_ok and maximum > 0), observed_active_voices=maximum > 0,
                 peak_complete_upper_us=peak, deadline_us=DEADLINE_US,
                 headroom_pct=100*(1-peak/DEADLINE_US), voices_min=minimum, voices_max=maximum,
                 minimum_requested_voices=minimum_voices, delta=totals, metadata_stable=stable,
                 metadata_start=initial, metadata_end=m, diagnostic_retries=d.diagnostic_retries-retries,
                 evidence='Observed supplied performance only; physical/listening and workload coverage require separate evidence.')
-
-
-@contextlib.contextmanager
-def capture_driver_stderr(path):
-    """Capture native driver stderr too: redirect_stderr alone misses C output."""
-    sys.stderr.flush()
-    saved = os.dup(2)
-    try:
-        with path.open('wb') as output:
-            os.dup2(output.fileno(), 2)
-            try:
-                yield
-            finally:
-                sys.stderr.flush()
-                os.dup2(saved, 2)
-    finally:
-        os.close(saved)
 
 
 def finalize_host_audio(result, statuses, stderr_bytes):
@@ -116,7 +102,7 @@ def main():
     p.add_argument('--seconds', type=float, default=600)
     p.add_argument('--interval', type=float, default=.5)
     p.add_argument('--minimum-voices', type=int, default=0, help='Optional floor for a held-voice workload; sequenced music can legitimately reach zero')
-    p.add_argument('--usb', choices=('inactive', 'stereo'), default='inactive')
+    p.add_argument('--usb', choices=('inactive', 'stereo', 'stems'), default='inactive')
     p.add_argument('--label', default='ongoing user-supplied performance')
     a = p.parse_args()
     if not math.isfinite(a.seconds) or a.seconds <= 0 or not math.isfinite(a.interval) or not 0 < a.interval <= 5 or not 0 <= a.minimum_voices <= 64:
@@ -140,7 +126,7 @@ def main():
             raise RuntimeError(f'Installed build differs from normal manifest: {identity}, {m}')
         (a.output/'run.json').write_text(json.dumps(dict(build=manifest, identity=identity,
             metadata=m, workload=vars(a)), indent=2, default=str)+'\n')
-        stream = usb_streams(a.output/'capture.wav', 'int24') if a.usb == 'stereo' else contextlib.nullcontext([])
+        stream = usb_streams(a.output/'capture.wav', 'int24', a.usb) if a.usb != 'inactive' else contextlib.nullcontext([])
         with (a.output/'samples.jsonl').open('w') as samples, capture_driver_stderr(a.output/'driver-stderr.log'):
             def record(row):
                 samples.write(json.dumps(row)+'\n')
@@ -160,6 +146,8 @@ def main():
             result.update(passed=False, close_error=f'{type(error).__name__}: {error}')
         stderr_path = a.output/'driver-stderr.log'
         finalize_host_audio(result, statuses, stderr_path.stat().st_size if stderr_path.exists() else 0)
+        result['host_capture'] = capture_result(a.output/'capture.wav', a.usb)
+        result['passed'] = bool(result['passed'] and result['host_capture']['passed'])
         (a.output/'summary.json').write_text(json.dumps(result, indent=2)+'\n')
         print(json.dumps(result), flush=True)
     return 0 if result['passed'] else 1
