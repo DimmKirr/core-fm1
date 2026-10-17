@@ -909,6 +909,7 @@ static void ref_scene(int s)
 
 static void setup(int s)
 {
+    uint8_t fm6_pk[FM6_PACKED];                     /* (a factory voice, packed) */
     memset(kb_chn, 0, sizeof kb_chn);               /* no key held (roll_playing holds one) */
     memset(&stage, 0, sizeof stage);                /* (Stage's knobs in) */
     chain.running = 0;                              /* (the song the SONG scene plays) */
@@ -1297,10 +1298,10 @@ static void setup(int s)
      * (a patch there: its name) */
     case S_FM6_FREQ: eng(ENGI_FM6); go_title("FREQ"); fm6_opsel = 1; ui.hot_col = 1; ui.hot_t = 30; break;
     case S_FM6_EG: eng(ENGI_FM6); go_title("EG RATE"); fm6_opsel = 2; break;
-    case S_FM6_PEG: eng(ENGI_FM6); fm6_factory(3, fm6_buf); fm6_unpack(fm6_buf, fm6_patch[song.sel]); fm6_pgen[song.sel]++;
+    case S_FM6_PEG: eng(ENGI_FM6); fm6_factory(3, fm6_pk); fm6_unpack(fm6_pk, fm6_patch[song.sel]); fm6_pgen[song.sel]++;
         go_title("PITCH EG"); break;
     case S_FM6_STORE:
-        eng(ENGI_FM6); song.playing = 0; fm6_factory(5, fm6_buf); (void)native_store(ENGI_FM6, 63, song.sel, "WOOD BARS");
+        eng(ENGI_FM6); song.playing = 0; fm6_factory(5, fm6_pk); (void)native_store(ENGI_FM6, 63, song.sel, "WOOD BARS");
         go_title("STORE"); fm6_bslot = 383;
         break;
     case S_CZ1_ENV: eng(ENGI_CZ); go_title("C1 WAV R1-4"); break;   /* INIT TONE: R1 R2 live, R3 R4 dim (END 2) */
