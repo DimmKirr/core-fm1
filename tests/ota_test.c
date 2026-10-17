@@ -4,7 +4,7 @@
 /* Host test of firmware/src/ota.c: a fake M-UPGRADE serves a real .fwsc over
  * the SysEx protocol (pack7, cmd 0x30 reads, 0xE0000000 -> "success") and a
  * simulated NOR plays the flash.
- *   cc -o ota_test tests/ota_test.c && ./ota_test FILE.fwsc
+ *   cc -o ota_test tests/ota_test.c && ./ota_test FILE.fwsc [OFFICIAL_V15.fwsc]
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -287,6 +287,40 @@ int main(int argc, char **argv)
         mute_after = total - 1;                            /* answer everything but the confirmation */
         rc = ota_session();
         bad += check("no 'success' -> -13, no commit, area clean", rc == -13 && !committed && area_erased());
+    }
+
+    /* Optional local vendor package, never redistributed. Melodee's loader preserves
+     * the device's original 0..0x3FFF head; the official loader requires that match. */
+    if (argc > 2) {
+        f = fopen(argv[2], "rb");
+        if (!f) { perror(argv[2]); return 2; }
+        n = fread(raw, 1, 0x200000, f);
+        fclose(f);
+        free(logical);
+        logical = malloc(n);
+        for (i = 0; i < 20; i++) memcpy(logical + i * 47, raw + i * 48, 47);
+        memcpy(logical + 20 * 47, raw + 20 * 48, n - 20 * 48);
+        logical_len = n - 20;
+        uint8_t head[0x4000];
+        reset_dev();
+        memcpy(head, nor, sizeof head);
+        rc = ota_session();
+        bad += check("stock V15 stages and commits its official loader", rc == 0 && committed);
+        bad += check("stock return preserves head during staging", !memcmp(head, nor, sizeof head) && !bad_erase);
+        bad += check("stock return stages the exact official loader",
+                     !memcmp(nor + OTA_AREA + 32, logical + ota_body_off(), OTA_LDR_LEN));
+        bad += check("stock return uses the official loader identity",
+                     !memcmp(committed_parm + 8, "ota-FM-1_015", 12));
+        reset_dev();
+        nor[0x100] ^= 1;
+        rc = ota_session();
+        bad += check("stock return rejects a different device head",
+                     rc == -5 && !committed && area_erased());
+        reset_dev();
+        corrupt_at = logical + ota_body_off() + 100;
+        rc = ota_session();
+        bad += check("stock return rejects a damaged official loader",
+                     rc == -11 && !committed && area_erased());
     }
 
     printf("%s\n", bad ? "OTA TEST FAILED" : "ota test passed");

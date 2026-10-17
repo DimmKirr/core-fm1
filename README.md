@@ -10,7 +10,7 @@
 Current builds use both CPU cores. Following the CPU voltage startup fix,
 single-core packages are retired from the build, release and installer workflows.
 
-Development builds with boot protection return to USB update mode after an interrupted
+Melodee 1.3.5 and later builds with boot protection return to USB update mode after an interrupted
 firmware write, including power loss. Switch on again, or hold **OCT− alone** while
 switching on; three short key-light flashes mean you can reconnect USB and press Install
 again. The first installation of this protection still needs uninterrupted power while
@@ -25,15 +25,16 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**Melodee 1.3.4** ([what's new](#whats-new-in-134)).
+**[Melodee 1.4.1](https://github.com/keremimo/melodee/releases/tag/v1.4.1)**
+([release notes](docs/RELEASE_1.4.1.md), [what's new](#whats-new-in-140)).
 
-Release candidate: **[Melodee 1.4.0-rc.3](https://github.com/keremimo/melodee/releases/tag/v1.4.0-rc.3)**
-([release notes](docs/RELEASE_1.4.0-rc.3.md)); choose **RC** in the web installer.
-It adds track management, a HOME chord view, assignable SELECT, motion editing and
-audio performance improvements. The stable installer remains on 1.3.4.
+The stock-restore installer accepts 1.4's backup capabilities. Existing Melodee 1.4.0
+users can return to official V15 directly from the updated web installer.
 
-Next candidate: **Melodee 1.4.0-rc.4** ([release notes](docs/RELEASE_1.4.0-rc.4.md)),
-prepared on `next`; not yet published.
+The stable installer includes the latest UI, recording, effects, SID and preset-bank
+changes. Read the [illustrated manual](https://keremimo.github.io/melodee/webapp/manual/)
+for this release, or the [nightly guide](https://keremimo.github.io/melodee/webapp/manual/nightly/)
+for development firmware.
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -44,6 +45,24 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 1.4.0
+
+- **Larger, clearer UI:** Rubik or Melodee Pixel, coloured track rows, full-pattern dots,
+  new palettes and a persistent knob strip.
+- **FX racks:** three track inserts and a shared rack, chain/split routing, and DARK–FULL–THIN
+  TONE controls for ECHO, ROOM and REVERB with reduced bass buildup.
+- **C64 SID and drum kits:** frame-rate chip models, held-chord chip arpeggios, SID KIT and SID DIGI.
+- **Recording and patterns:** continuous explicit REC, one-pass pattern shortcuts, whole-take undo,
+  loop-end destructive edits and SEQ track-selection keys.
+- **Tracks and chords:** one to four tracks per song, a HOME chord wheel and assignable HOME/GLO SELECT.
+- **Shared presets:** U001–U384 for every engine, native voice data and supported legacy migration.
+- **USB audio:** one duplex Melodee device with host playback volume/mute; stereo or four-track capture.
+- **Online manual:** generated screenshots and separate stable/nightly guides, thanks to @relyt29.
+- **Performance and navigation:** audio optimizations, more audio RAM, a saved shared voice budget,
+  remembered EDIT-map pages and retained knob detents. Current packages use both cores.
+
+See the [release notes](docs/RELEASE_1.4.0.md) for compatibility and upgrade details.
 
 ## What's new in 1.3.6
 
