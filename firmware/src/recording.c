@@ -36,12 +36,34 @@ static uint16_t recording_live_head[NTRK] = {RECORD_MAX, RECORD_MAX, RECORD_MAX,
 #endif
 static uint32_t recording_view(const track_t *t, const recorded_note_t *r);
 #if MELODEE_RECORD_QUEUE
-/* Each track can own the entire shared store. Fixed indexed heaps permit
+/* Each track can own the entire shared store. Indexed heaps permit
  * O(log N) insertion, retrigger and cancellation without allocating in audio.
  * The position's top six bits retain the release's overview cell; its bottom
  * ten bits address the heap. No second copy of the editable notes is saved. */
 _Static_assert(RECORD_MAX == 1024u && NSTEP == 64u, "packed queue index");
-static uint16_t recording_heap[NTRK][RECORD_MAX] __attribute__((section(".pool")));
+/* The four heaps share one store of 32-entry chunks. Row tr holds track tr's
+ * first 32 entries, so the tick's top and small queues index it directly; a
+ * deeper chunk is taken from the free stack as a heap grows past a multiple
+ * of 32 and returned as it shrinks back. A note sounds in at most one track's
+ * heap and at most RECORD_MAX notes sound, so the chunks in use never exceed
+ * RECORD_MAX / 32 + NTRK: the store cannot run out. */
+#define RECORDING_ROWS (RECORD_MAX / 32u + NTRK)
+#define RECORDING_SHARED (RECORDING_ROWS - NTRK)
+_Static_assert(RECORDING_ROWS == 36u && RECORDING_ROWS <= 128u, "every sounding note has a chunk; row - j fits a byte");
+static uint16_t recording_heap_store[RECORDING_ROWS * 32u] __attribute__((section(".pool")));
+/* Entries 32j..32j+31 live in row chunk[tr][j] + j: keeping row - j lets
+ * (chunk << 5) + at index the store directly. [0] is tr once the heap has
+ * grown past 32. */
+static int8_t recording_heap_chunk[NTRK][RECORD_MAX / 32u] __attribute__((section(".pool")));
+/* Free stack entry k holds a shared row's offset XOR k: the zeroed pool lists them all. */
+static uint8_t recording_heap_free[RECORDING_SHARED] __attribute__((section(".pool")));
+static uint8_t recording_heap_taken __attribute__((section(".pool")));
+/* Entry at of a heap: in its own row, or (deep) wherever the table says. */
+static inline __attribute__((always_inline)) uint16_t *recording_heap_slot(uint16_t *row, const int8_t *chunk, uint32_t at, int deep)
+{
+    return deep ? &recording_heap_store[(uint32_t)(chunk[at >> 5] * 32) + at] : &row[at];
+}
+#define RQ(tr, at) (*recording_heap_slot(&recording_heap_store[(tr) * 32u], recording_heap_chunk[tr], at, (at) >= 32u))
 static uint16_t recording_heap_pos[RECORD_MAX] __attribute__((section(".pool")));
 /* bit 7 marks a pending note-off; only the low seven bits reach MIDI/synth. */
 static uint8_t recording_message[RECORD_MAX] __attribute__((section(".pool")));
@@ -76,27 +98,58 @@ static int recording_before(uint32_t a, uint32_t b)
     int32_t d = (int32_t)(recording_run[a].left - recording_run[b].left);
     return d < 0 || (!d && a < b);
 }
-static void recording_heap_put(uint32_t tr, uint32_t at, uint32_t i)
+static inline __attribute__((always_inline)) void recording_heap_put(uint16_t *slot, uint32_t at, uint32_t i)
 {
-    recording_heap[tr][at] = (uint16_t)i;
+    *slot = (uint16_t)i;
     recording_heap_pos[i] = (recording_heap_pos[i] & 0xFC00u) | (uint16_t)at;
 }
-static void recording_heap_fix(uint32_t tr, uint32_t at, uint32_t i)
+static inline __attribute__((always_inline)) void recording_heap_sift(uint32_t tr, uint32_t at, uint32_t i, int deep)
 {
+    uint16_t *row = &recording_heap_store[tr * 32u];
+    const int8_t *chunk = recording_heap_chunk[tr];
+#define RS(x) recording_heap_slot(row, chunk, x, deep)
     while (at) {
-        uint32_t parent = (at - 1u) / 2u, other = recording_heap[tr][parent];
+        uint32_t parent = (at - 1u) / 2u, other = *RS(parent);
         if (!recording_before(i, other)) break;
-        recording_heap_put(tr, at, other); at = parent;
+        recording_heap_put(RS(at), at, other); at = parent;
     }
     for (;;) {
         uint32_t child = at * 2u + 1u;
         if (child >= recording_heap_count[tr]) break;
-        if (child + 1u < recording_heap_count[tr] && recording_before(recording_heap[tr][child + 1u], recording_heap[tr][child])) child++;
-        uint32_t other = recording_heap[tr][child];
+        if (child + 1u < recording_heap_count[tr] && recording_before(*RS(child + 1u), *RS(child))) child++;
+        uint32_t other = *RS(child);
         if (!recording_before(other, i)) break;
-        recording_heap_put(tr, at, other); at = child;
+        recording_heap_put(RS(at), at, other); at = child;
     }
-    recording_heap_put(tr, at, i);
+    recording_heap_put(RS(at), at, i);
+#undef RS
+}
+/* A heap that fits its own row (most queues) sifts as directly as the old
+ * per-track arrays; only a deeper one pays the chunk lookup. Two functions
+ * keep the compiler from folding them back into one with a runtime flag. */
+static __attribute__((noinline)) void recording_heap_fix_row(uint32_t tr, uint32_t at, uint32_t i) { recording_heap_sift(tr, at, i, 0); }
+static __attribute__((noinline)) void recording_heap_fix_deep(uint32_t tr, uint32_t at, uint32_t i) { recording_heap_sift(tr, at, i, 1); }
+static inline __attribute__((always_inline)) void recording_heap_fix(uint32_t tr, uint32_t at, uint32_t i)
+{
+    if (recording_heap_count[tr] <= 32u) recording_heap_fix_row(tr, at, i);
+    else recording_heap_fix_deep(tr, at, i);
+}
+/* Take the next chunk: 0 only if the free stack is empty, which the bound
+ * above rules out (the caller then schedules no release). */
+static __attribute__((noinline)) int recording_heap_grow(uint32_t tr)
+{
+    uint32_t at = recording_heap_count[tr], k = recording_heap_taken;
+    if (k >= RECORDING_SHARED || at >= RECORD_MAX) return 0;
+    recording_heap_chunk[tr][0] = (int8_t)tr;   /* (the deep sift reads every row through the table) */
+    recording_heap_chunk[tr][at >> 5] = (int8_t)(NTRK + (recording_heap_free[k] ^ k) - (at >> 5));
+    recording_heap_taken = (uint8_t)(k + 1u);
+    return 1;
+}
+/* Before count++: a new chunk only as it crosses a multiple of 32. */
+static inline __attribute__((always_inline)) int recording_heap_room(uint32_t tr)
+{
+    uint32_t at = recording_heap_count[tr];
+    return at < 32u || (at & 31u) || recording_heap_grow(tr);
 }
 static void recording_queue_remove(uint32_t i)
 {
@@ -106,9 +159,17 @@ static void recording_queue_remove(uint32_t i)
     if (!--recording_watch[tr][view]) recording_watch_bits[tr][view >> 5] &= ~(1u << (view & 31u));
     recording_message[i] = 0;
     uint32_t last = --recording_heap_count[tr];
-    if (at != last) recording_heap_fix(tr, at, recording_heap[tr][last]);
+    if (last < 32u) {                           /* (most queues: their own row only) */
+        if (at != last) recording_heap_fix_row(tr, at, recording_heap_store[tr * 32u + last]);
+        return;
+    }
+    if (at != last) recording_heap_fix(tr, at, RQ(tr, last));
+    if (!(last & 31u)) {                        /* that chunk is empty now */
+        uint32_t k = --recording_heap_taken;
+        recording_heap_free[k] = (uint8_t)((recording_heap_chunk[tr][last >> 5] + (last >> 5) - NTRK) ^ k);
+    }
 }
-static void recording_queue_add(track_t *t, uint32_t i, uint32_t remaining)
+static int recording_queue_add(track_t *t, uint32_t i, uint32_t remaining)
 {
     uint32_t tr = trk_index(t), was = recording_sounding(i);
     if (!recording_heap_count[tr]) {
@@ -118,6 +179,7 @@ static void recording_queue_add(track_t *t, uint32_t i, uint32_t remaining)
     /* An edit can change a sounding event's overview. Remove/reinsert also
      * cancels its old deadline rather than leaving a stale release behind. */
     if (was) recording_queue_remove(i);
+    if (!recording_heap_room(tr)) return 0;
     uint32_t view = recording_view(t, &recording[i]);
     recording_run[i].left = recording_clock[tr] + remaining;
     recording_message[i] = recording[i].note | 128u;
@@ -126,6 +188,7 @@ static void recording_queue_add(track_t *t, uint32_t i, uint32_t remaining)
     recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
     uint32_t at = recording_heap_count[tr]++;
     recording_heap_fix(tr, at, i);
+    return 1;
 }
 #endif
 static volatile uint8_t recording_full;
@@ -300,7 +363,7 @@ static void recording_queue_refresh(track_t *t)
     memset(recording_watch[tr], 0, sizeof recording_watch[tr]);
     memset(recording_watch_bits[tr], 0, sizeof recording_watch_bits[tr]);
     for (uint32_t at = 0; at < recording_heap_count[tr]; at++) {
-        uint32_t i = recording_heap[tr][at], view = recording_view(t, &recording[i]);
+        uint32_t i = RQ(tr, at), view = recording_view(t, &recording[i]);
         recording_heap_pos[i] = (uint16_t)((view << 10) | at);
         recording_watch[tr][view]++;
         recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
@@ -319,6 +382,8 @@ static void recording_reindex(void)
     memset(recording_refs, 0, sizeof recording_refs);
 #if MELODEE_RECORD_QUEUE
     memset(recording_heap_count, 0, sizeof recording_heap_count);
+    memset(recording_heap_free, 0, sizeof recording_heap_free);
+    recording_heap_taken = 0;
     memset(recording_watch, 0, sizeof recording_watch);
     memset(recording_watch_bits, 0, sizeof recording_watch_bits);
 #endif
@@ -340,6 +405,7 @@ static void recording_reindex(void)
             recording_heap_pos[i] = (uint16_t)(view << 10);
             recording_watch[tr][view]++;
             recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
+            recording_heap_room(tr);    /* (never full: the store was reset above, each slot is visited once) */
             uint32_t at = recording_heap_count[tr]++;
             recording_heap_fix(tr, at, i);
 #endif
@@ -720,8 +786,8 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     drum_event_pitch=0; drum_event_length=0;
     uint32_t was = recording_sounding(i), remaining = gate > late ? gate - late : 0u;
 #if MELODEE_RECORD_QUEUE
-    if (remaining) recording_queue_add(t, i, remaining);
-    else { recording_queue_remove(i); recording_run[i].left = 0; }
+    if (remaining && !recording_queue_add(t, i, remaining)) remaining = 0;
+    if (!remaining) { recording_queue_remove(i); recording_run[i].left = 0; }
 #else
     recording_run[i].left = remaining;
 #endif
@@ -780,7 +846,7 @@ static void recording_queue_tick(track_t *t, uint32_t n)
     /* Process offs before this block's new onsets, as the countdown path did.
      * Retrigger replaces the indexed deadline; no stale off can end its gate. */
     while (recording_heap_count[tr]) {
-        uint32_t i = recording_heap[tr][0];
+        uint32_t i = recording_heap_store[tr * 32u];
         if ((int32_t)(recording_run[i].left - recording_clock[tr]) > 0) break;
         recording_end(t, i);
     }

@@ -18,16 +18,36 @@ static void queue_fixture(uint32_t count)
     }
     recording_reindex();
 }
+/* Every shared row is exactly once either a chunk some heap is using or free
+ * on the stack past the taken mark. */
+static int queue_chunks(void)
+{
+    uint8_t used[RECORDING_ROWS]={0};uint32_t taken=0;
+    for(uint32_t tr=0;tr<NTRK;tr++){
+        if(recording_heap_count[tr]>32u && recording_heap_chunk[tr][0]!=(int8_t)tr)return 0;
+        for(uint32_t c=1;c<(recording_heap_count[tr]+31u)/32u;c++,taken++){
+            uint32_t row=(uint32_t)(recording_heap_chunk[tr][c]+(int)c);
+            if(row<NTRK || row>=RECORDING_ROWS || used[row]++)return 0;
+        }
+    }
+    if(taken!=recording_heap_taken)return 0;
+    for(uint32_t k=taken;k<RECORDING_SHARED;k++){
+        uint32_t row=NTRK+(recording_heap_free[k]^k);
+        if(row>=RECORDING_ROWS || used[row]++)return 0;
+    }
+    return 1;
+}
 static int queue_invariants(void)
 {
     uint8_t seen[RECORD_MAX]={0};
+    if(!queue_chunks())return 0;
     for(uint32_t tr=0;tr<NTRK;tr++){
         uint16_t refs[128]={0},watch[NSTEP]={0};uint32_t bits[2]={0};
         for(uint32_t at=0;at<recording_heap_count[tr];at++){
-            uint32_t i=recording_heap[tr][at];
+            uint32_t i=RQ(tr,at);
             if(i>=RECORD_MAX || seen[i]++ || !recording_sounding(i) ||
                (recording[i].owner&31u)/NPAT!=tr || (recording_heap_pos[i]&1023u)!=at ||
-               (at && recording_before(i,recording_heap[tr][(at-1u)/2u])))return 0;
+               (at && recording_before(i,RQ(tr,(at-1u)/2u))))return 0;
             uint32_t view=recording_heap_pos[i]>>10;
             watch[view]++;bits[view>>5]|=1u<<(view&31u);refs[recording_message[i]&127u]++;
         }
@@ -106,8 +126,78 @@ static int independent_tracks(void)
     }
     return check("track clocks and rollover deadlines remain independent across reindex",ok);
 }
+/* share[tr] events owned by track tr, all sounding, with unsorted deadlines. */
+static void spread_fixture(const uint32_t share[NTRK])
+{
+    recording_reset();queue_fixture(0);
+    for(uint32_t tr=0,i=0;tr<NTRK;tr++)for(uint32_t k=0;k<share[tr];k++,i++){
+        recorded_note_t r={0};r.duration=(uint16_t)(1000u+(i*7919u)%50000u);r.note=(uint8_t)(i%128u);r.vel=100;
+        r.step=(uint8_t)(i%64u);r.owner=(uint8_t)recording_owner(&trk[tr]);
+        recording_restore_note(&trk[tr],i,r);
+    }
+    recording_reindex();
+    for(uint32_t i=0;i<RECORD_MAX;i++)if(recording[i].vel)recording_fire(&trk[(recording[i].owner&31u)/NPAT],i,RECORD_UNIT,0);
+}
+/* Each block releases exactly the events whose deadline it reached, through
+ * every chunk boundary, and the store is whole again once all have ended. */
+static int drains_in_order(void)
+{
+    uint32_t deadline[RECORD_MAX];int ok=1;
+    for(uint32_t i=0;i<RECORD_MAX;i++)deadline[i]=recording_run[i].left;
+    for(uint32_t block=0;block<60 && ok;block++)for(uint32_t tr=0;tr<NTRK && ok;tr++){
+        recording_queue_tick(&trk[tr],997u);
+        for(uint32_t i=0;i<RECORD_MAX;i++)if(recording[i].vel && (recording[i].owner&31u)/NPAT==tr &&
+            recording_sounding(i)!=((int32_t)(deadline[i]-recording_clock[tr])>0))ok=0;
+        ok=ok && queue_invariants();
+    }
+    for(uint32_t tr=0;tr<NTRK;tr++)if(recording_heap_count[tr])ok=0;
+    return ok && !recording_heap_taken;
+}
+static int shared_chunks(void)
+{
+    static const uint32_t one[NTRK]={RECORD_MAX,0,0,0},even[NTRK]={256,256,256,256},tight[NTRK]={961,33,15,15};
+    spread_fixture(one);
+    int bad=check("1024 sounding notes on one track take its row and 31 shared chunks",
+                  recording_heap_count[0]==RECORD_MAX && recording_heap_taken==31u && queue_invariants());
+    bad+=check("one track's 1024 releases drain in deadline order across its chunks",drains_in_order());
+    spread_fixture(even);
+    bad+=check("256 notes on each track take 7 shared chunks each",recording_heap_taken==28u && queue_invariants());
+    bad+=check("four tracks' releases drain in order and return every chunk",drains_in_order());
+    spread_fixture(tight);
+    bad+=check("the most chunk-hungry split of 1024 notes fits (31 shared chunks)",
+               recording_heap_taken==31u && recording_heap_count[1]==33u && queue_invariants());
+    /* Removals in random order: chunks leave from every depth and track. */
+    uint16_t order[RECORD_MAX];uint32_t random=0x5eed1234u;int ok=1;
+    for(uint32_t i=0;i<RECORD_MAX;i++)order[i]=(uint16_t)i;
+    for(uint32_t i=RECORD_MAX;i-- > 1;){random=random*1664525u+1013904223u;uint32_t j=(random>>8)%(i+1u);uint16_t s=order[i];order[i]=order[j];order[j]=s;}
+    for(uint32_t k=0;k<RECORD_MAX && ok;k++){
+        uint32_t i=order[k];recording_remove(&trk[(recording[i].owner&31u)/NPAT],i);
+        ok=queue_invariants();
+    }
+    bad+=check("random-order removals return every chunk to the free stack",ok && !recording_heap_taken &&
+               !recording_heap_count[0] && !recording_heap_count[1] && !recording_heap_count[2] && !recording_heap_count[3]);
+    /* Notes move between tracks while the store is full: chunks change hands
+     * in an interleaved order, retriggers and reindexes included. */
+    spread_fixture(one);
+    for(uint32_t k=0;k<4096 && ok;k++){
+        random=random*1664525u+1013904223u;
+        uint32_t i=(random>>8)%RECORD_MAX,tr=(random>>20)%NTRK;
+        if(k%3u==0u){recording_flags[i]&=(uint8_t)~4u;recording_fire(&trk[(recording[i].owner&31u)/NPAT],i,RECORD_UNIT,k%500u);}
+        else{
+            recorded_note_t r=recording[i];recording_remove(&trk[(r.owner&31u)/NPAT],i);
+            r.owner=(uint8_t)recording_owner(&trk[tr]);r.duration=(uint16_t)(1000u+random%40000u);
+            recording_restore_note(&trk[tr],i,r);recording_fire(&trk[tr],i,RECORD_UNIT,0);
+        }
+        if(k%127u==0u)recording_reindex();
+        ok=queue_invariants();
+    }
+    uint32_t sounding=0;for(uint32_t i=0;i<RECORD_MAX;i++)sounding+=(uint32_t)recording_sounding(i);
+    bad+=check("1024 notes moving between tracks keep every chunk accounted for",ok && sounding==RECORD_MAX);
+    bad+=check("the moved notes still release in order and free the whole store",drains_in_order());
+    seq_stop();return bad;
+}
 int main(void)
 {
-    int bad=rollover_and_retrigger()+dense_cancellation()+changed_overview()+independent_tracks();
+    int bad=rollover_and_retrigger()+dense_cancellation()+changed_overview()+independent_tracks()+shared_chunks();
     if(!bad)puts("Recording release queue tests passed");return bad!=0;
 }

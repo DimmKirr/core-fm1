@@ -82,7 +82,7 @@ static uint64_t state_hash(int rc)
     MIX(recording_live_next); MIX(recording_live_head);
 #endif
 #if MELODEE_RECORD_QUEUE
-    MIX(recording_heap); MIX(recording_heap_pos); MIX(recording_message); MIX(recording_watch); MIX(recording_watch_bits);
+    MIX(recording_heap_store); MIX(recording_heap_chunk); MIX(recording_heap_free); MIX(recording_heap_taken); MIX(recording_heap_pos); MIX(recording_message); MIX(recording_watch); MIX(recording_watch_bits);
     MIX(recording_clock); MIX(recording_heap_count); MIX(recording_heap_owner); MIX(recording_heap_len);
 #endif
 #if MELODEE_RECORD_INDEX
