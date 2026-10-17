@@ -9,6 +9,7 @@
 static void setup_mpc(void)
 {
     ui_power_on();
+    midi_hint = 0;
     for (uint32_t k = 0; k < NTRK; k++) {
         set_engine_of(&trk[k], 3);
         trk[k].p[P_QUANT] = Q_MPC; trk[k].p[P_SCALE] = 1;
@@ -119,9 +120,155 @@ static void persistence(void)
     puts("MPC octaves: project/template roundtrips, old zero fields, malformed state, and track lifecycle: OK");
 }
 
+static void track_follow(void)
+{
+    setup_mpc();
+    ui.msg_t = 0;
+    for (uint32_t k = 0; k < NTRK; k++) {
+        trk[k].mpc_octave = (int8_t)((int32_t)k - 2);
+        midi_event(0x90, 0, MPC_PAD_NOTES[k][1], 100);
+        frame();
+        assert(song.sel == k && !midi_hint && !ui.msg_t);
+        assert(input_octave(TSEL) == (int32_t)k - 2);
+        midi_event(0x80, 0, MPC_PAD_NOTES[k][1], 0);
+    }
+    /* A burst ending back on the already-selected track must cancel an earlier different bank. */
+    track_select(0);
+    midi_event(0x90, 0, MPC_PAD_NOTES[2][1], 100);
+    midi_event(0x90, 0, MPC_PAD_NOTES[0][1], 100);
+    frame(); assert(song.sel == 0 && !ui.msg_t);
+    assert(mn_get(0, MPC_PAD_NOTES[2][1]) == 3u && mn_get(0, MPC_PAD_NOTES[0][1]) == 1u);
+    midi_event(0x80, 0, MPC_PAD_NOTES[0][1], 0);
+    assert(mn_get(0, MPC_PAD_NOTES[2][1]) == 3u);
+    midi_event(0x80, 0, MPC_PAD_NOTES[2][1], 0);
+    frame(); assert(song.sel == 0);
+    /* Invalid/absent banks and release events do not change focus. */
+    midi_event(0x90, 0, 60, 100); frame(); assert(song.sel == 0);
+    song.ntrk = 2;
+    midi_event(0x90, 0, MPC_PAD_NOTES[3][1], 100); frame(); assert(song.sel == 0);
+    song.ntrk = NTRK;
+    /* Follow works on parameter pages too, preserving the current page and unrelated feedback. */
+    go_title("PATTERN"); uint32_t page = ui.page;
+    ui_message("KEPT");
+    midi_event(0x90, 0, MPC_PAD_NOTES[1][1], 100); frame();
+    assert(song.sel == 1 && ui.page == page && !ui.home && msg_is("KEPT"));
+    midi_event(0x80, 0, MPC_PAD_NOTES[1][1], 0);
+    /* A mode change discards a queued follow; normal MIDI keeps its notice and manual selection. */
+    go_home(); ui.msg_t = 0; track_select(0);
+    midi_event(0x90, 0, MPC_PAD_NOTES[2][1], 100);
+    for (uint32_t k = 0; k < NTRK; k++) trk[k].p[P_QUANT] = Q_OFF;
+    frame(); assert(song.sel == 0 && !ui.msg_t);
+    midi_event(0x80, 0, MPC_PAD_NOTES[2][1], 0);
+    midi_event(0x90, 1, 60, 100); frame();
+    assert(song.sel == 0 && msg_is("MIDI IN -> T2"));
+    midi_event(0x80, 1, 60, 0);
+    ui.msg_t = 0;
+    midi_hint = 2; /* normal notice already queued when MPC is enabled */
+    for (uint32_t k = 0; k < NTRK; k++) trk[k].p[P_QUANT] = Q_MPC;
+    frame(); assert(!ui.msg_t && song.sel == 0);
+    for (uint32_t source = 1; source <= 2u; source++) {
+        setup_mpc(); ui.msg_t = 0;
+        song.g[G_MIDI] = (int16_t)(source - 1u);
+        song.rec = 15u;
+        for (uint32_t k = 0; k < NTRK; k++) memset(trk[k].step, 0, sizeof trk[k].step);
+        for (uint32_t k = 0; k < NTRK; k++) {
+            uint32_t note = MPC_PAD_NOTES[k][1];
+            if (source == 1u) midi_in_event(0x09u | 0x90u << 8 | note << 16 | 100u << 24);
+            else { um_byte(0x90); um_byte((uint8_t)note); um_byte(100); }
+            events_block(CTL); frame();
+            assert(song.sel == k && !ui.msg_t && song.playing && song.rec == 15u);
+            if (source == 1u) midi_in_event(0x08u | 0x80u << 8 | note << 16);
+            else { um_byte(0x80); um_byte((uint8_t)note); um_byte(0); }
+            events_block(CTL); frame();
+            assert(trk[k].step[0].n == 1u && trk[k].step[0].note[0] == 60u && !midi_owners[k]);
+        }
+    }
+    puts("MPC follow: latest valid pad selects its track silently, releases/ignored pads do not, normal MIDI unchanged: OK");
+    puts("MPC follow: USB/TRS pad input selects and records into its own armed track without routing notices: OK");
+}
+
+static void drum_pads(void)
+{
+    /* Expected GM outputs in physical pad order, bottom row first. Do not derive from the firmware's table. */
+    static const uint8_t notes[2][16] = {
+        {36, 38, 39, 37, 42, 46, 56, 49, 41, 45, 50, 70, 64, 61, 60, 75},
+        {36, 38, 39, 37, 42, 46, 51, 49, 41, 45, 50, 51, 36, 38, 42, 46},
+    };
+    for (uint32_t kit = DK_808; kit <= DK_SID; kit++) {
+        setup_mpc();
+        for (uint32_t k = 0; k < NTRK; k++) {
+            track_t *t = &trk[k];
+            set_engine_of(t, ENGI_DRUM); t->p[P_E0] = (int16_t)kit;
+            t->p[P_QUANT] = Q_MPC; t->p[P_SCALE] = 2; t->p[P_ROOT] = 11;
+            t->p[P_TRANS] = 24; t->p[P_MPCDEG] = 7;
+            for (int32_t oct = -3; oct <= 3; oct++) {
+                t->mpc_octave = (int8_t)oct;
+                for (uint32_t n = 0; n < 128u; n++) {
+                    uint32_t want = KB_SILENT;
+                    for (uint32_t p = 0; p < 16u; p++)
+                        if (n == MPC_PAD_NOTES[k][p]) want = notes[kit == DK_909][p];
+                    assert(midi_map(t, n) == want);
+                }
+                /* Native keys retain their chromatic drum map and bank octave. */
+                for (uint32_t key = 0; key < 27u; key++)
+                    assert(kb_map(t, key) == (uint32_t)clamp(29 + 12 * oct + (int32_t)key, 0, 127));
+            }
+            for (uint32_t q = Q_OFF; q < Q_MPC; q++) {
+                t->p[P_QUANT] = (int16_t)q;
+                for (uint32_t n = 0; n < 128u; n++) assert(midi_map(t, n) == n);
+            }
+        }
+    }
+    for (uint32_t source = 1; source <= 2u; source++)
+        for (uint32_t kit = DK_808; kit <= DK_SID; kit++) {
+            setup_mpc(); song.g[G_MIDI] = (int16_t)(source - 1u); ui.msg_t = 0;
+            for (uint32_t k = 0; k < NTRK; k++) {
+                track_t *t = &trk[k]; set_engine_of(t, ENGI_DRUM); t->p[P_E0] = (int16_t)kit;
+                t->p[P_QUANT] = Q_MPC; t->mpc_octave = 3;
+                for (uint32_t p = 0; p < 16u; p++) {
+                    seq_stop(); memset(t->step, 0, sizeof t->step); song.rec = (uint8_t)(1u << k);
+                    uint32_t src = MPC_PAD_NOTES[k][p], want = notes[kit == DK_909][p];
+                    if (source == 1u) midi_in_event(0x09u | 0x90u << 8 | src << 16 | 100u << 24);
+                    else { um_byte(0x90); um_byte((uint8_t)src); um_byte(100); }
+                    events_block(CTL); frame();
+                    assert(song.sel == k && !ui.msg_t && mn_get(0, src) == k + 1u && midi_owners[k] == 1u);
+                    assert(song.playing && midi_note_held(t, want));
+                    uint32_t lane = drum_lane(want);
+                    if (want == DRUM_LANE_NOTE[lane]) assert(t->step[0].hit & (1u << lane));
+                    else assert(t->step[0].n == 1u && t->step[0].note[0] == want);
+                    if (source == 1u) midi_in_event(0x08u | 0x80u << 8 | src << 16);
+                    else { um_byte(0x80); um_byte((uint8_t)src); um_byte(0); }
+                    events_block(CTL); frame();
+                    assert(!mn_get(0, src) && !midi_owners[k] && !midi_note_held(t, want));
+                }
+            }
+        }
+    /* Duplicated 909 hits retain separate pad ownership across a kit/octave change. */
+    setup_mpc(); set_engine_of(&trk[0], ENGI_DRUM); trk[0].p[P_QUANT] = Q_MPC; trk[0].p[P_E0] = DK_909;
+    int32_t out[2u * CTL];
+    for (uint32_t b = 0; b < 8u; b++) mix_block(out, CTL); /* finish the normal engine switch */
+    assert(trk[0].engine == ENGI_DRUM && !trk[0].xf_on);
+    midi_event(0x90, 0, MPC_PAD_NOTES[0][0], 100);
+    midi_event(0x90, 0, MPC_PAD_NOTES[0][12], 119);
+    assert(midi_owners[0] == 2u && midi_note_held(&trk[0], 36));
+    uint32_t struck = 0;
+    for (uint32_t v = 0; v < NVOICE; v++)
+        struck |= trk[0].v[v].active && trk[0].v[v].note == 36u && trk[0].v[v].mvel == 119u;
+    assert(struck); /* the second pad actually retriggers at its own velocity */
+    trk[0].p[P_E0] = DK_808; trk[0].mpc_octave = -3;
+    midi_event(0x80, 0, MPC_PAD_NOTES[0][0], 0);
+    assert(midi_owners[0] == 1u && midi_note_held(&trk[0], 36));
+    midi_event(0x80, 0, MPC_PAD_NOTES[0][12], 0);
+    assert(!midi_owners[0] && !midi_note_held(&trk[0], 36));
+    puts("MPC drums: all banks/notes/kits/octaves, native keys and normal MIDI preserved: OK");
+    puts("MPC drums: USB/TRS pads select silently, record GM hits and release their original owners: OK");
+}
+
 int main(void)
 {
     buttons_and_mapping();
     persistence();
+    track_follow();
+    drum_pads();
     return 0;
 }

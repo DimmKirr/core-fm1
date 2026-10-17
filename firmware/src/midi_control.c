@@ -168,7 +168,9 @@ static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
         midi_expression(t, c);
         if (!midi_play(t, ch, note, vel))           /* (a note the layout silences: no owner) */
             return;
-        if (t != TSEL)
+        if (trk[0].p[P_QUANT] == Q_MPC)
+            midi_hint = (uint8_t)(MIDI_TRACK_FOLLOW | (trk_index(t) + 1u)); /* every accepted pad: latest bank wins */
+        else if (t != TSEL)
             midi_hint = (uint8_t)(trk_index(t) + 1u);
         c->targets |= (uint8_t)(1u << trk_index(t));
         mn_set(ch, note, trk_index(t) + 1u);

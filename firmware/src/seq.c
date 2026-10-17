@@ -46,7 +46,8 @@ static void step_midi_edge(uint32_t track, uint32_t pitch, uint32_t on, uint32_t
     step_midi_w = w + 1u;
 }
 static volatile uint8_t panic_req;       /* bit per track: release every sounding note (preset / engine change) */
-static volatile uint8_t midi_hint;       /* MIDI IN played track n - 1, which is not the selected one (the UI says so) */
+#define MIDI_TRACK_FOLLOW 0x80u
+static volatile uint8_t midi_hint;       /* track + 1; MPC sets FOLLOW for silent UI selection, otherwise a notice */
 
 static uint32_t trk_index(const track_t *t) { return (uint32_t)(t - trk); }
 
@@ -170,13 +171,15 @@ static uint32_t mpc_pad(uint32_t note) { return (note + 28u) & 127u; }
 
 /* A MIDI note into track t: WHITE and ALL map it as the keys (without the octave buttons).
  * MPC banks E..H play tracks 1..4, each pad 02 on DEG. Other banks / tracks are silent, kits too.
- * Kits and slices keep their own note map. KB_SILENT: none. */
+ * DRUM uses its finger-drumming layout; other kits and slices keep their own note map. KB_SILENT: none. */
 static uint32_t midi_map(const track_t *t, uint32_t note)
 {
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
     uint32_t pad = mpc_pad(note);
     if (t->p[P_QUANT] == Q_MPC && pad / 16u != trk_index(t))
         return KB_SILENT;
+    if (t->p[P_QUANT] == Q_MPC && drum_track(t))
+        return drum_mpc_note(t, pad);
     if (e->keys && e->keys(t, 0) >= 0)
         return note;
     if (t->p[P_QUANT] == Q_MPC)
@@ -721,7 +724,8 @@ static void midi_chord_tone(mchord_t *m)
     uint32_t note = m->note[m->n];
     uint32_t held = midi_note_held(t, note) || midi_local_held(t, note);
     m->n++;
-    if (!held) input_on(t, note, m->strum.vel);
+    /* MPC's duplicate drum pads are separate strikes, even while another pad holds that sound. */
+    if (!held || (t->p[P_QUANT] == Q_MPC && drum_track(t))) input_on(t, note, m->strum.vel);
 }
 
 /* Return the next string boundary, bounded by this clock advance. Splitting the

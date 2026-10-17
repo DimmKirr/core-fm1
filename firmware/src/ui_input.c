@@ -1701,10 +1701,15 @@ static void ui_notices(void)
     static uint32_t midi_t, midi_last;
     if (motion_full) { motion_full = 0; ui_message("MOTION FULL"); }
     if (recording_quant_blocked) { recording_quant_blocked = 0; ui_message("QNT STEP OCCUPIED"); }
-    if (midi_hint) {                                    /* MIDI notes into a track that is not selected */
+    if (midi_hint) {
+        fm1_irq_off();                                /* do not clear a newer audio-ISR event between read and clear */
         uint32_t h = midi_hint;
         midi_hint = 0;
-        if (!ui.msg_t && (h != midi_last || fm1_ms - midi_t > 4000u)) {
+        fm1_irq_on();
+        if (h & MIDI_TRACK_FOLLOW) {
+            if (trk[0].p[P_QUANT] == Q_MPC)
+                track_select((h & ~MIDI_TRACK_FOLLOW) - 1u); /* use the normal UI track-change path, outside the ISR */
+        } else if (h && trk[0].p[P_QUANT] != Q_MPC && !ui.msg_t && (h != midi_last || fm1_ms - midi_t > 4000u)) {
             char b[4] = {'T', (char)('0' + h), 0, 0};
             ui_say("MIDI IN -> ", b);
             midi_last = h;

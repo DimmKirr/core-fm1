@@ -31,12 +31,20 @@ FM6 fixed-frequency operators retain their fixed pitch. A4 reference tuning, pit
 semitone transpose still apply.
 
 MPC Sample banks E, F, G and H play tracks 1, 2, 3 and 4 respectively, on any incoming MIDI channel.
-Each bank starts the same scale layout, with pad 02 on DEG. In MPC mode the octave buttons shift
+Each melodic bank starts the same scale layout, with pad 02 on DEG. In MPC mode the octave buttons shift
 only the selected track's bank (−3..+3; both buttons reset it), reflected in the header and button lights.
 The bank octaves survive sound/track changes and are saved with projects and templates; older files
 start all banks at zero. Other QNT modes retain the independent shared keyboard octave.
+The latest valid MPC pad note silently selects its track, so the controls and octave indicator follow
+the bank being played. Releases and ignored pads keep the selection; normal MIDI retains its routing notices.
 Banks A–D and absent tracks are silent. This uses the default program pad map (E: 100–115,
 F: 116–127 then 0–3, G: 4–19, H: 20–35), overriding ROUT and DRUM for note destinations.
+DRUM tracks use a fixed finger-drumming map instead: pads 01–04 Kick, Snare, Clap, Rim;
+05–08 Closed hat, Open hat, Cowbell (909: Ride), Cymbal (909: Crash); 09–11 low/mid/high Toms.
+On 808/SID, 12 is Maraca and 13–16 low/mid/high Congas and Clave. On 909, 12–16 repeat Ride,
+Kick, Snare, Closed hat and Open hat; each pad retriggers even while its duplicate is held. Pad 01 is bottom left. Drum pad identities ignore bank octave,
+scale, ROOT, TRN and DEG; native drum keys retain their chromatic mapping and octave. Normal MIDI
+drum notes outside MPC mode and existing recorded patterns retain their GM mapping.
 
 Scale, QNT and MPC DEG are shared across tracks; ROOT and TRN remain per track. A voice retains the
 pitch it started with when scale settings change while held or releasing. Playback interprets saved

@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* MIDI IN through the scale layouts (seq.c midi_map, midi_control.c midi_play): WHITE and ALL map incoming notes as the
- * keys, MPC banks E..H play tracks 1..4 as scale degrees from DEG, kits and slices keep their own map; a mapped
+ * keys, MPC banks E..H play tracks 1..4 as scale degrees from DEG (DRUM uses finger-drumming pads), other kits
+ * and slices keep their own map; a mapped
  * note's note-off ends exactly what it started; SCL, QNT and DEG are shared by every part (ui.c scale_share). */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
@@ -117,8 +118,8 @@ static int mpc_test(void)
     t->mpc_octave = 0;
     set_engine_of(&trk[3], ENGI_DRUM);
     trk[3].p[P_QUANT] = Q_MPC;
-    bad += check("MPC: a DRUM track keeps its notes, outside Bank H silent",
-                 midi_map(&trk[3], 21) == 21u && midi_map(&trk[3], 36) == KB_SILENT);
+    bad += check("MPC: a DRUM track maps Bank H to drum sounds, outside Bank H silent",
+                 midi_map(&trk[3], 21) == 38u && midi_map(&trk[3], 36) == KB_SILENT);
     trk[3].p[P_QUANT] = Q_WHITE;
     bad += check("WHITE: a DRUM track keeps its GM notes", midi_map(&trk[3], 37) == 37u && midi_map(&trk[3], 36) == 36u);
     return bad;
