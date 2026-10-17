@@ -1005,6 +1005,7 @@ static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
 static void track_defaults(track_t *t)
 {
     uint32_t i;
+    t->mpc_octave = 0;
     for (i = 0; i < P_E0; i++)
         t->p[i] = TP[i].def;
     track_defaults_steps(t);

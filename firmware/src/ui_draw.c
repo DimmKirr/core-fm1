@@ -231,8 +231,9 @@ static void draw_head(void)
     uint32_t low = !(usb.config && !usb.suspended) && batt_level() <= 1, msg = ui.msg_t || ui.layer;
     uint32_t sig, moved = 0;
     int16_t bpm = song.g[G_BPM];                        /* (read once: what is noted is what is drawn) */
+    int32_t octave = input_octave(TSEL);
     head_chip_text(chip);
-    sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(song.octave + 8) * 11u +
+    sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + song.rec_wait * 65537u + (uint32_t)(octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
           (ui.home ? ui.home_pg * 40503u : ui.page * 2654435761u) + page_sheet() * 524287u;
@@ -277,10 +278,10 @@ static void draw_head(void)
     } else {
         int32_t cw = text_w(TY_TX, chip) + 4;           /* (where you are: plain words in the track's colour;
                                                          * PATTERNS plain, the grid is in colour) */
-        if (song.octave) {                              /* the octave shift, signed, in an outlined pill ("+2") */
+        if (octave) {                                   /* selected MPC bank's octave, else the shared octave */
             int32_t w;
-            b[0] = song.octave > 0 ? '+' : '-';
-            fmt_int(b + 1, song.octave < 0 ? -song.octave : song.octave);
+            b[0] = octave > 0 ? '+' : '-';
+            fmt_int(b + 1, octave < 0 ? -octave : octave);
             w = text_w(TY_LB, b) + 12;
             cv_rrect(x + 2, 4, w, 22, 6, T_MID, T_BG);
             cv_rrect(x + 3, 5, w - 2, 20, 5, T_BG, T_MID);

@@ -153,15 +153,15 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
     if (t->p[P_QUANT] == Q_SNAP) {                     /* SNAP: every key, rounded down to the scale */
         if (micro_active(t)) {
             uint32_t note = micro_snap(t, n + t->p[P_TRANS]);
-            return note == KB_SILENT ? note : micro_degree_map(t, (int32_t)note - 60, 12 * song.octave, 1);
+            return note == KB_SILENT ? note : micro_degree_map(t, (int32_t)note - 60, 12 * input_octave(t), 1);
         }
         uint32_t mask = scale_mask(t), guard = 12;
-        n += 12 * song.octave + t->p[P_TRANS];
+        n += 12 * input_octave(t) + t->p[P_TRANS];
         while (guard-- && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u))
             n--;
         return (uint32_t)clamp(n, 0, 127);
     }
-    return scale_map(t, n, 12 * song.octave);
+    return scale_map(t, n, 12 * input_octave(t));
 }
 
 /* MPC Sample blank.xpj, data.tracks[0].program.padNoteMap.noteForPad: E01 = 100, F01 = 116
@@ -180,7 +180,7 @@ static uint32_t midi_map(const track_t *t, uint32_t note)
     if (e->keys && e->keys(t, 0) >= 0)
         return note;
     if (t->p[P_QUANT] == Q_MPC)
-        return scale_degree_map(t, (int32_t)(pad & 15u) - 1 + mpc_degree(t) - 1, 12 * song.octave, 1);
+        return scale_degree_map(t, (int32_t)(pad & 15u) - 1 + mpc_degree(t) - 1, 12 * input_octave(t), 1);
     if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL)
         return scale_map(t, (int32_t)note, 0);
     if (micro_active(t) && t->p[P_QUANT] == Q_SNAP)

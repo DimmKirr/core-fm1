@@ -340,6 +340,7 @@ if core && [ $TABLES = 1 ]; then
     t "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" seq_notes_test \
         -O1 $FW
     t "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" midi_scale_test -O1 $FW
+    t "MPC bank octaves: controls, held notes, persistence and compatibility" mpc_octave_test -O1 $FW
     t "Concert pitch: A4 frequency, engines, modulation, held notes and project-independent settings" tuning_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O1 -DMELODEE_USB_AUDIO=1 $FW
     t "themes: contrast, text blending and font metrics" theme_test -O1 $FW

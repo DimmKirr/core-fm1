@@ -32,6 +32,7 @@
 typedef struct {                               /* one track */
     int16_t p[P_COUNT];
     uint8_t engine, preset;
+    int8_t mpc_octave;
     step_t step[NSTEP];
 } proj_trk_t;
 typedef struct {
@@ -97,6 +98,32 @@ static uint8_t proj_p5_origin_value(const project_t *p,uint32_t track)
 #define PROJ_P5_ORIGIN_TAG0 0x50u
 #define PROJ_P5_ORIGIN_TAG1 0x35u
 #define PROJ_P5_ORIGIN_MAX 128u /* native Prophet user collection */
+#define PROJ_MPC_OCT_WIRE (PROJ_TONE_WIRE - 2u) /* tagged bank octaves in the unused project tail */
+#define TMPL_MPC_OCT_G G_RESERVED25             /* template metadata only; remains an inert runtime global */
+
+/* Four signed octaves in a tagged 16-bit word; zero is an older record (all banks at zero).
+ * Shared by the project tail and a reserved TPLL global word. Older readers ignore both fields;
+ * existing parameter IDs, record sizes and FX bytes stay fixed. */
+static uint32_t mpc_octaves_pack(const int8_t oct[NTRK])
+{
+    uint32_t word = 0xA000u;
+    for (uint32_t k = 0; k < NTRK; k++) {
+        if (oct[k] < -3 || oct[k] > 3) return 0;
+        word |= (uint32_t)(oct[k] + 3) << (3u * k);
+    }
+    return word;
+}
+static int mpc_octaves_unpack(int8_t oct[NTRK], uint32_t word)
+{
+    if (!word) { memset(oct, 0, NTRK); return 1; }
+    if ((word & 0xF000u) != 0xA000u) return 0;
+    for (uint32_t k = 0; k < NTRK; k++) {
+        uint32_t v = (word >> (3u * k)) & 7u;
+        if (v == 7u) return 0;
+        oct[k] = (int8_t)((int32_t)v - 3);
+    }
+    return 1;
+}
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(G_MFXTYPE == PROJ_GLOBALS && G_FXMODE==40u && G_BUDGET==41u && G_MFXTONE==42u && G_COUNT==45u, "old global IDs and wire header stay fixed");
 /* FUN21 / TPLK's two cuts (LO CUT 10 + 10 v Hz, HI CUT 100 + 20 v Hz, 0 OFF) -> the TONE nearest them, the low cut
@@ -131,7 +158,7 @@ static int proj_ok(const project_t *q)
     if (q->magic != PROJ_MAGIC || q->size != sizeof *q || q->sum != proj_sum(q) ||
         q->sel >= NTRK || q->parts > NPART || q->phys > PROJ_PHYS ||
         !chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
-    for (uint32_t k = 0; k < NTRK; k++) if (q->t[k].engine >= NENGINES || q->pattern[k] >= NPAT || !drum_patch_valid(&q->drum[k]) || !p5_patch_valid(&q->p5[k])) return 0;
+    for (uint32_t k = 0; k < NTRK; k++) if (q->t[k].engine >= NENGINES || q->t[k].mpc_octave < -3 || q->t[k].mpc_octave > 3 || q->pattern[k] >= NPAT || !drum_patch_valid(&q->drum[k]) || !p5_patch_valid(&q->p5[k])) return 0;
     for (uint32_t i = 0; i < RECORD_MAX; i++) if (!recording_valid(&q->recording[i])) return 0;
     return 1;
 }
@@ -233,6 +260,10 @@ static int step_wire_unpack(step_t *s,const uint8_t *b)
 static int proj_pack(project_store_t *out, const project_t *q)
 {
     uint8_t *b = out->raw; uint32_t pos = 68u, t, i; uint32_t magic = PROJ_MAGIC, size = PROJ_STORE_SIZE, sum;
+    int8_t oct[NTRK];
+    for (t = 0; t < NTRK; t++) oct[t] = q->t[t].mpc_octave;
+    uint32_t octword = mpc_octaves_pack(oct);
+    if (!octword) return 0;
     for (t = 0; t < NTRK; t++)
         for (i = 0; i < FM6_PACKED; i++)
             if (q->fm6[t][i] > 127u) return 0;
@@ -256,12 +287,14 @@ static int proj_pack(project_store_t *out, const project_t *q)
             if(!proj_step_pack(b+pos,&q->t[t].step[i]))return 0;pos+=8u;
         }
     }
-    if (pos + sizeof q->chain + sizeof q->motion + 2u + 2u*NTRK > PROJ_TONE_WIRE) return 0;
+    if (pos + sizeof q->chain + sizeof q->motion + 2u + 2u*NTRK > PROJ_MPC_OCT_WIRE) return 0;
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
     memcpy(b + pos, &q->motion, sizeof q->motion);
     pos += sizeof q->motion;
     b[pos++]='U';b[pos++]=3u;
     for(t=0;t<NTRK;t++){b[pos++]=(uint8_t)q->user[t];b[pos++]=(uint8_t)(q->user[t]>>8);}
+    b[PROJ_MPC_OCT_WIRE] = (uint8_t)octword;
+    b[PROJ_MPC_OCT_WIRE+1u] = (uint8_t)(octword >> 8);
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
     for (t = 0; t < NTRK; t++) {
         if (!cz_patch_valid(q->cz[t].raw)) return 0;
@@ -366,6 +399,11 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         for(t=0;t<NTRK;t++){uint32_t origin=b[pos+2u+t];if(origin && origin<=128u){uint32_t slot=origin-1u,bank=slot/26u,k=slot%26u,spill=bank*8u+k-18u;q->user[t]=(uint16_t)(1u+(k<18u?(16u+bank)*18u+k:spill<32u?spill/2u*18u+16u+spill%2u:378u+spill-32u));}}
     }
     proj_motion_ids(&q->motion, np);
+    if (magic == PROJ_MAGIC && np == P_COUNT) {
+        int8_t oct[NTRK];
+        if (!mpc_octaves_unpack(oct, b[PROJ_MPC_OCT_WIRE] | (uint32_t)b[PROJ_MPC_OCT_WIRE+1u] << 8)) return 0;
+        for (t = 0; t < NTRK; t++) q->t[t].mpc_octave = oct[t];
+    }
     if (!chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
     for (t = 0; t < NTRK; t++)
         for (i = 0; i < FM6_PACKED; i++)
@@ -450,6 +488,7 @@ static void proj_bound(project_t *q)
     uint32_t t, i;
     for (t = 0; t < NTRK; t++) {
         proj_steps(q->t[t].step);
+        q->t[t].mpc_octave = (int8_t)clamp(q->t[t].mpc_octave, -3, 3);
         for (i = 0; i < NSTEP; i++) {
             step_t *s = &q->t[t].step[i];
             s->flags &= 7u;
@@ -536,6 +575,7 @@ static void project_capture(project_t *p)
     for (i = 0; i < NTRK; i++) {
         for (uint32_t j = 0; j < P_COUNT; j++) p->t[i].p[j] = motion_base_value(&trk[i], j);
         p->t[i].engine = trk[i].eng_req;
+        p->t[i].mpc_octave = trk[i].mpc_octave;
         p->t[i].preset = trk[i].preset;
         if(user_of(&trk[i])<UP_SLOTS)p->user[i]=(uint16_t)(user_of(&trk[i])+1u);
         p->pattern[i] = trk[i].pattern;
@@ -724,6 +764,7 @@ static int project_restore_runtime(const project_t *input)
         const proj_trk_t *s = &p->t[k];
         uint32_t e = s->engine % NENGINES;
         t->eng_req = (uint8_t)e;
+        t->mpc_octave = (int8_t)clamp(s->mpc_octave, -3, 3);
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = param_desc_of(e, i);
@@ -814,7 +855,7 @@ typedef struct {
     cz_patch_t cz[NTRK];
     p5_patch_t p5[NTRK];
     drum_patch_t drum[NTRK];
-    uint8_t master[20];                           /* the shared FX: 12 slot values, RETURN, MODE, the TONEs + 64,
+    uint8_t master[20];                           /* shared FX: 12 slot values, RETURN, MODE, TONEs + 64,
                                                    * 3 zero (TPLK: the low cuts, the high cuts) */
     uint32_t size, magic;                         /* last: the record's end */
 } tmpl_t;
@@ -869,6 +910,10 @@ static int tmpl_blob_valid(const uint8_t *b,uint32_t len)
 {
     uint32_t np=tmpl_blob_schema(b,len);
     if(!np || b[2u*PROJ_GLOBALS]>=NTRK)return 0;
+    if(np==P_COUNT || np==122u){
+        int8_t oct[NTRK];uint32_t off=2u*TMPL_MPC_OCT_G;
+        if(!mpc_octaves_unpack(oct,b[off]|(uint32_t)b[off+1u]<<8))return 0;
+    }
     int32_t delta=(int32_t)(NTRK*2u)*((int32_t)P_COUNT-(int32_t)np);   /* (TPLK: more parameters, below 0) */
     for(uint32_t k=0;k<NTRK;k++){
         if(b[2u*PROJ_GLOBALS+2u+k*(2u+2u*np)]>=NENGINES)return 0;
@@ -892,6 +937,7 @@ static int tmpl_take(const uint8_t *b,uint32_t len)
     memset(&tmpl,0,sizeof tmpl);if(!tmpl_blob_valid(b,len))return 0;
     uint32_t np=tmpl_param_count(len),off=2u*PROJ_GLOBALS+2u;
     memcpy(tmpl.g,b,sizeof tmpl.g);tmpl.sel=b[2u*PROJ_GLOBALS];tmpl.ntrk=b[2u*PROJ_GLOBALS+1u]<=NTRK?b[2u*PROJ_GLOBALS+1u]:0u;
+    if(np!=P_COUNT && np!=122u)tmpl.g[TMPL_MPC_OCT_G]=0;
     for(uint32_t k=0;k<NTRK;k++){
         int16_t def[P_COUNT],values[PROJ_CUT_NP];tmpl.t[k].engine=b[off++];tmpl.t[k].preset=b[off++];
         for(uint32_t i=0;i<P_COUNT;i++)def[i]=param_desc_of(tmpl.t[k].engine%NENGINES,i)->def;
@@ -954,6 +1000,10 @@ static void template_save(void)
     tmpl.master[12]=(uint8_t)song.g[G_FXRETURN];
     tmpl.master[13]=(uint8_t)song.g[G_FXMODE];
     for(i=0;i<FX_SLOTS;i++)tmpl.master[14u+i]=(uint8_t)(clamp(song.g[G_MFXTONE+i],-FX_TONE_MAX,FX_TONE_MAX)+64);
+    int8_t oct[NTRK];
+    for(k=0;k<NTRK;k++)oct[k]=trk[k].mpc_octave;
+    uint32_t octword=mpc_octaves_pack(oct);
+    tmpl.g[TMPL_MPC_OCT_G]=(int16_t)octword;
     tmpl.sel = song.sel;
     tmpl.ntrk = (uint8_t)trk_n();
     for (k = 0; k < NTRK; k++) {
@@ -1013,8 +1063,11 @@ static void template_load(void)
     p->parts = tmpl.ntrk ? tmpl.ntrk : NPART;
     p->phys = PROJ_PHYS;
     chain_defaults(&p->chain);
+    int8_t oct[NTRK];
+    mpc_octaves_unpack(oct,(uint16_t)tmpl.g[TMPL_MPC_OCT_G]);
     for (k = 0; k < NTRK; k++) {
         p->t[k].engine = tmpl.t[k].engine;
+        p->t[k].mpc_octave = oct[k];
         p->t[k].preset = tmpl.t[k].preset;
         for (i = 0; i < P_COUNT; i++)
             p->t[k].p[i] = tmpl.t[k].p[i];

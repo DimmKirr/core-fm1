@@ -440,8 +440,7 @@ static void drum_render(track_t *t,voice_t *v,int32_t *out,uint32_t n,const vmod
 /* the GM drum map, the first C (key 7) is the kick (C2, 36) */
 static int32_t drum_keys(const track_t *t, uint32_t k)
 {
-    (void)t;
-    return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
+    return clamp(29 + 12 * input_octave(t) + (int32_t)k, 0, 127);
 }
 
 /* {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK, DRV} (SID: DIGI, RES); every kit suggests the BEAT pattern (GM notes) */

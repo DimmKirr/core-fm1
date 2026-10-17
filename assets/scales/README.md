@@ -31,7 +31,10 @@ FM6 fixed-frequency operators retain their fixed pitch. A4 reference tuning, pit
 semitone transpose still apply.
 
 MPC Sample banks E, F, G and H play tracks 1, 2, 3 and 4 respectively, on any incoming MIDI channel.
-Each bank starts the same scale layout, with pad 02 on DEG; the octave buttons shift all banks.
+Each bank starts the same scale layout, with pad 02 on DEG. In MPC mode the octave buttons shift
+only the selected track's bank (−3..+3; both buttons reset it), reflected in the header and button lights.
+The bank octaves survive sound/track changes and are saved with projects and templates; older files
+start all banks at zero. Other QNT modes retain the independent shared keyboard octave.
 Banks A–D and absent tracks are silent. This uses the default program pad map (E: 100–115,
 F: 116–127 then 0–3, G: 4–19, H: 20–35), overriding ROUT and DRUM for note destinations.
 

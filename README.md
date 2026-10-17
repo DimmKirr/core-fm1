@@ -896,7 +896,10 @@ QNT **ALL** plays the next scale note on every key, black keys included. QNT **M
 Bank **E → track 1**, **F → track 2**, **G → track 3** and **H → track 4**, on any MIDI channel,
 overriding ROUT and the DRUM channel for notes. Each bank's 16 pads play successive scale degrees;
 **DEG** in the SCL list sets the degree pad 02 plays (1 = ROOT), with pad 01 one degree below it.
-The octave buttons shift all four banks. The default program map is E: MIDI 100–115,
+On Stage, the octave buttons shift only the selected track's bank (−3 to +3); press both to reset
+that bank. The header and button lights show its octave. Each bank keeps its setting when switching
+tracks or sounds, and projects/templates save all four settings. Outside MPC mode the shared keyboard
+octave stays independent. The default program map is E: MIDI 100–115,
 F: 116–127 then 0–3, G: 4–19, H: 20–35. Banks A–D and banks for absent tracks are silent.
 Use the MPC's default pad map and enable Pad MIDI Out (Always, or Empty for empty pads).
 WHITE and ALL map incoming MIDI as the keys, without the octave buttons.

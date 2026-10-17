@@ -385,6 +385,7 @@ typedef struct track {
     int16_t p[P_COUNT];
     uint8_t engine, preset;      /* engine: what the audio ISR renders */
     uint8_t eng_req;             /* engine the UI asked for (the ISR switches at a block start) */
+    int8_t mpc_octave;           /* MPC bank's input octave, -3..3; independent of song.octave */
     uint16_t user;                /* user preset slot + 1 the sound came from (UI), 0 = none */
     uint8_t user_native;         /* legacy project origin only; new presets use the shared bank */
     voice_t v[NVOICE];
@@ -468,6 +469,9 @@ typedef struct {
 static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
+
+static int32_t input_octave(const track_t *t)
+{ return t->p[P_QUANT] == Q_MPC ? t->mpc_octave : song.octave; }
 /* The tracks in use: 1..trk_n(), always from track 1 (it clocks the song). The others keep their structs, sound and
  * play nothing (voice.c trk_note_on), are drawn nowhere and get a fresh sound when added (project.c track_add) */
 static inline uint32_t trk_n(void) { return song.ntrk - 1u < NTRK ? song.ntrk : NTRK; }

@@ -112,9 +112,9 @@ static int mpc_test(void)
     t->p[P_MPCDEG] = 9;                               /* (past the scale's 7: the 7th) */
     bad += check("MPC: DEG is clamped to the scale's notes", midi_map(t, 101) == 73u && track_desc(t, P_MPCDEG)->max == 7);
     t->p[P_MPCDEG] = 1;
-    song.octave = 1;
+    t->mpc_octave = 1;
     bad += check("MPC: the octave buttons shift the pads", midi_map(t, 101) == 74u);
-    song.octave = 0;
+    t->mpc_octave = 0;
     set_engine_of(&trk[3], ENGI_DRUM);
     trk[3].p[P_QUANT] = Q_MPC;
     bad += check("MPC: a DRUM track keeps its notes, outside Bank H silent",

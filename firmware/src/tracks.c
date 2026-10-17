@@ -60,6 +60,7 @@ static int track_remove(uint32_t k)
         for (i = 0; i < NSTEP; i++)
             step_clear(&t->step[i]);
         p->pattern[last] = 0;
+        t->mpc_octave = 0;
         *proj_p5_origin(p, last) = 0;
     }
     for (i = 0; i < RECORD_MAX; i++) {                  /* takes: k's go, the later tracks' move down */

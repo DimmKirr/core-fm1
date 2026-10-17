@@ -43,6 +43,8 @@ static uint32_t cur_fam(void)                       /* (an engine's own envelope
 }
 
 static int layer_set_open(void);                       /* (ui_layer.c) */
+static int8_t *octave_control(void)
+{ return TSEL->p[P_QUANT] == Q_MPC ? &TSEL->mpc_octave : &song.octave; }
 /* OCT- / OCT+ shift the octave on Stage (HOME) only; everywhere else, and over Stage's menu, dialogs and popups,
  * they are Esc / Enter (docs/design/README.md, Navigation) */
 static int oct_nav(void)
@@ -69,7 +71,8 @@ static uint32_t oct_leds(void)
         return 1u | (blink && (ui.confirm || (ui.menu ? ui.menu == 1u : act_ready())) ? 2u : 0u);
     if (oct_nav())
         return 1u | (oct_enter_ok() ? 2u : 0u);
-    return (song.octave < 0 ? 1u : 0u) | (song.octave > 0 ? 2u : 0u);
+    int32_t octave = input_octave(TSEL);
+    return (octave < 0 ? 1u : 0u) | (octave > 0 ? 2u : 0u);
 }
 
 /* the key LEDs on the grid, bit k = key k: the white keys show where the selected lane hits on the page
@@ -1310,6 +1313,7 @@ static void act_do(void)
 /* OCT- / OCT+ as Esc / Enter (oct_nav): on release, and only a press that began there; both down together
  * (UPDATE MODE, main.c) is no tap. Bit 0 OCT-, bit 1 OCT+ */
 static uint8_t oct_eat;                                 /* OCT taps not to come (held for a sheet, used in a combo) */
+static int8_t *oct_deferred_value;
 static uint8_t oct_deferred;                            /* OCT+ pressed on Stage (its sheet when held): the octave on
                                                          * release */
 static uint32_t oct_taps(uint32_t pressed, int here)
@@ -2048,7 +2052,7 @@ static void ui_input(void)
         oct_deferred = 0;
         if(bulk_context())ui.bulk_hold=1;else page_sheet_open();
     } else if (octup == BT_TAP && oct_deferred) {
-        song.octave += song.octave < 3 ? 1 : 0;         /* (OCT+ pressed on a page with a sheet: on release) */
+        *oct_deferred_value += *oct_deferred_value < 3 ? 1 : 0;
     }
     if (octup != BT_NONE || !((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u))
         oct_deferred = 0;
@@ -2342,13 +2346,15 @@ static void ui_input(void)
             if (oct_nav())                              /* off Stage: Esc / Enter, on release (below) */
                 break;
             if ((fm1_in.buttons & both) == both) {
-                song.octave = 0;
+                *octave_control() = 0;
                 ui.oct_t0 |= 2u;                        /* (OCT+ then neither a tap nor a sheet) */
                 oct_deferred = 0;
             } else if (b == B_OCTUP && page_sheet() == 1u) {
                 oct_deferred = 1;                       /* Stage: OCT+ on release, held: the sound's sheet */
+                oct_deferred_value = octave_control();  /* keep the bank where the press began */
             } else {
-                song.octave += b == B_OCTDN ? (song.octave > -3 ? -1 : 0) : (song.octave < 3 ? 1 : 0);
+                int8_t *value = octave_control();
+                *value += b == B_OCTDN ? (*value > -3 ? -1 : 0) : (*value < 3 ? 1 : 0);
             }
             break;
         }
