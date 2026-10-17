@@ -18,9 +18,12 @@
 1800 btn 4 600
 2400 shot                  # the operator envelope, as it always was
 
-# the GLOBAL key: the page becomes the global envelope's four
+# the GLOBAL key: the page becomes the global envelope's four -- switched out, which is where it
+# starts, so a tap of ENV puts it in
 2600 keys 0x20000
 2660 keys 0
+2690 shot
+2700 btn 4
 2800 shot
 
 # release the other way round: down past 1 ms is the same OFF as up past 2 s, so that getting back
@@ -67,4 +70,25 @@
 7500 shot                  # ATK 0, DEC 45MS, SUS 99, REL 852MS
 7600 keys 0x1041
 8200 keys 0                # the fade starts here
-9400 end
+
+# ---- a second tap of ENV, here on the global envelope, switches it out: the knobs keep their
+# places, the picture goes grey, and the chord is the patch's own again, release and all
+9500 btn 4
+9700 shot
+9800 keys 0x1041
+10400 keys 0
+
+# ..and a third puts it back, the shape it was
+11400 btn 4
+11600 shot
+11800 keys 0x1041
+12400 keys 0
+
+# ---- the same switch on the ENVELOPE page, while it shows the global envelope
+13400 btn 4 600
+14000 shot
+14200 btn 4
+14400 shot
+14600 btn 4
+14800 shot
+15000 end

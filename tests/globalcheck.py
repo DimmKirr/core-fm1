@@ -5,6 +5,9 @@ Three claims. That the GLOBAL key really does replace the envelope on the screen
 the four cells and the graph all change, and the page loses its other banks. That the four cells
 read real times rather than raw bytes. And that the thing is actually in the audio path: the same
 chord, played before and after, must arrive differently.
+
+And a fourth: that it starts switched out, and that a tap of ENV on it switches it in and out again,
+on HOME and on its page, keeping its knobs -- out, the chord is the patch's own, release and all.
 """
 import sys, os, struct
 
@@ -239,6 +242,27 @@ ok("..but the global one is still going, because the operators were held",
    "rms %.0f at the same offset, against %.0f" % (rms(8700, 8800), rms(1900, 2000)))
 ok("..and it stops when the fade reaches the bottom",
    rms(9150, 9350) < 20, "rms %.0f" % rms(9150, 9350))
+
+ok("it starts switched out", count(ppm(2690), GRAPH, ACC) == 0,
+   "%d lilac pixels" % count(ppm(2690), GRAPH, ACC))
+
+# ---- 6. and it switches out ------------------------------------------------------------------
+# A tap of ENV on the global envelope takes it out of the sound without touching its knobs. Out,
+# the chord is the patch's own: there at once, as loud as the first one, and let go when the key
+# is -- so it is finished half a second later, which with RELEASE at 852 ms it would not be.
+ok("a tap of ENV on it switches it out, and says so in the picture",
+   band_ink(ppm(9700), DIAG) != band_ink(ppm(7500), DIAG) and count(ppm(9700), DIAG, ACC) == 0,
+   "%d lilac pixels left" % count(ppm(9700), DIAG, ACC))
+ok("..with the knobs where they were", ppm(9700)[208 * 720:222 * 720] == ppm(7500)[208 * 720:222 * 720])
+ok("..and the chord is the patch's own: there at once",
+   abs(rms(9810, 9840) / plain - 1.0) < 0.1, "rms %.0f against %.0f" % (rms(9810, 9840), plain))
+ok("..and let go with the key", rms(10900, 11000) < 20, "rms %.0f" % rms(10900, 11000))
+ok("a tap more puts the same shape back", ppm(11600)[64 * 720:200 * 720] == ppm(7500)[64 * 720:200 * 720])
+ok("..and the global release with it", rms(12900, 13000) > 200.0, "rms %.0f" % rms(12900, 13000))
+ok("on the ENVELOPE page, a tap of ENV switches it out too",
+   count(ppm(14400), GRAPH, ACC) == 0 and count(ppm(14000), GRAPH, ACC) > 100,
+   "%d lilac pixels, from %d" % (count(ppm(14400), GRAPH, ACC), count(ppm(14000), GRAPH, ACC)))
+ok("..and in again, as it was above what the button just said", ppm(14800)[:185 * 720] == ppm(14000)[:185 * 720])
 
 print("\n%d checks failed" % bad)
 sys.exit(1 if bad else 0)

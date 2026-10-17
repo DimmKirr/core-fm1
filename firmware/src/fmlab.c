@@ -1045,19 +1045,27 @@ enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, 
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
  * opinions; they are saved with the octave and the rest. */
 enum { UI_SPAN = 0, UI_GATK, UI_GDEC, UI_GSUS, UI_GREL, UI_FCUT, UI_FRES, UI_FTYPE,
-       UI_FX, UI_N = UI_FX + 4 * FX_N };       /* the effects: MIX first, then three, each */
+       UI_FX,                                   /* the effects: MIX first, then three, each */
+       UI_GOFF = UI_FX + 4 * FX_N,              /* the global envelope switched out, its knobs kept;
+                                                 * it starts out, so a patch is heard as it was made */
+       UI_N };
 #define FX_DEFAULTS 0, 45, 40, 70,  0, 35, 70, 40,  0, 65, 35, 60,  0, 55, 30, 10
-static uint8_t ui[UI_N] = {2, 0, 50, 99, 99, 60, 0, 0, FX_DEFAULTS};
+static uint8_t ui[UI_N] = {2, 0, 50, 99, 99, 60, 0, 0, FX_DEFAULTS, 1};
 enum { FT_OFF = 0, FT_LP, FT_BP, FT_HP };
 
 /* The ISR's copy of the global envelope. Called once a pass rather than at each of the places a
  * knob can reach those four bytes, because there are several and forgetting one would be a bug
- * you could only hear. Four byte stores: it is cheaper than remembering. */
+ * you could only hear. Four byte stores: it is cheaper than remembering.
+ *
+ * Switched off, the ISR is handed the envelope that does nothing -- instant attack, full sustain,
+ * no release -- which genv_idle recognises and skips, so off costs what it did before there was
+ * one. The four knobs keep their places, so on again is the shape you left. */
 static void glo_sync(void)
 {
+    static const uint8_t NONE[G_N] = {0, 50, 99, 99};
     uint32_t i;
     for (i = 0; i < G_N; i++)
-        gpar[i] = ui[UI_GATK + i];
+        gpar[i] = ui[UI_GOFF] ? NONE[i] : ui[UI_GATK + i];
 }
 
 /* ---- the filter
@@ -1482,7 +1490,8 @@ static uint8_t fxsel;                           /* the effect the EFFECTS page l
  * SEL steps the operator under all three, because the four knobs are fixed and the operator is
  * what varies. Pressing the button again does the same as SEL, as it always has -- except on the
  * global LFO, where there is no operator to step and the button steps the wave instead, with its
- * picture right there to show what it became.
+ * picture right there to show what it became; and on the global envelope, where it switches the
+ * envelope in and out of the sound, on HOME and on its page alike, keeping its four knobs.
  *
  * The black keys the panel prints OP1..OP6 under pick the operator instead of sounding whenever
  * the knobs have an operator's byte under them -- under EDIT and ENV always, under LFO until
@@ -2835,6 +2844,8 @@ static void draw_geg(int32_t y, int32_t h)
     uint32_t ta = ui[UI_GATK], td = ui[UI_GDEC], tr = ui[UI_GREL], tot;
     uint32_t sus = ui[UI_GSUS];
     uint32_t dof = td >= 99u, rof = tr >= 99u || tr == 0u;   /* nowhere to fall, either end */
+    uint32_t off = ui[UI_GOFF];                 /* switched out: the shape kept, in grey */
+    uint16_t c = off ? RGB(70, 70, 85) : C_ACC;
 
     sy = dof ? top : bot - (int32_t)((uint32_t)(bot - top) * sus / 99u);
     if (dof) td = 0u;
@@ -2855,12 +2866,14 @@ static void draw_geg(int32_t y, int32_t h)
 
     cv_begin(240, (uint32_t)h, C_BLACK);
     cv_rect(0, h - 2, 240, 1, RGB(40, 40, 40));
-    cv_line(x0, bot, xa, top, C_ACC);           /* up to full */
-    cv_line(xa, top, xd, sy, C_ACC);            /* down to the sustain, or along the top */
-    cv_line(xd, sy, xh, sy, RGB(90, 95, 120));  /* held there, for as long as you hold it */
-    cv_line(xh, sy, xh + wr, rof ? sy : bot, C_ACC);   /* and away, or not */
+    cv_line(x0, bot, xa, top, c);               /* up to full */
+    cv_line(xa, top, xd, sy, c);                /* down to the sustain, or along the top */
+    cv_line(xd, sy, xh, sy, off ? c : RGB(90, 95, 120));   /* held there, for as long as you hold it */
+    cv_line(xh, sy, xh + wr, rof ? sy : bot, c);   /* and away, or not */
 
-    {   /* where the newest note's own copy of it has actually got to */
+    if (off)
+        cv_text((240 - text_w(&FONT_L, "OFF")) / 2, (h - 32) / 2, &FONT_L, "OFF", C_WHITE);
+    else {   /* where the newest note's own copy of it has actually got to */
         uint32_t v = v_last;
         if (v < NV && dxv[v].on && (v_lit >> v & 1u) && genv[v].st != GS_OFF) {
             int32_t g = genv[v].g, py = bot - (int32_t)(((int64_t)g * (bot - top)) >> 24), px = xh;
@@ -3470,7 +3483,7 @@ static int app_sysex(const uint8_t *p, uint32_t n)
 /* Only ever append to this: settings_load takes a short store and leaves the rest at default,
  * so a new field costs nothing, but moving one would hand the old bytes to the wrong name. */
 typedef struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv;
-                 uint8_t genv[G_N]; uint8_t flt[3]; uint8_t fx[4 * FX_N]; } settings_t;
+                 uint8_t genv[G_N]; uint8_t flt[3]; uint8_t fx[4 * FX_N]; uint8_t goff; } settings_t;
 
 /* The instrument's own bytes have moved: into the settings with them. A new span also drops the
  * held peaks, which belonged to the old axis. */
@@ -3483,6 +3496,7 @@ static void set_take(settings_t *set)
         set->flt[k] = ui[UI_FCUT + k];
     for (k = 0; k < 4u * FX_N; k++)
         set->fx[k] = ui[UI_FX + k];
+    set->goff = ui[UI_GOFF];
     if (ui[UI_SPAN] != spspan) {
         spspan = ui[UI_SPAN];
         set->span = spspan;
@@ -3493,7 +3507,7 @@ static void set_take(settings_t *set)
 
 static void app_main(void)
 {
-    settings_t set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}, {60, 0, 0}, {FX_DEFAULTS}};
+    settings_t set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}, {60, 0, 0}, {FX_DEFAULTS}, 1};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
@@ -3523,6 +3537,7 @@ static void app_main(void)
     ui[UI_FTYPE] = set.flt[2] > 3u ? 0u : set.flt[2];
     for (k = 0; k < 4u * FX_N; k++)
         ui[UI_FX + k] = set.fx[k] > 99u ? 99u : set.fx[k];
+    ui[UI_GOFF] = set.goff ? 1u : 0u;
     glo_sync();
     flt_sync();
     fx_sync();
@@ -3623,7 +3638,18 @@ static void app_main(void)
             }
             if (rel & m) {
                 if (!long_fired[k]) {
-                    if (page == FOC_PAGE[k])
+                    if (FOC_MODE[k] == FOC_ENV && eg_glo()) {     /* the global envelope: in or out */
+                        ui[UI_GOFF] ^= 1u;
+                        say(ui[UI_GOFF] ? "GLOBAL ENV OFF" : "GLOBAL ENV ON");
+                        set_take(&set);
+                        dirty = 1;
+                        t_change = fm1_ms;
+                        eg_dirty = 1;
+                        alg_drawn = 255;                       /* HOME draws it from the diagram's branch */
+                        if (page == PAGE_EG)
+                            draw_eg_now(bank);                 /* now, not on the next tick */
+                    }
+                    else if (page == FOC_PAGE[k])
                         page_to(FOC_PAGE[k]);                  /* already there: the next bank */
                     else if (focus == FOC_MODE[k] && page == PAGE_HOME) {
                         if (FOC_MODE[k] == FOC_LFO && lfo_glo()) {  /* no operator to step: the wave */

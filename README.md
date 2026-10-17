@@ -218,6 +218,12 @@ other is the shortest route to understanding what makes FM different from a filt
 Times run from instant to two seconds, doubling about every nine clicks, and the cells say the time rather
 than the byte: `45MS`, `311MS`, `1.3S`.
 
+**It starts switched off**, so every patch is heard the way it was made until you ask for something else.
+With `GLOBAL` selected, a second tap of **ENV** — on HOME or on the ENVELOPE page — switches it in, and
+another switches it out again. Out, it is not in the sound at all and costs nothing, but its four knobs
+keep their places, so in again is the shape you left. The picture says which: the shape in grey with a large
+`OFF` over it while it is out.
+
 `REL` reads `OFF` at **both** ends of its knob, and `OFF` is where it starts. There it leaves the note alone
 and the operators decide the tail, exactly as they did before this envelope existed — and with `ATK` at 0
 and `SUS` at 99 as well, the whole thing is skipped outright, so it costs nothing at all. Turn `REL` on and
@@ -439,9 +445,9 @@ algorithm, and nothing here has to make a second claim about what the engine is 
 you hear, always.
 
 **HOME a third time draws the waveform**, titled `SCOPE`, the way an oscilloscope does: the same sound, as
-height against time. The spectrum says which partials there are; this says what they add up to. Put `INIT VOICE` on, hold a
-note, and bring a modulator's **LEVEL** up from the HOME knobs — the sine bends, leans and then folds over on
-itself, and the spectrum one press away is the same thing seen from the other side.
+height against time. The spectrum says which partials there are; this says what they add up to. Put
+`INIT VOICE` on, hold a note, and bring a modulator's **LEVEL** up from the HOME knobs — the sine bends, leans
+and then folds over on itself, and the spectrum one press away is the same thing seen from the other side.
 
 It stands still because it is locked to the note you played: the screen is two cycles of it, starting each
 time at the same rise through zero, and the time across the screen is written in the top corner. Below about
@@ -621,7 +627,7 @@ tests/run_host.sh tests/env.txt           # ADSR, against the eight raw bytes it
 tests/run_host.sh tests/focus.txt         # tap and hold, and what each one does to the knobs
 tests/run_host.sh tests/fast.txt          # four clicks, against four clicks with SEL held
 tests/run_host.sh tests/corners.txt       # the battery and the HOME pips, by the pixel
-tests/run_host.sh tests/global.txt        # the envelope over the whole voice, screens and sound
+tests/run_host.sh tests/global.txt        # the envelope over the whole voice, screens, sound, on and off
 tests/run_host.sh tests/lfo.txt           # depth against sensitivity, by ear; the page, the tap, GLOBAL
 tests/run_host.sh tests/fx.txt            # the filter, harmonic by harmonic, on the spectrum; FX's tap and hold
 tests/run_host.sh tests/effects.txt       # chorus, phaser, delay and reverb, by ear
