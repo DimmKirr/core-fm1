@@ -89,8 +89,18 @@ Build options (environment; most use `0` or `1`; defaults in `firmware/src/build
 | `MELODEE_CDC` | 0 (1 without USB audio) | USB serial console; it shares EP2 / EP3 with USB audio, so `MELODEE_USB_AUDIO=0` |
 | `MELODEE_UART` | 1 | TRS MIDI IN |
 | `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; target builds require `1` |
+| `MELODEE_CORE1_FALLBACK` | 1 | automatic recovery on one core; `0` halts for watchdog reset on CPU1 failure |
 | `MELODEE_SLICE` | 1 | the SLICE engine |
 | `MELODEE_ICONS` | 1 | parameter icons on the knob cards |
+
+To diagnose the automatic CPU1 fallback, build with `./build.sh --no-core1-fallback`
+or `MELODEE_CORE1_FALLBACK=0 ./build.sh`. CPU1 still starts normally. Worker
+faults, rejected jobs, stalls, invalid batch descriptors, supply-init failures
+and unsuccessful CPU1 startup halt the session for the watchdog instead of
+continuing on CPU0. Retained CPU1 bars and the one-core choice after an early
+failed boot are ignored; a caught CPU0 crash does not save a new CPU1 bar.
+The existing boot-loop guard, supply values and clock setup remain unchanged.
+This is a diagnostic option; the default stays `1`. `--cpu-manifest` records it.
 
 ## Samples
 

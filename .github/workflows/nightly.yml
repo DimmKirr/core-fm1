@@ -51,6 +51,7 @@ jobs:
       - name: Build dual core and run host/web checks
         env:
           MELODEE_DUAL_CORE: '1'
+          MELODEE_CORE1_FALLBACK: '0'
           MELODEE_RAM_AUDIO: '1'
           MELODEE_CACHE_RAM: '1'
           MELODEE_ADMISSION: '0'

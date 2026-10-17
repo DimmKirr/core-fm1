@@ -108,7 +108,11 @@ static __attribute__((noinline)) void audio_batch_flush(void)
                 fm1_aw_store(&audio_worker.rejected,fm1_aw_load(&audio_worker.rejected)+1u);
                 audio_worker_retire();
 #else
+#if defined(MELODEE_CORE1_FALLBACK) && !MELODEE_CORE1_FALLBACK
+                audio_worker_retire();
+#else
                 audio_worker_online=0;
+#endif
 #endif
             }
             /* State ownership returns at join. Drop a failed worker's
