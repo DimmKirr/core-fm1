@@ -243,9 +243,10 @@ static uint32_t recording_view(const track_t *t, const recorded_note_t *r)
 static int recording_present(const recorded_note_t *r)
 {
     uint32_t owner = r->owner & 31u, k = owner / NPAT, bank = owner % NPAT;
-    const step_t *steps = trk[k].pattern == bank ? trk[k].step : pattern_at(k, bank)->step;
     uint32_t view = recording_view(&trk[k], r);
-    return view < NSTEP && steps[view].time == ST_NOTE && (steps[view].flags & SF_RECORDED);
+    if (view >= NSTEP) return 0;
+    step_t step = pattern_step(k, bank, view);
+    return step.time == ST_NOTE && (step.flags & SF_RECORDED);
 }
 static int recording_active(const track_t *t, uint32_t i)
 {

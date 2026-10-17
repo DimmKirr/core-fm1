@@ -451,7 +451,9 @@ static int pattern_copy_at(track_t *t, uint32_t source, uint32_t dest, int live)
     if (recording_copy(t, source, dest, 0)) { motion_unguard(f); return 2; }
     pattern_commit(t);
     recording_copy(t, source, dest, 1);
-    *pattern_at(k, dest) = *pattern_at(k, source);
+    pattern_t copy;
+    pattern_read(k, source, &copy);
+    pattern_write(k, dest, &copy);
     n = 0;
     for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) != k || motion_pattern[i] != dest) {
         motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
@@ -484,14 +486,15 @@ static void motion_clear_bank(track_t *t, uint32_t b)
 static int pattern_clear(track_t *t, uint32_t bank)
 {
     uint32_t k = trk_index(t), i, n = 0, f;
-    pattern_t *p;
+    pattern_t p;
     if (bank >= NPAT || bank == t->pattern) return 1;
     f = motion_guard();
     if (chain.running || chain.armed) { motion_unguard(f); return 1; }
     recording_drop(t, k * NPAT + bank);
     recording_reindex();
-    p = pattern_at(k, bank);
-    for (i = 0; i < NSTEP; i++) step_clear(&p->step[i]);
+    pattern_read(k, bank, &p);
+    for (i = 0; i < NSTEP; i++) step_clear(&p.step[i]);
+    pattern_write(k, bank, &p);
     for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) != k || motion_pattern[i] != bank) {
         motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
     }
@@ -507,12 +510,14 @@ static int pattern_double(track_t *t, uint32_t bank, int apply)
 {
     uint32_t k = trk_index(t), len, i, j, n = 0, add = 0, drop = 0, f;
     step_t *s;
+    pattern_t copy;
     int16_t *lp;
     if (bank >= NPAT) return 1;
-    s = bank == t->pattern ? t->step : pattern_at(k, bank)->step;
-    lp = bank == t->pattern ? &t->p[P_SLEN] : &pattern_at(k, bank)->timing[0];
     f = motion_guard();
     if (chain.running || chain.armed) { motion_unguard(f); return 1; }
+    pattern_read(k, bank, &copy);
+    s = copy.step;
+    lp = copy.timing;
     len = (uint32_t)clamp(*lp, 1, NSTEP);
     if (2u * len > NSTEP) { motion_unguard(f); return 3; }
     for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) == k && motion_pattern[i] == bank) {
@@ -539,6 +544,7 @@ static int pattern_double(track_t *t, uint32_t bank, int apply)
         }
     motion.rsv[0] = 1;
     *lp = (int16_t)(2u * len);
+    pattern_write(k, bank, &copy);
     recording_reindex();
     motion_unguard(f);
     return 0;
@@ -550,12 +556,14 @@ static int pattern_half(track_t *t, uint32_t bank, int apply)
     uint32_t len, f;
     int16_t *lp;
     if (bank >= NPAT) return 1;
-    lp = bank == t->pattern ? &t->p[P_SLEN] : &pattern_at(trk_index(t), bank)->timing[0];
+    pattern_t copy;
     f = motion_guard();
     if (chain.running || chain.armed) { motion_unguard(f); return 1; }
+    pattern_read(trk_index(t), bank, &copy);
+    lp = copy.timing;
     len = (uint32_t)clamp(*lp, 1, NSTEP);
     if (len < 2u) { motion_unguard(f); return 3; }
-    if (apply) *lp = (int16_t)((len + 1u) / 2u);
+    if (apply) { *lp = (int16_t)((len + 1u) / 2u); pattern_write(trk_index(t), bank, &copy); }
     motion_unguard(f);
     return 0;
 }

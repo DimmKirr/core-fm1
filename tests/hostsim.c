@@ -60,6 +60,13 @@ static void fm1_delay_ms(uint32_t ms) { (void)ms; }
 #include "../firmware/src/midi_uart.c"                /* TRS MIDI IN: its parser (um_byte) feeds midi_in_q */
 #include "../firmware/src/song_chain.c"
 #include "../firmware/src/seq.c"
+/* Assertions can inspect a bank without exposing mutable pool internals.
+ * Mutating fixtures must publish through pattern_write. */
+static const pattern_t *pattern_at(uint32_t k, uint32_t bank)
+{
+    static pattern_t view[4]; static uint32_t next;
+    pattern_t *p = &view[next++ % 4u]; pattern_read(k, bank, p); return p;
+}
 #define inst (trk[0])                   /* the single-part renders below: part 1 */
 
 static void wav_hdr(FILE *f, uint32_t frames)

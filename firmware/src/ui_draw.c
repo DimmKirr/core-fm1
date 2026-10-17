@@ -955,8 +955,7 @@ static void confirm_text(char *a, char *b)
     case CF_PAT_KEY: {                                  /* SEQ + a white key held: its length, what its keys do now
                                                          * (b: CF_DETAIL) */
         uint32_t p = ui.pat_dlg % NPAT, n;
-        n = (uint32_t)clamp(p == trk[k % NTRK].pattern ? trk[k % NTRK].p[P_SLEN] : pattern_at(k % NTRK, p)->timing[0],
-                            1, NSTEP);
+        n = (uint32_t)clamp(pattern_timing(k % NTRK, p, 0), 1, NSTEP);
         str_cpy(a, "PATTERN 1 \xB7 ", 24);
         a[8] = (char)('1' + p);
         fmt_int(a + str_len(a), (int32_t)n);

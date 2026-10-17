@@ -2010,6 +2010,7 @@ static void ui_confirm_accept(void)
 #include "ui_designer_input.c"
 static void ui_input(void)
 {
+    pattern_poll();
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
     dq_poll();                                          /* (destructive edits waiting for their loop end) */
     if (boot_work.state) {

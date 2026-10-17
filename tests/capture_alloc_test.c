@@ -90,26 +90,30 @@ static uint64_t state_hash(int rc)
 #endif
     uint32_t generation = recording_generation; uint8_t full = recording_full;
     MIX(generation); MIX(full); MIX(recording_tracks); MIX(recording_undo_active); MIX(recording_undo_skip);
-    MIX(recording_undo_lost); MIX(trk); MIX(song); MIX(pattern_retained); MIX(pattern_ram); MIX(resource);
+    MIX(recording_undo_lost); MIX(trk); MIX(song); MIX(resource);
+    for (uint32_t k=0;k<NTRK;k++) for (uint32_t b=0;b<NPAT;b++) {
+        pattern_t p; pattern_read(k,b,&p); MIX(p);
+    }
     for (uint32_t b = 0; b < RESOURCE_BANKS; b++) mix(resource_banks[b].start, (size_t)(resource_banks[b].end - resource_banks[b].start));
     return capture_hash;
 }
 
 static uint32_t capture_seed;
 static uint32_t rnd(uint32_t n) { capture_seed = capture_seed * 1664525u + 1013904223u; return (capture_seed >> 8) % n; }
-static step_t *cell(uint32_t k, uint32_t bank, uint32_t i)
+static void set_cell(uint32_t k, uint32_t bank, uint32_t i, step_t s)
 {
-    return bank == trk[k].pattern ? &trk[k].step[i] : &pattern_at(k, bank)->step[i];
+    pattern_t p; pattern_read(k,bank,&p); p.step[i]=s; pattern_write(k,bank,&p);
 }
 static void stale(void)
 {
     uint32_t k = rnd(NTRK), bank = rnd(NPAT), i = rnd(NSTEP);
-    step_t *s = cell(k, bank, i);
+    step_t s = pattern_step(k, bank, i);
     switch (rnd(3)) {
-    case 0: s->time = ST_REST; break;
-    case 1: s->flags &= (uint8_t)~SF_RECORDED; break;
-    default: s->time = ST_TIE; break;
+    case 0: s.time = ST_REST; break;
+    case 1: s.flags &= (uint8_t)~SF_RECORDED; break;
+    default: s.time = ST_TIE; break;
     }
+    set_cell(k,bank,i,s);
 }
 /* Coverage only (not an oracle): which allocation path the next call takes. */
 static uint32_t coverage[5]; /* replacement, other-owner retired slot, own retired slot, full, live-hold seal */
@@ -156,7 +160,10 @@ static void scenario(uint32_t seed, int impl, uint64_t *out)
         recorded_note_t *r = &recording[i];
         uint32_t k = (r->owner & 31u) / NPAT, bank = 1u + rnd(NPAT - 1u);
         r->owner = (uint8_t)((r->owner & 224u) | (k * NPAT + bank));
-        if (fresh || rnd(3)) { step_t *s = cell(k, bank, recording_view(&trk[k], r)); s->time = ST_NOTE; s->flags |= SF_RECORDED; }
+        if (fresh || rnd(3)) {
+            uint32_t v=recording_view(&trk[k],r); step_t s=pattern_step(k,bank,v);
+            s.time=ST_NOTE; s.flags|=SF_RECORDED; set_cell(k,bank,v,s);
+        }
     }
     recording_reindex();
     for (uint32_t i = fresh ? 0u : rnd(48); i; i--) stale();

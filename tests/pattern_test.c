@@ -210,7 +210,9 @@ static int doubled_banks(void)
     bad += check("  15 steps: 8 (the middle one kept)", t->p[P_SLEN] == 8);
     t->p[P_SLEN] = 1; pattern_key_len(0, 0, 0);
     bad += check("  one step: 1 STEP MIN", t->p[P_SLEN] == 1 && msg_is("1 STEP MIN"));
-    pattern_at(0, 3)->timing[0] = 4; pattern_at(0, 3)->step[1] = (step_t){{61}, 1, ST_NOTE, 0, 100};
+    pattern_t other; pattern_read(0, 3, &other);
+    other.timing[0] = 4; other.step[1] = (step_t){{61}, 1, ST_NOTE, 0, 100};
+    pattern_write(0, 3, &other);
     pattern_key_len(0, 3, 1);
     bad += check("another bank: its own LEN and steps, the one playing as it was", pattern_at(0, 3)->timing[0] == 8 &&
         pattern_at(0, 3)->step[5].note[0] == 61 && t->p[P_SLEN] == 1);

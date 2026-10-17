@@ -241,6 +241,7 @@ static void fm1_main(void)
     for (;;) {
         uint32_t m = fm1_ms;
         fm1_wdt_feed();
+        pattern_poll();
         usb_retry(fm1_ms);
 #if MELODEE_USB_AUDIO
         if (ua_off_apply(fm1_ms)) {                     /* USB direction or capture mode changed: the host re-reads */

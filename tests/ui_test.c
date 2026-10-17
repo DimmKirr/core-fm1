@@ -953,8 +953,10 @@ static int test_track_count(void)
     }
     set_engine_of(&trk[2], ENGI_DRUM);
     trk[2].p[P_E0] = 4;
-    pattern_at(1, 3)->step[5].time = ST_NOTE; pattern_at(1, 3)->step[5].n = 1; pattern_at(1, 3)->step[5].note[0] = 70;
-    pattern_at(2, 3)->step[6].time = ST_NOTE; pattern_at(2, 3)->step[6].n = 1; pattern_at(2, 3)->step[6].note[0] = 72;
+    pattern_t other; pattern_read(1, 3, &other);
+    other.step[5].time = ST_NOTE; other.step[5].n = 1; other.step[5].note[0] = 70; pattern_write(1, 3, &other);
+    pattern_read(2, 3, &other);
+    other.step[6].time = ST_NOTE; other.step[6].n = 1; other.step[6].note[0] = 72; pattern_write(2, 3, &other);
     motion_set_event(&trk[1], 4, P_PAN, 10);
     motion_set_event(&trk[2], 6, P_PAN, 20);
     motion_set_event(&trk[3], 8, P_PAN, 30);

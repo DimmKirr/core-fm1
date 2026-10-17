@@ -148,13 +148,15 @@ static void track_blank(uint32_t k)
     scale_share(TSEL);
     fm1_irq_off();
     for (b = 0; b < NPAT; b++) {                        /* the other patterns empty too */
-        pattern_t *p = pattern_at(k % NTRK, b);
+        pattern_t p;
+        pattern_read(k % NTRK, b, &p);
         for (i = 0; i < NSTEP; i++)
-            step_clear(&p->step[i]);
+            step_clear(&p.step[i]);
         for (i = 0; i < 4u; i++)
-            p->timing[i] = TP[P_SLEN + i].def;
+            p.timing[i] = TP[P_SLEN + i].def;
+        pattern_write(k % NTRK, b, &p);
     }
-    t->pattern = 0;
+    pattern_switch(t, 0);
     t->pattern_next = 0xff;
     t->pattern_gen++;
     for (r = 0; r < CHAIN_ROWS; r++)
