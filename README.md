@@ -31,6 +31,11 @@ Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current rel
 The stock-restore installer accepts 1.4's backup capabilities. Existing Melodee 1.4.0
 users can return to official V15 directly from the updated web installer.
 
+Release candidate: **[Melodee 1.4.2-rc.1](https://github.com/keremimo/melodee/releases/tag/v1.4.2-rc.1)**
+([release notes](docs/RELEASE_1.4.2-rc.1.md)); choose **RC** in the web installer.
+It adds four-track songs, chord strums, pattern halve/double, voice weights and the
+nightly CPU optimizations. The stable installer remains on 1.4.1.
+
 The stable installer includes the latest UI, recording, effects, SID and preset-bank
 changes. Read the [illustrated manual](https://keremimo.github.io/melodee/webapp/manual/)
 for this release, or the [nightly guide](https://keremimo.github.io/melodee/webapp/manual/nightly/)
