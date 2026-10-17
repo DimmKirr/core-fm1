@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import vm from "node:vm";
 import { logicalImage, productOf } from "./fm1pkg.js";
-import { Updater, pack7, unpack7 } from "./fm1ota.js";
+import { MELODEE_LOADER, STOCK_LOADER, Updater, pack7, unpack7 } from "./fm1ota.js";
 
 let failed = 0;
 const ok = (cond, what) => { console.log(`${what.padEnd(64)} ${cond ? "ok" : "FAIL"}`); if (!cond) failed++; };
@@ -1393,8 +1393,8 @@ const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 
 /* an FM-1 on WebMIDI: identity, then "device asks, host answers" reads of the image */
 class FakeFM1 {
-  constructor(image, { unplugAfter = Infinity, identity = "FM-1_015", afterWrite = "FM-1_900" } = {}) {
-    this.afterWrite = afterWrite;
+  constructor(image, { unplugAfter = Infinity, identity = "FM-1_015", afterWrite = "FM-1_900", loader = MELODEE_LOADER } = {}) {
+    this.afterWrite = afterWrite; this.loader = loader;     // the loader step 1 starts (the package's own)
     this.image = image; this.unplugAfter = unplugAfter; this.served = 0; this.bad = 0;
     this.access = { inputs: new Map(), outputs: new Map() };
     this.boot(identity, identity === "FM-1_015" ? "FM-1" : "Melodee");
@@ -1431,7 +1431,7 @@ class FakeFM1 {
       this.waiting = null;
       this.served++;
       if (this.served >= this.unplugAfter) { this.input.state = this.output.state = "disconnected"; return; }
-      if (addr === 0xE0000000) setTimeout(() => this.boot("ota-FM-1_900", "Melodee Update"), 300);
+      if (addr === 0xE0000000) setTimeout(() => this.boot(this.loader, this.loader === STOCK_LOADER ? "FM-1" : "Melodee Update"), 300);
       else if (addr === 0xF0000000) setTimeout(() => this.boot(this.afterWrite, this.afterWrite === "FM-1_015" ? "FM-1" : "Melodee"), 300);
       else this.next();
     }
@@ -1453,32 +1453,52 @@ async function updater() {
   const image = Uint8Array.from({ length: 0x2000 }, (_, i) => (i * 7) & 0xFF);
   const dev = new FakeFM1(image);
   const steps = [];
-  const got = await new Updater(dev.access).install(image, "FM-1_900", (k) => steps.push(k));
+  const got = await new Updater(dev.access).install(image, "FM-1_900", (k) => steps.push(k), MELODEE_LOADER);
   ok(got === "FM-1_900" && dev.bad === 0 && steps.includes("write") && steps.at(-1) === "done",
     `fm1ota.js: install: running firmware -> loader -> Melodee (${dev.served} reads)`);
 
   for (const identity of ["FM-1_900", "FM-1_91040", "FM-1_91041"]) {
-    const stock = new FakeFM1(image, {identity, afterWrite:"FM-1_015"});
-    const restored = await new Updater(stock.access).install(image, "FM-1_015");
+    const stock = new FakeFM1(image, {identity, afterWrite:"FM-1_015", loader:STOCK_LOADER});
+    const restored = await new Updater(stock.access).install(image, "FM-1_015", null, STOCK_LOADER);
     ok(restored === "FM-1_015" && stock.bad === 0,
-      `fm1ota.js: ${identity} returns to stock V15 across USB name/identity changes`);
+      `fm1ota.js: ${identity} returns to stock V15 through the official loader`);
   }
+  // each package goes only to its own loader: the official one would write a Melodee package's head
+  // over the boot data, Melodee's would write only V15's application
+  const pairs = [["FM-1_015", STOCK_LOADER, MELODEE_LOADER], ["FM-1_900", MELODEE_LOADER, STOCK_LOADER]];
+  const refused = await Promise.all(pairs.map(async ([product, own, other]) => {   // ~5 s each
+    const wrong = new FakeFM1(image, {identity:"FM-1_91041", afterWrite:product, loader:other});
+    const err = await new Updater(wrong.access).install(image, product, null, own).then(() => null, (x) => x);
+    return err && err.code === "wrongloader" && err.detail === other && wrong.served === 4 && wrong.identity === other;
+  }));
+  for (const [i, [product, own, other]] of pairs.entries()) {
+    ok(refused[i], `fm1ota.js: ${product} is not written when step 1 starts ${other}`);
+    const waiting = new FakeFM1(image, {afterWrite:product});
+    waiting.boot(other, "Melodee Update");
+    const resumedWrong = await new Updater(waiting.access).resume(image, null, product, own);
+    ok(resumedWrong === false && waiting.served === 0 && waiting.identity === other,
+      `fm1ota.js: ${product} never resumes in ${other}`);
+  }
+  const unnamed = new FakeFM1(image);
+  unnamed.boot(MELODEE_LOADER, "Melodee Update");
+  ok(await new Updater(unnamed.access).resume(image, null, "FM-1_900") === false && unnamed.served === 0,
+    "fm1ota.js: resume without the package's loader identity writes nothing");
   const recovery = new FakeFM1(image, {afterWrite:"FM-1_015"});
-  recovery.boot("ota-FM-1_91040", "Melodee Update");
-  const resumed = await new Updater(recovery.access).resume(image, null, "FM-1_015");
+  recovery.boot(STOCK_LOADER, "FM-1");
+  const resumed = await new Updater(recovery.access).resume(image, null, "FM-1_015", STOCK_LOADER);
   ok(resumed && recovery.identity === "FM-1_015" && recovery.bad === 0,
-    "fm1ota.js: interrupted release firmware update resumes to verified stock V15");
+    "fm1ota.js: an interrupted return to stock resumes in the official loader");
 
   const dev2 = new FakeFM1(image, { unplugAfter: 3 });
-  dev2.boot("ota-FM-1_900", "Melodee Update");
+  dev2.boot(MELODEE_LOADER, "Melodee Update");
   const t0 = Date.now();
-  const done = await new Updater(dev2.access).resume(image);
+  const done = await new Updater(dev2.access).resume(image, null, null, MELODEE_LOADER);
   ok(done === false && Date.now() - t0 < 6000, "fm1ota.js: unplugged during the write -> stops at once");
 
   const dev3 = new FakeFM1(image, { unplugAfter: 2 });
-  const e = await new Updater(dev3.access).install(image, "FM-1_900").then(() => null, (x) => x);
-  ok(e && e.code === "lost", "fm1ota.js: unplugged in step 1 -> error code 'lost'");
-  const e2 = await new Updater({ inputs: new Map(), outputs: new Map() }).install(image, "FM-1_900").then(() => null, (x) => x);
+  const e = await new Updater(dev3.access).install(image, "FM-1_900", null, MELODEE_LOADER).then(() => null, (x) => x);
+  ok(e && e.code === "lost" && e.lastRead === 0x40, "fm1ota.js: unplugged in step 1 -> error code 'lost', last read address");
+  const e2 = await new Updater({ inputs: new Map(), outputs: new Map() }).install(image, "FM-1_900", null, MELODEE_LOADER).then(() => null, (x) => x);
   ok(e2 && e2.code === "notfound", "fm1ota.js: no device -> error code 'notfound'");
 }
 
@@ -1505,8 +1525,11 @@ async function stockRestore() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
   const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace("/*META*/{}", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:{dual:"test.fwsc"}}));
-  async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false, motionVersion = 2, backupVersion = 1, backupCaps = 1, loaderError = false} = {}) {
-    const calls = [], elements = new Map();
+  const HEAD = {from:1024, to:1024 + 0x4000};
+  // loader: the identity of the update loader the FM-1 is waiting in (false: running firmware);
+  // button: "stock-go" (Return to official V15) or "go" (Install)
+  async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false, motionVersion = 2, backupVersion = 1, backupCaps = 1, installError = null, button = "stock-go"} = {}) {
+    const calls = [], writes = [], elements = new Map();
     const element = (id) => {
       if (!elements.has(id)) elements.set(id, {checked:false, disabled:false, textContent:"", value:0, listeners:{}, options:[],
         replaceChildren(...options) { this.options = options; this.value = options.find(o => o.selected)?.value || options[0]?.value || ""; },
@@ -1520,28 +1543,26 @@ async function stockRestore() {
       document:{documentElement:{}, querySelectorAll:() => [], getElementById:element,
         body:{append() {}}, createElement:() => ({click() { calls.push("save"); }, remove() {}})},
       window:{addEventListener() {}},
-      fetch:async () => ({ok:!loaderError, status:503, arrayBuffer:async () => Uint8Array.of(2).buffer}),
-      STOCK_V15_SIZE:1,
-      validateStockPackage:async () => ({product:"FM-1_015",image:Uint8Array.of(0)}),
-      buildStockRestorePackage:async (stock, donor, product) => {
-        if (stock[0] !== 1 || donor[0] !== 2 || product !== "FM-1_9010") throw Error("Wrong restore inputs");
-        calls.push("prepare-loader"); return Uint8Array.of(3);
+      fetch:async (url) => { calls.push("fetch " + url); return {ok:true, arrayBuffer:async () => Uint8Array.of(2).buffer}; },
+      STOCK_V15_SIZE:1, MELODEE_LOADER, STOCK_LOADER,
+      validateStockPackage:async (bytes) => {
+        if (bytes.length !== 1 || bytes[0] !== 1) throw Error("Not the selected file");
+        return {product:"FM-1_015", image:bytes, head:HEAD};
       },
       productOf:() => "FM-1_9010", logicalImage:bytes => bytes,
       URL:{createObjectURL:() => "blob:test", revokeObjectURL() {}}, Blob, setTimeout:() => 0,
       confirm:(message) => { calls.push("confirm"); calls.push(message); return confirm; },
       Updater:class {
         async find(filter) {
-          const id = {model:loader ? "ota-FM-1" : "FM-1"};
-          return filter(id) ? {link:{input:{},output:{},close() {}}} : null;
+          const id = loader ? {model:"ota-FM-1", text:loader} : {model:"FM-1", text:"FM-1_9010"};
+          return filter(id) ? {id, link:{input:{},output:{},close() {}}} : null;
         }
-        async install(image, product) {
-          if (image[0] !== 3 || product !== "FM-1_015") throw Error("Original vendor loader reached install");
-          calls.push("install");
+        async install(image, product, step, own) {
+          calls.push("install"); writes.push([image[0], product, own]);
+          if (installError) throw installError;
         }
-        async resume(image, step, product) {
-          if (image[0] !== 3 || product !== "FM-1_015") throw Error("Original vendor loader reached resume");
-          calls.push("resume"); return true;
+        async resume(image, step, product, own) {
+          calls.push("resume"); writes.push([image[0], product, own]); return true;
         }
       },
       BackupConnection:class {
@@ -1559,19 +1580,22 @@ async function stockRestore() {
     element("stock-recovery").checked = recovery;
     element("stock-skip-backup").listeners.change();
     const label = element("stock-go").textContent;
-    await element("stock-go").listeners.click();
-    return {calls, label, status:element("status").textContent, unlocked:!element("stock-skip-backup").disabled};
+    await element(button).listeners.click();
+    return {calls, writes, label, status:element("status").textContent, unlocked:!element("stock-skip-backup").disabled};
   }
+  const official = [1, "FM-1_015", STOCK_LOADER], melodee = [2, "FM-1_9010", MELODEE_LOADER];
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const fail = (code, more = {}) => Object.assign(new Error(code), {code}, more);
   let r = await run();
   ok(!r.calls.includes("install") && r.status.includes("select Skip backup") && r.calls.includes("backup-close") && r.unlocked,
     "stock: unsupported backups block flashing by default, explain opt-out");
-  r = await run({skip:true, loaderError:true});
-  ok(!r.calls.includes("install") && !r.calls.includes("resume") && !r.calls.includes("confirm")
-    && r.status.includes("HTTP 503"), "stock: loader download failure never falls back to the vendor loader");
   r = await run({skip:true});
-  ok(r.calls.includes("prepare-loader") && r.calls.includes("install") && !r.calls.includes("info") && !r.calls.includes("backup-open")
+  ok(r.calls.includes("install") && !r.calls.includes("info") && !r.calls.includes("backup-open")
     && r.calls.some(c => c.includes("without creating a backup")) && r.label.includes("without backup") && r.unlocked,
     "stock: explicit skip bypasses backup protocol and confirms data loss");
+  ok(same(r.writes, [official]) && r.calls.filter(c => c.startsWith("fetch")).join() === "fetch test.fwsc"
+    && !/buildStockRestorePackage|application-only/.test(installer),
+    "stock: the unmodified official file goes only to the official loader, no Melodee loader is fetched");
   r = await run({skip:true, confirm:false});
   ok(!r.calls.includes("install") && !r.calls.includes("resume") && r.unlocked,
     "stock: cancelling the no-backup confirmation never flashes");
@@ -1591,15 +1615,38 @@ async function stockRestore() {
   ok(!r.calls.includes("install") && !r.calls.includes("confirm") && r.calls.includes("backup")
     && r.status.includes("Backup failed") && r.calls.includes("backup-close") && r.unlocked,
     "stock: a failed backup never silently falls through to flashing");
-  r = await run({loader:true});
+  r = await run({skip:true, installError:fail("stopped", {lastRead:HEAD.from + 0x200})});
+  ok(r.status.includes("CHECK HEAD") && r.status.includes("FAILED -5") && r.status.includes("report") && r.unlocked
+    && /RECOVERY\.md#return-to-stock-from-running-melodee"[^>]*data-t="stockHelp"/.test(installer),
+    "stock: a stop at CHECK HEAD is refused with the FAILED -5 notes, no other path");
+  r = await run({skip:true, installError:fail("stopped", {lastRead:0x40})});
+  ok(r.status.startsWith("Stopped.") && !r.status.includes("FAILED -5"), "stock: other step-1 stops keep the generic message");
+  r = await run({skip:true, installError:fail("wrongloader", {detail:MELODEE_LOADER})});
+  ok(r.status.includes("Melodee's update mode"), "stock: a Melodee loader started by step 1 gets nothing");
+  r = await run({loader:STOCK_LOADER});
   ok(!r.calls.includes("resume") && r.status.includes("Skip backup"),
     "stock: interrupted updates still require saved backup or explicit skip");
-  r = await run({loader:true, skip:true});
-  ok(r.calls.includes("resume") && r.calls.some(c => c.includes("without creating a backup")),
-    "stock: explicit skip can resume a loader after data-loss confirmation");
-  r = await run({loader:true, recovery:true});
+  r = await run({loader:STOCK_LOADER, skip:true});
+  ok(r.calls.includes("resume") && r.calls.some(c => c.includes("without creating a backup")) && same(r.writes, [official]),
+    "stock: explicit skip can resume the official loader after data-loss confirmation");
+  r = await run({loader:STOCK_LOADER, recovery:true});
   ok(r.calls.includes("resume") && r.calls.some(c => c.includes("Has the complete backup")),
     "stock: saved-backup recovery retains its existing confirmation");
+  for (const [other, says] of [[MELODEE_LOADER, "Melodee's update mode"], ["ota-FM-1_123", "ota-FM-1_123"]]) {
+    r = await run({loader:other, skip:true, recovery:true});
+    ok(!r.writes.length && !r.calls.includes("confirm") && r.status.includes(says) && r.unlocked,
+      `stock: never resumes in ${other}`);
+  }
+  r = await run({button:"go"});
+  ok(same(r.writes, [melodee]) && r.calls.includes("install"), "install: a running FM-1 gets Melodee through Melodee's loader only");
+  r = await run({button:"go", loader:MELODEE_LOADER});
+  ok(same(r.writes, [melodee]) && r.calls.includes("resume"), "install: resumes in Melodee's loader");
+  for (const [other, says] of [[STOCK_LOADER, "official update mode"], ["ota-FM-1_123", "ota-FM-1_123"]]) {
+    r = await run({button:"go", loader:other});
+    ok(!r.writes.length && r.status.includes(says), `install: never resumes in ${other}`);
+  }
+  r = await run({button:"go", installError:fail("wrongloader", {detail:STOCK_LOADER})});
+  ok(r.status.includes("official update mode"), "install: an official loader started by step 1 gets nothing");
 }
 async function installerBuilds() {
   const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
@@ -1624,14 +1671,16 @@ async function installerBuilds() {
     window:{addEventListener() {}},
     fetch:async (url) => { fetched.push(url); return {ok:true, arrayBuffer:async () => new Uint8Array(Buffer.from(url)).buffer}; },
     productOf:(pkg) => /-rc\./.test(String.fromCharCode(...pkg)) ? "FM-1_91040" : /nightly/.test(String.fromCharCode(...pkg)) ? "FM-1_900" : "FM-1_91002", logicalImage:(pkg) => String.fromCharCode(...pkg),
-    Updater:class { async find() { return null; } async install(image, product) { installed.push([image, product]); } },
+    MELODEE_LOADER, STOCK_LOADER,
+    Updater:class { async find() { return null; } async install(image, product, step, loader) { installed.push([image, product, loader]); } },
   });
   vm.runInContext(script, context);
   await new Promise(resolve => setImmediate(resolve));
   ok(fetched.join() === "melodee-1.0.2.fwsc" && element("status").textContent === "Melodee 1.0.2 (standard)"
     && !element("go").disabled, "installer: dual-core stable firmware is the default");
   await element("go").listeners.click();
-  ok(installed[0][0] === "melodee-1.0.2.fwsc" && installed[0][1] === "FM-1_91002", "installer: stable installs its own package and identity");
+  ok(installed[0][0] === "melodee-1.0.2.fwsc" && installed[0][1] === "FM-1_91002" && installed[0][2] === MELODEE_LOADER,
+    "installer: stable installs its own package and identity, through Melodee's loader only");
   for (const [kind, version, file, commit, product, tag] of [
     ["nightly-dual", "next-abcdef0", "melodee-nightly.fwsc", "abcdef0123456789abcdef0123456789abcdef0123", "FM-1_900", "nightly"],
     ["rc-dual", "1.4.0-rc.1", "melodee-1.4.0-rc.1.fwsc", "a".repeat(40), "FM-1_91040", "release candidate"],
@@ -1669,7 +1718,7 @@ async function installerBuildRaces() {
     document:{documentElement:{},querySelectorAll:()=>[],getElementById:element,createElement:()=>({})},window:{addEventListener(){}},
     fetch:url=>new Promise(resolve=>pending.set(url,resolve)),
     productOf:pkg=>String.fromCharCode(...pkg)==="older"?"FM-1_91001":"FM-1_91002",
-    logicalImage:pkg=>String.fromCharCode(...pkg),
+    logicalImage:pkg=>String.fromCharCode(...pkg), MELODEE_LOADER, STOCK_LOADER,
     Updater:class { async find(){ return null; } async install(img){installed=img;await new Promise(resolve=>installDone=resolve);} }
   });
   const finish = url => pending.get(url)({ok:true,arrayBuffer:async()=>Uint8Array.from(Buffer.from(url)).buffer});

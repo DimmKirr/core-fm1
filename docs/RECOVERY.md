@@ -90,18 +90,32 @@ Licences and corresponding libusb source are included in the archive.
 
 ## Return to stock from running Melodee
 
-Use **Return to official V15** in the web installer with the unmodified M-VAVE
-`FM-1.fwsc`. The browser verifies the original file's SHA-256 and prepares a temporary
-update using the current stable Melodee loader. This installs the original stock
-application bytes while preserving the device's boot data below `0x4000`.
-The temporary update is prepared locally; the vendor file is not uploaded.
+Use **Return to official V15** in the web installer, or `tools/fm1_install.py FM-1.fwsc`,
+with the unmodified M-VAVE `FM-1.fwsc`. The browser checks the file's SHA-256 locally;
+the file is not uploaded. It is then sent unchanged, as M-VAVE's own updater sends it:
+Melodee starts the official update loader from the file, and that loader installs the
+whole V15 package. This includes the boot data below `0x4000`, the application, the
+USR data at `0xEA000`, `isd_config.ini` and the package's other files.
 
-An on-device **FAILED -5** during **CHECK HEAD** means the vendor package's boot data
-is not byte-identical to the device's. The previous web restore used the vendor
-loader, which rewrites that area, so Melodee refused it. Refresh the web installer
-and select the official file again to use the application-only restore path.
-Existing Melodee versions with the Melodee update loader can use this path without
-a firmware upgrade. The chip-key check and stock-file verification still apply.
+Before Melodee starts the official loader, it compares V15's boot data with the FM-1's
+own (`0x0`..`0x3FFF`), because that loader rewrites it. If they differ, the FM-1 shows
+**FAILED -5** during **CHECK HEAD** and the installer stops. Nothing is written and
+Melodee keeps running. The installer has no other way back to stock, and other tools
+should not be used to force the return. Please
+[report it](https://github.com/keremimo/melodee/issues) with the Melodee version,
+the code on the FM-1's screen, and how Melodee or Felucca was first installed on it.
+
+An interrupted return to stock is resumed only in the official update mode
+(`ota-FM-1_015`): select the official file again and press **Return to official V15**.
+If the FM-1 is in Melodee's update mode instead (**Melodee Update**, `ota-FM-1_900`),
+press **Install** to finish Melodee first. The installer never sends the official file
+to Melodee's loader, or a Melodee package to the official loader.
+
+From 16 October 2026 until this correction, the web installer's
+**Return to official V15** used Melodee's loader and wrote only V15's flash image
+between `0x4000` and `0x92FFF`. It did not write V15's USR data or `isd_config.ini`,
+and left Melodee's saved data in place. If you returned to stock in that period, please
+report how your FM-1 behaves now.
 
 The installer retains its full-backup and explicit skip-backup choices. Stock
 firmware may change Melodee's saved data after boot. Restoring stock also removes
