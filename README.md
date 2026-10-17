@@ -50,14 +50,15 @@ so a bank fills them exactly.
 | **SAVE** | Keep the sound you are on, under a name of your own. Press, name it and pick the slot, press again. Any other button backs out. |
 | **HOME** | Three screens, and pressing it again steps through them: the algorithm drawn out, the spectrum of what you are hearing, or its waveform. |
 | **MONO / POLY** | The top two black keys, on the OPERATOR page. Mono is one voice, last note wins. |
-| **A / B** | The voice line starts with the side you are listening to. **PLAY** flips it, **REC** copies this side onto the other. |
+| **A / B** | The voice line starts with the side you are listening to. The top black key, **F#5**, flips it on a tap and copies this side onto the other on a hold. |
 
 ## Editing it
 
 The five buttons along the top are the pages. The knobs under the screen are whatever that page shows;
-when a page has more than fits, the header says `2/4` and there are two ways to the rest: **SEL**, which is
-the shorter reach once your hands are on the knobs, or pressing that page's own button again — the button
-that got you there also walks you through it, and wraps around to the start. On **EDIT**, **ENV** and
+when a page has more than fits, the header says `2/4` and there are two ways to the rest: the **SELECT**
+knob, which is the shorter reach once your hands are on the knobs and turns either way, or pressing that
+page's own button again — the button that got you there also walks you through it, and wraps around to the
+start. On **EDIT**, **ENV** and
 **LFO** that second press is a hold rather than a tap, for the reason the next section but one gives.
 
 A strip along the bottom of every screen names what the four knobs are doing, in the order they sit under
@@ -81,15 +82,15 @@ range — the thirty-two algorithms, the ratios, the curves, **DETUNE**, **TRANS
 click there is already worth exactly one meaningful thing, so it stays one. Jumping five algorithms at a
 time would not be faster, only harder to aim.
 
-**SEL** keeps its old job. It still steps to the next four things on a plain tap — but the tap you were
-using as a shift does not count, because the knob you turned under it has spoken for the press. Otherwise
-every reach for a precise value would dump you on a different bank.
+**SEL** has a second job, switching operators off (see [Taking it apart](#taking-it-apart)) — but a press
+you used as a shift does not count, because the knob you turned under it has spoken for the press. Otherwise
+every reach for a precise value would switch an operator off.
 
 ### The knobs on HOME
 
 HOME has no parameters to list, but it is the screen you are looking at while you are actually listening, so
 the knobs are not idle there. They move four operators at once — `LVL 1` through `LVL 4` to begin with — and
-**SEL** steps which four, the same thing **SEL** means everywhere else: the next four things under the knobs.
+**SELECT** steps which four, the same thing it means everywhere else: the next four things under the knobs.
 There are four sets, `LVL 1-4`, `LVL 5 6`, `RAT 1-4`, `RAT 5 6`, and then it comes round again. The two sets
 that run past operator six leave those knobs blank rather than pretend.
 
@@ -150,9 +151,9 @@ driven by the same code that drives them there. A tap is a shortcut to the top o
 controls to learn, and anything you change this way is on the page waiting for you when you hold the button
 instead.
 
-The operator is the one **SELECT** is on — the one with the white ring round its box in the diagram — and
-tapping the same button again steps to the next one. So do the `OP1` to `OP6` black keys. Press **HOME** to
-leave.
+The operator is the one with the white ring round its box in the diagram. Tapping the same button again
+steps to the next one, and so does turning **SELECT**; the `OP1` to `OP6` black keys jump straight to
+theirs. Press **HOME** to leave.
 
 This is the view worth living in. Four operator parameters under four knobs, a note held, and the box and the
 sidebands both moving while you turn: everything FM has to teach is in that loop, and it is much harder to
@@ -162,8 +163,8 @@ The title says when you are in it. `FM LAB` becomes `EDIT OP3`, `ENV OP3` or `LF
 because part of the keyboard has stopped playing — which is the one thing about this that can take you by
 surprise.
 
-**SELECT** picks which operator the OPERATOR and ENVELOPE pages are showing. So do the low six black keys,
-the ones the panel prints `OP1` to `OP6` under: on those two pages, and whenever a tap has the knobs, they
+The low six black keys pick which operator the OPERATOR and ENVELOPE pages are showing — the ones the panel
+prints `OP1` to `OP6` under: on those two pages, and whenever a tap has the knobs, they
 jump straight to their operator instead of sounding, because there you are pointing at an operator rather
 than playing one. All six glow while they mean that, and the one you are editing is lit outright. On every
 other page they are keys again.
@@ -364,14 +365,19 @@ going into them.
 ## Taking it apart
 
 You cannot hear what an operator does by reading its numbers. You hear it by taking it away and putting it
-back, so four buttons do nothing but that.
+back, so two controls do nothing but that.
 
-| Button | |
+| Control | |
 | --- | --- |
-| **ARP** | Switch the selected operator off, and on again. |
-| **SEQ** | Solo it: every other operator off. Press again and all six come back. Its light stays on while *anything* is switched off, so you cannot forget. |
-| **PLAY** | Switch to the other side of the A/B compare. Lit on **B**. |
-| **REC** | Copy this side onto the other one, so there is something to come back to. |
+| **SEL**, tapped | Switch the selected operator off, and on again. |
+| **SEL**, held | Solo it: every other operator off. Hold again and all six come back. Its light stays on while *anything* is switched off, so you cannot forget. |
+| **F#5**, tapped | Switch to the other side of the A/B compare. Lit on **B**. |
+| **F#5**, held | Copy this side onto the other one, so there is something to come back to. |
+
+**SEL** decides on the release, because while it is down it is also the fine-adjust shift: turn a knob under
+it and the press does neither. The top black key never plays a note — a compare that sometimes sounds one
+instead is not one you can trust with your eyes shut. **ARP**, **SEQ**, **PLAY** and **REC** are kept free for
+an arpeggiator and a sequencer.
 
 The switches are not part of the voice — a DX7's were front-panel switches, not voice data — so they are not
 saved, they survive an A/B switch, and changing voice brings all six back on.
@@ -382,7 +388,7 @@ output bus at the bottom turns red to show that nothing is reaching it.
 
 <p align="center"><img src="docs/solo.png" width="240" alt="FM Lab with operator 2 soloed under algorithm 16: operator 2 is outlined in white and the other five are greyed and struck through in red, and the output bus at the bottom of the screen is red to show that nothing reaches it"></p>
 
-The way to use A/B is: land on a sound, press **REC** to copy it across, press **PLAY** to move to the other
+The way to use A/B is: land on a sound, hold **F#5** to copy it across, tap it to move to the other
 side, change *one* thing, then flip back and forth. Hearing the same parameter two ways in succession tells
 you far more than hearing it once. Each side carries its own voice number and its own `*`, so you can also
 park a factory voice on one side and your edit of it on the other.
@@ -393,7 +399,7 @@ park a factory voice on one side and your edit of it on the other.
 operator is *right now* — read straight out of the running voice, the same number the engine is about to
 multiply by. The body of the fill is dim and the level itself is a bright edge riding on top of it, so two
 operators a little apart are easy to tell apart. The orange box and the loop beside it is the one carrying
-feedback. The white outline is the operator **SELECT** has picked, so you can see where the thing you are
+feedback. The white outline is the operator you have picked, so you can see where the thing you are
 editing sits before you edit it. An operator that is switched off is struck through in red, and its wires
 fade out with it.
 
@@ -439,8 +445,8 @@ the two faint lines across the middle are 24 and 48 dB down from full scale — 
 The lilac marks are a peak that falls back slowly, so a plucked sound leaves its shape behind long enough
 to read.
 
-It analyses the output and not a single operator, which sounds like the lesser choice but is not: **ARP** and
-**SEQ** already switch an operator off and solo one, so soloing a carrier gives you exactly that branch of the
+It analyses the output and not a single operator, which sounds like the lesser choice but is not: a tap and a hold
+of **SEL** already switch an operator off and solo one, so soloing a carrier gives you exactly that branch of the
 algorithm, and nothing here has to make a second claim about what the engine is doing. What you see is what
 you hear, always.
 
@@ -463,7 +469,7 @@ are the real times and the heights are the real levels — in dB, which is how t
 
 The first bank is **attack, decay, sustain and release**, one to a knob, which is the envelope every other
 synth you have met describes. The four fit in a single row of cells under the graph, lined up with the knobs
-that move them, and the graph takes the space that saves. **ENV** again — or **SEL** — walks on to the four
+that move them, and the graph takes the space that saves. **ENV** again — or **SELECT** — walks on to the four
 raw segments the DX7 actually stores, a rate and its level at a time, which is the pair that means something.
 The segment you are on is picked out in colour; on the ADSR bank the whole envelope is, because there you are
 moving all of it. The white dot is where the envelope of the selected operator has actually got to in the
@@ -616,7 +622,7 @@ which is the thing most worth listening to. More scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
-tests/run_host.sh tests/operators.txt     # the operator switches and the A/B compare, sound checked
+tests/run_host.sh tests/operators.txt     # SEL's switches and F#5's A/B compare, sound checked
 tests/run_host.sh tests/bank.txt          # saving, and .syx in and out, data and sound checked
 tests/run_host.sh tests/panel.txt         # the pages and the operator keys, screens and MIDI checked
 tests/run_host.sh tests/spectrum.txt      # the analyser, against where the partials belong
@@ -675,7 +681,7 @@ under the wrong knob would fail too.
 wiring from the far end instead: turn KNOB1 thirty steps down on HOME, walk out to the EDIT page, and the bar
 that draws operator one's level has to be sixty-nine pixels narrower — thirty ninety-ninths of the two
 hundred and twenty-eight it spans. A vague claim that something changed would have been worth much less. It
-also reads the knob legend: four sets stepped by **SEL** and back to the first, the same four on both HOME
+also reads the knob legend: four sets stepped by **SELECT** and back to the first, the same four on both HOME
 screens, and the sets that run past operator six leaving those two cells genuinely empty.
 
 `tests/levelcheck.py` does the same trick for the operator boxes. The outline, the dim body of the fill and
@@ -703,8 +709,8 @@ anything other than those two bytes, that is where it would show.
 and the same four with **SEL** held move it by four, which is a fifth and not merely less. That the coarse
 step is kept off the lists is proved next door rather than here — `tests/edit.txt` walks **RATIO** one
 entry a click with **SEL** nowhere near it, and would fail outright if fives had been applied to a list. It
-also checks the two halves of **SEL** not colliding: letting go after a turn leaves the page alone, and
-letting go without one still steps the bank.
+also checks the two halves of **SEL** not colliding: letting go after a turn switches nothing off and leaves
+the page alone, and **SELECT** still steps the bank.
 
 `tests/cornercheck.py` counts pixels in a sixteen-pixel band. It drives the battery through four charge
 states and measures the lit bars — forty-five pixels, thirty, fifteen, none — then checks the cell's
@@ -767,7 +773,7 @@ right on a partial has to leave it 3 dB down, which is what a cutoff means; and 
 it up by more than 15 dB without touching the fundamental. It measures 26, 46, 2.9 and 24. On the screen, the
 spectrum has to have the filter's knobs and its curve, flat while `OFF` and bent once it is not, `TYPE` has to
 change the curve and not the knobs and go round to `OFF`, and the scope has to have no curve. Then **FX**: a tap
-has to put the four `MIX` knobs under the same diagram, a second tap and **SEL** have to change nothing,
+has to put the four `MIX` knobs under the same diagram, a second tap and **SELECT** have to change nothing,
 **HOME** has to take them off, and a hold has to give the page, its own button walking the four effects and the
 next hold opening where the last one left off.
 

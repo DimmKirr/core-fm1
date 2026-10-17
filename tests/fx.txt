@@ -9,7 +9,7 @@
 # with the filter off and then through each setting, so what the filter took away is the
 # difference and the voice cancels out.
 #
-# FX is then the effects: a tap puts the four effects' MIXes on HOME's knobs, a second tap and SEL
+# FX is then the effects: a tap puts the four effects' MIXes on HOME's knobs, a second tap and SELECT
 # leave them there, HOME takes them off, and a hold gives the EFFECTS page, its own button walking
 # the four effects and the next hold opening where the last one left off. What they do to the sound is effects.txt's business.
 200 enc 6 10
@@ -66,13 +66,13 @@
 12000 btn 8
 12200 shot
 
-# ---- a tap of FX: the four MIXes on the knobs; a second tap and SEL change nothing; HOME, the
+# ---- a tap of FX: the four MIXes on the knobs; a second tap and SELECT change nothing; HOME, the
 # knobs back
 12400 btn 2
 12600 shot
 12800 btn 2
 13000 shot
-13200 btn 3
+13200 enc 0 1
 13400 shot
 13600 btn 8
 13800 shot

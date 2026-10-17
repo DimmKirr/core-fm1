@@ -29,12 +29,12 @@ WINDOWS = [
     ('nothing switched off', 1150, 1400, 'loud'),
     ('OP1 off -- the only carrier', 1950, 2200, 'silent'),
     ('OP1 on again', 2750, 3000, 'loud'),
-    ('OP2 soloed -- a modulator', 3650, 3900, 'silent'),
-    ('all six on again', 4450, 4700, 'loud'),
-    ('switched to B, unchanged', 5350, 5600, 'loud'),
-    ('B with OP1 level down 20', 6350, 6600, 'quieter'),
-    ('back on A', 7150, 7400, 'loud'),
-    ('B again', 7950, 8200, 'quieter'),
+    ('OP2 soloed -- a modulator', 4250, 4500, 'silent'),
+    ('all six on again', 5550, 5800, 'loud'),
+    ('switched to B, unchanged', 7050, 7300, 'loud'),
+    ('B with OP1 level down 20', 8450, 8700, 'quieter'),
+    ('back on A', 9250, 9500, 'loud'),
+    ('B again', 10050, 10300, 'quieter'),
 ]
 
 full = peak(1150, 1400)

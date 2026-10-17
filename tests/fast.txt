@@ -7,9 +7,11 @@
 # five. The claim is arithmetic: the same four clicks have to move a parameter four with SEL up and
 # twenty with SEL down.
 #
-# The other half is that SEL gets to keep its old job. It still steps to the next four things on a
-# plain tap -- but not on the tap you were using as a shift, which is the case that would otherwise
-# dump you on a different bank every time you went looking for the end of a range.
+# The other half is that SEL gets to keep its other job. A tap of it switches the selected operator
+# off and a hold solos it -- but not on the press you were using as a shift, which is the case that
+# would otherwise switch an operator off every time you went looking for the end of a range.
+#
+# The bank, which a plain tap of SEL used to step, is SELECT's now, and the last step checks it.
 
 # The OPERATOR page, which draws every value as a bar: hold EDIT to get there.
 0 btn 6 600
@@ -33,7 +35,7 @@
 # spoke for the press.
 2300 shot
 
-# A plain tap, though, is the shortcut it always was.
-2400 btn 3
+# SELECT, though, steps to the next four things.
+2400 enc 0 1
 2600 shot
 2900 end

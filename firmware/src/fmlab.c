@@ -21,9 +21,9 @@
  *   ENV          the selected operator's envelope, drawn to scale, a segment at a time
  *   LFO          speed, delay, pitch and amplitude depth, wave
  *   GLO          algorithm, feedback, key sync, transpose, the pitch envelope
- *   SELECT       which operator (1..6) the EDIT and ENV pages show, and which box HOME outlines
+ *   SELECT       the next bank on the page, either way (the knobs are KNOB1.., left to right)
+ *   OP1..OP6     the black keys: which operator the EDIT and ENV pages show, wherever one is shown
  *   ALGORITHM    the algorithm, on any page
- *   SEL          the next bank on the page (the knobs are KNOB1.., left to right)
  *   SAVE         write this sound into one of your 32 slots: press, pick the slot, press again
  *   FX           chorus, phaser, delay and reverb, on the finished sound
  *
@@ -39,10 +39,9 @@
  * Listening, which is the other half of it. You cannot hear what an operator does by reading its
  * numbers; you hear it by taking it away and putting it back.
  *
- *   ARP          switch the selected operator off, and on again
- *   SEQ          solo it: every other operator off, and again for all six back on
- *   PLAY         the other side of the A/B compare
- *   REC          copy this side onto the other one, so there is something to come back to
+ *   SEL          tap: switch the selected operator off, and on again
+ *   SEL (hold)   solo it: every other operator off, and again for all six back on
+ *   F#5          tap: the other side of the A/B compare; hold: copy this side onto the other one
  *
  * The switches are not part of the voice -- a DX7's were front-panel switches, not voice data -- so
  * they are applied on the way to the ISR and `edit` never carries them. Soloing a modulator is
@@ -1019,7 +1018,7 @@ static void app_audio(int32_t *out, uint32_t n)
 }
 
 /* ---- the parameters under the knobs.
- * A page is a flat list; the knobs show four at a time and SEL steps to the next four. `op` entries
+ * A page is a flat list; the knobs show four at a time and SELECT steps to the next four. `op` entries
  * are an offset inside the selected operator's 21 bytes, `g` entries an index into the 156.
  * Operators are stored OP6 first, so operator n lives at (6 - n) * 21. */
 static const uint16_t SP_SPAN[5] = {1000, 2000, 5000, 10000, 20000};    /* the spectrum's top end */
@@ -1487,8 +1486,8 @@ static uint8_t fxsel;                           /* the effect the EFFECTS page l
  * depths -- and puts its picture where the diagram was, exactly as it does for the envelope. Any
  * OP key brings you back to that operator's ear on it.
  *
- * SEL steps the operator under all three, because the four knobs are fixed and the operator is
- * what varies. Pressing the button again does the same as SEL, as it always has -- except on the
+ * SELECT steps the operator under all three, because the four knobs are fixed and the operator is
+ * what varies. Pressing the button again does the same as SELECT, as it always has -- except on the
  * global LFO, where there is no operator to step and the button steps the wave instead, with its
  * picture right there to show what it became; and on the global envelope, where it switches the
  * envelope in and out of the sound, on HOME and on its page alike, keeping its four knobs.
@@ -1499,7 +1498,7 @@ static uint8_t fxsel;                           /* the effect the EFFECTS page l
  * title says EDIT OP3 or LFO OP3 exactly when it does, and LFO GLOBAL when it does not.
  *
  * FX is the fourth: the four effects' MIXes, one knob each, so the knobs are a small mixer and
- * the rest of each effect waits on its page. There is nothing to step, so a second tap and SEL do
+ * the rest of each effect waits on its page. There is nothing to step, so a second tap and SELECT do
  * nothing. None of it is an operator's,
  * so the black keys go on playing. The screen stays as it was: the effects come after the
  * analyser's tap, so the spectrum and the wave show the sound going into them.
@@ -1544,13 +1543,15 @@ static uint32_t foc_op(void)
     return 0u;
 }
 
-/* SEL, and a second press of the button that got you here, both mean "the next operator" -- which
- * is the only thing any of the three has more than one of. */
-static void foc_step(void)
+/* SELECT, and a second press of the button that got you here, both mean "the next operator" --
+ * which is the only thing any of the three has more than one of. d is how many, and which way. */
+static void foc_step(int32_t d)
 {
+    int32_t o;
     if (focus == FOC_FX)                        /* ..except under FX, which has all four already */
         return;
-    opsel = (uint8_t)((opsel + 5u) % 6u);   /* again: OP1 -> OP2 -> .. */
+    o = (int32_t)opsel - d % 6;                 /* forward: OP1 -> OP2 -> .. */
+    opsel = (uint8_t)((o + 6) % 6);
 }
 
 
@@ -1597,11 +1598,12 @@ static uint32_t flt_shown(void)                 /* the filter's curve: always, o
  * worth exactly one meaningful thing, so it stays one.
  *
  * SEL is the right button for it because it already sits under the thumb while the other hand is
- * on the knobs, and because its own job (step to the next four things) is instant and so has
- * nothing to lose by waiting for the release. A knob moved while it was down cancels that job, so
- * the shift and the step never both happen on the one press. */
+ * on the knobs, and because its own jobs (switch the selected operator off, or solo it) are instant
+ * and so have nothing to lose by waiting for the release. A knob moved while it was down cancels
+ * them, so the shift and the switch never both happen on the one press. */
 #define COARSE 5
 static uint8_t sel_used;                        /* a knob moved while SEL was down */
+static uint32_t t_sel;                          /* ..and when it went down: a tap mutes, a hold solos */
 
 static int sel_fine(void)
 {
@@ -1614,7 +1616,7 @@ static int32_t p_step(const param_t *p)
 }
 
 /* Every knob read goes through here, so the step applies to the parameter knobs and only to them:
- * ALGORITHM has its own encoder and a list of 32, and SELECT has six operators. */
+ * ALGORITHM has its own encoder and a list of 32, and SELECT walks lists. */
 static int32_t knob_take(uint32_t e, int32_t step)
 {
     int32_t d = fm1_enc_take(ENC_KNOB1 + e);
@@ -1679,8 +1681,8 @@ static uint32_t page_nbank(void)
  * Turn one with a note held and you watch its box fill as you hear it change, which is the whole
  * loop in one gesture.
  *
- * SEL steps which four -- the same thing SEL means on every other page, the next four things under
- * the knobs -- so there is nothing new to learn, and HOME's own button goes on stepping the
+ * SELECT steps which four -- the same thing it means on every other page, the next four things
+ * under the knobs -- so there is nothing new to learn, and HOME's own button goes on stepping the
  * screens. Four knobs and six operators do not divide, so the sets come in pairs: operators 1 to 4,
  * then 5 and 6 with two knobs spare. The legend names every knob, so which set you are on is never
  * something you have to carry in your head. */
@@ -1709,6 +1711,28 @@ static void page_to(uint8_t p)
     } else if (page_n()) {
         bank = (uint8_t)((bank + 1u) % page_nbank());
     }
+}
+
+/* The SELECT encoder: the next four things under the knobs, d of them and either way round -- the
+ * page's next bank, HOME's next set of operators, or, focused, the next operator. It used to pick
+ * the operator outright; the OP1..OP6 keys do that wherever there is one to pick, and a knob that
+ * walks every list on the instrument is worth more than a second way to do the one thing. */
+static uint8_t wrap_n(int32_t v, uint32_t n)
+{
+    v %= (int32_t)n;
+    return (uint8_t)(v < 0 ? v + (int32_t)n : v);
+}
+
+static void sel_step(int32_t d)
+{
+    if (home_flt())
+        return;                                 /* one filter: there is no next one */
+    if (focus != FOC_OFF && page == PAGE_HOME)
+        foc_step(d);
+    else if (page == PAGE_HOME)
+        homeset = wrap_n((int32_t)homeset + d, HSET_N);
+    else if (page_n())
+        bank = wrap_n((int32_t)bank + d, page_nbank());
 }
 
 /* Does the bank showing have a row that belongs to one operator rather than to the whole voice?
@@ -1755,6 +1779,14 @@ static int op_key(uint32_t k)
  * rather a bank saved here stay a true DX7 dump than smuggle a byte into one. */
 #define MONO_KEY 20u                            /* C#5 */
 #define POLY_KEY 22u                            /* D#5 */
+
+/* The top black key is the A/B compare, everywhere: a tap swaps sides on its release, a hold copies
+ * the side you are on over the other one -- a place to come back to before you start changing
+ * things. It never plays: a compare that sometimes sounds a note instead is not one you can trust
+ * with your eyes shut, and an F#5 is the least missed key on the keyboard. */
+#define AB_KEY 25u                              /* F#5 */
+static uint32_t ab_t;                           /* when it went down, or 0 */
+static uint8_t ab_long;                         /* ..and the hold has already copied */
 
 /* The 156 bytes hold the operators in the DX7's own order, OP6 first, and dx7_core.c indexes
  * DX_ALG with the same number -- so the block index and the engine's operator index are the one
@@ -3379,9 +3411,20 @@ static void load_voice(uint32_t vi)
 /* The operator switches. ON/OFF is the primitive and SOLO is everything-else-off, which is the
  * pair that gets used: ON/OFF to ask what one operator was contributing, SOLO to hear it alone.
  * Soloing a modulator is silent, and is meant to be -- see the output bus in draw_alg. */
+static void say_op(uint32_t op, const char *what)
+{
+    uint32_t i = put(hk_say, 0, "OP");
+    i = putn(hk_say, i, 6u - op, 1);
+    hk_say[i++] = ' ';
+    i = put(hk_say, i, what);
+    hk_say[i] = 0;
+    say(hk_say);
+}
+
 static void op_toggle(uint32_t op)
 {
     opmute ^= (uint8_t)(1u << op);
+    say_op(op, (opmute >> op) & 1u ? "OFF" : "ON");
     patch_publish();
 }
 
@@ -3389,6 +3432,10 @@ static void op_solo(uint32_t op)
 {
     uint8_t only = (uint8_t)(0x3Fu & ~(1u << op));
     opmute = (opmute == only) ? 0u : only;      /* solo the same one twice: everything back on */
+    if (opmute)
+        say_op(op, "SOLO");
+    else
+        say("ALL OPS ON");
     patch_publish();
 }
 
@@ -3575,6 +3622,9 @@ static void app_main(void)
                     gsel = 1;                   /* ..or at the envelope over all six of them */
                     bank = 0;
                     repaint = 1;
+                } else if (k == AB_KEY) {
+                    ab_t = fm1_ms ? fm1_ms : 1u;    /* the compare: decided on the way up */
+                    ab_long = 0;
                 } else if (op_point() && (k == MONO_KEY || k == POLY_KEY)) {
                     set.mono = k == MONO_KEY;
                     ev_push(EV_MONO, set.mono, 0);
@@ -3589,11 +3639,25 @@ static void app_main(void)
                     midi_send(0x90, held[k], 100);
                 }
             }
+            if ((up >> k & 1u) && k == AB_KEY && ab_t) {
+                if (!ab_long) {                 /* a tap: the other side */
+                    ab_swap(&set.voice);
+                    dirty = 1;
+                    t_change = fm1_ms;
+                }
+                ab_t = 0;
+            }
             if ((up >> k & 1u) && (sounding >> k & 1u)) {
                 sounding &= ~(1u << k);
                 ev_push(EV_OFF, held[k], 0);
                 midi_send(0x80, held[k], 0);
             }
+        }
+
+        if (ab_t && !ab_long && (keys >> AB_KEY & 1u) && fm1_ms - ab_t >= LONG_MS) {
+            ab_long = 1;                        /* a hold: this side onto the other */
+            ab_copy(set.voice);
+            say(ab ? "B COPIED TO A" : "A COPIED TO B");
         }
 
         b = fm1_input_edges(&rel);
@@ -3602,8 +3666,8 @@ static void app_main(void)
         if (b & (1u << BTN_OCT_DOWN) && set.oct > -2) { set.oct--; dirty = 1; t_change = fm1_ms; }
         if (b & (1u << BTN_OCT_UP) && set.oct < 2) { set.oct++; dirty = 1; t_change = fm1_ms; }
         /* A page button moves to its page; pressing it again walks that page's banks of parameters,
-         * so the button that got you there is also the one that shows you the rest. SEL still does
-         * it too -- it is the shorter reach when you are already turning knobs. */
+         * so the button that got you there is also the one that shows you the rest. SELECT does
+         * it too, either way round -- it is the shorter reach when you are already turning knobs. */
         if (b & (1u << BTN_HOME)) {                        /* and the way back out of focus */
             if (focus != FOC_OFF) {
                 focus = FOC_OFF;                           /* the keys and the knobs, as they were */
@@ -3658,7 +3722,7 @@ static void app_main(void)
                             modified = 1;
                             patch_publish();
                         } else {
-                            foc_step();                        /* again: the next one */
+                            foc_step(1);                       /* again: the next one */
                         }
                     }
                     else {
@@ -3670,25 +3734,22 @@ static void app_main(void)
                 t_hold[k] = 0;
             }
         }
-        /* SEL waits for the release, because while it is down it is the fine-adjust shift and a
-         * knob turned under it has spoken for the press. Letting go without having turned one is
-         * still the plain tap it always was. */
+        /* SEL switches the selected operator: a tap off and on, a hold (LONG_MS) solo. Both wait
+         * for the release, because while it is down it is also the fine-adjust shift, and a knob
+         * turned under it has spoken for the press -- so a hold cannot fire on the clock the way
+         * the page buttons' do, or every fine adjustment would end in a solo. */
         if (b & (1u << BTN_SEL)) {
             sel_used = 0;
+            t_sel = fm1_ms;
             draw_legend();                                 /* the names go bright: a click is one */
         }
         if (rel & (1u << BTN_SEL)) {
             draw_legend();
-            if (!sel_used) {                               /* the next four things under the knobs */
-                if (home_flt())
-                    ;                                      /* one filter: there is no next one */
-                else if (focus != FOC_OFF && page == PAGE_HOME) {
-                    foc_step();                            /* or, focused, the next one of those */
-                }
-                else if (page == PAGE_HOME)
-                    homeset = (uint8_t)((homeset + 1u) % HSET_N);
+            if (!sel_used) {
+                if (fm1_ms - t_sel >= LONG_MS)
+                    op_solo(opsel);                        /* only the selected operator */
                 else
-                    page_to(page);
+                    op_toggle(opsel);                      /* the selected operator, off and on */
             }
         }
         if (b & (1u << BTN_SAVE)) {                        /* press to pick a slot, press again to write */
@@ -3710,14 +3771,6 @@ static void app_main(void)
                     say("SAVE FAILED");
             }
         }
-        if (b & (1u << BTN_ARP)) op_toggle(opsel);         /* the selected operator, off and on */
-        if (b & (1u << BTN_SEQ)) op_solo(opsel);           /* only the selected operator */
-        if (b & (1u << BTN_PLAY)) {                        /* the other side of the compare */
-            ab_swap(&set.voice);
-            dirty = 1;
-            t_change = fm1_ms;
-        }
-        if (b & (1u << BTN_REC)) ab_copy(set.voice);       /* put this side on the other one too */
 
         if ((enc = fm1_enc_take(ENC_PRESETS)) != 0) {      /* the voice, or the slot to save to */
             if (saving) {
@@ -3733,16 +3786,13 @@ static void app_main(void)
                 t_change = fm1_ms;
             }
         }
-        if ((enc = fm1_enc_take(ENC_SELECT)) != 0) {       /* which operator the OP / ENV pages show */
+        if ((enc = fm1_enc_take(ENC_SELECT)) != 0) {       /* the next four things under the knobs */
             if (saving) {                                  /* or, while saving, which letter */
                 int32_t c2 = (int32_t)save_cur + enc;
                 while (c2 < 0) c2 += 10;
                 save_cur = (uint8_t)(c2 % 10);
-            } else {
-                int32_t o = (int32_t)opsel - enc;          /* clockwise counts OP1 -> OP6 */
-                while (o < 0) o += 6;
-                opsel = (uint8_t)(o % 6);
-            }
+            } else
+                sel_step(enc);
         }
         if ((enc = fm1_enc_take(ENC_ALGORITHM)) != 0) {    /* its own knob, on any page */
             if (saving) {                                  /* or, while saving, what that letter is */
@@ -3856,6 +3906,8 @@ static void app_main(void)
             fm1_led_key_glow(KEY_LED(POLY_KEY), opk);
             if (opk)                            /* and the mode you are in is the one that is lit */
                 fm1_led_key(KEY_LED(set.mono ? MONO_KEY : POLY_KEY), 1);
+            fm1_led_key_glow(KEY_LED(AB_KEY), 1);   /* the compare always works; lit on side B */
+            fm1_led_key(KEY_LED(AB_KEY), ab != 0u);
         }
         /* The octave buttons: lit for a shift that way, and pulsing at the end of the travel. The
          * pulse rides the glow layer, so the LED dips rather than going dark -- a limit, not an
@@ -3874,9 +3926,7 @@ static void app_main(void)
         fm1_led_key(BTN_LFO, page == PAGE_LFO || focus == FOC_LFO);
         fm1_led_key(BTN_GLO, page == PAGE_GLO);
         fm1_led_key(BTN_FX, page == PAGE_FX || focus == FOC_FX);
-        fm1_led_key(BTN_ARP, (opmute >> opsel) & 1u);      /* this operator is off */
-        fm1_led_key(BTN_SEQ, opmute != 0u);                /* something is off: you are not hearing it all */
-        fm1_led_key(BTN_PLAY, ab != 0u);                   /* lit on side B */
+        fm1_led_key(BTN_SEL, opmute != 0u);                /* something is off: you are not hearing it all */
         fm1_led_key(BTN_SAVE, saving);                     /* lit while it is asking which slot */
 
         if (flash_msg && fm1_ms - flash_at > 1500u)

@@ -88,7 +88,7 @@ ok("a tap of FX: a banner and the effect's knobs, over the same diagram",
    and band(12600, ALG_Y) == band(400, ALG_Y))
 ok("..all four at once, so a second tap changes nothing", band(13000, TITLE_Y) == band(12600, TITLE_Y)
    and band(13000, LEG_Y) == band(12600, LEG_Y))
-ok("..and nor does SEL", band(13400, TITLE_Y) == band(12600, TITLE_Y)
+ok("..and nor does SELECT", band(13400, TITLE_Y) == band(12600, TITLE_Y)
    and band(13400, LEG_Y) == band(12600, LEG_Y))
 ok("..and HOME puts the knobs back",
    band(13800, TITLE_Y) == band(400, TITLE_Y) and band(13800, LEG_Y) == band(400, LEG_Y))

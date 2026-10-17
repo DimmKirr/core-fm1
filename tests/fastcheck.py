@@ -113,10 +113,10 @@ def main(stem):
           f"{legend_lit(2300)} px")
 
     # The collision that had to be designed away: a turn under SEL spends the press.
-    check("letting SEL go after a turn does not step the bank",
+    check("letting SEL go after a turn does nothing at all",
           rows(2300) == rows(1600))
     # And the shortcut it has always been, on a tap with no turn in it.
-    check("but a plain tap still does", rows(2600) != rows(2300))
+    check("and SELECT steps the bank", rows(2600) != rows(2300))
 
     print(f"\n{bad} checks failed")
     return 1 if bad else 0

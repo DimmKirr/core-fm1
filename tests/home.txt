@@ -9,14 +9,14 @@
 # It boots on the diagram with the first set of knobs: LVL 1 to 4.
 200 shot
 
-# SEL steps the set. Four of them, and then it comes back.
-400 btn 3
+# SELECT steps the set. Four of them, and then it comes back.
+400 enc 0 1
 600 shot
-800 btn 3
+800 enc 0 1
 1000 shot
-1200 btn 3
+1200 enc 0 1
 1400 shot
-1600 btn 3
+1600 enc 0 1
 1800 shot
 
 # The analyser is where the filter lives, so its four knobs are the filter's: CUT RESO TYPE SPAN.
@@ -41,8 +41,8 @@
 # The third set puts ratios under the same knobs. Five steps up the list, and the second bar -- the
 # one that draws the ratio -- has to be the one that moved.
 5600 btn 8
-5800 btn 3
-6000 btn 3
+5800 enc 0 1
+6000 enc 0 1
 6200 enc 2 5
 6400 btn 6 600
 7300 shot

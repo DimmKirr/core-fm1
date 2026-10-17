@@ -9,7 +9,7 @@ test proves the wiring from the far end instead: turn the knob, walk to the EDIT
 the bar that draws the byte. A bar is a byte scaled to 228 pixels, so "thirty steps down" is a
 prediction of 69 pixels and not a vague claim that something changed.
 
-The legend is the other half. Four knobs have to be named on both HOME screens, SEL has to step
+The legend is the other half. Four knobs have to be named on both HOME screens, SELECT has to step
 through four sets and come back, and the sets that reach past OP6 have to leave those two cells
 blank rather than name something that is not there.
 """
@@ -91,12 +91,12 @@ def main(stem):
             out.append(n)
         return out
 
-    # The legend. Four sets, stepped by SEL, and the fourth step is back where it started.
+    # The legend. Four sets, stepped by SELECT, and the fourth step is back where it started.
     sets = {ms: cells(ms) for ms in (200, 600, 1000, 1400, 1800, 2200)}
     check("HOME names all four knobs", all(ink(c) > 0 for c in sets[200]),
           " ".join(str(ink(c)) for c in sets[200]))
     seen = [sets[ms] for ms in (200, 600, 1000, 1400)]
-    check("SEL steps through four different sets",
+    check("SELECT steps through four different sets",
           len({bytes(b"".join(s)) for s in seen}) == 4)
     check("and the fourth step wraps back to the first", sets[1800] == sets[200])
     check("the set that runs past OP6 leaves two knobs blank",
