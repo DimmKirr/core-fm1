@@ -4729,9 +4729,9 @@ static int test_home_notes(void)
                  live_last[0][1] == (1u << 28) && !live_held[0][1]);
     ui_power_on();
     TSEL->p[P_QUANT] = Q_MPC;
-    midi_event(0x90, 0, 21, 100);
-    bad += check("MPC's mapped C4 is displayed, not source MIDI note 21", live_last[0][1] == (1u << 28) && !live_last[0][0]);
-    midi_event(0x80, 0, 21, 0);
+    midi_event(0x90, 0, 101, 100);
+    bad += check("MPC E02's mapped C4 is displayed, not source MIDI note 101", live_last[0][1] == (1u << 28) && !live_last[0][3]);
+    midi_event(0x80, 0, 101, 0);
     ui_power_on();
     midi_event(0x90, 0, 60, 100);
     midi_event(0x90, 1, 60, 100);

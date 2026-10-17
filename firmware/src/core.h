@@ -105,7 +105,7 @@ enum {                          /* per-track parameters */
     P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL, P_FM3_LEVEL,
     P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL, P_FM4_LEVEL,
     P_CHRD, P_VOIC,                            /* chord keys (chord.c): one key plays a chord; its voicing */
-    P_MPCDEG,                                  /* QNT MPC: the scale degree MPC pad H02 plays, 1 = the root */
+    P_MPCDEG,                                  /* QNT MPC: the scale degree pad 02 of each bank plays, 1 = root */
     P_LN0, P_LN1, P_LN2, P_LN3, P_LN4, P_LN5, P_LN6, P_LN7, /* DRUM lane levels, 127 = original gain */
     P_LSYNC, P_LTRIG, P_LPOL, P_SPRD, /* Felucca 1.4 common LFO controls and stereo spread */
     P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR, /* new FX; legacy effect IDs remain inert */

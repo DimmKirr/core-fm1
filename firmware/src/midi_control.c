@@ -159,7 +159,7 @@ static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
     midi_channel_t *c = midi_channel(ch);
     uint32_t id = mn_get(ch, note) & 0x7Fu;
     if (vel) {
-        track_t *t = midi_track(ch);
+        track_t *t = midi_note_track(ch, note);
         /* Repeated notes replace the previous press, including a pedal-held one. */
         if (id)
             midi_release(ch, note);

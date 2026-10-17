@@ -892,11 +892,17 @@ when several degrees fit inside one semitone. Recordings and projects retain the
 MIDI OUT carries degree addresses; an external synth needs the same tuning and mapping to
 reproduce these pitches.
 
-QNT **ALL** plays the next scale note on every key, black keys included. QNT **MPC** maps an
-MPC's Bank H pads (MIDI 20–35, H01–H16 of MPC Sample's default map) to successive scale notes;
-the **MPC** page in the SCL family sets **DEG**, the degree pad H02 plays. Incoming MIDI follows
-WHITE, ALL and MPC the way the keys do (without the octave buttons). SCL, QNT and DEG are shared by
-all four tracks; ROOT and TRN stay per track. Drum kits keep their own note mapping.
+QNT **ALL** plays the next scale note on every key, black keys included. QNT **MPC** routes MPC Sample
+Bank **E → track 1**, **F → track 2**, **G → track 3** and **H → track 4**, on any MIDI channel,
+overriding ROUT and the DRUM channel for notes. Each bank's 16 pads play successive scale degrees;
+**DEG** in the SCL list sets the degree pad 02 plays (1 = ROOT), with pad 01 one degree below it.
+The octave buttons shift all four banks. The default program map is E: MIDI 100–115,
+F: 116–127 then 0–3, G: 4–19, H: 20–35. Banks A–D and banks for absent tracks are silent.
+Use the MPC's default pad map and enable Pad MIDI Out (Always, or Empty for empty pads).
+WHITE and ALL map incoming MIDI as the keys, without the octave buttons.
+SCL, QNT and DEG are shared by all four tracks; ROOT and TRN stay per track. Drum kits and slices
+keep their own pitches within their assigned bank. Controllers retain their MIDI channel routing;
+sustain and panic also follow notes already held by that channel across banks.
 
 On the **CHORD** page, CHRD picks the chord keys (OFF, the scale's triads or
 sevenths, or a fixed shape) and VOIC the voicing.

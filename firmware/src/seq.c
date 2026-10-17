@@ -7,7 +7,8 @@
  * Four tracks, one transport: every track's pattern loops on its own LEN / DIV /
  * SWING / GATE (polymeter). The keys play the selected track; MIDI IN by GLO > SYSTEM ROUT (G_ROUTE):
  * CH1-4 (0), CH5-8 (2), CH9-12 (3), CH13-16 (4) map only their four channels to tracks 1..4;
- * SEL (1) maps every channel to the selected track. Their CC1 (mod wheel), CC11 (expression) and
+ * SEL (1) maps every channel to the selected track. QNT MPC overrides note destinations: E..H -> tracks 1..4.
+ * Their CC1 (mod wheel), CC11 (expression) and
  * channel aftertouch go to the same track's modulation matrix (mod.c; the selected track: the one selected then).
  * A note into an armed track (song.rec) while
  * the transport runs preserves its original onset and independent held length
@@ -163,18 +164,23 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
     return scale_map(t, n, 12 * song.octave);
 }
 
-/* a MIDI note into track t: WHITE and ALL map it as the keys (without the octave buttons), MPC plays the 16 pads of
- * an MPC's Bank H (MIDI 20..35, H01..H16 of MPC Sample's default map; any other note is silent, kits too) as
- * successive degrees of the scale, pad H02 on degree DEG. Kits and slices keep their own note map. KB_SILENT: none */
+/* MPC Sample blank.xpj, data.tracks[0].program.padNoteMap.noteForPad: E01 = 100, F01 = 116
+ * (F13 wraps to 0), G01 = 4, H01 = 20. Return E01..H16 as 0..63; A..D are 64..127. */
+static uint32_t mpc_pad(uint32_t note) { return (note + 28u) & 127u; }
+
+/* A MIDI note into track t: WHITE and ALL map it as the keys (without the octave buttons).
+ * MPC banks E..H play tracks 1..4, each pad 02 on DEG. Other banks / tracks are silent, kits too.
+ * Kits and slices keep their own note map. KB_SILENT: none. */
 static uint32_t midi_map(const track_t *t, uint32_t note)
 {
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
-    if (t->p[P_QUANT] == Q_MPC && (note < 20u || note > 35u))
+    uint32_t pad = mpc_pad(note);
+    if (t->p[P_QUANT] == Q_MPC && pad / 16u != trk_index(t))
         return KB_SILENT;
     if (e->keys && e->keys(t, 0) >= 0)
         return note;
     if (t->p[P_QUANT] == Q_MPC)
-        return scale_degree_map(t, (int32_t)note - 21 + mpc_degree(t) - 1, 12 * song.octave, 1);
+        return scale_degree_map(t, (int32_t)(pad & 15u) - 1 + mpc_degree(t) - 1, 12 * song.octave, 1);
     if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL)
         return scale_map(t, (int32_t)note, 0);
     if (micro_active(t) && t->p[P_QUANT] == Q_SNAP)
@@ -1176,6 +1182,17 @@ static track_t *midi_track(uint32_t ch)
     if (route == 1u)
         return TSEL;
     return ch - first < trk_n() ? &trk[ch - first] : 0;
+}
+
+/* QNT is shared. MPC note routing overrides ROUT and DRUM on every input channel; controllers
+ * retain their channel routing and held-note targets. Note-offs use the original saved owner. */
+static track_t *midi_note_track(uint32_t ch, uint32_t note)
+{
+    if (trk[0].p[P_QUANT] == Q_MPC) {
+        uint32_t k = mpc_pad(note) / 16u;
+        return k < 4u && k < trk_n() ? &trk[k] : 0;
+    }
+    return midi_track(ch);
 }
 
 #include "midi_control.c"

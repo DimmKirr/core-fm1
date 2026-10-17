@@ -30,6 +30,11 @@ and root mapping. The internal synthesizers use fractional pitch, including FM6 
 FM6 fixed-frequency operators retain their fixed pitch. A4 reference tuning, pitch bend and
 semitone transpose still apply.
 
+MPC Sample banks E, F, G and H play tracks 1, 2, 3 and 4 respectively, on any incoming MIDI channel.
+Each bank starts the same scale layout, with pad 02 on DEG; the octave buttons shift all banks.
+Banks A–D and absent tracks are silent. This uses the default program pad map (E: 100–115,
+F: 116–127 then 0–3, G: 4–19, H: 20–35), overriding ROUT and DRUM for note destinations.
+
 Scale, QNT and MPC DEG are shared across tracks; ROOT and TRN remain per track. A voice retains the
 pitch it started with when scale settings change while held or releasing. Playback interprets saved
 degrees using the currently selected scale and root. The original IDs, project formats and 12-tone
