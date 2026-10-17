@@ -52,8 +52,7 @@ static int list_gone(uint32_t i)
     uint32_t l, r;
     for (l = 0; l < NELEM(LISTS); l++)
         for (r = 0; r < LISTS[l].n; r++)
-            if (!str_eq(LISTS[l].row[r].page, LISTS[l].title) && str_eq(LISTS[l].row[r].page, PAGES[i].title) &&
-                !str_eq(PAGES[i].title, "SCALES"))
+            if (!str_eq(LISTS[l].row[r].page, LISTS[l].title) && str_eq(LISTS[l].row[r].page, PAGES[i].title))
                 return 1;
     return 0;
 }
