@@ -104,12 +104,12 @@ the title says what moved instead — `OP1 LVL 69`, or `OP3 x2.00` — for a sec
 
 | Button | Page | What is on it |
 | --- | --- | --- |
-| **HOME** | | the algorithm diagram, the spectrum or the waveform — press **HOME** again to step through them; the knobs move four operators at a time |
+| **HOME** | | the algorithm diagram, the spectrum or the waveform — press **HOME** again to step through them; the knobs move four operators at a time, except on the spectrum, where they are [the filter](#the-filter) |
 | **EDIT** | OPERATOR | hold for the page: level, ratio, detune and wave, then mode, the coarse and fine bytes and velocity sensitivity, then amp mod and the keyboard scaling — or tap it to put `LEVEL RATIO DETUNE WAVE` under the knobs without leaving HOME |
 | **ENV** | ENVELOPE | hold for the page: the envelope drawn to scale, attack, decay, sustain and release, then the four raw segments a rate and level at a time — or tap it for `ATK DEC SUS REL` without leaving HOME |
 | **LFO** | LFO | hold for the page: the LFO drawn over speed, delay and wave, then pitch mod, amp mod and pitch mod sensitivity, then key sync — or tap it for this operator's `A M SENS` without leaving HOME |
-| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose, the pitch envelope and **SPECTRUM** |
-| **FX** | FILTER | hold for the page: the filter's curve over cutoff, resonance and type — or tap it for `CUT RESO TYPE` without leaving HOME |
+| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose and the pitch envelope |
+| **FX** | EFFECTS | hold for the page: chorus, phaser, delay and reverb, a bank each — or tap it for the four effects' `MIX` without leaving HOME |
 
 ### Ratio, and the two bytes under it
 
@@ -143,7 +143,7 @@ wraps round, exactly as every other page button does. **HOME** is the way back o
 that page's first few rows for a single operator. **EDIT** gives you `LEVEL`, `RATIO`, `DETUNE` and
 [`WAVE`](#operator-waves); **ENV** gives you `ATK`, `DEC`, `SUS` and `REL`. **LFO** gives you one knob,
 `A M SENS`, for the reason
-[the LFO](#the-lfo) gives. **FX** gives you the whole of [the filter](#the-filter), which is three knobs.
+[the LFO](#the-lfo) gives. **FX** gives you the `MIX` of each of [the four effects](#effects), side by side.
 
 The **EDIT** and **ENV** knobs are literally the first rows of the page the button would have opened,
 driven by the same code that drives them there. A tap is a shortcut to the top of a menu, not a second set of
@@ -316,16 +316,44 @@ which is where it starts and where it costs nothing at all. `CUT` runs from 20 H
 pitch, so a click is about half an octave, and the cells say the frequency it is at. `RESO` raises a peak at
 the cutoff, from none at all to one about 21 dB tall, and the bottom half of the knob is the subtle half.
 
-**Tap FX** and the three are under the knobs on HOME, with the filter's curve drawn in green over the live
-spectrum — from the diagram or the spectrum alike, and **HOME** gives back whichever you came from. A second
-tap steps the type. The partials under the slope are the ones it is taking away, and with `RESO` up you can
-watch one of them stand up as the peak crosses it. With the filter `OFF` the curve is a flat line. None of
-it is an operator's, so the black keys go on playing. **Hold FX** for the FILTER page, the same curve above
-three cells. The curve is the filter's own arithmetic rather than a sketch of a filter, so a peak is as
-tall on the screen as it is in the sound.
+It lives on the spectrum, HOME's second screen, because that is where you can watch it work. There, whenever
+no tap has the knobs, they are `CUT RESO TYPE SPAN`, the title says `FILTER`, and its curve is drawn in green
+over the live spectrum. `TYPE` goes round, past `HIGH PASS` to `OFF` and back to `LOW PASS`. The partials
+under the slope are the ones it is taking away, and with `RESO` up you can watch one of them stand up as the
+peak crosses it. With the filter `OFF` the curve is a flat line. None of it is an operator's, so the black keys
+go on playing. The curve is the filter's own arithmetic rather than a sketch of a filter, so a peak is as tall
+on the screen as it is in the sound.
 
 Like [the global envelope](#one-envelope-over-everything) it belongs to the instrument and not to the voice,
 so it is saved with the octave, it is under every voice you load, and a bank saved here stays a true DX7 dump.
+
+## Effects
+
+Four effects on the finished sound, after the filter: `CHORUS`, `PHASER`, `DELAY` and `REVERB`. They are not
+FM, and they are not here to teach it; they are here because a sound you are learning on is easier to listen
+to in a room than in a box, and because hearing how much of a patch's character was the reverb is a lesson too.
+
+Every effect has `MIX` as its first knob, and `MIX 0` is off — not quiet, off, costing nothing at all. That is
+where all four start, so nothing you already have changes. **Tap FX** and the four knobs are the four effects'
+`MIX`, side by side, named after their effects: a small mixer, with a note held. **Hold FX** for the EFFECTS
+page, a bank per effect, which opens where you last left it; **FX** again walks the four.
+
+| Effect | Knobs |
+| --- | --- |
+| `CHORUS` | `MIX`, `RATE` 0.05 to 10 Hz, `DEPTH`, `WIDTH` — how far apart the two sides sweep, which is the stereo |
+| `PHASER` | `MIX`, `RATE`, `DEPTH` — how many octaves the notches sweep — and `FEEDBACK`, which deepens them |
+| `DELAY` | `MIX`, `TIME` 20 ms to 1.4 s, `FEEDBACK` — how many repeats — and `TONE`, darker each time round when low |
+| `REVERB` | `MIX`, `DECAY` in seconds, `DAMP` — how fast the highs die — and `PRE-DELAY`, up to 99 ms |
+
+The sound goes through them in the order `PHASER`, `CHORUS`, `DELAY`, `REVERB`, which is not quite the order
+they are listed in: the phaser goes first because it is the one that works on one channel, and everything
+after it is stereo. A `TIME` turned while the delay is sounding glides to the new length, the way tape does,
+rather than clicking. The reverb is four delay lines feeding each other through a Hadamard matrix, after
+four diffusers; the idea is the one dxsloop's reverb uses, the code is new.
+
+They are saved with the filter and the octave, as the instrument's and not the voice's, so a bank saved here
+is still a true DX7 dump. They come after the analyser's tap, so the spectrum and the scope show the sound
+going into them.
 
 ## Taking it apart
 
@@ -394,9 +422,8 @@ are the same thing.
 
 The axis is linear and not logarithmic, which is the point. A log axis would fit 20 Hz to 20 kHz on the screen
 at once, but it squeezes the sidebands closer together the higher they go, and the even spacing is exactly the
-structure worth seeing. The span is a setting rather than part of the sound, so it lives on **GLOBAL** as
-`SPECTRUM` — 1, 2, 5, 10 or 20 kHz, named in the line underneath the drawing — which leaves all four knobs
-here doing the same thing they do on the diagram. It is remembered across a power cycle.
+structure worth seeing. The span is the fourth knob here, `SPAN`, beside [the filter](#the-filter)'s three:
+1, 2, 5, 10 or 20 kHz, named in the line underneath the drawing. It is remembered across a power cycle.
 
 The ticks along the top edge are whole multiples of the note you are playing, the first one taller and
 brighter. Partials that line up with them are harmonic; partials that sit between them are not. That is the
@@ -411,8 +438,8 @@ It analyses the output and not a single operator, which sounds like the lesser c
 algorithm, and nothing here has to make a second claim about what the engine is doing. What you see is what
 you hear, always.
 
-**HOME a third time draws the waveform**, the way an oscilloscope does: the same sound, as height against
-time. The spectrum says which partials there are; this says what they add up to. Put `INIT VOICE` on, hold a
+**HOME a third time draws the waveform**, titled `SCOPE`, the way an oscilloscope does: the same sound, as
+height against time. The spectrum says which partials there are; this says what they add up to. Put `INIT VOICE` on, hold a
 note, and bring a modulator's **LEVEL** up from the HOME knobs — the sine bends, leans and then folds over on
 itself, and the spectrum one press away is the same thing seen from the other side.
 
@@ -579,7 +606,7 @@ FM-1 goes there by itself. Back to another firmware, or to the official one, wit
 `tests/host.c` is the FM-1 on your computer: it runs the same `fmlab.c`, plays a scripted sequence of keys,
 buttons and knob turns at it, and writes the sound as a WAV and the screen as PNGs. It fakes the flash and
 the MIDI port too, so saving and SysEx work. The script built into `tests/host.c` holds a chord and edits it,
-which is the thing most worth listening to. Twelve more scripts go with it:
+which is the thing most worth listening to. More scripts go with it:
 
 ```sh
 tests/run_host.sh tests/algorithms.txt    # all 32 algorithms, drawn, one screenshot each
@@ -596,7 +623,8 @@ tests/run_host.sh tests/fast.txt          # four clicks, against four clicks wit
 tests/run_host.sh tests/corners.txt       # the battery and the HOME pips, by the pixel
 tests/run_host.sh tests/global.txt        # the envelope over the whole voice, screens and sound
 tests/run_host.sh tests/lfo.txt           # depth against sensitivity, by ear; the page, the tap, GLOBAL
-tests/run_host.sh tests/fx.txt            # the filter, harmonic by harmonic; the page, the tap, the overlay
+tests/run_host.sh tests/fx.txt            # the filter, harmonic by harmonic, on the spectrum; FX's tap and hold
+tests/run_host.sh tests/effects.txt       # chorus, phaser, delay and reverb, by ear
 tests/run_host.sh tests/waves.txt         # the operator waves, harmonic by harmonic; drawn, and saved
 tests/run_host.sh tests/scope.txt         # the waveform screen, by its trace
 ```
@@ -730,10 +758,19 @@ harmonics: once with the filter off, and then through each setting, so that the 
 difference is the filter. `LOW PASS` at 230 Hz has to keep the fundamental within a dB and take more than
 20 dB off the eighth harmonic, two octaves up; `HIGH PASS` at 1.86 kHz has to do the opposite; `LOW PASS` set
 right on a partial has to leave it 3 dB down, which is what a cutoff means; and full `RESO` there has to stand
-it up by more than 15 dB without touching the fundamental. It measures 26, 46, 2.9 and 24. On the screen, a
-tap from the diagram has to put the curve over the spectrum, flat while `OFF` and bent once it is not, and a
-second tap change the curve and not the knobs; the same from the spectrum screen, gone again with **HOME**; and
-the page has to be three cells under the curve, with one bank, so its own button leaves it where it is.
+it up by more than 15 dB without touching the fundamental. It measures 26, 46, 2.9 and 24. On the screen, the
+spectrum has to have the filter's knobs and its curve, flat while `OFF` and bent once it is not, `TYPE` has to
+change the curve and not the knobs and go round to `OFF`, and the scope has to have no curve. Then **FX**: a tap
+has to put the four `MIX` knobs under the same diagram, a second tap and **SEL** have to change nothing,
+**HOME** has to take them off, and a hold has to give the page, its own button walking the four effects and the
+next hold opening where the last one left off.
+
+`tests/effectscheck.py` plays `INIT VOICE`, one sine, through each effect on its own. Dry, both sides have to
+be the same to the sample. `CHORUS` has to part them; `PHASER` has to make the held note swell and dip by more
+than 6 dB as its notches pass (it is 20); `DELAY` has to play a short note again 325 ms later, to within 3 ms,
+and again after that on the feedback; `REVERB` half in has to keep the note about as loud, and leave a tail that
+is wide and dies away. With every `MIX` back at 0 the output has to be the dry note again, the same on both
+sides to the sample, with nothing of the effects left over.
 
 `tests/wavescheck.py` plays `INIT VOICE`, one sine carrier on its own, through each wave on middle C and
 measures the harmonics against what the shape has to have: `SINE` none; `HALF SINE` a second 7.5 dB down and
@@ -747,8 +784,8 @@ saves the voice, leaves the slot and comes back, and the mark and the harmonics 
 be a flat line on the middle; `INIT VOICE` on middle C has to fill the height, cross the middle downwards
 exactly twice, and start at zero on the way up; and two pictures a tick apart have to be within a pixel or two,
 which is the trigger doing its job. A `SQUARE` has to jump across the middle rather than pass through it —
-three columns near zero against the sine's forty-eight. A tap of **FX** has to put the spectrum and the filter
-there instead, and **HOME** has to give the waveform back.
+three columns near zero against the sine's forty-eight. A tap of **FX** has to leave the waveform where it is,
+and so does **HOME**, taking the knobs back; and the title has to be the scope's own.
 
 ## Where to go next
 

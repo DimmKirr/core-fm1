@@ -1,29 +1,25 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""The filter, in pixels and in samples.
+"""The filter on the spectrum screen, in pixels and in samples; and the effects, in pixels.
 
     python3 tests/fxcheck.py build/host/fx
 
-Three claims.
-
-That it filters, by the amounts a filter of its kind has to. One steady note -- ORGAN on middle C,
-partials at 131, 262, 523 and 1046 Hz -- is measured with the filter off and then through each
-setting, so the voice cancels out and what is left is the filter: LOW PASS at 230 Hz keeps the
+That the filter filters, by the amounts a filter of its kind has to. One steady note -- ORGAN on
+middle C, partials at 131, 262, 523 and 1046 Hz -- is measured with the filter off and then through
+each setting, so the voice cancels out and what is left is the filter: LOW PASS at 230 Hz keeps the
 fundamental and takes about 26 dB off the 1046 two octaves up; HIGH PASS at 1.86 kHz does the
 opposite; and RESONANCE at the top stands the harmonic under the cutoff up by about 24 dB.
 
-That it is reached the way the other three are. A tap of FX on HOME puts CUTOFF RESONANCE TYPE
-under the knobs with the curve over the spectrum, from either screen, a second tap steps the type, HOME puts it all
-back, the black keys go on playing, and over the spectrum the curve is drawn on the sound. A hold
-gives the page: the curve over three cells.
-
-And that off is off: the curve is a flat line.
+That it lives on the spectrum screen: its knobs under it, its curve over the sound, flat when it is
+off, and TYPE going round. And that FX is the effects now: a tap gives the four MIXes, HOME takes
+them off, and a hold gives the page, opening where it was last left.
 """
 import sys, os, struct, math
 
 D = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "host")
 BANNER_Y = (18, 50)                     # HOME's banner, which says what the knobs have become
-LEG_Y = (208, 222)                      # what the four knobs are, under the four knobs
+LEG_Y = (208, 222)
+TITLE_Y = (18, 44)                      # the banner's big line, without what a button just said                      # what the four knobs are, under the four knobs
 PLOT_Y = (44, 148)                      # the curve on its own page
 CELL_Y = (152, 184)                     # the three cells under it
 ALG_Y = (64, 200)                       # the diagram's room on HOME, which the curve borrows
@@ -64,41 +60,45 @@ def px(ms, x, y):
     return tuple(ppm(ms)[i:i + 3])
 
 
-# ---- a tap on HOME
-ok("a tap of FX puts the filter where the diagram was",
+# ---- the spectrum screen
+ok("HOME once: the filter's knobs and banner, over the spectrum",
    band(1000, ALG_Y) != band(400, ALG_Y) and band(1000, LEG_Y) != band(400, LEG_Y) and
    band(1000, BANNER_Y) != band(400, BANNER_Y), "picture, knobs and banner all changed")
-ok("..the spectrum, with the filter's curve over it, from the diagram too",
-   count(1000, ALG_Y, TEAL) > 150, "%d teal pixels" % count(1000, ALG_Y, TEAL))
+ok("..with the filter's curve drawn on it", count(1000, ALG_Y, TEAL) > 150,
+   "%d teal pixels" % count(1000, ALG_Y, TEAL))
 ok("..and it starts off: the curve is one flat line", len(rows(1000, ALG_Y, TEAL)) == 1,
    "on %d rows" % len(rows(1000, ALG_Y, TEAL)))
 ok("..until LOW PASS bends it", len(rows(3200, ALG_Y, TEAL)) > 10,
    "on %d rows" % len(rows(3200, ALG_Y, TEAL)))
-ok("..and a second tap steps the type, and not the knobs",
+ok("..and TYPE steps on, not the knobs",
    band(5200, ALG_Y) != band(3200, ALG_Y) and band(5200, LEG_Y) == band(3200, LEG_Y))
+ok("TYPE goes round, past HIGH PASS to OFF: flat again", len(rows(6900, ALG_Y, TEAL)) == 1,
+   "on %d rows" % len(rows(6900, ALG_Y, TEAL)))
 ok("RESONANCE is in the picture as well as the sound",
    band(9200, ALG_Y) != band(7500, ALG_Y))
-ok("HOME puts the diagram and the banner back",
-   band(11800, ALG_Y) == band(400, ALG_Y) and band(11800, BANNER_Y) == band(400, BANNER_Y))
+ok("the wave screen has no curve", count(11800, ALG_Y, TEAL) == 0,
+   "%d teal pixels" % count(11800, ALG_Y, TEAL))
+ok("..and the diagram after it is the diagram",
+   band(12200, ALG_Y) == band(400, ALG_Y) and band(12200, BANNER_Y) == band(400, BANNER_Y) and
+   band(12200, LEG_Y) == band(400, LEG_Y))
 
-# ---- over the spectrum, the curve on the sound, in its own colour; and gone when HOME takes the
-# knobs back
-ok("over the spectrum, a tap of FX draws the curve on the sound",
-   count(13000, ALG_Y, TEAL) > 150, "%d teal pixels" % count(13000, ALG_Y, TEAL))
-ok("..and HOME takes it away again", count(14200, ALG_Y, TEAL) == 0,
-   "%d teal pixels" % count(14200, ALG_Y, TEAL))
-
-# ---- the page
-ok("a hold gives the page: the curve above its numbers", count(15400, PLOT_Y, ACC) > 150,
-   "%d lilac pixels" % count(15400, PLOT_Y, ACC))
-EGC = 152 + 10
-ok("..in three cells, a third of the screen each",
-   px(15400, 80, EGC) != (0, 0, 0) and px(15400, 160, EGC) != (0, 0, 0) and
-   px(15400, 60, EGC) == (0, 0, 0), "rules at 80 and 160, none at 60")
-ok("..and TYPE on the third knob redraws the curve",
-   band(15800, PLOT_Y) != band(15400, PLOT_Y) and band(15800, CELL_Y) != band(15400, CELL_Y))
-ok("..which has one bank, so its own button stays put",
-   band(16200, PLOT_Y) == band(15800, PLOT_Y) and band(16200, CELL_Y) == band(15800, CELL_Y))
+# ---- FX
+ok("a tap of FX: a banner and the effect's knobs, over the same diagram",
+   band(12600, BANNER_Y) != band(400, BANNER_Y) and band(12600, LEG_Y) != band(400, LEG_Y)
+   and band(12600, ALG_Y) == band(400, ALG_Y))
+ok("..all four at once, so a second tap changes nothing", band(13000, TITLE_Y) == band(12600, TITLE_Y)
+   and band(13000, LEG_Y) == band(12600, LEG_Y))
+ok("..and nor does SEL", band(13400, TITLE_Y) == band(12600, TITLE_Y)
+   and band(13400, LEG_Y) == band(12600, LEG_Y))
+ok("..and HOME puts the knobs back",
+   band(13800, TITLE_Y) == band(400, TITLE_Y) and band(13800, LEG_Y) == band(400, LEG_Y))
+PAGE_Y = (0, 240)
+pages = [band(ms, PAGE_Y) for ms in (14800, 15200, 15600)]
+ok("a hold gives the page, and FX walks its four effects",
+   len(set(pages)) == 3 and band(14800, PAGE_Y) != band(13800, PAGE_Y))
+ok("..and the next hold opens where the last left off", band(16300, PAGE_Y) == band(15600, PAGE_Y))
+ok("..and the knobs come back at the page's", band(16800, TITLE_Y) == band(13400, TITLE_Y)
+   and band(16800, LEG_Y) == band(13400, LEG_Y))
 
 # ---- the audio
 with open(os.path.join(D, "fx.wav"), "rb") as f:

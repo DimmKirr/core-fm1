@@ -76,12 +76,18 @@ ok("a SQUARE jumps across the middle rather than passing through it",
    near_zero(q) <= 8 and near_zero(s) > 30,
    "%d columns near the middle, against the sine's %d" % (near_zero(q), near_zero(s)))
 
-img = ppm(4000)
-teal = sum(1 for i in range(Y0 * 720, (Y0 + H) * 720, 3) if tuple(img[i:i + 3]) == TEAL)
-ok("a tap of FX shows the spectrum and the filter instead", teal > 150, "%d teal pixels" % teal)
+f = trace(4000)
+ok("a tap of FX leaves the wave on screen", near_zero(f) <= 8, "%d columns near the middle" % near_zero(f))
 b = trace(4400)
-ok("..and HOME gives the wave back", near_zero(b) <= 8, "%d columns near the middle" % near_zero(b))
+ok("..and so does HOME, taking the focus off", near_zero(b) <= 8, "%d columns near the middle" % near_zero(b))
 ok("HOME once more is the diagram", band(5000) != band(4400) and band(5000) != band(1500))
+
+
+def title(ms):
+    return ppm(ms)[18 * 720:44 * 720]
+
+
+ok("the scope has its own title, not the instrument's", title(600) != title(5000))
 
 print("\n%d checks failed" % bad)
 sys.exit(1 if bad else 0)

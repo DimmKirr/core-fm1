@@ -130,7 +130,7 @@ def main(stem):
           f"{bars(6400, EG_ROW_Y)[0]} pixels, want {want(59)}")
 
     # ---- and HOME hands the knobs back
-    check("HOME takes the focus off again", legend(7400) == legend(100))
+    check("HOME takes the focus off again", legend(7400) == legend(40))
     check("which is not what it was a moment before", legend(7000) != legend(7400))
 
     # ---- the keyboard, meanwhile

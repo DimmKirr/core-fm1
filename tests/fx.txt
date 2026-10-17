@@ -1,20 +1,22 @@
-# FM Lab -- the filter on FX: a tap puts it under the knobs on HOME, a hold gives its page.
+# FM Lab -- the filter on the spectrum screen, and the effects on FX.
 #
 #   build/host/fmlab build/host/fx tests/fx.txt
 #
-# One filter on the finished sound, LOW PASS, BAND PASS or HIGH PASS, or off. The sound is checked
-# by measuring the harmonics of one steady note -- ORGAN on middle C has partials at 131, 262, 523,
-# 1046 and 1570 Hz and holds them -- once with the filter off and then through each setting, so
-# what the filter took away is the difference and the voice cancels out.
+# One filter on the finished sound, LOW PASS, BAND PASS or HIGH PASS, or off. It lives on HOME's
+# spectrum screen: there, with nothing else on the knobs, they are CUTOFF RESONANCE TYPE SPAN, and
+# its curve is drawn over the sound. The sound is checked by measuring the harmonics of one steady
+# note -- ORGAN on middle C has partials at 131, 262, 523, 1046 and 1570 Hz and holds them -- once
+# with the filter off and then through each setting, so what the filter took away is the
+# difference and the voice cancels out.
 #
-# The screens: a tap of FX on HOME puts CUTOFF RESONANCE TYPE under the knobs and the filter's
-# curve over the spectrum, from the diagram or the spectrum alike; a second tap steps the type; the black keys go on playing, because none of it belongs to an operator; and
-# a hold of FX gives the FILTER page, the curve over three cells.
+# FX is then the effects: a tap puts the four effects' MIXes on HOME's knobs, a second tap and SEL
+# leave them there, HOME takes them off, and a hold gives the EFFECTS page, its own button walking
+# the four effects and the next hold opening where the last one left off. What they do to the sound is effects.txt's business.
 200 enc 6 10
 400 shot
 
-# ---- a tap: the filter's knobs on HOME, and the spectrum with its curve -- flat, because it starts off
-600 btn 2
+# ---- HOME once: the spectrum, the filter's knobs, and its curve -- flat, because it starts off
+600 btn 8
 1000 shot
 
 # the note everything is measured against, through no filter at all
@@ -24,22 +26,23 @@
 # LOW PASS at 230 Hz: the fundamental through, everything above it going
 2600 enc 2 -99
 2700 enc 2 7
-2900 btn 2
+2900 enc 4 1
 3200 shot
 3400 keys 0x80
 4600 keys 0
 
-# two more taps, BAND PASS and then HIGH PASS, at 1.86 kHz: the other way round
-4800 btn 2
-4900 btn 2
+# two more steps of TYPE, BAND PASS and then HIGH PASS, at 1.86 kHz: the other way round
+4800 enc 4 2
 5000 enc 2 6
 5200 shot
 5400 keys 0x80
 6600 keys 0
 
-# round to LOW PASS again, and with SEL held for single steps, at 1.06 kHz -- on the eighth harmonic
-6800 btn 2
-7000 btn 2
+# TYPE goes round: one more is OFF, flat again, and one more LOW PASS -- with SEL held for single
+# steps, at 1.06 kHz, on the eighth harmonic
+6800 enc 4 1
+6900 shot
+7000 enc 4 1
 7100 btn 3 800
 7200 enc 2 -8
 7500 shot
@@ -57,28 +60,37 @@
 10800 keys 0x2
 11400 keys 0
 
-# HOME leaves the filter's knobs, and the diagram comes back
+# HOME: the wave, no curve; HOME: the diagram, as it was
 11600 btn 8
 11800 shot
-
-# ---- the spectrum, and a tap of FX over it: the curve on the sound
 12000 btn 8
-12200 btn 2
-12400 keys 0x80
+12200 shot
+
+# ---- a tap of FX: the four MIXes on the knobs; a second tap and SEL change nothing; HOME, the
+# knobs back
+12400 btn 2
+12600 shot
+12800 btn 2
 13000 shot
-13200 keys 0
-13400 btn 8
-13600 keys 0x80
-14200 shot
-14400 keys 0
+13200 btn 3
+13400 shot
+13600 btn 8
+13800 shot
 
-# ---- a hold: the FILTER page, the curve over three cells
-14600 btn 2 600
-15400 shot
-15600 enc 4 1
-15800 shot
+# ---- a hold: the EFFECTS page, at CHORUS; FX walks it on to PHASER, DELAY, REVERB, and HOME
+# leaves it at DELAY on the way round
+14000 btn 2 600
+14800 shot
+15000 btn 2
+15200 shot
+15400 btn 2
+15600 shot
+15700 btn 8
+15800 btn 2 600
+16300 shot
 
-# the button whose page this is walks its banks, and it has only the one
-16000 btn 2
-16200 shot
-16400 end
+# and HOME, and a tap: the same four MIXes, whichever page was last open
+16400 btn 8
+16600 btn 2
+16800 shot
+17000 end

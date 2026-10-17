@@ -540,3 +540,27 @@ The ISR side is the spectrum's: one store per sample into the ring while the
 screen shows. The main loop copies 1024 samples, finds the trigger, and draws
 240 columns about 16 times a second -- less than the FFT does, so it reads
 the same as the spectrum.
+
+
+Effects, and the filter on the spectrum
+---------------------------------------
+Chorus, phaser, delay and reverb on the finished sound, after the filter.
+Each is skipped entirely at MIX 0. Their delay lines are in the pool: 1 KB
+chorus, 64 K samples of delay, 8 K of pre-delay, and the reverb's four lines
+and four diffusers in Q8 int32 -- about 185 KB, with 81 KB of pool to spare.
+
+  image   124508 B -> 129344 B   (+4836)
+  RAM     31204 B  -> 31524 B    (+320)
+  pool    73472 B  -> 262760 B   of 344064
+  cpu     44 % / PK 50 %   all four effects on, filter on, spectrum showing
+
+2026-10-16, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+The reverb is most of it: per sample, four diffuser allpasses, four lines
+each with a damping one-pole, a 4x4 Hadamard and four int64 gain multiplies.
+If it gets tight, the diffusers can go to two, or the reverb can run at half
+rate with its lines halved.
+
+Watch this number again after:
+  - anything else added to the ISR while the effects are on
+  - a longer reverb (more lines) or a stereo phaser

@@ -81,8 +81,12 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'lfo.txt') {
     if ($LASTEXITCODE) { throw 'the LFO is not what it should be' }
 }
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'fx.txt') {
-    python tests\fxcheck.py $out             # the filter, heard and drawn
+    python tests\fxcheck.py $out             # the filter and the effects' knobs
     if ($LASTEXITCODE) { throw 'the filter is not what it should be' }
+}
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'effects.txt') {
+    python tests\effectscheck.py $out        # chorus, phaser, delay and reverb, heard
+    if ($LASTEXITCODE) { throw 'the effects are not what they should be' }
 }
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'waves.txt') {
     python tests\wavescheck.py $out          # the operator waves, heard, drawn and saved

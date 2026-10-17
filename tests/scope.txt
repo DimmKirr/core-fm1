@@ -5,9 +5,10 @@
 # INIT VOICE is one sine on its own, so the screen has to draw a sine: two cycles of the note,
 # starting on the way up through zero, filling the height whatever the volume. Triggered on the
 # note, two pictures a tick apart have to be the same picture. WAVE turned to SQUARE has to flatten
-# the tops; a tap of FX swaps it for the spectrum and the filter, and HOME puts it back.
+# the tops; a tap of FX puts the effects on the knobs and leaves the wave where it is, and HOME
+# takes them off again.
 
-# the first user slot, INIT VOICE, and HOME twice: the third screen
+# the first user slot, INIT VOICE, and HOME twice: the third screen, titled SCOPE
 200 enc 6 20
 300 btn 8
 400 btn 8
@@ -26,7 +27,7 @@
 3000 shot
 3300 keys 0
 
-# a tap of FX: the spectrum and the filter's curve; HOME, the wave again
+# a tap of FX: the effects' knobs, over the same wave; HOME, the knobs back
 3500 btn 2
 3600 keys 0x80
 4000 shot

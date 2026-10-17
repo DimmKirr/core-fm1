@@ -40,7 +40,8 @@ case "$script" in                                           # while the screens 
 */corners.txt) python3 tests/cornercheck.py "$out" ;;       # the battery, and which HOME screen
   */global.txt)  python3 tests/globalcheck.py "$out" ;;        # one envelope over all six
   */lfo.txt)     python3 tests/lfocheck.py "$out" ;;           # a depth, and who is listening
-  */fx.txt)      python3 tests/fxcheck.py "$out" ;;            # the filter, heard and drawn
+  */fx.txt)      python3 tests/fxcheck.py "$out" ;;            # the filter and the effects' knobs
+  */effects.txt) python3 tests/effectscheck.py "$out" ;;       # chorus, phaser, delay and reverb, heard
   */waves.txt)   python3 tests/wavescheck.py "$out" ;;         # the operator waves, heard, drawn and saved
   */scope.txt)   python3 tests/scopecheck.py "$out" ;;         # the waveform screen, by its trace
 esac

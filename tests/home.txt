@@ -19,7 +19,7 @@
 1600 btn 3
 1800 shot
 
-# The analyser is the same instrument with a different picture, so it has the same four knobs.
+# The analyser is where the filter lives, so its four knobs are the filter's: CUT RESO TYPE SPAN.
 2000 btn 8
 2200 shot
 

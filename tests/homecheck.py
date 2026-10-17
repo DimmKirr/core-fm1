@@ -103,7 +103,8 @@ def main(stem):
           ink(sets[600][0]) > 0 and ink(sets[600][1]) > 0
           and ink(sets[600][2]) == 0 and ink(sets[600][3]) == 0,
           " ".join(str(ink(c)) for c in sets[600]))
-    check("the analyser has the same four knobs", sets[2200] == sets[200])
+    check("the analyser has the filter's four knobs instead", sets[2200] != sets[200]
+          and all(ink(c) > 0 for c in sets[2200]), " ".join(str(ink(c)) for c in sets[2200]))
 
     # KNOB1 is OP1's level. Thirty steps of a byte whose bar is 228 pixels wide for 99.
     before, after = bars(3700), bars(5400)

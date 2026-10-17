@@ -12,7 +12,8 @@
 # arithmetic rather than "the screen changed".
 #
 # `btn 6 600` holds EDIT for 600 ms, which is past the threshold. `btn 6` on its own is a tap.
-0 btn 8
+40 shot
+60 btn 8
 100 shot
 
 # A tap of EDIT. The diagram is still there -- this is HOME -- but the knobs and the legend are not.

@@ -25,7 +25,7 @@
  *   ALGORITHM    the algorithm, on any page
  *   SEL          the next bank on the page (the knobs are KNOB1.., left to right)
  *   SAVE         write this sound into one of your 32 slots: press, pick the slot, press again
- *   FX           clear the PK mark on the load meter
+ *   FX           chorus, phaser, delay and reverb, on the finished sound
  *
  * Keeping things. PRESETS runs over the 20 built-in voices and then 32 slots of your own in flash.
  * An unused slot holds INIT VOICE -- a single operator at full level on algorithm 1, which is to
@@ -604,6 +604,320 @@ typedef struct { int32_t a1, a2, a3, k; uint32_t type; } flt_t;
 static flt_t fbuf[2];
 static volatile uint8_t fcur;                   /* the ISR reads fbuf[fcur] */
 
+/* ---- the effects
+ *
+ * Four, after the filter and after the analyser's tap, so the spectrum and the wave go on showing
+ * what the operators made and these are the room it is played in. They are always in series --
+ * PHASER, CHORUS, DELAY, REVERB, the order a pedalboard would put them in -- and each is off at
+ * MIX 0, which is off and free: the ISR skips it. Up to the chorus the sound is mono; the chorus
+ * and the reverb come back in stereo, so they are wider on headphones than on the speaker.
+ *
+ * PHASER: six allpasses, each a quarter turn of phase at a frequency the LFO sweeps, added back to
+ * the dry sound. Where the two are out of step they cancel, so the sweep is three notches moving
+ * through the spectrum together. FEEDBACK puts some of the output back in and deepens them.
+ * CHORUS: a copy, a few milliseconds late, the lateness slowly swinging: a copy whose pitch is a
+ * touch sharp and then a touch flat, which is what two players in unison are. WIDTH puts the left
+ * and right copies out of step. DELAY: the echo, its own length later, with FEEDBACK echoing the
+ * echo and TONE darkening each repeat a little more than the last. REVERB: a room, as four delay
+ * lines between 34 and 64 ms that feed every one of them into all four (a feedback delay network,
+ * after the one in dxsloop by Leo Kuroshita, GPL-3.0), behind two milliseconds of diffusers that
+ * smear the attack. DECAY is how long it takes to fall 60 dB; DAMP takes the top off each pass,
+ * as soft walls do; PRE is the time before the first reflection, which is how big the room sounds.
+ *
+ * The coefficients come from the main loop through a double buffer, as the filter's do. */
+static const uint16_t FX_RATE[100] = {   /* centihertz: 0.05 Hz .. 10 Hz, evenly in pitch */
+    5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 9, 9,
+    10, 10, 11, 11, 12, 12, 13, 14, 15, 15, 16, 17,
+    18, 19, 20, 21, 22, 24, 25, 26, 28, 29, 31, 33,
+    34, 36, 38, 40, 43, 45, 47, 50, 53, 56, 59, 62,
+    65, 69, 73, 77, 81, 85, 90, 95, 100, 106, 111, 118,
+    124, 131, 138, 146, 154, 162, 171, 180, 190, 201, 212, 223,
+    236, 249, 262, 277, 292, 308, 325, 343, 362, 382, 403, 425,
+    448, 473, 499, 526, 555, 586, 618, 652, 688, 725, 765, 807,
+    852, 898, 948, 1000,
+};
+static const int16_t PH_A[225] = {      /* the allpass coefficient, Q15: 100 Hz .. 12.8 kHz, 32 an octave */
+    -32303, -32293, -32283, -32273, -32262, -32251, -32240, -32228, -32216, -32205,
+    -32192, -32180, -32167, -32154, -32141, -32127, -32113, -32099, -32085, -32070,
+    -32055, -32039, -32024, -32008, -31991, -31974, -31957, -31940, -31922, -31904,
+    -31885, -31866, -31846, -31826, -31806, -31785, -31764, -31743, -31721, -31698,
+    -31675, -31652, -31628, -31603, -31578, -31552, -31526, -31500, -31472, -31445,
+    -31416, -31387, -31358, -31328, -31297, -31265, -31233, -31200, -31167, -31133,
+    -31098, -31062, -31026, -30989, -30951, -30912, -30873, -30832, -30791, -30749,
+    -30707, -30663, -30618, -30573, -30526, -30479, -30431, -30381, -30331, -30279,
+    -30227, -30174, -30119, -30063, -30007, -29949, -29890, -29829, -29768, -29705,
+    -29641, -29576, -29509, -29442, -29372, -29302, -29230, -29157, -29082, -29006,
+    -28928, -28849, -28768, -28685, -28601, -28516, -28429, -28340, -28249, -28157,
+    -28063, -27967, -27869, -27770, -27668, -27565, -27460, -27353, -27244, -27132,
+    -27019, -26904, -26786, -26667, -26545, -26421, -26295, -26166, -26035, -25902,
+    -25767, -25629, -25489, -25346, -25200, -25052, -24902, -24749, -24593, -24435,
+    -24274, -24110, -23943, -23774, -23601, -23426, -23248, -23067, -22883, -22696,
+    -22505, -22312, -22116, -21916, -21713, -21507, -21298, -21085, -20869, -20649,
+    -20426, -20200, -19970, -19737, -19499, -19259, -19014, -18766, -18514, -18258,
+    -17999, -17735, -17468, -17196, -16921, -16641, -16357, -16070, -15777, -15481,
+    -15180, -14875, -14565, -14251, -13932, -13608, -13279, -12946, -12608, -12265,
+    -11917, -11563, -11204, -10840, -10471, -10095, -9714, -9327, -8935, -8536,
+    -8130, -7718, -7300, -6875, -6443, -6003, -5556, -5101, -4639, -4168,
+    -3688, -3200, -2702, -2194, -1677, -1149, -611, -60, 502, 1077,
+    1665, 2267, 2884, 3516, 4166,
+};
+static const uint16_t DLY_T[100] = {     /* samples: 20 ms .. 1.4 s, evenly in ratio */
+    882, 921, 961, 1003, 1047, 1093, 1141, 1191, 1243, 1298,
+    1355, 1414, 1476, 1541, 1608, 1679, 1753, 1829, 1910, 1993,
+    2081, 2172, 2267, 2367, 2470, 2579, 2692, 2810, 2933, 3062,
+    3196, 3336, 3482, 3635, 3794, 3961, 4134, 4316, 4505, 4702,
+    4909, 5124, 5349, 5583, 5828, 6083, 6350, 6629, 6919, 7223,
+    7539, 7870, 8215, 8575, 8951, 9344, 9753, 10181, 10628, 11094,
+    11580, 12088, 12618, 13171, 13749, 14351, 14981, 15638, 16323, 17039,
+    17786, 18566, 19380, 20230, 21117, 22043, 23010, 24018, 25072, 26171,
+    27319, 28516, 29767, 31072, 32434, 33857, 35341, 36891, 38508, 40197,
+    41960, 43799, 45720, 47725, 49817, 52002, 54282, 56662, 59147, 61740,
+};
+static const uint16_t DLY_TONE[100] = {  /* one pole in the loop, Q15: 500 Hz .. open */
+    2253, 2335, 2421, 2509, 2600, 2695, 2793, 2894, 2999, 3107,
+    3219, 3335, 3454, 3578, 3706, 3838, 3975, 4116, 4261, 4412,
+    4567, 4727, 4892, 5063, 5239, 5420, 5608, 5800, 5999, 6204,
+    6415, 6632, 6855, 7085, 7321, 7565, 7814, 8071, 8335, 8606,
+    8883, 9169, 9461, 9760, 10067, 10381, 10703, 11031, 11368, 11711,
+    12061, 12419, 12784, 13156, 13534, 13919, 14311, 14709, 15113, 15522,
+    15937, 16358, 16783, 17213, 17646, 18084, 18525, 18968, 19414, 19861,
+    20310, 20759, 21208, 21656, 22103, 22548, 22990, 23429, 23864, 24293,
+    24717, 25135, 25546, 25949, 26343, 26729, 27104, 27469, 27823, 28166,
+    28496, 28814, 29119, 29411, 29689, 29953, 30204, 30440, 30662, 32767,
+};
+static const uint8_t RV_RT[100] = {      /* the decay to -60 dB, in tenths of a second */
+    3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5,
+    5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10,
+    10, 10, 11, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 17, 17,
+    18, 19, 19, 20, 21, 22, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    33, 34, 35, 36, 38, 39, 41, 42, 44, 46, 47, 49, 51, 53, 55, 57,
+    59, 61, 64, 66, 69, 71, 74, 77, 80, 83, 86, 89, 92, 96, 100, 103,
+    107, 111, 116, 120,
+};
+static const uint16_t RV_G[400] = {      /* each line's gain for that decay, Q15, four to a row */
+    14981, 12221, 9452, 7465, 15416, 12669, 9892, 7880,
+    15847, 13118, 10335, 8302, 16273, 13564, 10780, 8729,
+    16695, 14009, 11228, 9162, 17112, 14451, 11676, 9599,
+    17524, 14890, 12125, 10040, 17929, 15326, 12574, 10484,
+    18329, 15758, 13023, 10930, 18723, 16186, 13470, 11378,
+    19110, 16609, 13915, 11827, 19491, 17027, 14358, 12276,
+    19865, 17439, 14797, 12725, 20232, 17846, 15234, 13173,
+    20592, 18247, 15667, 13619, 20944, 18642, 16095, 14064,
+    21290, 19031, 16519, 14505, 21628, 19413, 16938, 14944,
+    21960, 19788, 17352, 15380, 22283, 20156, 17760, 15811,
+    22600, 20518, 18163, 16238, 22909, 20872, 18559, 16660,
+    23211, 21219, 18949, 17078, 23506, 21559, 19332, 17490,
+    23793, 21892, 19709, 17896, 24073, 22217, 20079, 18296,
+    24346, 22535, 20442, 18690, 24612, 22846, 20798, 19078,
+    24871, 23149, 21146, 19459, 25123, 23445, 21488, 19834,
+    25368, 23734, 21822, 20201, 25607, 24016, 22149, 20562,
+    25839, 24290, 22468, 20915, 26064, 24558, 22781, 21262,
+    26283, 24818, 23086, 21601, 26496, 25072, 23383, 21932,
+    26703, 25318, 23674, 22257, 26904, 25558, 23957, 22574,
+    27098, 25792, 24233, 22884, 27287, 26018, 24502, 23186,
+    27470, 26239, 24763, 23481, 27648, 26453, 25018, 23769,
+    27820, 26661, 25267, 24050, 27987, 26863, 25508, 24324,
+    28149, 27059, 25743, 24590, 28306, 27249, 25971, 24850,
+    28458, 27433, 26193, 25102, 28605, 27612, 26408, 25348,
+    28748, 27785, 26617, 25587, 28886, 27953, 26820, 25820,
+    29019, 28116, 27018, 26046, 29148, 28274, 27209, 26265,
+    29273, 28427, 27394, 26479, 29394, 28575, 27574, 26686,
+    29511, 28719, 27749, 26887, 29625, 28858, 27918, 27082,
+    29734, 28992, 28082, 27272, 29840, 29122, 28241, 27455,
+    29942, 29248, 28395, 27634, 30041, 29370, 28544, 27806,
+    30137, 29488, 28689, 27974, 30229, 29601, 28828, 28136,
+    30318, 29712, 28964, 28293, 30404, 29818, 29095, 28446,
+    30488, 29921, 29222, 28593, 30568, 30021, 29344, 28736,
+    30646, 30117, 29463, 28874, 30721, 30210, 29578, 29008,
+    30794, 30300, 29689, 29138, 30864, 30387, 29796, 29263,
+    30931, 30471, 29900, 29384, 30997, 30552, 30000, 29502,
+    31060, 30630, 30097, 29615, 31121, 30706, 30191, 29725,
+    31179, 30779, 30281, 29831, 31236, 30849, 30369, 29934,
+    31291, 30918, 30453, 30033, 31343, 30983, 30535, 30129,
+    31394, 31047, 30614, 30221, 31444, 31108, 30690, 30311,
+    31491, 31167, 30764, 30397, 31537, 31224, 30835, 30481,
+    31581, 31280, 30903, 30562, 31624, 31333, 30970, 30640,
+    31665, 31384, 31034, 30715, 31704, 31434, 31095, 30788,
+    31743, 31481, 31155, 30858, 31780, 31528, 31212, 30926,
+    31815, 31572, 31268, 30991, 31849, 31615, 31322, 31055,
+    31883, 31656, 31373, 31116, 31914, 31696, 31423, 31174,
+    31945, 31735, 31471, 31231, 31975, 31772, 31518, 31286,
+    32004, 31808, 31563, 31339, 32031, 31842, 31606, 31390,
+    32058, 31876, 31648, 31440, 32083, 31908, 31688, 31487,
+    32108, 31939, 31727, 31533, 32132, 31969, 31764, 31577,
+};
+static const uint16_t RV_DAMP[100] = {   /* one pole in each line, Q15: open .. 1.2 kHz */
+    32767, 30713, 30547, 30373, 30191, 30001, 29803, 29596, 29382, 29160,
+    28930, 28692, 28447, 28195, 27935, 27669, 27396, 27117, 26832, 26541,
+    26244, 25942, 25636, 25324, 25009, 24689, 24366, 24039, 23710, 23378,
+    23043, 22706, 22368, 22028, 21687, 21345, 21003, 20661, 20318, 19976,
+    19634, 19293, 18954, 18615, 18279, 17943, 17610, 17279, 16951, 16625,
+    16301, 15981, 15663, 15349, 15038, 14730, 14426, 14125, 13828, 13535,
+    13246, 12960, 12679, 12402, 12128, 11859, 11595, 11334, 11077, 10825,
+    10577, 10334, 10094, 9859, 9628, 9402, 9179, 8961, 8747, 8537,
+    8331, 8130, 7932, 7738, 7549, 7363, 7181, 7003, 6829, 6659,
+    6492, 6329, 6169, 6013, 5861, 5712, 5566, 5424, 5285, 5149,
+};
+
+enum { FX_CHO = 0, FX_PHA, FX_DLY, FX_REV, FX_N };
+typedef struct {
+    uint32_t on;                                /* bit k: effect k is running */
+    int32_t ch_mix, ch_dep, ch_wid; uint32_t ch_inc;
+    int32_t ph_mix, ph_span, ph_fb; uint32_t ph_inc;
+    int32_t dl_mix, dl_len, dl_fb, dl_tone;
+    int32_t rv_mix, rv_pre, rv_damp, rv_g[4];
+} fx_t;
+static fx_t xbuf[2];
+static volatile uint8_t xcur;
+
+#define CHO_LEN 1024u                           /* 23 ms: the longest the chorus reaches is 11 */
+#define CHO_BASE (220 << 8)                     /* 5 ms, Q8: where its swing starts */
+#define DLY_LEN 65536u                          /* 1.49 s: TIME goes to 1.4 */
+#define PRE_LEN 8192u                           /* 186 ms: PRE goes to 99 */
+#define PH_LO (32 << 8)                         /* the sweep's bottom: 200 Hz, on PH_A's grid */
+#define RV_NL (1499u + 1889u + 2381u + 2833u)
+#define RV_NA (211u + 159u + 563u + 411u)
+static const uint16_t RV_LEN[4] = {1499, 1889, 2381, 2833};   /* coprime, so the echoes never line up */
+static const uint16_t RV_AP[4] = {211, 159, 563, 411};
+static int16_t cho_buf[CHO_LEN] __attribute__((section(".pool")));
+static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));
+static int16_t pre_buf[PRE_LEN] __attribute__((section(".pool")));
+static int32_t rv_line[RV_NL] __attribute__((section(".pool")));  /* Q8: a tail fades below a bit */
+static int32_t rv_ap[RV_NA] __attribute__((section(".pool")));
+static struct {
+    uint32_t cw, ch_ph, ph_ph, dw, pw;
+    int32_t ph_x[6], ph_y[6], ph_last, ph_a;
+    int32_t d_cur, d_lp;                        /* the delay's length now, Q8, gliding to TIME's */
+    uint16_t li[4], ai[4];
+    int32_t lp[4];
+} xs;
+
+static int32_t sat16(int32_t x) { return x > 32767 ? 32767 : x < -32767 ? -32767 : x; }
+static uint32_t tri16(uint32_t ph)              /* a triangle, 0 .. 65535 .. 0, once a turn */
+{
+    uint32_t t = ph >> 15;
+    return t < 65536u ? t : 131071u - t;
+}
+
+/* n = DX_N samples: l in, and l and r out */
+static void fx_run(const fx_t *x, int32_t *l, int32_t *r)
+{
+    uint32_t i, k;
+    if (!(x->on & 1u << FX_PHA)) {
+        for (k = 0; k < 6u; k++)
+            xs.ph_x[k] = xs.ph_y[k] = 0;
+        xs.ph_last = 0;
+        xs.ph_a = PH_A[PH_LO >> 8];
+    } else {                                    /* the sweep moves once a block, and slides across it */
+        int32_t pos, a1, a, da, s, k2;
+        xs.ph_ph += x->ph_inc * DX_N;
+        pos = PH_LO + (int32_t)((tri16(xs.ph_ph) * (uint32_t)x->ph_span) >> 16);
+        if (pos > 224 * 256 - 1)
+            pos = 224 * 256 - 1;
+        a1 = PH_A[pos >> 8] + (((PH_A[(pos >> 8) + 1] - PH_A[pos >> 8]) * (pos & 255)) >> 8);
+        da = (a1 - xs.ph_a) >> DX_LG_N;
+        a = xs.ph_a;
+        for (i = 0; i < DX_N; i++) {
+            a += da;
+            s = (l[i] << 8) + (int32_t)(((int64_t)xs.ph_last * x->ph_fb) >> 15);
+            for (k2 = 0; k2 < 6; k2++) {        /* y = a (x - y') + x': a quarter turn at the break */
+                int32_t y = (int32_t)(((int64_t)a * (s - xs.ph_y[k2])) >> 15) + xs.ph_x[k2];
+                xs.ph_x[k2] = s;
+                xs.ph_y[k2] = y;
+                s = y;
+            }
+            s = s > 8388607 ? 8388607 : s < -8388607 ? -8388607 : s;
+            xs.ph_last = s;
+            l[i] += (((s >> 8) - l[i]) * x->ph_mix) >> 15;
+        }
+        xs.ph_a = a1;
+    }
+    if (!(x->on & 1u << FX_CHO)) {
+        for (i = 0; i < DX_N; i++)
+            r[i] = l[i];
+    } else {
+        for (i = 0; i < DX_N; i++) {
+            int32_t m = l[i], d, p, f, a, b;
+            cho_buf[xs.cw & (CHO_LEN - 1u)] = (int16_t)m;
+            xs.ch_ph += x->ch_inc;
+            d = CHO_BASE + (int32_t)(((tri16(xs.ch_ph) >> 4) * (uint32_t)x->ch_dep) >> 12);
+            p = (int32_t)xs.cw - (d >> 8); f = d & 255;
+            a = cho_buf[(uint32_t)p & (CHO_LEN - 1u)]; b = cho_buf[(uint32_t)(p - 1) & (CHO_LEN - 1u)];
+            l[i] = m + (((a + (((b - a) * f) >> 8)) - m) * x->ch_mix >> 15);
+            d = CHO_BASE + (int32_t)(((tri16(xs.ch_ph + (uint32_t)x->ch_wid) >> 4) * (uint32_t)x->ch_dep) >> 12);
+            p = (int32_t)xs.cw - (d >> 8); f = d & 255;
+            a = cho_buf[(uint32_t)p & (CHO_LEN - 1u)]; b = cho_buf[(uint32_t)(p - 1) & (CHO_LEN - 1u)];
+            r[i] = m + (((a + (((b - a) * f) >> 8)) - m) * x->ch_mix >> 15);
+            xs.cw++;
+        }
+    }
+    if (!(x->on & 1u << FX_DLY)) {
+        xs.d_cur = x->dl_len << 8;
+        xs.d_lp = 0;
+    } else {
+        for (i = 0; i < DX_N; i++) {
+            int32_t df = (x->dl_len << 8) - xs.d_cur, p, f, a, b, e;
+            xs.d_cur += (df >> 11) + (df > 0) - (df < 0);   /* a new TIME glides, as tape would */
+            p = (int32_t)xs.dw - (xs.d_cur >> 8); f = xs.d_cur & 255;
+            a = dly_buf[(uint32_t)p & (DLY_LEN - 1u)]; b = dly_buf[(uint32_t)(p - 1) & (DLY_LEN - 1u)];
+            e = a + (((b - a) * f) >> 8);
+            xs.d_lp += ((e - xs.d_lp) * x->dl_tone) >> 15;
+            dly_buf[xs.dw & (DLY_LEN - 1u)] =
+                (int16_t)sat16(((l[i] + r[i]) >> 1) + ((xs.d_lp * x->dl_fb) >> 15));
+            xs.dw++;
+            e = (xs.d_lp * x->dl_mix) >> 15;
+            l[i] += e;
+            r[i] += e;
+        }
+    }
+    if (!(x->on & 1u << FX_REV)) {
+        for (k = 0; k < 4u; k++)
+            xs.lp[k] = 0;
+    } else {
+        for (i = 0; i < DX_N; i++) {
+            int32_t v, o[4], h[4], ol, or_;
+            uint32_t base = 0;
+            pre_buf[xs.pw & (PRE_LEN - 1u)] = (int16_t)sat16((l[i] + r[i]) >> 2);
+            v = (int32_t)pre_buf[(xs.pw - (uint32_t)x->rv_pre) & (PRE_LEN - 1u)] << 8;
+            xs.pw++;
+            for (k = 0; k < 4u; k++) {          /* the diffusers: allpasses, g = 5/8 */
+                int32_t d = rv_ap[base + xs.ai[k]], t = v + ((d * 5) >> 3);
+                v = d - ((t * 5) >> 3);
+                rv_ap[base + xs.ai[k]] = t;
+                if (++xs.ai[k] >= RV_AP[k]) xs.ai[k] = 0;
+                base += RV_AP[k];
+            }
+            base = 0;
+            for (k = 0; k < 4u; k++) {          /* each line, out, and its walls */
+                o[k] = rv_line[base + xs.li[k]];
+                xs.lp[k] += (int32_t)(((int64_t)(o[k] - xs.lp[k]) * x->rv_damp) >> 15);
+                base += RV_LEN[k];
+            }
+            h[0] = (xs.lp[0] + xs.lp[1] + xs.lp[2] + xs.lp[3]) >> 1;   /* every line into all four */
+            h[1] = (xs.lp[0] - xs.lp[1] + xs.lp[2] - xs.lp[3]) >> 1;
+            h[2] = (xs.lp[0] + xs.lp[1] - xs.lp[2] - xs.lp[3]) >> 1;
+            h[3] = (xs.lp[0] - xs.lp[1] - xs.lp[2] + xs.lp[3]) >> 1;
+            base = 0;
+            for (k = 0; k < 4u; k++) {
+                int32_t w = v + (int32_t)(((int64_t)h[k] * x->rv_g[k]) >> 15);
+                rv_line[base + xs.li[k]] = w > 33554431 ? 33554431 : w < -33554431 ? -33554431 : w;
+                if (++xs.li[k] >= RV_LEN[k]) xs.li[k] = 0;
+                base += RV_LEN[k];
+            }
+            ol = (o[0] + o[2]) >> 11;           /* at MIX 99, a held note about as loud wet as dry */
+            or_ = (o[1] + o[3]) >> 11;
+            ol = ol > 65535 ? 65535 : ol < -65535 ? -65535 : ol;
+            or_ = or_ > 65535 ? 65535 : or_ < -65535 ? -65535 : or_;
+            l[i] += (ol * x->rv_mix) >> 15;
+            r[i] += (or_ * x->rv_mix) >> 15;
+        }
+    }
+    for (i = 0; i < DX_N; i++) {
+        l[i] = sat16(l[i]);
+        r[i] = sat16(r[i]);
+    }
+}
+
 /* ---- the sound. dx_compute adds DX_N mono samples; one carrier at full level is buf >> 12 = 8192,
  * so OUT_SHIFT 13 would let eight of them reach full scale together -- but eight real voices have more
  * than one carrier each, so 14 is where a full chord stops clipping. The DC blocker is on the sum: FM
@@ -616,6 +930,7 @@ static void app_audio(int32_t *out, uint32_t n)
     static int32_t dc_x, dc_y;
     static int32_t f_ic1, f_ic2;                /* the filter's two integrators */
     flt_t ft = fbuf[fcur];
+    const fx_t *xf = &xbuf[xcur];
     uint32_t b, v, i, lit = 0, us, t0 = fm1_ticks();
     uint32_t ge = !genv_idle();                 /* is the global envelope worth the multiply? */
     int32_t g0;
@@ -682,9 +997,14 @@ static void app_audio(int32_t *out, uint32_t n)
                 y = x > 32767 ? 32767 : x < -32767 ? -32767 : x;
             }
             if (sp_want)
-                sp_feed(y);                     /* the analyser's tap, on the finished sample */
-            out[2u * (b + i)] += y;
-            out[2u * (b + i) + 1u] += y;
+                sp_feed(y);                     /* the analyser's tap, before the effects */
+            mono[i] = y;
+        }
+        if (xf->on)
+            fx_run(xf, mono, one);              /* `one` is free once the voices are summed */
+        for (i = 0; i < DX_N; i++) {
+            out[2u * (b + i)] += mono[i];
+            out[2u * (b + i) + 1u] += xf->on ? one[i] : mono[i];
         }
     }
     v_lit = lit;
@@ -715,13 +1035,19 @@ enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, 
        K_MSR,                                   /* and this one is OFF at both ends of the knob */
        K_HZ,                                    /* the filter's cutoff, in hertz */
        K_FTYPE,                                 /* and which of its three it is, or off */
-       K_OPWAVE };                              /* an operator's wave: SINE, or seven that are not */
+       K_OPWAVE,                                /* an operator's wave: SINE, or seven that are not */
+       K_FXHZ,                                  /* an effect's LFO, in hertz */
+       K_DLYT,                                  /* the delay's TIME, in ms */
+       K_RT,                                    /* the reverb's DECAY, in seconds */
+       K_PRE };                                 /* its PRE, in ms */                              /* an operator's wave: SINE, or seven that are not */
 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
  * opinions; they are saved with the octave and the rest. */
-enum { UI_SPAN = 0, UI_GATK, UI_GDEC, UI_GSUS, UI_GREL, UI_FCUT, UI_FRES, UI_FTYPE, UI_N };
-static uint8_t ui[UI_N] = {2, 0, 50, 99, 99, 60, 0, 0};
+enum { UI_SPAN = 0, UI_GATK, UI_GDEC, UI_GSUS, UI_GREL, UI_FCUT, UI_FRES, UI_FTYPE,
+       UI_FX, UI_N = UI_FX + 4 * FX_N };       /* the effects: MIX first, then three, each */
+#define FX_DEFAULTS 0, 45, 40, 70,  0, 35, 70, 40,  0, 65, 35, 60,  0, 55, 30, 10
+static uint8_t ui[UI_N] = {2, 0, 50, 99, 99, 60, 0, 0, FX_DEFAULTS};
 enum { FT_OFF = 0, FT_LP, FT_BP, FT_HP };
 
 /* The ISR's copy of the global envelope. Called once a pass rather than at each of the places a
@@ -848,6 +1174,53 @@ static void flt_sync(void)
     f->k = (int32_t)(k << 2);
     f->type = t;
     fcur ^= 1u;
+}
+
+/* The effects' sixteen bytes, as the ISR wants them. An effect coming on has its lines cleared
+ * first, so it never plays back what it held the last time it was on: the ISR does not touch an
+ * effect that is off, and runs only while this does not, so the clear cannot race it. */
+static void fx_sync(void)
+{
+    static uint8_t had[4 * FX_N];
+    static uint32_t on;
+    const uint8_t *u = &ui[UI_FX];
+    uint32_t k, now = 0;
+    fx_t *x;
+    if (!memcmp(had, u, sizeof had))
+        return;
+    memcpy(had, u, sizeof had);
+    for (k = 0; k < FX_N; k++)
+        if (u[4u * k])
+            now |= 1u << k;
+    if (now & ~on & 1u << FX_CHO) memset(cho_buf, 0, sizeof cho_buf);
+    if (now & ~on & 1u << FX_DLY) memset(dly_buf, 0, sizeof dly_buf);
+    if (now & ~on & 1u << FX_REV) {
+        memset(pre_buf, 0, sizeof pre_buf);
+        memset(rv_line, 0, sizeof rv_line);
+        memset(rv_ap, 0, sizeof rv_ap);
+    }
+    on = now;
+    x = &xbuf[xcur ^ 1u];
+    x->on = now;
+    x->ch_mix = u[0] * 16384 / 99;              /* the two that add a copy: 99 is half and half,
+                                                 * which is as deep as a notch or a beat goes */
+    x->ch_inc = FX_RATE[u[1]] * 97391u / 100u;  /* 2^32 / 44100 a hertz */
+    x->ch_dep = u[2] * (265 * 256) / 99;        /* up to 6 ms of swing */
+    x->ch_wid = (int32_t)(u[3] * 21691754u);    /* up to half a turn between left and right */
+    x->ph_mix = u[4] * 16384 / 99;
+    x->ph_inc = FX_RATE[u[5]] * 97391u / 100u;
+    x->ph_span = u[6] * (192 * 256) / 99;       /* up to six octaves of sweep */
+    x->ph_fb = u[7] * 24576 / 99;
+    x->dl_mix = u[8] * 32767 / 99;              /* the two that add a tail: 99 is as loud as the sound */
+    x->dl_len = DLY_T[u[9]];
+    x->dl_fb = u[10] * 31130 / 99;
+    x->dl_tone = DLY_TONE[u[11]];
+    x->rv_mix = u[12] * 32767 / 99;
+    for (k = 0; k < 4u; k++)
+        x->rv_g[k] = RV_G[u[13] * 4u + k];
+    x->rv_damp = RV_DAMP[u[14]];
+    x->rv_pre = u[15] * 441 / 10;
+    xcur ^= 1u;
 }
 
 /* What the filter does to a frequency, for drawing it. The filter is the analogue one put through
@@ -1016,15 +1389,41 @@ static const param_t PG_GLO[] = {
     {"P LEVEL 2", "P LVL2", P_G, 131, 99, K_NUM},
     {"P LEVEL 3", "P LVL3", P_G, 132, 99, K_NUM},
     {"P LEVEL 4", "P LVL4", P_G, 133, 99, K_NUM},
-    {"SPECTRUM", "SPECT", P_UI, UI_SPAN, SP_NSPAN - 1u, K_SPAN},
 };
-/* the filter: the whole page, and the same three under the knobs on a tap of FX */
-static const param_t PG_FX[] = {
+/* the filter, and how far across the spectrum it is drawn on: the spectrum screen's four knobs */
+static const param_t PG_FLT[] = {
     {"CUTOFF",    "CUT",  P_UI, UI_FCUT,  99, K_HZ},
     {"RESONANCE", "RESO", P_UI, UI_FRES,  99, K_NUM},
     {"TYPE",      0,      P_UI, UI_FTYPE, 3,  K_FTYPE},
+    {"SPECTRUM",  "SPAN", P_UI, UI_SPAN,  SP_NSPAN - 1u, K_SPAN},
 };
-#define PG_FX_TYPE 2u                           /* reached by name: a second tap of FX steps it */
+/* the effects, four to a bank and one bank each, MIX first: the knob that says whether it is on */
+static const param_t PG_EFX[] = {
+    {"MIX",       0,        P_UI, UI_FX + 0,  99, K_NUM},
+    {"RATE",      0,        P_UI, UI_FX + 1,  99, K_FXHZ},
+    {"DEPTH",     0,        P_UI, UI_FX + 2,  99, K_NUM},
+    {"WIDTH",     0,        P_UI, UI_FX + 3,  99, K_NUM},
+    {"MIX",       0,        P_UI, UI_FX + 4,  99, K_NUM},
+    {"RATE",      0,        P_UI, UI_FX + 5,  99, K_FXHZ},
+    {"DEPTH",     0,        P_UI, UI_FX + 6,  99, K_NUM},
+    {"FEEDBACK",  "FEEDBK", P_UI, UI_FX + 7,  99, K_NUM},
+    {"MIX",       0,        P_UI, UI_FX + 8,  99, K_NUM},
+    {"TIME",      0,        P_UI, UI_FX + 9,  99, K_DLYT},
+    {"FEEDBACK",  "FEEDBK", P_UI, UI_FX + 10, 99, K_NUM},
+    {"TONE",      0,        P_UI, UI_FX + 11, 99, K_NUM},
+    {"MIX",       0,        P_UI, UI_FX + 12, 99, K_NUM},
+    {"DECAY",     0,        P_UI, UI_FX + 13, 99, K_RT},
+    {"DAMP",      0,        P_UI, UI_FX + 14, 99, K_NUM},
+    {"PRE-DELAY", "PRE",    P_UI, UI_FX + 15, 99, K_PRE},
+};
+static const char *const FX_NAME[FX_N] = {"CHORUS", "PHASER", "DELAY", "REVERB"};
+/* a tap of FX: how much of each, side by side -- the mixer, with the rest of each on its page */
+static const param_t PG_MIX[] = {
+    {"CHORUS MIX", "CHORUS", P_UI, UI_FX + 0,  99, K_NUM},
+    {"PHASER MIX", "PHASER", P_UI, UI_FX + 4,  99, K_NUM},
+    {"DELAY MIX",  "DELAY",  P_UI, UI_FX + 8,  99, K_NUM},
+    {"REVERB MIX", "REVERB", P_UI, UI_FX + 12, 99, K_NUM},
+};
 
 enum { PAGE_HOME = 0, PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_GLO, PAGE_FX };
 /* rows: how many parameters a bank shows at once, and y0 where the first one sits. The envelope
@@ -1036,7 +1435,7 @@ static const struct { const char *name; const param_t *p; uint8_t n, rows, y0; }
     {"ENVELOPE",  PG_EG,  sizeof PG_EG / sizeof PG_EG[0],   2, 124},
     {"LFO",       PG_LFO, sizeof PG_LFO / sizeof PG_LFO[0], 3, 56},
     {"GLOBAL",    PG_GLO, sizeof PG_GLO / sizeof PG_GLO[0], 4, 56},
-    {"FILTER",    PG_FX,  sizeof PG_FX / sizeof PG_FX[0],   3, 56},
+    {"EFFECTS",   PG_EFX, sizeof PG_EFX / sizeof PG_EFX[0], 4, 56},
 };
 #define PAGE_ROWS ((uint32_t)PAGE[page].rows)
 #define HOME_NBANK 3u                           /* HOME's screens: the diagram, the spectrum, the wave */
@@ -1050,7 +1449,8 @@ static uint8_t focus;
 static const uint8_t FOC_BTN[FOC_N] = {BTN_EDIT, BTN_ENV, BTN_LFO, BTN_FX};
 static const uint8_t FOC_MODE[FOC_N] = {FOC_EDIT, FOC_ENV, FOC_LFO, FOC_FX};
 static const uint8_t FOC_PAGE[FOC_N] = {PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_FX};
-static const char *const FOC_NAME[FOC_N] = {"EDIT", "ENV", "LFO", "FILTER"};
+static const char *const FOC_NAME[FOC_N] = {"EDIT", "ENV", "LFO", "FX"};
+static uint8_t fxsel;                           /* the effect the EFFECTS page last showed */
 
 /* ---- a few things under the four knobs, without leaving the screen you play on
  *
@@ -1089,13 +1489,25 @@ static const char *const FOC_NAME[FOC_N] = {"EDIT", "ENV", "LFO", "FILTER"};
  * GLOBAL takes the knobs off that operator. That makes some of the keyboard stop playing, so the
  * title says EDIT OP3 or LFO OP3 exactly when it does, and LFO GLOBAL when it does not.
  *
- * FX is the fourth, and the simplest: the filter's whole page is three knobs, so a tap gives all
- * of it -- CUTOFF, RESONANCE, TYPE -- with its curve drawn over the spectrum, from either of HOME's
- * screens, because the sound it is cutting is the one place you can watch it work. None
- * of it is an operator's, so the black keys go on playing, and a second tap steps the type. */
+ * FX is the fourth: the four effects' MIXes, one knob each, so the knobs are a small mixer and
+ * the rest of each effect waits on its page. There is nothing to step, so a second tap and SEL do
+ * nothing. None of it is an operator's,
+ * so the black keys go on playing. The screen stays as it was: the effects come after the
+ * analyser's tap, so the spectrum and the wave show the sound going into them.
+ *
+ * The filter is not under a button at all. It lives on the spectrum screen, whose four knobs are
+ * CUTOFF, RESONANCE, TYPE and the spectrum's own span whenever nothing else has them -- because
+ * the sound it is cutting is the one place you can watch it work. */
+static uint32_t home_flt(void)                  /* the spectrum screen, with the filter under the knobs */
+{
+    return page == PAGE_HOME && bank == 1u && focus == FOC_OFF;
+}
+
 /* what knob e moves while focused, or 0 for "this knob does nothing" */
 static const param_t *focus_at(uint32_t e)
 {
+    if (home_flt())
+        return e < 4u ? &PG_FLT[e] : 0;
     if (focus == FOC_EDIT)
         return e < 4u ? &PG_OP[e] : 0;          /* LEVEL RATIO DETUNE WAVE */
     if (focus == FOC_ENV)                       /* ATTACK DECAY SUSTAIN RELEASE, of one of the
@@ -1104,8 +1516,8 @@ static const param_t *focus_at(uint32_t e)
     if (focus == FOC_LFO)                       /* the LFO itself, or this operator's ear on it */
         return gsel ? (e < 4u ? &PG_LFO[LFO_FOC[e]] : 0)
                     : (e < 1u ? &PG_OP[PG_OP_AMS] : 0);
-    if (focus == FOC_FX)                        /* the filter, all of it */
-        return e < 3u ? &PG_FX[e] : 0;
+    if (focus == FOC_FX)                        /* the four MIXes, one knob an effect */
+        return e < 4u ? &PG_MIX[e] : 0;
     return 0;
 }
 
@@ -1127,7 +1539,9 @@ static uint32_t foc_op(void)
  * is the only thing any of the three has more than one of. */
 static void foc_step(void)
 {
-    opsel = (uint8_t)((opsel + 5u) % 6u);       /* again: OP1 -> OP2 -> .. */
+    if (focus == FOC_FX)                        /* ..except under FX, which has all four already */
+        return;
+    opsel = (uint8_t)((opsel + 5u) % 6u);   /* again: OP1 -> OP2 -> .. */
 }
 
 
@@ -1155,9 +1569,10 @@ static uint32_t lfo_glo(void)
     return gsel && focus == FOC_LFO && page == PAGE_HOME;
 }
 
-static uint32_t flt_focus(void)                 /* the filter's knobs, on HOME */
+static uint32_t flt_shown(void)                 /* the filter's curve: always, over the spectrum,
+                                                 * which is where it lives -- flat when it is off */
 {
-    return focus == FOC_FX && page == PAGE_HOME;
+    return bank == 1u;
 }
 
 /* ---- a click, and what it is worth
@@ -1249,8 +1664,8 @@ static uint32_t page_nbank(void)
 
 /* ---- the four knobs on HOME
  *
- * The algorithm diagram, the spectrum and the wave are the screens you look at while listening,
- * and none had anything under the knobs. Balancing the operators against each other is most of
+ * The algorithm diagram and the wave are the screens you look at while listening, and neither had
+ * anything under the knobs. (The spectrum has: the filter's, below.) Balancing the operators against each other is most of
  * what making an FM sound is, so that is what they do: four operators at a time, levels or ratios.
  * Turn one with a note held and you watch its box fill as you hear it change, which is the whole
  * loop in one gesture.
@@ -1357,7 +1772,6 @@ static const char *const CURVE[] = {"-LIN", "-EXP", "+EXP", "+LIN"};
 static const char *const OPWAVE[DX_NWAVE] = {"SINE", "HALF SINE", "ABS SINE", "QUARTER",
                                              "ALT SINE", "CAMEL", "SQUARE", "SAW"};
 static const char *const FTYPE[] = {"OFF", "LOW PASS", "BAND PASS", "HIGH PASS"};
-static const char *const FTYPE_S[] = {"OFF", "LP", "BP", "HP"};
 static const char NOTE_NAME[12][3] = {"C ", "C#", "D ", "D#", "E ", "F ", "F#", "G ", "G#", "A ", "A#", "B "};
 /* ---- the screen */
 #define C_ACC RGB(180, 140, 255)                /* lilac, as the logo */
@@ -1470,7 +1884,7 @@ static void p_turn(const param_t *p, int32_t enc)
         return;
     }
     v = (int32_t)*p_ref(p) + (p->kind == K_TIME || p->kind == K_DEC ? -enc : enc);
-    if (p->kind == K_OPWAVE)                    /* a ring, not a range: past SAW is SINE again */
+    if (p->kind == K_OPWAVE || p->kind == K_FTYPE)  /* a ring, not a range: past SAW is SINE again */
         v = ((v % ((int32_t)p->max + 1)) + (int32_t)p->max + 1) % ((int32_t)p->max + 1);
     v = v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v;
     *p_ref(p) = (uint8_t)v;
@@ -1525,6 +1939,32 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
             s[i++] = (char)('0' + (hz / 10u) % 10u);
         return put(s, i, "KHZ");
     }
+    case K_FXHZ: {                              /* 0.05HZ, 1.2HZ, 10HZ */
+        uint32_t c = FX_RATE[v < 100u ? v : 99u];
+        i = putn(s, i, c / 100u, 1);
+        if (c < 1000u) {
+            s[i++] = '.';
+            s[i++] = (char)('0' + (c / 10u) % 10u);
+            if (c < 100u) s[i++] = (char)('0' + c % 10u);
+        }
+        return put(s, i, "HZ");
+    }
+    case K_DLYT: {
+        uint32_t ms = DLY_T[v < 100u ? v : 99u] * 10u / 441u;
+        if (ms < 1000u) { i = putn(s, i, ms, 1); return put(s, i, "MS"); }
+        i = putn(s, i, ms / 1000u, 1);
+        s[i++] = '.';
+        s[i++] = (char)('0' + (ms / 100u) % 10u);
+        s[i++] = (char)('0' + (ms / 10u) % 10u);
+        return put(s, i, "S");
+    }
+    case K_RT: {
+        uint32_t t = RV_RT[v < 100u ? v : 99u];
+        i = putn(s, i, t / 10u, 1);
+        if (t < 100u) { s[i++] = '.'; s[i++] = (char)('0' + t % 10u); }
+        return put(s, i, "S");
+    }
+    case K_PRE: i = putn(s, i, v, 1); return put(s, i, "MS");
     case K_ALG:  return putn(s, i, v + 1u, 1);
     case K_BRK:                                 /* 0..99 is A-1 upwards */
         i = put(s, i, NOTE_NAME[(v + 21u) % 12u]);
@@ -2170,11 +2610,11 @@ static void draw_spectrum(void)
         if (sp_pk[c] > h)
             cv_rect((int32_t)c, (int32_t)(SP_H - sp_pk[c]), 1, 1, C_ACC);
     }
-    /* Under FX, the filter's own curve over what it is doing to the sound, on the spectrum's scale
-     * and its linear axis, with the filter's 0 dB on the -24 dB line so a resonant peak has room
-     * above it. Partials under the slope are the ones it is taking away. Its own colour, because
-     * lilac is already the peaks. */
-    if (flt_focus()) {
+    /* The filter's own curve over what it is doing to the sound, on the spectrum's scale and its
+     * linear axis, with the filter's 0 dB on the -24 dB line so a resonant peak has room above it.
+     * Partials under the slope are the ones it is taking away. Its own colour, because lilac is
+     * already the peaks. */
+    if (flt_shown()) {
         uint32_t t = ui[UI_FTYPE];
         int32_t prev = 0, l20 = (int32_t)sp_log2_q8(20u * 16u);
         for (c = 0; c < 240u; c++) {
@@ -2568,45 +3008,6 @@ static void draw_lfo_plot(int32_t y, int32_t h)
  * the upright one is where CUTOFF is. Off, it is that flat line and nothing else, which is exactly
  * what off does. The curve is the filter's own arithmetic rather than a sketch of a filter, so a
  * resonant peak is as tall here as it is in the sound. */
-static int32_t flt_y(int32_t db16, int32_t top, int32_t bot)
-{
-    int32_t y = top + (24 * 16 - db16) * (bot - top) / (72 * 16);
-    return y < top ? top : y > bot ? bot : y;
-}
-
-static void draw_flt_plot(int32_t y, int32_t h)
-{
-    static const uint16_t GRID[3] = {2306, 5607, 8907};   /* 100 Hz, 1 kHz, 10 kHz, as 100ths of a step */
-    static const char *const GRID_S[3] = {"100", "1K", "10K"};
-    const int32_t x0 = 4, x1 = 236, top = 3, bot = h - 4, w = x1 - x0;
-    uint32_t t = ui[UI_FTYPE] & 3u, c = ui[UI_FCUT], r = ui[UI_FRES], i;
-    int32_t x, py = 0, z;
-
-    cv_begin(240, (uint32_t)h, C_BLACK);
-    cv_rect(0, h - 2, 240, 1, RGB(40, 40, 40));
-    for (i = 0; i < 3u; i++) {
-        x = x0 + w * (int32_t)GRID[i] / 9900;
-        cv_rect(x, top, 1, bot - top, RGB(30, 30, 38));
-        cv_text(x + 3, bot - 14, &FONT_S, GRID_S[i], RGB(80, 80, 80));
-    }
-    z = flt_y(0, top, bot);
-    cv_text(x0 + 2, top + 1, &FONT_S, FTYPE[t], RGB(120, 100, 160));
-    if (!t) {
-        cv_rect(x0, z, w, 1, RGB(70, 74, 100));
-        cv_blit(0, (uint32_t)y);
-        return;
-    }
-    cv_rect(x0, z, w, 1, RGB(38, 38, 46));
-    cv_rect(x0 + w * (int32_t)c / 99, top, 1, bot - top, RGB(70, 60, 110));
-    for (x = 0; x <= w; x++) {
-        int32_t yy = flt_y(flt_db16(x * 99 * 256 / w, c, r, t), top, bot);
-        if (x)
-            cv_line(x0 + x - 1, py, x0 + x, yy, C_ACC);
-        py = yy;
-    }
-    cv_blit(0, (uint32_t)y);
-}
-
 /* The envelope to draw: the live one if this operator is sounding, otherwise one built the way a
  * note at middle C would build it, so the page is never blank. The shape always comes from `edit`,
  * so a switched-off operator still shows the envelope it would have -- but it gets no marker,
@@ -2725,10 +3126,7 @@ static void draw_eg_cells(void)
         if (cw != 60u) {                        /* wide: the value as wide as it needs, the name
                                                  * in whatever is left */
             uint32_t vw, v = *p_ref(p);
-            i = p->kind == K_WAVE ? put(s, 0, WAVE_S[v < 6u ? v : 0u]) :
-                p->kind == K_FTYPE ? put(s, 0, FTYPE_S[v & 3u]) : putval(s, 0, p, v);
-            if (p->kind == K_HZ && s[i - 3u] == 'K')
-                i -= 2u;                        /* 1.06K: the HZ is what leaves room for CUT */
+            i = p->kind == K_WAVE ? put(s, 0, WAVE_S[v < 6u ? v : 0u]) : putval(s, 0, p, v);
             s[i] = 0;
             vw = (uint32_t)text_w(&FONT_S, s) + 1u;
             if (vw > in)
@@ -2775,7 +3173,9 @@ static void draw_home_title(void)
     char s[32];
     uint32_t i;
     if (focus == FOC_OFF)
-        i = put(s, 0, APP_NAME);
+        i = put(s, 0, home_flt() ? "FILTER" : bank == 2u ? "SCOPE" : APP_NAME);
+    else if (focus == FOC_FX)
+        i = put(s, 0, "FX MIX");
     else if (eg_glo())
         i = put(s, 0, "ENV GLOBAL");
     else if (lfo_glo())
@@ -2803,7 +3203,7 @@ static void draw_head(void)
         i = put(s, 0, FOC_NAME[focus - 1u]);
         perop = foc_op();
     } else {
-        i = put(s, 0, PAGE[page].name);
+        i = put(s, 0, page == PAGE_FX ? FX_NAME[bank < FX_N ? bank : 0u] : PAGE[page].name);
         perop = bank_has_op();
     }
     if (eg_glo() || lfo_glo()) {                /* not an operator at all: the whole voice */
@@ -2850,7 +3250,7 @@ static void draw_legend(void)
     for (e = 0; e < 4u; e++) {
         const char *s = 0;
         char buf[8];
-        if (focus != FOC_OFF && page == PAGE_HOME) {
+        if ((focus != FOC_OFF && page == PAGE_HOME) || home_flt()) {
             const param_t *p = focus_at(e);     /* one operator, four of the things it is made of */
             if (p)
                 s = p_knob(p);
@@ -3067,12 +3467,33 @@ static int app_sysex(const uint8_t *p, uint32_t n)
     return 0;
 }
 
+/* Only ever append to this: settings_load takes a short store and leaves the rest at default,
+ * so a new field costs nothing, but moving one would hand the old bytes to the wrong name. */
+typedef struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv;
+                 uint8_t genv[G_N]; uint8_t flt[3]; uint8_t fx[4 * FX_N]; } settings_t;
+
+/* The instrument's own bytes have moved: into the settings with them. A new span also drops the
+ * held peaks, which belonged to the old axis. */
+static void set_take(settings_t *set)
+{
+    uint32_t k;
+    for (k = 0; k < G_N; k++)
+        set->genv[k] = ui[UI_GATK + k];
+    for (k = 0; k < 3u; k++)
+        set->flt[k] = ui[UI_FCUT + k];
+    for (k = 0; k < 4u * FX_N; k++)
+        set->fx[k] = ui[UI_FX + k];
+    if (ui[UI_SPAN] != spspan) {
+        spspan = ui[UI_SPAN];
+        set->span = spspan;
+        for (k = 0; k < 240u; k++)
+            sp_pk[k] = 0;
+    }
+}
+
 static void app_main(void)
 {
-    /* Only ever append to this: settings_load takes a short store and leaves the rest at default,
-     * so a new field costs nothing, but moving one would hand the old bytes to the wrong name. */
-    struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv;
-             uint8_t genv[G_N]; uint8_t flt[3]; } set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}, {60, 0, 0}};
+    settings_t set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}, {60, 0, 0}, {FX_DEFAULTS}};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
@@ -3100,8 +3521,11 @@ static void app_main(void)
     ui[UI_FCUT] = set.flt[0] > 99u ? 99u : set.flt[0];
     ui[UI_FRES] = set.flt[1] > 99u ? 99u : set.flt[1];
     ui[UI_FTYPE] = set.flt[2] > 3u ? 0u : set.flt[2];
+    for (k = 0; k < 4u * FX_N; k++)
+        ui[UI_FX + k] = set.fx[k] > 99u ? 99u : set.fx[k];
     glo_sync();
     flt_sync();
+    fx_sync();
     sp_init();
     set.mono = set.mono ? 1u : 0u;
     ev_push(EV_MONO, set.mono, 0);              /* the ISR owns the mode: tell it what was stored */
@@ -3120,6 +3544,7 @@ static void app_main(void)
         platform_poll();
         glo_sync();                         /* whatever moved the four bytes, the ISR has them */
         flt_sync();                         /* ..and the filter's three, if they moved */
+        fx_sync();                          /* ..and the effects' sixteen */
 
         keys = fm1_in.notes;                    /* bit k: key k (0 = F3 .. 26 = G5) */
         down = keys & ~prev;
@@ -3193,6 +3618,8 @@ static void app_main(void)
                 long_fired[k] = 1;
                 focus = FOC_OFF;
                 page_to(FOC_PAGE[k]);
+                if (page == PAGE_FX)
+                    bank = fxsel;               /* the effect you were on */
             }
             if (rel & m) {
                 if (!long_fired[k]) {
@@ -3204,14 +3631,9 @@ static void app_main(void)
                             say_param(&PG_LFO[PG_LFO_WAVE]);
                             modified = 1;
                             patch_publish();
-                        } else if (FOC_MODE[k] == FOC_FX) {        /* nor here: the type */
-                            ui[UI_FTYPE] = (uint8_t)((ui[UI_FTYPE] + 1u) & 3u);
-                            set.flt[2] = ui[UI_FTYPE];
-                            say_param(&PG_FX[PG_FX_TYPE]);
-                            dirty = 1;                             /* the instrument's, not the voice's */
-                            t_change = fm1_ms;
-                        } else
+                        } else {
                             foc_step();                        /* again: the next one */
+                        }
                     }
                     else {
                         focus = FOC_MODE[k];
@@ -3232,10 +3654,11 @@ static void app_main(void)
         if (rel & (1u << BTN_SEL)) {
             draw_legend();
             if (!sel_used) {                               /* the next four things under the knobs */
-                if (focus == FOC_FX && page == PAGE_HOME)
+                if (home_flt())
                     ;                                      /* one filter: there is no next one */
-                else if (focus != FOC_OFF && page == PAGE_HOME)
+                else if (focus != FOC_OFF && page == PAGE_HOME) {
                     foc_step();                            /* or, focused, the next one of those */
+                }
                 else if (page == PAGE_HOME)
                     homeset = (uint8_t)((homeset + 1u) % HSET_N);
                 else
@@ -3307,19 +3730,19 @@ static void app_main(void)
                 patch_publish();
             }
         }
-        if (page == PAGE_HOME && focus != FOC_OFF) {   /* focused: four things about one operator */
+        if (page == PAGE_FX)
+            fxsel = bank;                       /* the page and the tap agree on which effect */
+        if (page == PAGE_HOME && (focus != FOC_OFF || home_flt())) {   /* focused: four things about
+                                                                        * one operator, or the filter */
             for (e = 0; e < 4u; e++) {
                 const param_t *p = focus_at(e);
                 if ((enc = knob_take(e, p_step(p))) == 0 || !p)
                     continue;
                 p_turn(p, enc);
                 say_param(p);                   /* HOME has no rows, so the voice line says it */
-                if (p->where == P_UI) {         /* the global envelope is not the voice: turning it
-                                                 * must not call the sound edited */
-                    for (k = 0; k < G_N; k++)
-                        set.genv[k] = ui[UI_GATK + k];
-                    for (k = 0; k < 3u; k++)
-                        set.flt[k] = ui[UI_FCUT + k];
+                if (p->where == P_UI) {         /* the instrument's bytes are not the voice: turning
+                                                 * one must not call the sound edited */
+                    set_take(&set);
                     dirty = 1;
                     eg_dirty = 1;               /* HOME is showing the shape: it just changed */
                     t_change = fm1_ms;
@@ -3359,16 +3782,7 @@ static void app_main(void)
             if (p->where == P_UI) {                        /* a switch of the instrument, not the sound */
                 v = (int32_t)ui[p->idx] + enc;
                 ui[p->idx] = (uint8_t)(v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v);
-                for (k = 0; k < G_N; k++)
-                    set.genv[k] = ui[UI_GATK + k];
-                for (k = 0; k < 3u; k++)
-                    set.flt[k] = ui[UI_FCUT + k];
-                if (ui[UI_SPAN] != spspan) {
-                    spspan = ui[UI_SPAN];
-                    set.span = spspan;
-                    for (k = 0; k < 240u; k++)
-                        sp_pk[k] = 0;                      /* the held peaks belonged to the old axis */
-                }
+                set_take(&set);
                 if (bank >= page_nbank())                  /* fewer parameters than there were banks */
                     bank = (uint8_t)(page_nbank() - 1u);
                 dirty = 1;
@@ -3458,8 +3872,8 @@ static void app_main(void)
             repaint = 1;
         }
         if (page == PAGE_HOME) {                /* the banner, or what the knobs have become */
-            uint8_t ft = (uint8_t)(focus == FOC_OFF ? 0u :
-                                   focus == FOC_FX ? 61u :
+            uint8_t ft = (uint8_t)(focus == FOC_OFF ? (home_flt() ? 60u : bank == 2u ? 61u : 0u) :
+                                   focus == FOC_FX ? 64u :
                                    gsel && focus == FOC_ENV ? 63u :
                                    gsel && focus == FOC_LFO ? 62u :
                                    focus * 8u + opsel);
@@ -3472,6 +3886,8 @@ static void app_main(void)
         {   /* the legend outlives a page, but not a change of mode: RATIO becomes FIXED HZ */
             uint8_t leg = (uint8_t)(eg_glo() ? 40u :
                                     lfo_glo() ? 41u :
+                                    home_flt() ? 45u :
+                                    focus == FOC_FX && page == PAGE_HOME ? 50u :
                                     focus != FOC_OFF && page == PAGE_HOME ?
                                         20u + focus * 2u +
                                             (*op_byte(opsel, 17) ? 1u : 0u) :
@@ -3511,11 +3927,8 @@ static void app_main(void)
              * The ring and the curve belong to an operator, and GLOBAL is not one -- so GLOBAL
              * gets the diagram's room instead, and the same picture the ENVELOPE page draws.
              * Adjusting a shape you cannot see is no way to learn what the shape does. */
-            uint8_t asel = (uint8_t)(opsel | (eg_glo() ? 0x80u : 0u) | (lfo_glo() ? 0x40u : 0u)
-                                     | (flt_focus() ? 0x20u : 0u));
-            /* the LFO's picture follows bytes the diagram never cared about, so it brings its own.
-             * The filter's is the spectrum with its curve over it, which redraws itself on the tick
-             * like the spectrum always has, from either of HOME's screens. */
+            uint8_t asel = (uint8_t)(opsel | (eg_glo() ? 0x80u : 0u) | (lfo_glo() ? 0x40u : 0u));
+            /* the LFO's picture follows bytes the diagram never cared about, so it brings its own */
             uint32_t lsig = lfo_glo() ? (1u | (uint32_t)edit[137] << 1 | (uint32_t)edit[138] << 9
                                             | (uint32_t)edit[142] << 17) : 0u;
             if (bank == 0u && (edit[134] != alg_drawn || asel != alg_op_drawn
@@ -3525,10 +3938,9 @@ static void app_main(void)
                 lfo_sig_drawn = lsig;
                 if (eg_glo())       { draw_geg(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
                 else if (lfo_glo()) { draw_lfo_plot(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
-                else if (flt_focus()) { sp_run(); draw_spectrum(); }
                 else                { draw_alg(); }
             }
-        } else if (page == PAGE_LFO || page == PAGE_FX || (page == PAGE_EG && bank == 0u)) {
+        } else if (page == PAGE_LFO || (page == PAGE_EG && bank == 0u)) {
             uint32_t ch = 0;                    /* the four cells are one blit, so one of them is all */
             for (e = 0; e < 4u; e++) {
                 const param_t *p = e < bank_rows(bank) ? page_at(bank_first(bank) + e) : 0;
@@ -3552,7 +3964,7 @@ static void app_main(void)
             }
         }
         mute_drawn = opmute;
-        sp_want = (page == PAGE_HOME && (bank != 0u || flt_focus()));
+        sp_want = (page == PAGE_HOME && bank != 0u);
         if (fm1_ms - t_live > 60u) {            /* the displays that follow the sound, ~16 times a second */
             t_live = fm1_ms;
             if (page == PAGE_HOME) {
@@ -3570,9 +3982,9 @@ static void app_main(void)
                         eg_dirty = 0;
                         draw_lfo_plot(ALG_Y, ALG_H);
                     }
-                } else if (bank == 0u && !flt_focus()) {
+                } else if (bank == 0u) {
                     draw_alg_levels();
-                } else if (bank == 2u && !flt_focus()) {
+                } else if (bank == 2u) {
                     draw_scope();
                 } else {
                     sp_run();
@@ -3592,9 +4004,6 @@ static void app_main(void)
                     eg_dirty = 0;
                     draw_lfo_plot(EG_Y, EG_H_TALL);
                 }
-            } else if (page == PAGE_FX && eg_dirty) {
-                eg_dirty = 0;
-                draw_flt_plot(EG_Y, EG_H_TALL);
             }
         }
 

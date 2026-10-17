@@ -13,7 +13,6 @@
 # The A/B step at the end doubles as the check that the OPERATOR page edits the operator it names:
 # it drops the LEVEL of the operator the header calls OP1, and under algorithm 16 that is the
 # carrier, so the sound has to get quieter rather than merely change colour.
-0 btn 8
 200 enc 1 -99
 300 enc 1 15
 
@@ -54,7 +53,8 @@
 5500 shot
 5800 keys 0
 
-# now change one thing on B: OP1's level down 20, which is four clicks
+# now change one thing on B: OP1's level down 20, which is four clicks of the diagram's first
+# knob, turned while EDIT is still being held down
 5900 btn 6 600
 6000 enc 0 -1
 6100 enc 2 -4

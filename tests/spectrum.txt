@@ -17,26 +17,12 @@
 1400 shot
 
 # The same note at 0 to 10 kHz. The span is a setting of the instrument rather than part of the
-# sound, so it lives alone on GLOBAL's last bank: four presses of GLO to walk out to it, KNOB1 to widen
-# it, and two of HOME to come back -- arriving at HOME always starts at the diagram, and the second
-# press is the analyser again.
-1600 btn 7
-1700 btn 7
-1800 btn 7
-1900 btn 7
-2000 enc 2 1
-2100 btn 8
-2200 btn 8
+# sound, and it lives on this screen: KNOB4, beside the filter's three, one click a step.
+1600 enc 5 1
 3000 shot
 
 # And back to 5 kHz, which has to look like it did before.
-3200 btn 7
-3300 btn 7
-3400 btn 7
-3500 btn 7
-3600 enc 2 -1
-3700 btn 8
-3800 btn 8
+3600 enc 5 -1
 4600 shot
 
 # Let go and wait for the bars to fall. The held peaks take seconds longer, by design: a sound that
