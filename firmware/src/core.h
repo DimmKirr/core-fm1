@@ -114,6 +114,7 @@ enum {                          /* per-track parameters */
     P_FXSEND, /* post-fader chain send, or send to slot 1 in separate mode */
     P_FXSEND2, P_FXSEND3,
     P_FXTONE, P_FX2TONE, P_FX3TONE, /* each slot's wet-input TONE (fx_tone_hz): appended so existing common IDs stay fixed */
+    P_STRUM, P_STROKE, /* chord sweep duration and direction; appended for stored-layout compatibility */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };

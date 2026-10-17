@@ -1264,6 +1264,7 @@ static void setup(int s)
         uint8_t out[CHORD_MAX];
         TSEL->p[P_VOICE] = V_POLY; TSEL->p[P_ROOT] = 9; TSEL->p[P_SCALE] = s == S_CHORD ? 2 : 7;
         TSEL->p[P_CHRD] = CH_DIA7; TSEL->p[P_VOIC] = s == S_CHORD ? VC_CLOSE : VC_BASS;
+        TSEL->p[P_STRUM] = 4; TSEL->p[P_STROKE] = 2;
         chord_build(TSEL, s == S_CHORD ? 71u : 68u, out);
         go_title("CHORD"); ui.hot_col = 0; ui.hot_t = 30;
         break;

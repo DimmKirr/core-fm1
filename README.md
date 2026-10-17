@@ -952,3 +952,23 @@ Melodee code and modifications: Copyright (C) 2026 Kerem Kilic (Ellic Studio)\
 Retained Felucca portions: Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 
 See [Recording and performance controls](docs/RECORDING_PERFORMANCE.md) for count-in, metronome, drum levels, temporary knob edits, additive chords and MIDI parameter control.
+
+### Beat-synced chord strumming
+
+On **SCL → CHORD**, KNOB 1 selects the chord, KNOB 2 the voicing,
+KNOB 3 **STRUM** and KNOB 4 **DIR** (stroke direction). STRUM defaults to OFF. Choose
+1/8, 1/16, 1/32, 1/64, 1/128, 16T or 32T to spread a complete chord across
+that musical duration. DOWN plays low to high; UP plays high to low; ALT
+alternates each press. The first tone sounds immediately, the last one division
+later, and all played tones ring until release. At 120 BPM, a 1/64 sweep lasts
+31.25 ms and a 1/16 sweep 125 ms.
+
+Panel keys and incoming MIDI use the same timing, following internal tempo or
+the selected MIDI clock. Releasing a key cancels its unplayed tones; STOP cancels
+pending sweeps. Sustain pedal retains MIDI-held chords. Live recording captures
+the actual staggered onsets and releases (use recording QNT OFF to retain them).
+STEP entry still writes the complete chord. ARP takes priority and receives the
+whole chord immediately. Kits and single-voice modes retain their normal behavior.
+Strum settings belong to the track, survive sound loads and save with projects;
+older projects load with STRUM OFF. Existing manually entered sequencer chords
+are unchanged; recorded strums replay their captured timing.

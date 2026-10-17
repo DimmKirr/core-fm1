@@ -672,34 +672,80 @@ static void input_off(track_t *t, uint32_t note)
     if (!recording_owns(t, note)) trk_note_off(t, note); /* other mode (ARP switched while held) */
 }
 
-/* key k plays kb_note[k] on track t: its chord (chord.c; the note alone with CHRD OFF). A note another key
- * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
-static void key_on(uint32_t k, track_t *t)
+/* Start only this tone's ownership before input_on: note-triggered recording can
+ * re-enter seq_advance(0). Shared tones retain the existing single-note policy. */
+static void key_chord_tone(uint32_t k, track_t *t)
 {
-    uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t));
-    kb_chn[k] = 0;
-    for (i = 0; i < n; i++) {
-        uint32_t x = kb_chord[k][i];
-        if (midi_local_held(t, x))
-            continue;
-        input_on(t, x, 100);
-        midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | 100u << 24);
-    }
-    kb_chn[k] = (uint8_t)n;
-    last_note = kb_note[k];                         /* (step entry, the SAMPLE zone: the key's note) */
+    uint32_t x = kb_chord[k][kb_chn[k]], held = midi_local_held(t, x);
+    kb_chn[k]++;
+    if (held) return;
+    input_on(t, x, 100);
+    midi_out_event(0x09u | (0x90u | trk_midi_ch(trk_index(t))) << 8 | x << 16 | 100u << 24);
 }
 
-/* key k is up: the notes it started end, but those another key still holds */
+static void key_on(uint32_t k, track_t *t)
+{
+    uint32_t n = chord_build(t, kb_note[k], kb_chord[k]);
+    n = chord_strum_begin(t, kb_chord[k], n, &kb_strum[k], 100);
+    kb_chn[k] = 0;
+    /* Publish pending work after the first tone: input_on may start transport. */
+    for (uint32_t i = 0; i < n; i++) key_chord_tone(k, t);
+    if (kb_strum[k].total) kb_strum_pending |= 1u << k;
+    last_note = kb_note[k];
+}
+
+/* A release cancels unplayed strings and releases exactly the started tones. */
 static void key_off(uint32_t k, track_t *t)
 {
     uint32_t n = kb_chn[k], i, mc = trk_midi_ch(trk_index(t));
+    kb_strum_pending &= ~(1u << k);
+    kb_strum[k].total = 0;
     kb_chn[k] = 0;
     for (i = 0; i < n; i++) {
         uint32_t x = kb_chord[k][i];
-        if (midi_local_held(t, x))
-            continue;
+        if (midi_local_held(t, x)) continue;
         input_off(t, x);
         midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
+    }
+}
+
+static void midi_chord_tone(mchord_t *m)
+{
+    track_t *t = &trk[m->id - 1u];
+    uint32_t note = m->note[m->n];
+    uint32_t held = midi_note_held(t, note) || midi_local_held(t, note);
+    m->n++;
+    if (!held) input_on(t, note, m->strum.vel);
+}
+
+/* Return the next string boundary, bounded by this clock advance. Splitting the
+ * sequencer here gives the recorder the actual onset, even in batched clocks. */
+static uint32_t chord_strum_next(uint32_t limit)
+{
+    for (uint32_t k = 0; kb_strum_pending && k < 27u; k++) if (kb_strum_pending & (1u << k)) {
+        uint32_t due = chord_strum_due(&kb_strum[k], kb_chn[k], 0);
+        if (due < limit) limit = due;
+    }
+    for (uint32_t k = 0; midi_strum_pending && k < MCHORD_N; k++) if (midi_strum_pending & (1u << k)) {
+        uint32_t due = chord_strum_due(&mchord[k].strum, mchord[k].n, 0);
+        if (due < limit) limit = due;
+    }
+    return limit;
+}
+
+static void chord_strum_tick(uint32_t n)
+{
+    for (uint32_t k = 0; kb_strum_pending && k < 27u; k++) if (kb_strum_pending & (1u << k)) {
+        chord_strum_t *s = &kb_strum[k];
+        chord_strum_due(s, kb_chn[k], n);
+        while (kb_chn[k] < s->total && !chord_strum_due(s, kb_chn[k], 0)) key_chord_tone(k, &trk[kb_trk[k]]);
+        if (kb_chn[k] == s->total) kb_strum_pending &= ~(1u << k);
+    }
+    for (uint32_t k = 0; midi_strum_pending && k < MCHORD_N; k++) if (midi_strum_pending & (1u << k)) {
+        mchord_t *m = &mchord[k];
+        chord_strum_due(&m->strum, m->n, n);
+        while (m->n < m->strum.total && !chord_strum_due(&m->strum, m->n, 0)) midi_chord_tone(m);
+        if (m->n == m->strum.total) midi_strum_pending &= ~(1u << k);
     }
 }
 
@@ -927,6 +973,7 @@ static void recording_quantize(track_t *t)
 
 static void seq_stop(void)
 {
+    kb_strum_pending = midi_strum_pending = 0; /* STOP cancels the unplayed part of live sweeps. */
     cin_left=0; click_req=0; clk.env=0; audition_request=0; if(audition_active)audition_stop();
     uint32_t i;
     seq_erase_request = 0;
@@ -1148,7 +1195,7 @@ static int rec_note_start(track_t *t)
     return 1;
 }
 
-static void seq_advance(uint32_t n)
+static void seq_advance_part(uint32_t n)
 {
     uint32_t i, beat = seq_beat_samples();
     chain_tick(n);
@@ -1162,6 +1209,16 @@ static void seq_advance(uint32_t n)
         beat_n = (beat_n + 1u) & 3u;
         if(song.playing && click_wanted())click_req=beat_n?1:2;
     }
+}
+
+static void seq_advance(uint32_t n)
+{
+    do {
+        uint32_t chunk = chord_strum_next(n);
+        seq_advance_part(chunk);
+        chord_strum_tick(chunk);
+        n -= chunk;
+    } while (n);
 }
 
 /* everything that happens between two rendered blocks */
@@ -1202,6 +1259,7 @@ static void events_block(uint32_t n)
         memset(midi_sel_on, 0, sizeof midi_sel_on);
         memset(midi_ch, 0, sizeof midi_ch);
         memset(midi_owners, 0, sizeof midi_owners);
+        midi_strum_pending = 0;
         memset(mchord, 0, sizeof mchord);
         midi_hint = 0;
         for (i = 0; i < NTRK; i++) {
@@ -1282,9 +1340,11 @@ static void events_block(uint32_t n)
             } else
                 seq_advance(midi_clock_advance(midi_render_timed ? midi_render_time : MIDI_TIME_NOW()));
         }
-        if (!song.playing)
-            for (i = 0; i < NPART; i++)
-                arp_step(&trk[i], 0, (uint32_t)((uint64_t)n * MIDI_BEAT_UNITS / beat_samples()));
+        if (!song.playing) {
+            uint32_t elapsed = (uint32_t)((uint64_t)n * MIDI_BEAT_UNITS / beat_samples());
+            chord_strum_tick(elapsed);
+            for (i = 0; i < NPART; i++) arp_step(&trk[i], 0, elapsed);
+        }
     } else {
         uint32_t left=n;
         if(cin_left) {

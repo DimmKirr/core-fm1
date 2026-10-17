@@ -129,6 +129,9 @@ static void ui_power_on(void)
     for(uint32_t k=0;k<FX_STATE_COUNT;k++)resource_release(RES_FX0+k);
     fx_bus_result=fx_bus_pending=0;fx_bus_mix=fx_bus_target=0;
     memset(fx_state,0,sizeof fx_state);
+    kb_strum_pending = midi_strum_pending = 0;
+    memset(kb_strum, 0, sizeof kb_strum);
+    memset(chord_alternate, 0, sizeof chord_alternate);
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);
     memset(&chain, 0, sizeof chain);

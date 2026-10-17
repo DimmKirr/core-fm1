@@ -1245,3 +1245,17 @@ per slot (`P_COUNT=125`, `P_E0=117`, `G_COUNT=48`; FUN21 and TPLK, formats 17
 nearest TONE, the low cut when both were set; a low cut at or under 150 Hz counts
 as the effects' own and leaves the high cut (or FULL). FUN20/TPLJ and all previously
 supported imports load TONE FULL and retain their routing and engine/motion values.
+
+### Chord strum
+
+Common track IDs 114 `STRUM` and 115 `STROKE` are appended before the engine
+parameters: `P_COUNT=124`, `P_E0=116`, `G_COUNT=45`. Earlier common IDs retain
+their values; engine IDs are read from INFO. STRUM is an enum: 0 OFF, 1 1/8,
+2 1/16, 3 1/32, 4 1/64, 5 1/128, 6 16T, 7 32T. STROKE is 0 DOWN, 1 UP,
+2 ALT. Both default to 0 and survive sound loads. The device abbreviates STROKE to DIR. Projects map older counts
+with STRUM OFF; existing engine values retain their mapping.
+
+The division is the complete first-to-last sweep, with an immediate first tone
+and evenly spaced remaining tones. Input release and STOP cancel pending tones;
+MIDI sustain follows existing ownership. ARP bypasses strumming. Live recording
+captures the staggered onsets; STEP entry continues to write a complete chord.

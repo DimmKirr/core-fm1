@@ -85,7 +85,7 @@ static const list_t *list_on(void)                      /* the page shown is a l
 static const struct { const char *k, *w; } LIST_WORDS[] = {
     {"QNT", "Quantize"}, {"TRN", "Transpose"}, {"FAV", "Favourite"}, {"VCE", "Voice"}, {"GLD", "Glide"},
     {"GLMOD", "Glide mode"}, {"PRIO", "Priority"}, {"ALLOC", "Allocation"}, {"DTUNE", "Detune"}, {"SPRD", "Spread"},
-    {"CHRD", "Chord"}, {"VOIC", "Voicing"}, {"SWG", "Swing"}, {"PROB", "Probability"}, {"ORD", "Order"},
+    {"STRUM", "Strum"}, {"STROKE", "Stroke"}, {"CHRD", "Chord"}, {"VOIC", "Voicing"}, {"SWG", "Swing"}, {"PROB", "Probability"}, {"ORD", "Order"},
     {"POL", "Polarity"}, {"TRIG", "Trigger"}, {"PIT", "Pitch"}, {"FLT", "Filter"}, {"SHP", "Shape"}, {"AMP", "Level"},
     {"DEG", "MPC degree"}, {"PAN", "Pan"}, {"MUTE", "Mute"}, {"WEAR", "Wear"}, {"TYPE", "Type"}, {"SYNC", "Sync"},
     {"HOLD", "Hold"}, {"ROOT", "Root"}, {"SCL", "Scale"}, {"CUT", "Cutoff"}, {"RES", "Resonance"}, {"DRV", "Drive"},
