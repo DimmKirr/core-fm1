@@ -1,11 +1,10 @@
 name: Nightly builds
 
 on:
-  schedule:
-    - cron: '0 2 * * *'
   push:
     branches: [nightly]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
