@@ -270,6 +270,7 @@ if core; then
     t "wire fields: byte order, cross-byte bounds and preserved surrounding bits" wire_bits_test -O2
     t "audio worker: stalled jobs and wrapping deadlines" audio_worker_test
     t "CPU1 fallback disabled: failures halt, healthy work stays dual-core" core1_fallback_test
+    t "CPU1 stop: delayed bus errors, guard and lock restoration" core1_stop_test
     t "cache RAM startup, memory faults and safe fallback" cache_ram_test
     t "system clock: read only, never written" clock_test -O1
     t "stock V15 supply startup, timeouts and read-back faults" power_test -O1
