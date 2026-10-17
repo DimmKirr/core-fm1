@@ -296,7 +296,7 @@ static __attribute__((noinline,section(".dsp_text"))) void fx_time(fx_state_t *r
  * Reuse the idle reverb output fields for Q16 delay positions. */
 #define FX_CHORUS_BYTES 2048u
 #ifndef MELODEE_FX_DORMANT
-#define MELODEE_FX_DORMANT 0
+#define MELODEE_FX_DORMANT 1
 #endif
 static inline __attribute__((always_inline)) int32_t fx_chorus_read(const int16_t *mem,uint32_t pos,uint32_t ch,int32_t delay)
 {

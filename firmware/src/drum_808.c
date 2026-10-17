@@ -28,7 +28,7 @@
  * and the cymbal's decay, SNAP the snappy, ACC how far velocity moves the level too (drum_amp; the circuits alone
  * make a hit at 127 only ~2 dB louder than at 64), KICK ROUND the BD without its attack, DRV as on every kit. Ported from Melodee's drum part of before 1.0 (drums.c). */
 #ifndef MELODEE_DRUM_FAST
-#define MELODEE_DRUM_FAST 0
+#define MELODEE_DRUM_FAST 1
 #endif
 
 enum { DR_BD, DR_SD, DR_LT, DR_MT, DR_HT, DR_LC, DR_MC, DR_HC, DR_RS, DR_CL, DR_CP, DR_MA, DR_CB, DR_CY,

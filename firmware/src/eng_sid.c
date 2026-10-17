@@ -46,7 +46,7 @@
 
 /* Experimental exact filter-output specialization; device acceptance pending. */
 #ifndef MELODEE_SID_FAST
-#define MELODEE_SID_FAST 0
+#define MELODEE_SID_FAST 1
 #endif
 
 static const char *const N_SID_MODEL[] = {"6581", "8580", "C64 6581", "C64 8580"};

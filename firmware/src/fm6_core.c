@@ -21,7 +21,7 @@
 #include "x0x/fastmath.h"
 
 #ifndef MELODEE_FM6_FAST
-#define MELODEE_FM6_FAST 0
+#define MELODEE_FM6_FAST 1
 #endif
 
 /* the 155-byte patch: 6 x 21 operator bytes (the sixth operator first), then the voice */

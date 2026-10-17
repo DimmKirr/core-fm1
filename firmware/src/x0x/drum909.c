@@ -7,7 +7,7 @@
  * that explain WHY a constant is what it is live in 9W9 and are not repeated. */
 #include "drum909.h"
 #ifndef MELODEE_DRUM_FAST
-#define MELODEE_DRUM_FAST 0
+#define MELODEE_DRUM_FAST 1
 #endif
 /* Melodee keeps the circuit voices; metallic voices are synthesized below. */
 

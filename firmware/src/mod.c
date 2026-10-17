@@ -49,7 +49,7 @@ _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST 
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
 #ifndef MELODEE_MOD_CACHE
-#define MELODEE_MOD_CACHE 0
+#define MELODEE_MOD_CACHE 1
 #endif
 #if MELODEE_MOD_CACHE
 #define MOD_BEGIN_REFERENCE mod_begin_reference

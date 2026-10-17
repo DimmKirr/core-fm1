@@ -71,7 +71,7 @@
 #define FM1_NENC 7u
 
 #ifndef MELODEE_PANEL_FAST
-#define MELODEE_PANEL_FAST 0
+#define MELODEE_PANEL_FAST 1
 #endif
 
 

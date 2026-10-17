@@ -104,7 +104,7 @@ typedef struct {
 } mix_cache_t;
 static mix_cache_t mix_cache[NTRK];
 #ifndef MELODEE_MIX_FAST
-#define MELODEE_MIX_FAST 0
+#define MELODEE_MIX_FAST 1
 #endif
 static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cache_t *mc)
 {

@@ -701,7 +701,7 @@ static __attribute__((noinline)) void spread_sum(int32_t *out)
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
 static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
 #ifndef MELODEE_CONTROL_FAST
-#define MELODEE_CONTROL_FAST 0
+#define MELODEE_CONTROL_FAST 1
 #endif
 static __attribute__((noinline)) void p5_update_bend(track_t *t)
 {

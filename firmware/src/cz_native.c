@@ -125,7 +125,7 @@ static __attribute__((noinline)) float cz_native_wave(const cz_hw_pd_t *b,uint32
     return carrier*(1.0f-window*(1.0f/2048.0f))-1.0f;
 }
 #ifndef MELODEE_CZ_FAST
-#define MELODEE_CZ_FAST 0
+#define MELODEE_CZ_FAST 1
 #endif
 #if MELODEE_CZ_FAST
 /* Window 4's upper half is exactly -1 for every sounding waveform. Wave 3

@@ -176,7 +176,7 @@ static inline __attribute__((always_inline)) float p5_pitch_ratio(float x)
     return ratio*scale.f;
 }
 #ifndef MELODEE_PROPHET_FAST
-#define MELODEE_PROPHET_FAST 0
+#define MELODEE_PROPHET_FAST 1
 #endif
 /* Rev-4 full-amount triangle swings +-235 cents. Shared by every voice. */
 static __attribute__((section(".dsp_text"))) void p5_mod_samples(p5_part_t *s,const uint8_t *p,uint32_t inc,float amount,float mix)

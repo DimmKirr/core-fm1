@@ -51,7 +51,7 @@ jobs:
           fi
           test "$(git -C "$AC79_SDK" rev-parse HEAD)" = d179b4484759423312073f5fbb232501aa491047
       - name: Build dual-core firmware and run full host suite
-        # Release packages use the nightly configuration that was tested on devices.
+        # Release packages use the nightly configuration; the CPU fast paths are source defaults.
         env:
           MELODEE_DUAL_CORE: '1'
           MELODEE_CORE1_FALLBACK: '0'
@@ -60,31 +60,10 @@ jobs:
           MELODEE_ADMISSION: '0'
           MELODEE_AUDIO_PROFILE: '0'
           MELODEE_AUDIO_BENCH: '0'
-          MELODEE_MOD_CACHE: '1'
-          MELODEE_CONTROL_FAST: '1'
-          MELODEE_MIX_FAST: '1'
-          MELODEE_FX_DORMANT: '1'
-          MELODEE_RECORD_INDEX: '1'
-          MELODEE_PROPHET_FAST: '1'
-          MELODEE_PANEL_FAST: '1'
-          MELODEE_FM6_FAST: '1'
-          MELODEE_CZ_FAST: '1'
-          MELODEE_DRUM_FAST: '1'
-          MELODEE_SID_FAST: '1'
-          MELODEE_CAPTURE_FAST: '1'
         run: |
           version=$(python tools/fm1_recover.py --version | awk '{print $NF}')
           ./build.sh --release "$version"
           cp "build/melodee-$version.fwsc" build/melodee.fwsc
-          # Host compilation must exercise the same twelve candidates.
-          CC="${CC:-cc}"
-          for flag in MELODEE_MOD_CACHE MELODEE_CONTROL_FAST MELODEE_MIX_FAST \
-            MELODEE_FX_DORMANT MELODEE_RECORD_INDEX MELODEE_PROPHET_FAST \
-            MELODEE_PANEL_FAST MELODEE_FM6_FAST MELODEE_CZ_FAST \
-            MELODEE_DRUM_FAST MELODEE_SID_FAST MELODEE_CAPTURE_FAST; do
-            CC="$CC -D$flag=${!flag}"
-          done
-          export CC
           tests/run_tests.sh
           mkdir -p build/release-assets
           cp "build/release-$version/"*.fwsc "build/release-$version/"*-app.bin build/release-assets/

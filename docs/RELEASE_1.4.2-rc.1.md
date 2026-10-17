@@ -11,8 +11,8 @@ Melodee 1.4.2-rc.1 is the first release candidate for 1.4.2, built from the
   the pattern, and stays open for further steps until SEQ is released.
 - **Voice weights:** GLO > WEIGHTS sets budget points per voice for each engine,
   with an optional overload SAFETY (off by default).
-- **Audio performance:** the CPU optimizations from nightly are enabled in this
-  package: modulation caching, faster control, mixing, panel, recording index and
+- **Audio performance:** the CPU optimizations from nightly are now the default
+  in every build: modulation caching, faster control, mixing, panel, recording index and
   capture paths, idle FX sleeping, and engine-specific fast paths for Prophet,
   FM6, CZ, drums and SID. Parts and drums are balanced across both cores, eligible
   adjacent reverbs overlap, and part of the data cache is used as audio RAM.
