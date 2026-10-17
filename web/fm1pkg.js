@@ -235,6 +235,9 @@ export async function sha256hex(bytes) {
 
 // Only the user's unmodified official V15 is accepted for a return to stock.
 // The digest pins every file, loader and flash layout; filenames are not evidence.
+// The file goes to the device unchanged, through its own official loader, as M-VAVE's
+// updater sends it. head: the image range Melodee compares with the device's boot
+// data (CHECK HEAD, firmware/src/ota.c) before it starts that loader.
 export async function validateStockPackage(bytes) {
   if (bytes.length !== STOCK_V15_SIZE || await sha256hex(bytes) !== STOCK_V15_SHA256)
     throw new Error("Select the unmodified official FM-1 V15 file (FM-1.fwsc).");
@@ -243,27 +246,9 @@ export async function validateStockPackage(bytes) {
       pkg.appBase !== 16384 || pkg.appOff !== 16672 || pkg.app.size !== STOCK_APP_SIZE ||
       !pkg.entries.some((e) => e.type === 100 && e.name === "ota.bin" && e.size === 19969))
     throw new Error("The official firmware has an unsupported FM-1 layout.");
-  return { product: pkg.product, image: logicalImage(bytes), sha256: STOCK_V15_SHA256 };
-}
-
-// Keep the verified stock flash image byte-for-byte, but install it with Melodee's
-// application-only loader. The vendor loader rewrites the device's boot data and
-// is refused when that data differs, even on an otherwise compatible FM-1.
-export async function buildStockRestorePackage(stockBytes, melodeeBytes, product) {
-  await validateStockPackage(stockBytes);
-  const stock = new Package(stockBytes), donor = new Package(melodeeBytes);
-  const ota = donor.entries.find(e => e.type === 100 && e.name === "ota.bin");
-  const off = ota && ota.dataOff + donor.skew;
-  const loader = ota && donor.raw.subarray(off, off + ota.size);
-  const own = loader && String.fromCharCode(...loader.subarray(0x48, 0x98)).includes("FELUCCA-LOADER-1");
-  if (!/^FM-1_9\d+$/.test(product) || donor.product !== product ||
-      donor.flashSize !== stock.flashSize || donor.appBase !== stock.appBase ||
-      !ota || ota.size < 0x80 || ota.size > 0x4E20 || off + ota.size > donor.raw.length ||
-      crc16(loader) !== ota.dcrc || !own)
-    throw new Error("The Melodee restore loader is unavailable or invalid. Refresh the installer and try again.");
-  donor.flash.set(stock.flash);
-  donor.setProduct(stock.product);
-  return donor.serialize();
+  const head = pkg.flashEntry.dataOff;
+  return { product: pkg.product, image: logicalImage(bytes), sha256: STOCK_V15_SHA256,
+    head: { from: head, to: head + 0x4000 } };
 }
 
 // official V15 + Melodee app -> installable package (Uint8Array)
