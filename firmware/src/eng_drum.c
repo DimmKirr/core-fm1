@@ -66,6 +66,21 @@ static const uint8_t DRUM_SOUND_NOTE[16]={36,38,41,45,50,37,39,42,46,49,51,64,61
 static const char *const DRUM_SOUND_NAME[16]={"KICK","SNARE","TOM L","TOM M","TOM H","RIM","CLAP","HAT C","HAT O","CRASH","RIDE","CONGL","CONGM","CONGH","CLAVE","MARAC"};
 static uint32_t drum_sound_count(const track_t *t){return drum_is909(t)?D9_NUM:16u;}
 static uint32_t drum_sound_note(const track_t *t,uint32_t sound){return !drum_is909(t) && sound==D9_RD?56u:DRUM_SOUND_NOTE[sound];}
+/* MPC pads 01..16, left to right from the bottom row. Keep the main beat under the fingers;
+ * the 909 repeats useful hits where the 808/SID have extra percussion. These are sound identities,
+ * independent of scale, transpose and input octave, just like a recorded GM drum hit. */
+static uint32_t drum_mpc_note(const track_t *t, uint32_t pad)
+{
+    static const uint8_t PAD_808[16] = {
+        D9_BD, D9_SD, D9_CP, D9_RS, D9_CH, D9_OH, D9_RD, D9_CR,
+        D9_LT, D9_MT, D9_HT, 15, 11, 12, 13, 14,
+    };
+    static const uint8_t PAD_909[16] = {
+        D9_BD, D9_SD, D9_CP, D9_RS, D9_CH, D9_OH, D9_RD, D9_CR,
+        D9_LT, D9_MT, D9_HT, D9_RD, D9_BD, D9_SD, D9_CH, D9_OH,
+    };
+    return drum_sound_note(t, (drum_is909(t) ? PAD_909 : PAD_808)[pad & 15u]);
+}
 static const char *drum_sound_name(const track_t *t,uint32_t sound){return !drum_is909(t) && sound==D9_RD?"BELL":!drum_is909(t) && sound==D9_CR?"CYMB":DRUM_SOUND_NAME[sound];}
 /* .. in two letters, as on the 808's panel (DRUM HIT: the picked lane's name, which of its drums) */
 static const char *drum_sound_abbr(const track_t *t,uint32_t sound)
@@ -440,8 +455,7 @@ static void drum_render(track_t *t,voice_t *v,int32_t *out,uint32_t n,const vmod
 /* the GM drum map, the first C (key 7) is the kick (C2, 36) */
 static int32_t drum_keys(const track_t *t, uint32_t k)
 {
-    (void)t;
-    return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
+    return clamp(29 + 12 * input_octave(t) + (int32_t)k, 0, 127);
 }
 
 /* {KIT, TUNE, TONE, DECY, SNAP, ACC, KICK, DRV} (SID: DIGI, RES); every kit suggests the BEAT pattern (GM notes) */

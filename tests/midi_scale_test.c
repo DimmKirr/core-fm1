@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* MIDI IN through the scale layouts (seq.c midi_map, midi_control.c midi_play): WHITE and ALL map incoming notes as the
- * keys, MPC plays MPC Bank H pads (MIDI 20..35) as scale degrees from DEG, kits and slices keep their own map; a mapped
+ * keys, MPC banks E..H play tracks 1..4 as scale degrees from DEG (DRUM uses finger-drumming pads), other kits
+ * and slices keep their own map; a mapped
  * note's note-off ends exactly what it started; SCL, QNT and DEG are shared by every part (ui.c scale_share). */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
+#include "fixtures/mpc_sample_pad_notes.h"
 
 static void scale_reset(void)
 {
@@ -93,25 +95,140 @@ static int mpc_test(void)
     int bad = 0;
     scale_reset();
     t->p[P_SCALE] = 1; t->p[P_ROOT] = 2; t->p[P_QUANT] = Q_MPC; t->p[P_MPCDEG] = 1;   /* D major */
-    for (note = 0; note < 128u; note++)
-        ok &= (note < 20u || note > 35u) == (midi_map(t, note) == KB_SILENT);
-    bad += check("MPC: only Bank H (MIDI 20..35) plays", ok);
-    bad += check("MPC: H02 on DEG 1 is the ROOT, H01 the degree below, H03 the next",
-                 midi_map(t, 21) == 62u && midi_map(t, 20) == 61u && midi_map(t, 22) == 64u && midi_map(t, 35) == 62u + 24u);
+    for (uint32_t k = 0; k < 4u; k++) {
+        set_engine_of(&trk[k], 3);
+        trk[k].p[P_QUANT] = Q_MPC; trk[k].p[P_SCALE] = 1; trk[k].p[P_MPCDEG] = 1;
+        for (note = 0; note < 128u; note++) {
+            int pad = -1;
+            for (uint32_t p = 0; p < 16u; p++) if (MPC_PAD_NOTES[k][p] == note) pad = (int)p;
+            uint32_t want = pad < 0 ? KB_SILENT : (uint32_t)walk(1, trk[k].p[P_ROOT], pad - 1);
+            ok &= midi_map(&trk[k], note) == want;
+        }
+    }
+    bad += check("MPC: actual project map, all 128 notes on all four tracks (F wraps at 127)", ok);
+    bad += check("MPC: pad 02 on DEG 1 is ROOT, pad 01 below, pad 03 above",
+                 midi_map(t, 101) == 62u && midi_map(t, 100) == 61u && midi_map(t, 102) == 64u && midi_map(t, 115) == 62u + 24u);
     t->p[P_MPCDEG] = 3;
-    bad += check("MPC: DEG 3 moves H02 to the third", midi_map(t, 21) == 66u);
+    bad += check("MPC: DEG 3 moves E02 to the third", midi_map(t, 101) == 66u);
     t->p[P_MPCDEG] = 9;                               /* (past the scale's 7: the 7th) */
-    bad += check("MPC: DEG is clamped to the scale's notes", midi_map(t, 21) == 73u && track_desc(t, P_MPCDEG)->max == 7);
+    bad += check("MPC: DEG is clamped to the scale's notes", midi_map(t, 101) == 73u && track_desc(t, P_MPCDEG)->max == 7);
     t->p[P_MPCDEG] = 1;
-    song.octave = 1;
-    bad += check("MPC: the octave buttons shift the pads", midi_map(t, 21) == 74u);
-    song.octave = 0;
+    t->mpc_octave = 1;
+    bad += check("MPC: the octave buttons shift the pads", midi_map(t, 101) == 74u);
+    t->mpc_octave = 0;
     set_engine_of(&trk[3], ENGI_DRUM);
     trk[3].p[P_QUANT] = Q_MPC;
-    bad += check("MPC: a DRUM track keeps its notes, outside Bank H silent",
-                 midi_map(&trk[3], 21) == 21u && midi_map(&trk[3], 36) == KB_SILENT);
+    bad += check("MPC: a DRUM track maps Bank H to drum sounds, outside Bank H silent",
+                 midi_map(&trk[3], 21) == 38u && midi_map(&trk[3], 36) == KB_SILENT);
     trk[3].p[P_QUANT] = Q_WHITE;
     bad += check("WHITE: a DRUM track keeps its GM notes", midi_map(&trk[3], 37) == 37u && midi_map(&trk[3], 36) == 36u);
+    return bad;
+}
+
+static void mpc_setup(void)
+{
+    scale_reset();
+    for (uint32_t k = 0; k < 4u; k++) {
+        track_t *t = &trk[k];
+        set_engine_of(t, 3);
+        t->p[P_QUANT] = Q_MPC; t->p[P_SCALE] = 1; t->p[P_MPCDEG] = 1;
+        t->p[P_ROOT] = (int16_t)(k * 2u); t->p[P_TRANS] = 0;
+        t->p[P_CHRD] = 0; t->p[P_AMODE] = 0; t->p[P_VOICE] = V_POLY;
+        memset(t->step, 0, sizeof t->step);
+    }
+}
+
+static void pad_input(uint32_t source, uint32_t st, uint32_t note, uint32_t vel)
+{
+    if (source == 1u) { midi_in_event(st >> 4 | st << 8 | note << 16 | vel << 24); events_block(CTL); }
+    else { um_byte((uint8_t)st); um_byte((uint8_t)note); um_byte((uint8_t)vel); events_block(CTL); }
+}
+
+static int mpc_route_test(void)
+{
+    int bad = 0;
+    for (uint32_t source = 1; source <= 2u; source++) {
+        uint32_t ok = 1;
+        for (uint32_t route = 0; route < 5u; route++) {
+            mpc_setup(); song.g[G_ROUTE] = (int16_t)route; song.g[G_MIDI] = (int16_t)(source - 1u);
+            for (uint32_t k = 0; k < 4u; k++)
+                for (uint32_t p = 0; p < 16u; p++) {
+                    uint32_t note = MPC_PAD_NOTES[k][p], ch = p;
+                    uint32_t want = (uint32_t)walk(1, (int32_t)k * 2, (int32_t)p - 1);
+                    song.sel = (uint8_t)((k + 1u) % 4u);
+                    pad_input(source, 0x90u | ch, note, 100);
+                    ok &= mn_get(ch, note) == k + 1u && sounding(&trk[k], want);
+                    for (uint32_t other = 0; other < 4u; other++) ok &= nsounding(&trk[other]) == (other == k);
+                    /* Both explicit note-off and velocity-zero note-on must release the saved owner. */
+                    pad_input(source, (p & 1u ? 0x90u : 0x80u) | ch, note, 0);
+                    ok &= !mn_get(ch, note) && !midi_owners[k] && !nsounding(&trk[k]);
+                }
+            for (uint32_t note = 36; note < 100u; note++) {
+                pad_input(source, 0x90, note, 100);
+                ok &= !mn_get(0, note);
+            }
+        }
+        bad += check(source == 1 ? "MPC USB: all 64 pads, channels, ROUT settings, A-D silent and releases" :
+                                                  "MPC TRS: all 64 pads, channels, ROUT settings, A-D silent and releases", ok);
+    }
+    mpc_setup();
+    for (uint32_t k = 0; k < 4u; k++) midi(0x90, MPC_PAD_NOTES[k][1], 100);
+    uint32_t ok = 1;
+    for (uint32_t k = 0; k < 4u; k++) ok &= sounding(&trk[k], 60u + k * 2u) && midi_owners[k] == 1u;
+    bad += check("MPC: all four banks can hold notes together on one MIDI channel", ok);
+    song.sel = 2; song.g[G_ROUTE] = 4; song.octave = 2;
+    trk[0].p[P_QUANT] = Q_OFF; /* mode, scale and root change before release */
+    for (uint32_t k = 0; k < 4u; k++) {
+        trk[k].p[P_SCALE] = 2; trk[k].p[P_ROOT] = 11;
+        midi(0x80, MPC_PAD_NOTES[k][1], 0);
+        ok &= !nsounding(&trk[k]) && !midi_owners[k];
+    }
+    bad += check("MPC: releases survive mode, scale, octave, selection and ROUT changes", ok);
+    mpc_setup();
+    midi(0xB0, 64, 127);
+    for (uint32_t k = 0; k < 4u; k++) {
+        midi(0x90, MPC_PAD_NOTES[k][1], 100); midi(0x80, MPC_PAD_NOTES[k][1], 0);
+    }
+    midi(0xB0, 64, 0);
+    ok = 1;
+    for (uint32_t k = 0; k < 4u; k++) ok &= !nsounding(&trk[k]) && !midi_owners[k];
+    bad += check("MPC: one channel's pedal releases its bank notes on every track", ok);
+    mpc_setup();
+    for (uint32_t k = 0; k < 4u; k++) midi(0x90, MPC_PAD_NOTES[k][1], 100);
+    midi(0xB0, 123, 0);
+    ok = 1;
+    for (uint32_t k = 0; k < 4u; k++) ok &= !nsounding(&trk[k]) && !midi_owners[k];
+    bad += check("MPC: All Notes Off releases every bank owned by the channel", ok);
+    mpc_setup();
+    set_engine_of(&trk[3], ENGI_DRUM); settings_drumch = 10;
+    midi(0x99, 101, 100);
+    bad += check("MPC: bank E overrides the DRUM channel and still reaches track 1", mn_get(9, 101) == 1u && sounding(&trk[0], 60));
+    midi(0x89, 101, 0);
+    mpc_setup();
+    trk[2].p[P_CHRD] = CH_MAJ;
+    midi(0x90, 5, 100);
+    bad += check("MPC: bank G uses track 3's chord settings", nsounding(&trk[2]) == 3u &&
+                 sounding(&trk[2], 64) && sounding(&trk[2], 68) && sounding(&trk[2], 71));
+    midi(0x90, 5, 100); /* retrigger replaces its old owner and chord */
+    midi(0x80, 5, 0);
+    bad += check("MPC: chord retrigger and release leave no held notes", !nsounding(&trk[2]) && !midi_owners[2]);
+    mpc_setup();
+    trk[1].p[P_AMODE] = 1;
+    midi(0x90, 117, 100);
+    bad += check("MPC: bank F feeds track 2's arpeggiator", trk[1].nheld == 1u && trk[1].held[0] == 62);
+    midi(0x80, 117, 0);
+    bad += check("MPC: bank F release clears its arpeggiator", !trk[1].nheld && !midi_owners[1]);
+    mpc_setup();
+    song.ntrk = 2; song.rec = 1u;
+    midi(0x90, MPC_PAD_NOTES[2][1], 100); midi(0x90, MPC_PAD_NOTES[3][1], 100);
+    bad += check("MPC: absent tracks stay silent and do not start recording", !song.playing && !mn_get(0, 5) && !mn_get(0, 21));
+    mpc_setup();
+    song.rec = 15u;
+    for (uint32_t k = 0; k < 4u; k++) midi(0x90, MPC_PAD_NOTES[k][1], 100);
+    for (uint32_t k = 0; k < 4u; k++) midi(0x80, MPC_PAD_NOTES[k][1], 0);
+    ok = song.playing;
+    for (uint32_t k = 0; k < 4u; k++) ok &= trk[k].step[0].n == 1u && trk[k].step[0].note[0] == 60u + k * 2u;
+    bad += check("MPC: armed banks start and record mapped pitches into their own tracks", ok);
     return bad;
 }
 
@@ -163,6 +280,7 @@ int main(void)
     int bad = 0;
     bad += mapping_test();
     bad += mpc_test();
+    bad += mpc_route_test();
     bad += play_test();
     bad += share_test();
     printf("%s\n", bad ? "MIDI SCALE TEST FAILED" : "MIDI scale layouts test passed");

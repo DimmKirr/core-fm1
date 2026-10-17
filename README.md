@@ -916,11 +916,37 @@ when several degrees fit inside one semitone. Recordings and projects retain the
 MIDI OUT carries degree addresses; an external synth needs the same tuning and mapping to
 reproduce these pitches.
 
-QNT **ALL** plays the next scale note on every key, black keys included. QNT **MPC** maps an
-MPC's Bank H pads (MIDI 20–35, H01–H16 of MPC Sample's default map) to successive scale notes;
-the **MPC** page in the SCL family sets **DEG**, the degree pad H02 plays. Incoming MIDI follows
-WHITE, ALL and MPC the way the keys do (without the octave buttons). SCL, QNT and DEG are shared by
-all four tracks; ROOT and TRN stay per track. Drum kits keep their own note mapping.
+QNT **ALL** plays the next scale note on every key, black keys included. QNT **MPC** routes MPC Sample
+Bank **E → track 1**, **F → track 2**, **G → track 3** and **H → track 4**, on any MIDI channel,
+overriding ROUT and the DRUM channel for notes. Each melodic bank's 16 pads play successive scale degrees;
+**DEG** in the SCL list sets the degree pad 02 plays (1 = ROOT), with pad 01 one degree below it.
+On Stage, the octave buttons shift only the selected track's bank (−3 to +3); press both to reset
+that bank. The header and button lights show its octave. Each bank keeps its setting when switching
+tracks or sounds, and projects/templates save all four settings. Outside MPC mode the shared keyboard
+octave stays independent. The default program map is E: MIDI 100–115,
+F: 116–127 then 0–3, G: 4–19, H: 20–35. Banks A–D and banks for absent tracks are silent.
+Use the MPC's default pad map and enable Pad MIDI Out (Always, or Empty for empty pads).
+WHITE and ALL map incoming MIDI as the keys, without the octave buttons.
+SCL, QNT and DEG are shared by all four tracks; ROOT and TRN stay per track. DRUM tracks automatically
+use the finger-drumming layout below in their assigned bank. Drum pads ignore bank octave, ROOT, TRN
+and DEG so each pad keeps its sound; the native keys retain their chromatic drum map and octave.
+Other kits and slices keep their own pitches. Controllers retain their MIDI channel routing;
+sustain and panic also follow notes already held by that channel across banks.
+Playing an MPC pad automatically selects its track, so the controls and octave display follow the
+most recently played bank. MPC input does not show the “MIDI IN → T…” notification; normal MIDI keeps it.
+
+MPC DRUM layout for 808 and SID, viewed from above (pad 01 is bottom left):
+
+| Left | Middle left | Middle right | Right |
+| --- | --- | --- | --- |
+| 13 Conga low | 14 Conga mid | 15 Conga high | 16 Clave |
+| 09 Tom low | 10 Tom mid | 11 Tom high | 12 Maraca |
+| 05 Closed hat | 06 Open hat | 07 Cowbell | 08 Cymbal |
+| 01 Kick | 02 Snare | 03 Clap | 04 Rim |
+
+The 909 keeps the same main positions: pad 07 is Ride and 08 is Crash. Its extra pads repeat useful
+hits: 12 Ride, 13 Kick, 14 Snare, 15 Closed hat and 16 Open hat. Each pad retriggers the hit even
+while its duplicate is held. Normal MIDI drum notes outside MPC mode and existing recorded patterns keep their GM mapping.
 
 On the **CHORD** page, CHRD picks the chord keys (OFF, the scale's triads or
 sevenths, or a fixed shape) and VOIC the voicing.

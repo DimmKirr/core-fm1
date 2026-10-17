@@ -1486,6 +1486,43 @@ static void sweep_screen_messages(void)
     }
 }
 
+/* The existing octave pill follows the selected MPC bank, with the same status priority in both fonts. */
+static void sweep_mpc_octaves(const char *out)
+{
+    int previous_face = render_pixel;
+    static uint16_t screen[240 * 240];
+    static const int8_t oct[] = {-3, 3, 0, 1};
+    for (uint32_t face = 0; face < 2u; face++) for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++) {
+        char name[80];
+        render_pixel = face; setup(S_HOME); pal(p);
+        song.octave = 2; song.rec = song.rec_wait = 0; ui.msg_t = 0;
+        for (uint32_t k = 0; k < NTRK; k++) { trk[k].p[P_QUANT] = Q_MPC; trk[k].mpc_octave = oct[k]; }
+        draw(-1);
+        for (uint32_t k = 0; k < NTRK; k++) {
+            snprintf(name, sizeof name, "%s%s/MPC bank %u octave", face ? "PIXEL " : "", UI_PALETTES[p].name, k);
+            cur_name = name; song.sel = (uint8_t)k;
+            nscr = npend = 0; ui_draw();
+            memcpy(screen, host_screen, sizeof screen);
+            ui.force = 1; nscr = npend = 0; ui_draw(); lint();
+            if (memcmp(screen, host_screen, sizeof screen)) { fprintf(rep, "STALE %s: bank switch differs from full redraw\n", name); nfind++; }
+            char want[8]; snprintf(want, sizeof want, "%+d", oct[k]);
+            uint32_t seen = 0;
+            for (uint32_t i = 0; i < nscr; i++) seen |= !strcmp(scr[i].s, want) && scr[i].y0 >= 0 && scr[i].y1 <= H_HEAD;
+            if (oct[k] && !seen) { fprintf(rep, "MISSING %s: selected bank octave\n", name); nfind++; }
+            if (!p && k == 1u) write_ppm(out, face ? "PIXEL" : "NIGHT", "mpc_octave");
+        }
+        TSEL->p[P_QUANT] = Q_OFF;
+        nscr = npend = 0; ui_draw(); memcpy(screen, host_screen, sizeof screen);
+        ui.force = 1; nscr = npend = 0; ui_draw(); lint();
+        uint32_t shared = 0;
+        for (uint32_t i = 0; i < nscr; i++) shared |= !strcmp(scr[i].s, "+2") && scr[i].y1 <= H_HEAD;
+        if (!shared || memcmp(screen, host_screen, sizeof screen)) {
+            fprintf(rep, "STALE %s: returning to shared octave\n", name); nfind++;
+        }
+    }
+    render_pixel = previous_face;
+}
+
 /* Shared waiting status must remain in the header on every header implementation. */
 static void sweep_waiting_headers(const char *out)
 {
@@ -2068,6 +2105,7 @@ int main(int argc, char **argv)
     }
     sweep_waiting_headers(out);
     sweep_screen_messages();
+    sweep_mpc_octaves(out);
     sweep_list_rows();
     sweep_columns();
     render_pixel = 0;

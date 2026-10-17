@@ -53,7 +53,7 @@ static void mapping(void)
     t->p[P_QUANT] = Q_SNAP;
     assert(kb_map(t, 11) == 68 && midi_map(t, 64) == 68);
     t->p[P_QUANT] = Q_MPC; t->p[P_MPCDEG] = 24;
-    assert(midi_map(t, 21) == 83 && midi_map(t, 19) == KB_SILENT);
+    assert(midi_map(t, 101) == 83 && midi_map(t, 99) == KB_SILENT);
     t->p[P_QUANT] = Q_OFF;
     voice_t v = {0}; voice_scale_pitch(t, &v, 69);
     assert(v.pitch16 == 69 * 16 && !v.scale_fine);

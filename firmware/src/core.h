@@ -105,7 +105,7 @@ enum {                          /* per-track parameters */
     P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL, P_FM3_LEVEL,
     P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL, P_FM4_LEVEL,
     P_CHRD, P_VOIC,                            /* chord keys (chord.c): one key plays a chord; its voicing */
-    P_MPCDEG,                                  /* QNT MPC: the scale degree MPC pad H02 plays, 1 = the root */
+    P_MPCDEG,                                  /* QNT MPC: the scale degree pad 02 of each bank plays, 1 = root */
     P_LN0, P_LN1, P_LN2, P_LN3, P_LN4, P_LN5, P_LN6, P_LN7, /* DRUM lane levels, 127 = original gain */
     P_LSYNC, P_LTRIG, P_LPOL, P_SPRD, /* Felucca 1.4 common LFO controls and stereo spread */
     P_FXTYPE, P_FXMIX, P_FXRATE, P_FXCHAR, /* new FX; legacy effect IDs remain inert */
@@ -385,6 +385,7 @@ typedef struct track {
     int16_t p[P_COUNT];
     uint8_t engine, preset;      /* engine: what the audio ISR renders */
     uint8_t eng_req;             /* engine the UI asked for (the ISR switches at a block start) */
+    int8_t mpc_octave;           /* MPC bank's input octave, -3..3; independent of song.octave */
     uint16_t user;                /* user preset slot + 1 the sound came from (UI), 0 = none */
     uint8_t user_native;         /* legacy project origin only; new presets use the shared bank */
     voice_t v[NVOICE];
@@ -468,6 +469,9 @@ typedef struct {
 static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
+
+static int32_t input_octave(const track_t *t)
+{ return t->p[P_QUANT] == Q_MPC ? t->mpc_octave : song.octave; }
 /* The tracks in use: 1..trk_n(), always from track 1 (it clocks the song). The others keep their structs, sound and
  * play nothing (voice.c trk_note_on), are drawn nowhere and get a fresh sound when added (project.c track_add) */
 static inline uint32_t trk_n(void) { return song.ntrk - 1u < NTRK ? song.ntrk : NTRK; }

@@ -270,6 +270,7 @@ if core; then
     t "wire fields: byte order, cross-byte bounds and preserved surrounding bits" wire_bits_test -O2
     t "audio worker: stalled jobs and wrapping deadlines" audio_worker_test
     t "CPU1 fallback disabled: failures halt, healthy work stays dual-core" core1_fallback_test
+    t "CPU1 stop: delayed bus errors, guard and lock restoration" core1_stop_test
     t "cache RAM startup, memory faults and safe fallback" cache_ram_test
     t "system clock: read only, never written" clock_test -O1
     t "stock V15 supply startup, timeouts and read-back faults" power_test -O1
@@ -343,6 +344,7 @@ if core && [ $TABLES = 1 ]; then
     t "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" seq_notes_test \
         -O1 $FW
     t "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" midi_scale_test -O1 $FW
+    t "MPC bank octaves: controls, held notes, persistence and compatibility" mpc_octave_test -O1 $FW
     t "Concert pitch: A4 frequency, engines, modulation, held notes and project-independent settings" tuning_test \
         -DMELODEE_LEGACY_EXTRAS=1 -O1 -DMELODEE_USB_AUDIO=1 $FW
     t "themes: contrast, text blending and font metrics" theme_test -O1 $FW

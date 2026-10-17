@@ -162,7 +162,13 @@ static int clock_arp_and_boundaries(void)
     clock_packet(1,0xFC,502);
     bad+=check("selected-source Stop arms sync and stops locally started playback",!song.playing&&midi_sync_active==1u);
     transport_req=1;events_block(CTL);fm1_ms=1003;events_block(CTL);
-    bad+=check("after external transport claims playback, missing clocks still time out",!song.playing);
+    bad+=check("local PLAY after a master Stop runs internally while the master clock is silent",song.playing&&!midi_sync_active);
+    clock_packet(1,0xFA,1010);clock_to(1,1010,7);
+    bad+=check("the master's next Start claims sync again",song.playing&&midi_sync_active==1u&&trk[0].seq_idx==1u);
+    clock_packet(1,0xFC,1200);clock_to(1,1200,3);transport_req=1;events_block(CTL);
+    bad+=check("local PLAY follows a master clock that is still running",song.playing&&midi_sync_active==1u);
+    fm1_ms=1800;events_block(CTL);
+    bad+=check("a followed master clock that stops still times out",!song.playing);
     return bad;
 }
 /* ARP HOLD latched on an external clock: a Stop, a lost clock or a tap while stopped must not leave the arp note

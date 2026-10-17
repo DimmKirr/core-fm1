@@ -7,7 +7,8 @@
  * Four tracks, one transport: every track's pattern loops on its own LEN / DIV /
  * SWING / GATE (polymeter). The keys play the selected track; MIDI IN by GLO > SYSTEM ROUT (G_ROUTE):
  * CH1-4 (0), CH5-8 (2), CH9-12 (3), CH13-16 (4) map only their four channels to tracks 1..4;
- * SEL (1) maps every channel to the selected track. Their CC1 (mod wheel), CC11 (expression) and
+ * SEL (1) maps every channel to the selected track. QNT MPC overrides note destinations: E..H -> tracks 1..4.
+ * Their CC1 (mod wheel), CC11 (expression) and
  * channel aftertouch go to the same track's modulation matrix (mod.c; the selected track: the one selected then).
  * A note into an armed track (song.rec) while
  * the transport runs preserves its original onset and independent held length
@@ -45,7 +46,8 @@ static void step_midi_edge(uint32_t track, uint32_t pitch, uint32_t on, uint32_t
     step_midi_w = w + 1u;
 }
 static volatile uint8_t panic_req;       /* bit per track: release every sounding note (preset / engine change) */
-static volatile uint8_t midi_hint;       /* MIDI IN played track n - 1, which is not the selected one (the UI says so) */
+#define MIDI_TRACK_FOLLOW 0x80u
+static volatile uint8_t midi_hint;       /* track + 1; MPC sets FOLLOW for silent UI selection, otherwise a notice */
 
 static uint32_t trk_index(const track_t *t) { return (uint32_t)(t - trk); }
 
@@ -152,29 +154,36 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
     if (t->p[P_QUANT] == Q_SNAP) {                     /* SNAP: every key, rounded down to the scale */
         if (micro_active(t)) {
             uint32_t note = micro_snap(t, n + t->p[P_TRANS]);
-            return note == KB_SILENT ? note : micro_degree_map(t, (int32_t)note - 60, 12 * song.octave, 1);
+            return note == KB_SILENT ? note : micro_degree_map(t, (int32_t)note - 60, 12 * input_octave(t), 1);
         }
         uint32_t mask = scale_mask(t), guard = 12;
-        n += 12 * song.octave + t->p[P_TRANS];
+        n += 12 * input_octave(t) + t->p[P_TRANS];
         while (guard-- && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u))
             n--;
         return (uint32_t)clamp(n, 0, 127);
     }
-    return scale_map(t, n, 12 * song.octave);
+    return scale_map(t, n, 12 * input_octave(t));
 }
 
-/* a MIDI note into track t: WHITE and ALL map it as the keys (without the octave buttons), MPC plays the 16 pads of
- * an MPC's Bank H (MIDI 20..35, H01..H16 of MPC Sample's default map; any other note is silent, kits too) as
- * successive degrees of the scale, pad H02 on degree DEG. Kits and slices keep their own note map. KB_SILENT: none */
+/* MPC Sample blank.xpj, data.tracks[0].program.padNoteMap.noteForPad: E01 = 100, F01 = 116
+ * (F13 wraps to 0), G01 = 4, H01 = 20. Return E01..H16 as 0..63; A..D are 64..127. */
+static uint32_t mpc_pad(uint32_t note) { return (note + 28u) & 127u; }
+
+/* A MIDI note into track t: WHITE and ALL map it as the keys (without the octave buttons).
+ * MPC banks E..H play tracks 1..4, each pad 02 on DEG. Other banks / tracks are silent, kits too.
+ * DRUM uses its finger-drumming layout; other kits and slices keep their own note map. KB_SILENT: none. */
 static uint32_t midi_map(const track_t *t, uint32_t note)
 {
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];
-    if (t->p[P_QUANT] == Q_MPC && (note < 20u || note > 35u))
+    uint32_t pad = mpc_pad(note);
+    if (t->p[P_QUANT] == Q_MPC && pad / 16u != trk_index(t))
         return KB_SILENT;
+    if (t->p[P_QUANT] == Q_MPC && drum_track(t))
+        return drum_mpc_note(t, pad);
     if (e->keys && e->keys(t, 0) >= 0)
         return note;
     if (t->p[P_QUANT] == Q_MPC)
-        return scale_degree_map(t, (int32_t)note - 21 + mpc_degree(t) - 1, 12 * song.octave, 1);
+        return scale_degree_map(t, (int32_t)(pad & 15u) - 1 + mpc_degree(t) - 1, 12 * input_octave(t), 1);
     if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL)
         return scale_map(t, (int32_t)note, 0);
     if (micro_active(t) && t->p[P_QUANT] == Q_SNAP)
@@ -715,7 +724,8 @@ static void midi_chord_tone(mchord_t *m)
     uint32_t note = m->note[m->n];
     uint32_t held = midi_note_held(t, note) || midi_local_held(t, note);
     m->n++;
-    if (!held) input_on(t, note, m->strum.vel);
+    /* MPC's duplicate drum pads are separate strikes, even while another pad holds that sound. */
+    if (!held || (t->p[P_QUANT] == Q_MPC && drum_track(t))) input_on(t, note, m->strum.vel);
 }
 
 /* Return the next string boundary, bounded by this clock advance. Splitting the
@@ -1178,19 +1188,30 @@ static track_t *midi_track(uint32_t ch)
     return ch - first < trk_n() ? &trk[ch - first] : 0;
 }
 
+/* QNT is shared. MPC note routing overrides ROUT and DRUM on every input channel; controllers
+ * retain their channel routing and held-note targets. Note-offs use the original saved owner. */
+static track_t *midi_note_track(uint32_t ch, uint32_t note)
+{
+    if (trk[0].p[P_QUANT] == Q_MPC) {
+        uint32_t k = mpc_pad(note) / 16u;
+        return k < 4u && k < trk_n() ? &trk[k] : 0;
+    }
+    return midi_track(ch);
+}
+
 #include "midi_control.c"
 #include "midi_clock.c"
 
 /* An armed stopped track starts with its first musical note, without a count-in.
  * A count-in explicitly started with PLAY keeps its normal pickup behavior.
- * Match local PLAY's clock ownership: an already active MIDI clock stays owned
- * by its source; a selected input alone does not take over internal timing. */
+ * Match local PLAY's clock ownership: a running MIDI clock stays owned by its
+ * source; a selected input or a stopped master does not take over internal timing. */
 static int rec_note_start(track_t *t)
 {
     if (song.playing || cin_left || !(song.rec & (1u << trk_index(t))) || chain.armed || chain.running)
         return 0;
     resource_release(RES_NOTE_HISTORY);
-    if (midi_clock.mode) midi_clock_transport(0xFAu, fm1_ms);
+    if (midi_clock_local_start(fm1_ms)) midi_clock_transport(0xFAu, fm1_ms);
     else seq_start();
     return 1;
 }
@@ -1234,6 +1255,8 @@ static void events_block(uint32_t n)
         midi_clock.selected = (uint8_t)selected_clock;
         midi_beat_samples = 0;
     }
+    if (transport_req == 1u)
+        midi_clock_local_start(fm1_ms);               /* (a silent master: PLAY runs on the internal clock) */
     uint32_t clock_mode = midi_clock.mode;
     if (transport_req == 1u) {
         if (clock_mode)
