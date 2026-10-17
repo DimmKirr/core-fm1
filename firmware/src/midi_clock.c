@@ -25,6 +25,19 @@ static void midi_clock_mode(uint32_t mode)
     midi_clock.mode = (uint8_t)mode;
 }
 
+/* Local PLAY / a REC note: follow the master only while its clock is running. A stopped master
+ * (Stop received, pulses gone) hands timing back to the internal clock until its next Start,
+ * Continue or Stop, so PLAY never dies on the lost-clock timeout. 1 = sync kept. */
+static uint32_t midi_clock_local_start(uint32_t ms)
+{
+    if (!midi_clock.mode)
+        return 0;
+    if (midi_clock.tempo_valid && ms - midi_clock.last_ms <= 500u)
+        return 1;
+    midi_clock_mode(0);
+    return 0;
+}
+
 static __attribute__((noinline)) void midi_clock_transport(uint32_t status, uint32_t ms)
 {
     if (status == 0xFAu) {

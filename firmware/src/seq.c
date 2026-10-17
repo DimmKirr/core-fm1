@@ -1204,14 +1204,14 @@ static track_t *midi_note_track(uint32_t ch, uint32_t note)
 
 /* An armed stopped track starts with its first musical note, without a count-in.
  * A count-in explicitly started with PLAY keeps its normal pickup behavior.
- * Match local PLAY's clock ownership: an already active MIDI clock stays owned
- * by its source; a selected input alone does not take over internal timing. */
+ * Match local PLAY's clock ownership: a running MIDI clock stays owned by its
+ * source; a selected input or a stopped master does not take over internal timing. */
 static int rec_note_start(track_t *t)
 {
     if (song.playing || cin_left || !(song.rec & (1u << trk_index(t))) || chain.armed || chain.running)
         return 0;
     resource_release(RES_NOTE_HISTORY);
-    if (midi_clock.mode) midi_clock_transport(0xFAu, fm1_ms);
+    if (midi_clock_local_start(fm1_ms)) midi_clock_transport(0xFAu, fm1_ms);
     else seq_start();
     return 1;
 }
@@ -1255,6 +1255,8 @@ static void events_block(uint32_t n)
         midi_clock.selected = (uint8_t)selected_clock;
         midi_beat_samples = 0;
     }
+    if (transport_req == 1u)
+        midi_clock_local_start(fm1_ms);               /* (a silent master: PLAY runs on the internal clock) */
     uint32_t clock_mode = midi_clock.mode;
     if (transport_req == 1u) {
         if (clock_mode)
