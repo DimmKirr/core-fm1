@@ -564,3 +564,20 @@ rate with its lines halved.
 Watch this number again after:
   - anything else added to the ISR while the effects are on
   - a longer reverb (more lines) or a stereo phaser
+
+
+Arpeggiator, looper, step view
+------------------------------
+One clock of sixteenths in the ISR, the arpeggiator on its own swung clock
+beside it, the looper's 64 notes walked once a step, and a click mixed in
+after the effects. The step view is all main loop.
+
+  image   129344 B -> 136484 B   (+7140)
+  RAM     31524 B  -> 32692 B    (+1168)
+  cpu     40 % / PK 50 %   ARP/SEQ split build, effects on
+  cpu     37 % / PK 47 %   with ARP page 2 and the step view
+
+2026-10-18, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+The clock costs nothing that shows: the readings moved down, not up, which
+is the difference in what was sounding when they were taken.

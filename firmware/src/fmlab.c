@@ -43,6 +43,14 @@
  *   SEL (hold)   solo it: every other operator off, and again for all six back on
  *   F#5          tap: the other side of the A/B compare; hold: copy this side onto the other one
  *
+ * And something playing while you do it, so both hands are free for the knobs:
+ *
+ *   ARP          TEMPO, PATTERN, OCTAVES and LATCH on HOME's knobs; again, the arpeggiator on and off
+ *   SEQ          TEMPO, BARS, DIV (what a note snaps to) and CLICK on HOME's knobs
+ *   REC          a bar of count-in, then one time round the loop, recorded; while it plays, over it;
+ *                held, the phrase is cleared
+ *   PLAY         the phrase, round and round, and again to stop
+ *
  * The switches are not part of the voice -- a DX7's were front-panel switches, not voice data -- so
  * they are applied on the way to the ISR and `edit` never carries them. Soloing a modulator is
  * silent, because a modulator is never heard, only felt: the output bus in the diagram turns red to
@@ -575,6 +583,177 @@ static void ev_drain(void)                      /* audio ISR, before the render 
     }
 }
 
+/* ---- the clock, the arpeggiator and the sequencer: the ISR's half
+ *
+ * They are here for one reason, and it is not composition: a sound is designed by listening to it,
+ * and listening is easier when the notes keep coming without a hand on the keys. So both are as
+ * small as they can be and still do that. One clock of sixteenths at TEMPO drives both. The
+ * arpeggiator walks the keys held (or, latched, the last chord) up, down, both, or at random, over
+ * one to four octaves. The sequencer loops one recorded phrase of 1, 2 or 4 bars, with a click on
+ * the quarters if you want one -- and always for the bar of count-in before a recording.
+ *
+ * The clock lives in the ISR rather than the main loop, because the main loop stops for as long as
+ * a screen takes to draw and the ISR never does: here a note is late by at most one 64-sample block,
+ * 1.5 ms, and the beat never drifts, because the phase is carried rather than restarted. The main
+ * loop hands over everything it decides -- the chord, the phrase, the settings -- in one struct,
+ * double-buffered the way the patch is. */
+#define SQ_MAX 64u                              /* notes in a phrase */
+#define ARP_MAX 16u                             /* keys in a chord */
+enum { AP_UP = 0, AP_DOWN, AP_UPDOWN, AP_RANDOM, AP_PLAYED };
+typedef struct { uint8_t step, note, len; } sqn_t;   /* a note of the phrase, in sixteenths */
+typedef struct {
+    uint32_t step_q8;                           /* a sixteenth: Q8 samples */
+    uint32_t a_len[2], a_gate[2];               /* an arp step on the beat and off it -- SWING is the
+                                                 * difference -- and how much of each sounds */
+    uint8_t run, gen, cin, click;               /* gen: which PLAY; cin: steps of count-in before the loop */
+    uint8_t arp, pat, oct, an, vel, sq_n, sq_len;
+    uint8_t chord[ARP_MAX];                     /* ascending */
+    uint8_t ord[ARP_MAX];                       /* ..and as the keys went down */
+    sqn_t sq[SQ_MAX];
+} play_t;
+static play_t plbuf[2];
+static volatile uint32_t plcur;
+/* where the clock is, for the main loop to record against: the step since PLAY (count-in and all),
+ * how far into it in Q8 samples, and which PLAY -- or 0xFFFF, stopped */
+static volatile uint32_t pl_at, pl_atph, pl_atgen = 0xFFFFu;
+
+static uint32_t pl_ph, pl_step, arp_ph, arp_rng = 1u;
+static uint32_t clk_ph, clk_inc;                /* the click: a square, dying away */
+static int32_t clk_a;                           /* its level, Q8 */
+#define CLK_LEN 900                             /* 20 ms */
+#define CLK_A0 (5000 * 256)
+static uint8_t pl_run, pl_gen, pl_an, arp_odd, arp_ni, arp_oi, arp_up = 1, arp_new, arp_note = 0xFFu;
+static uint8_t sq_note[SQ_MAX], sq_left[SQ_MAX];  /* what each note of the phrase is sounding, and for
+                                                   * how many more steps: the note is kept, so a phrase
+                                                   * replaced under it can still let it go */
+
+static void pl_on(uint32_t n, uint32_t vel) { if (monomode) m_on(n, vel); else v_on(n, vel); }
+static void pl_off(uint32_t n) { if (monomode) m_off(n); else v_off(n); }
+
+static void arp_upstep(uint32_t n, uint32_t o)
+{
+    if (++arp_ni >= n) { arp_ni = 0; if (++arp_oi >= o) arp_oi = 0; }
+}
+
+static void arp_downstep(uint32_t n, uint32_t o)
+{
+    if (arp_ni) { arp_ni--; return; }
+    arp_ni = (uint8_t)(n - 1u);
+    arp_oi = (uint8_t)(arp_oi ? arp_oi - 1u : o - 1u);
+}
+
+static uint32_t arp_rand(uint32_t n)            /* 0..n-1, without a division */
+{
+    arp_rng = arp_rng * 1664525u + 1013904223u;
+    return ((arp_rng >> 16) * n) >> 16;
+}
+
+static void arp_next(const play_t *p)
+{
+    uint32_t n = p->an, o = p->oct + 1u;
+    if (arp_ni >= n) arp_ni = (uint8_t)(n - 1u);    /* a key let go under it */
+    if (arp_oi >= o) arp_oi = (uint8_t)(o - 1u);
+    if (p->pat == AP_RANDOM) {
+        arp_ni = (uint8_t)arp_rand(n);
+        arp_oi = (uint8_t)arp_rand(o);
+    } else if (arp_new) {                       /* a fresh chord: from its own end */
+        arp_up = p->pat != AP_DOWN;
+        arp_ni = (uint8_t)(arp_up ? 0u : n - 1u);
+        arp_oi = (uint8_t)(arp_up ? 0u : o - 1u);
+    } else if (p->pat == AP_UP || p->pat == AP_PLAYED) {
+        arp_upstep(n, o);
+    } else if (p->pat == AP_DOWN) {
+        arp_downstep(n, o);
+    } else if (n * o > 1u) {                    /* up and down, without playing either end twice */
+        if (arp_up && arp_ni + 1u >= n && arp_oi + 1u >= o) arp_up = 0;
+        else if (!arp_up && !arp_ni && !arp_oi) arp_up = 1;
+        if (arp_up) arp_upstep(n, o); else arp_downstep(n, o);
+    }
+    arp_new = 0;
+}
+
+static void clk_go(uint32_t bar)                /* a tick; higher on the first beat of a bar */
+{
+    clk_ph = 0;
+    clk_inc = bar ? 194783098u : 97391549u;     /* 2 kHz, 1 kHz: 2^32 f / FS */
+    clk_a = CLK_A0;
+}
+
+static void pl_tick(const play_t *p)            /* once a 64-sample block, before it is rendered */
+{
+    uint32_t i, an = p->arp ? p->an : 0u;
+    if (p->run != pl_run || (p->run && p->gen != pl_gen)) {   /* started, stopped or started over:
+                                                               * from the top, now */
+        for (i = 0; i < SQ_MAX; i++)
+            if (sq_left[i]) { pl_off(sq_note[i]); sq_left[i] = 0; }
+        pl_run = p->run;
+        pl_gen = p->gen;
+        if (pl_run) {
+            pl_step = 0xFFFFFFFFu;
+            pl_ph = p->step_q8;
+            arp_ph = p->a_len[1];               /* the arpeggiator on the same downbeat */
+            arp_odd = 1;
+        }
+    }
+    if ((an != 0u) != (pl_an != 0u)) {         /* the arpeggiator started or stopped */
+        if (arp_note != 0xFFu) { pl_off(arp_note); arp_note = 0xFFu; }
+        if (an) {
+            arp_new = 1;
+            if (!pl_run) {                      /* on its own it starts with the key, not the beat */
+                arp_ph = p->a_len[1];
+                arp_odd = 1;
+            }
+        }
+    }
+    pl_an = (uint8_t)an;
+    if (pl_ph >= p->step_q8) {
+        pl_ph -= p->step_q8;
+        if (pl_ph >= p->step_q8)
+            pl_ph = 0;                          /* the tempo went up past where we were */
+        pl_step++;
+        if (pl_run && pl_step < p->cin) {       /* the count-in: only the click */
+            if (!(pl_step & 3u))
+                clk_go(!(pl_step & 15u));
+        } else if (pl_run && p->sq_len) {
+            uint32_t pos = (pl_step - p->cin) & (p->sq_len - 1u);   /* 16, 32 or 64 */
+            if (p->click && !(pos & 3u))
+                clk_go(!(pos & 15u));
+            for (i = 0; i < SQ_MAX; i++)
+                if (sq_left[i] && --sq_left[i] == 0u)
+                    pl_off(sq_note[i]);
+            for (i = 0; i < p->sq_n; i++)
+                if (p->sq[i].step == pos) {
+                    if (sq_left[i]) pl_off(sq_note[i]);
+                    sq_note[i] = p->sq[i].note;
+                    sq_left[i] = p->sq[i].len;
+                    pl_on(sq_note[i], 100u);
+                }
+        }
+    }
+    pl_ph += (uint32_t)DX_N << 8;
+    /* the arpeggiator's own steps, at RATE and swung: they run on whether or not there is a chord,
+     * so one started under a playing phrase lands on its grid */
+    if (arp_note != 0xFFu && arp_ph >= p->a_gate[arp_odd]) { pl_off(arp_note); arp_note = 0xFFu; }
+    if (arp_ph >= p->a_len[arp_odd]) {
+        arp_ph -= p->a_len[arp_odd];
+        arp_odd ^= 1u;
+        if (arp_ph >= p->a_len[arp_odd])
+            arp_ph = 0;                         /* the tempo went up past where we were */
+        if (an) {
+            uint32_t n;
+            if (arp_note != 0xFFu) pl_off(arp_note);
+            arp_next(p);
+            n = (uint32_t)(p->pat == AP_PLAYED ? p->ord : p->chord)[arp_ni] + 12u * arp_oi;
+            arp_note = (uint8_t)(n > 127u ? 127u : n);
+            pl_on(arp_note, p->vel);
+        }
+    }
+    arp_ph += (uint32_t)DX_N << 8;
+    pl_at = pl_step;
+    pl_atph = pl_ph;
+    pl_atgen = pl_run ? pl_gen : 0xFFFFu;
+}
+
 /* ---- the load. The ISR must render HALF_FRAMES before the DMA plays them: 5.80 ms at 44.1 kHz.
  * Anything under that is headroom, and this is the number that decides how many voices the FM-1 can
  * actually hold. On the computer fm1_ticks() is that computer's clock, so the figure means nothing
@@ -930,6 +1109,7 @@ static void app_audio(int32_t *out, uint32_t n)
     static int32_t f_ic1, f_ic2;                /* the filter's two integrators */
     flt_t ft = fbuf[fcur];
     const fx_t *xf = &xbuf[xcur];
+    const play_t *pq = &plbuf[plcur];
     uint32_t b, v, i, lit = 0, us, t0 = fm1_ticks();
     uint32_t ge = !genv_idle();                 /* is the global envelope worth the multiply? */
     int32_t g0;
@@ -939,6 +1119,7 @@ static void app_audio(int32_t *out, uint32_t n)
         f_ic1 = f_ic2 = 0;
 
     for (b = 0; b < n; b += DX_N) {
+        pl_tick(pq);                            /* the arpeggiator and the phrase, on the block */
         for (i = 0; i < DX_N; i++)
             mono[i] = 0;
         for (v = 0; v < NV; v++) {
@@ -1001,9 +1182,20 @@ static void app_audio(int32_t *out, uint32_t n)
         }
         if (xf->on)
             fx_run(xf, mono, one);              /* `one` is free once the voices are summed */
+        if (!xf->on)
+            for (i = 0; i < DX_N; i++)
+                one[i] = mono[i];
+        for (i = 0; clk_a > 0 && i < DX_N; i++) {   /* the click, after everything: not reverberated,
+                                                     * and not in the analyser or the scope */
+            int32_t c = clk_ph >> 31 ? clk_a >> 8 : -(clk_a >> 8);
+            mono[i] += c;
+            one[i] += c;
+            clk_ph += clk_inc;
+            clk_a -= CLK_A0 / CLK_LEN;
+        }
         for (i = 0; i < DX_N; i++) {
             out[2u * (b + i)] += mono[i];
-            out[2u * (b + i) + 1u] += xf->on ? one[i] : mono[i];
+            out[2u * (b + i) + 1u] += one[i];
         }
     }
     v_lit = lit;
@@ -1038,7 +1230,16 @@ enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, 
        K_FXHZ,                                  /* an effect's LFO, in hertz */
        K_DLYT,                                  /* the delay's TIME, in ms */
        K_RT,                                    /* the reverb's DECAY, in seconds */
-       K_PRE };                                 /* its PRE, in ms */                              /* an operator's wave: SINE, or seven that are not */
+       K_PRE,
+       K_BPM,                                   /* TEMPO: 40 + 2 a step */
+       K_APAT,                                  /* the arpeggiator's pattern */
+       K_AOCT,                                  /* ..and how many octaves it climbs */
+       K_BARS,                                  /* the phrase: 1, 2 or 4 bars */
+       K_DIV,                                   /* ..and what a note recorded into it snaps to */
+       K_PCT,                                   /* 1..100 % */
+       K_ARATE,                                 /* the arpeggiator's step, as a note value */
+       K_SWING,                                 /* 50..75 %: how far the off-beat step is pushed */
+       K_VEL };                                 /* 0..99, said as the MIDI velocity it is */
 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
@@ -1047,9 +1248,17 @@ enum { UI_SPAN = 0, UI_GATK, UI_GDEC, UI_GSUS, UI_GREL, UI_FCUT, UI_FRES, UI_FTY
        UI_FX,                                   /* the effects: MIX first, then three, each */
        UI_GOFF = UI_FX + 4 * FX_N,              /* the global envelope switched out, its knobs kept;
                                                  * it starts out, so a patch is heard as it was made */
+       UI_TEMPO,                                /* the clock, which both of them run on */
+       UI_APAT, UI_AOCT, UI_LATCH,              /* the arpeggiator's */
+       UI_BARS, UI_DIV, UI_CLICK,               /* the sequencer's */
+       UI_AGATE, UI_ARATE, UI_SWING, UI_AVEL,   /* the arpeggiator's second four */
        UI_N };
+#define PL2_N 4u                                /* UI_AGATE onwards */
+#define PL_N 7u                                 /* UI_TEMPO onwards */
 #define FX_DEFAULTS 0, 45, 40, 70,  0, 35, 70, 40,  0, 65, 35, 60,  0, 55, 30, 10
-static uint8_t ui[UI_N] = {2, 0, 50, 99, 99, 60, 0, 0, FX_DEFAULTS, 1};
+#define PLAY_DEFAULTS 40, 0, 0, 0, 0, 0, 0       /* 120 BPM, UP, one octave, unlatched; 1 bar, 1/16, no click */
+#define PLAY2_DEFAULTS 59, 3, 0, 78             /* 60 %, 1/16, straight, velocity 100 */
+static uint8_t ui[UI_N] = {2, 0, 50, 99, 99, 60, 0, 0, FX_DEFAULTS, 1, PLAY_DEFAULTS, PLAY2_DEFAULTS};
 enum { FT_OFF = 0, FT_LP, FT_BP, FT_HP };
 
 /* The ISR's copy of the global envelope. Called once a pass rather than at each of the places a
@@ -1432,7 +1641,27 @@ static const param_t PG_MIX[] = {
     {"REVERB MIX", "REVERB", P_UI, UI_FX + 12, 99, K_NUM},
 };
 
-enum { PAGE_HOME = 0, PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_GLO, PAGE_FX };
+/* ..ARP's and SEQ's: the clock both of them run on, then what is each one's own. */
+static const param_t PG_ARP[] = {
+    {"TEMPO",       0,         P_UI, UI_TEMPO, 99, K_BPM},
+    {"ARP PATTERN", "PATTERN", P_UI, UI_APAT,  4,  K_APAT},
+    {"ARP OCTAVES", "OCTAVE",  P_UI, UI_AOCT,  3,  K_AOCT},
+    {"ARP LATCH",   "LATCH",   P_UI, UI_LATCH, 1,  K_ONOFF},
+};
+static const param_t PG_ARP2[] = {             /* ..and SELECT's second four */
+    {"ARP GATE",    "GATE",    P_UI, UI_AGATE, 99, K_PCT},
+    {"ARP RATE",    "RATE",    P_UI, UI_ARATE, 5,  K_ARATE},
+    {"ARP SWING",   "SWING",   P_UI, UI_SWING, 25, K_SWING},
+    {"ARP VELOCITY", "VELO",   P_UI, UI_AVEL,  99, K_VEL},
+};
+static const param_t PG_SEQ[] = {
+    {"TEMPO",       0,         P_UI, UI_TEMPO, 99, K_BPM},
+    {"SEQ BARS",    "BARS",    P_UI, UI_BARS,  2,  K_BARS},
+    {"SEQ DIV",     "DIV",     P_UI, UI_DIV,   2,  K_DIV},
+    {"CLICK",       0,         P_UI, UI_CLICK, 1,  K_ONOFF},
+};
+
+enum { PAGE_HOME = 0, PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_GLO, PAGE_FX, PAGE_STEP };
 /* rows: how many parameters a bank shows at once, and y0 where the first one sits. The envelope
  * page shows only two, because the graph above them is worth more than two more numbers -- and a
  * rate with the level it is heading for is the pair that actually means something together. */
@@ -1443,21 +1672,24 @@ static const struct { const char *name; const param_t *p; uint8_t n, rows, y0; }
     {"LFO",       PG_LFO, sizeof PG_LFO / sizeof PG_LFO[0], 3, 56},
     {"GLOBAL",    PG_GLO, sizeof PG_GLO / sizeof PG_GLO[0], 4, 56},
     {"EFFECTS",   PG_EFX, sizeof PG_EFX / sizeof PG_EFX[0], 4, 56},
+    {"STEPS",     0,      0,                                4, 56},   /* the phrase, drawn: its own */
 };
 #define PAGE_ROWS ((uint32_t)PAGE[page].rows)
 #define HOME_NBANK 3u                           /* HOME's screens: the diagram, the spectrum, the wave */
 
 static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
 static uint8_t gsel;                            /* ..or the global envelope, which is not an operator */
-enum { FOC_OFF = 0, FOC_EDIT, FOC_ENV, FOC_LFO, FOC_FX };  /* a tap puts the top of a page under the knobs */
+enum { FOC_OFF = 0, FOC_EDIT, FOC_ENV, FOC_LFO, FOC_FX, FOC_SEQ, FOC_ARP };  /* a tap puts the top of a page under the knobs */
 static uint8_t focus;
 #define LONG_MS 400u                            /* longer than a tap, shorter than a wait */
 #define FOC_N 4u
 static const uint8_t FOC_BTN[FOC_N] = {BTN_EDIT, BTN_ENV, BTN_LFO, BTN_FX};
 static const uint8_t FOC_MODE[FOC_N] = {FOC_EDIT, FOC_ENV, FOC_LFO, FOC_FX};
 static const uint8_t FOC_PAGE[FOC_N] = {PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_FX};
-static const char *const FOC_NAME[FOC_N] = {"EDIT", "ENV", "LFO", "FX"};
+static const char *const FOC_NAME[] = {"EDIT", "ENV", "LFO", "FX", "SEQ", "ARP"};
 static uint8_t fxsel;                           /* the effect the EFFECTS page last showed */
+static uint8_t arp_pg;                          /* ARP's knobs: the first four, or SELECT's second */
+static uint8_t stc;                             /* the step view's cursor */
 
 /* ---- a few things under the four knobs, without leaving the screen you play on
  *
@@ -1526,12 +1758,16 @@ static const param_t *focus_at(uint32_t e)
                     : (e < 1u ? &PG_OP[PG_OP_AMS] : 0);
     if (focus == FOC_FX)                        /* the four MIXes, one knob an effect */
         return e < 4u ? &PG_MIX[e] : 0;
+    if (focus == FOC_SEQ)                       /* the clock and the sequencer */
+        return e < 4u ? &PG_SEQ[e] : 0;
+    if (focus == FOC_ARP)                       /* the clock and the arpeggiator */
+        return e < 4u ? (arp_pg ? &PG_ARP2[e] : &PG_ARP[e]) : 0;
     return 0;
 }
 
-/* Do the focus knobs have a byte belonging to one operator under them? It decides three things at
- * once -- whether the black keys point, whether the title names an operator, and whether the
- * diagram draws that operator's envelope in its box -- and they must agree, because the title is
+/* Do the focus knobs have a byte belonging to one operator under them? It decides several things
+ * at once -- whether the black keys point, whether the title names an operator, whether the diagram
+ * rings it and draws its envelope in its box, and whether SEL switches it -- and they must agree, because the title is
  * the only warning that part of the keyboard has stopped playing. */
 static uint32_t foc_op(void)
 {
@@ -1548,7 +1784,9 @@ static uint32_t foc_op(void)
 static void foc_step(int32_t d)
 {
     int32_t o;
-    if (focus == FOC_FX)                        /* ..except under FX, which has all four already */
+    if (focus == FOC_ARP && (d & 1))            /* ARP has two sets of four, and no operator */
+        arp_pg ^= 1u;
+    if (focus >= FOC_FX)                        /* ..FX and SEQ, one set and no operator */
         return;
     o = (int32_t)opsel - d % 6;                 /* forward: OP1 -> OP2 -> .. */
     opsel = (uint8_t)((o + 6) % 6);
@@ -1725,6 +1963,10 @@ static uint8_t wrap_n(int32_t v, uint32_t n)
 
 static void sel_step(int32_t d)
 {
+    if (page == PAGE_STEP) {                    /* the step view: the cursor, round the loop */
+        stc = wrap_n((int32_t)stc + d, 16u << ui[UI_BARS]);
+        return;
+    }
     if (home_flt())
         return;                                 /* one filter: there is no next one */
     if (focus != FOC_OFF && page == PAGE_HOME)
@@ -1813,6 +2055,8 @@ static const char *const CURVE[] = {"-LIN", "-EXP", "+EXP", "+LIN"};
 static const char *const OPWAVE[DX_NWAVE] = {"SINE", "HALF SINE", "ABS SINE", "QUARTER",
                                              "ALT SINE", "CAMEL", "SQUARE", "SAW"};
 static const char *const FTYPE[] = {"OFF", "LOW PASS", "BAND PASS", "HIGH PASS"};
+static const char *const APAT[] = {"UP", "DOWN", "UP/DOWN", "RANDOM", "AS PLAYED"};
+static const char *const ARATE[] = {"1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"};
 static const char NOTE_NAME[12][3] = {"C ", "C#", "D ", "D#", "E ", "F ", "F#", "G ", "G#", "A ", "A#", "B "};
 /* ---- the screen */
 #define C_ACC RGB(180, 140, 255)                /* lilac, as the logo */
@@ -2006,6 +2250,15 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
         return put(s, i, "S");
     }
     case K_PRE: i = putn(s, i, v, 1); return put(s, i, "MS");
+    case K_BPM: i = putn(s, i, 40u + 2u * v, 1); return put(s, i, " BPM");
+    case K_APAT: return put(s, i, APAT[v < 5u ? v : 0u]);
+    case K_AOCT: i = putn(s, i, v + 1u, 1); return put(s, i, v ? " OCTS" : " OCT");
+    case K_BARS: return put(s, i, v == 0u ? "1 BAR" : v == 1u ? "2 BARS" : "4 BARS");
+    case K_DIV: return put(s, i, v == 0u ? "1/16" : v == 1u ? "1/8" : "1/4");
+    case K_PCT: i = putn(s, i, v + 1u, 1); return put(s, i, "%");
+    case K_ARATE: return put(s, i, ARATE[v < 6u ? v : 3u]);
+    case K_SWING: i = putn(s, i, 50u + v, 1); return put(s, i, "%");
+    case K_VEL: return putn(s, i, v ? (v * 127u + 49u) / 99u : 1u, 1);
     case K_ALG:  return putn(s, i, v + 1u, 1);
     case K_BRK:                                 /* 0..99 is A-1 upwards */
         i = put(s, i, NOTE_NAME[(v + 21u) % 12u]);
@@ -2553,7 +2806,7 @@ static void draw_alg(void)
      * the line that says so rather than leaving you wondering what broke. */
     cv_rect(a_x0, a_ybase + 3, a_dx * (int32_t)a_ncol, 2, (cs & ~(uint32_t)opmute) ? C_OFF : RGB(130, 50, 50));
     for (op = 0; op < 6u; op++)
-        alg_box(a_bx(op), a_by(op), op, op == opsel && !eg_glo());
+        alg_box(a_bx(op), a_by(op), op, op == opsel && foc_op());
     cv_blit(0, ALG_Y);
 }
 
@@ -2571,7 +2824,7 @@ static void draw_alg_levels(void)
         if (x < 0) x = 0;
         if (x + w > 240) w = 240 - x;
         cv_begin((uint32_t)w, (uint32_t)(a_bh + 6), C_BLACK);
-        alg_box(a_bx(op) - x, 3, op, op == opsel && !eg_glo());
+        alg_box(a_bx(op) - x, 3, op, op == opsel && foc_op());
         cv_blit((uint32_t)x, (uint32_t)(ALG_Y + y));
     }
 }
@@ -3227,6 +3480,8 @@ static void draw_home_title(void)
         i = put(s, 0, "LFO GLOBAL");
     else {
         i = put(s, 0, FOC_NAME[focus - 1u]);
+        if (focus == FOC_ARP)
+            i = put(s, i, arp_pg ? " 2/2" : " 1/2");
         if (foc_op()) {                         /* ..of one operator, and which, if it is one */
             i = put(s, i, " OP");
             i = putn(s, i, 6u - opsel, 1);
@@ -3307,6 +3562,8 @@ static void draw_legend(void)
                 buf[i] = 0;
                 s = buf;
             }
+        } else if (page == PAGE_STEP) {
+            s = e == 0u ? "LENGTH" : p_knob(&PG_SEQ[e - 1u]);   /* ..and SEQ's TEMPO, BARS, DIV */
         } else {
             const param_t *p = e < bank_rows(bank) ? page_at(bank_first(bank) + e) : 0;
             if (p)
@@ -3527,10 +3784,320 @@ static int app_sysex(const uint8_t *p, uint32_t n)
     return 0;
 }
 
+/* ---- the clock, the arpeggiator and the sequencer: the main loop's half
+ *
+ * The arpeggiator takes the keys you would otherwise have played. Unlatched it walks the ones held
+ * down, and stops when you let go. Latched it keeps walking the last chord after you let go, and
+ * the next key pressed with none held starts a new chord in its place -- which is the one that
+ * leaves both hands free. ARP's first tap puts its knobs on HOME; a tap there turns it on and off.
+ *
+ * The sequencer is a loop of BARS, and REC is one time round it. Stopped, REC counts a bar in on
+ * the click and then records from the downbeat; playing, it records over what is there, from
+ * wherever the loop is. Either way it stops recording by itself when it has been all the way round,
+ * so there is no button to hit in time, and the loop goes on playing. Every note snaps to the
+ * nearest DIV -- its start and its end -- so the playing can be loose and still loop. A hold of REC
+ * throws the phrase away. Notes are counted on the ISR's clock, not the main loop's, so what is
+ * recorded is exactly where the loop will play it. */
+static uint8_t seq_run, seq_gen, seq_cin, arp_on, rec, pl_dirty;   /* rec: 1 to begin where the loop is,
+                                                                   * 2 taking notes */
+static uint8_t chord[ARP_MAX], chord_n;
+static uint8_t chord_ord[ARP_MAX];              /* the same keys, in the order they went down */
+static uint32_t arpkeys;                        /* the keys that are the arpeggiator's, down */
+static sqn_t sq[SQ_MAX];                        /* the phrase */
+static uint8_t sq_n;
+static uint32_t rec_from, rec_to;               /* the recording, in steps since PLAY */
+static uint32_t rkeys, rk_st[27];               /* keys down being recorded, and the step each began on */
+static uint8_t rk_note[27];
+
+static uint32_t bpm(void)
+{
+    return 40u + 2u * ui[UI_TEMPO];
+}
+
+static uint32_t sq_len(void) { return 16u << ui[UI_BARS]; }
+static uint32_t sq_div(void) { return 1u << ui[UI_DIV]; }  /* in sixteenths */
+
+/* Where the loop is, in Q8 sixteenths since PLAY -- or 0 when it is not running, or the ISR has not
+ * yet taken this PLAY. The ISR can land between two reads, so they are read until they agree. */
+static uint32_t clock_at(uint32_t *q8)
+{
+    uint32_t st, ph, g;
+    do {
+        st = pl_at;
+        ph = pl_atph;
+        g = pl_atgen;
+    } while (st != pl_at || ph != pl_atph);
+    if (!seq_run || g != seq_gen)
+        return 0;
+    *q8 = st * 256u + ph * 256u / (FS * 15u * 256u / bpm());
+    return 1;
+}
+
+static uint32_t q_round(uint32_t q8)            /* the nearest DIV, in sixteenths */
+{
+    uint32_t d = sq_div();
+    return (q8 + d * 128u) / (d * 256u) * d;
+}
+
+static void chord_add(uint8_t n)
+{
+    uint32_t i, j;
+    for (i = 0; i < chord_n && chord[i] < n; i++)
+        ;
+    if ((i < chord_n && chord[i] == n) || chord_n >= ARP_MAX)
+        return;
+    for (j = chord_n; j > i; j--)
+        chord[j] = chord[j - 1u];
+    chord[i] = n;
+    chord_ord[chord_n] = n;
+    chord_n++;
+}
+
+static void chord_del(uint8_t n)
+{
+    uint32_t i;
+    for (i = 0; i < chord_n && chord[i] != n; i++)
+        ;
+    if (i >= chord_n)
+        return;
+    for (; i + 1u < chord_n; i++)
+        chord[i] = chord[i + 1u];
+    for (i = 0; chord_ord[i] != n; i++)
+        ;
+    for (; i + 1u < chord_n; i++)
+        chord_ord[i] = chord_ord[i + 1u];
+    chord_n--;
+}
+
+static void sq_put(uint8_t note, uint32_t st, uint32_t len)   /* st in steps since PLAY */
+{
+    uint32_t i, n = sq_len(), pos = (st - seq_cin) & (n - 1u);
+    if (len > n)
+        len = n;
+    for (i = 0; i < sq_n; i++)                  /* played again where it already was: replaced */
+        if (sq[i].step == pos && sq[i].note == note)
+            break;
+    if (i == sq_n) {
+        if (sq_n >= SQ_MAX) {
+            say("SEQ FULL");
+            return;
+        }
+        sq_n++;
+    }
+    sq[i].step = (uint8_t)pos;
+    sq[i].note = note;
+    sq[i].len = (uint8_t)(len ? len : 1u);
+    pl_dirty = 1;
+}
+
+static void rec_down(uint32_t k, uint8_t note)  /* a key played while recording */
+{
+    uint32_t q, r;
+    if (rec != 2u || !clock_at(&q))
+        return;
+    r = q_round(q);
+    if (r < rec_from)                           /* the count-in, and not close enough to its end */
+        return;
+    rkeys |= 1u << k;
+    rk_st[k] = r;
+    rk_note[k] = note;
+}
+
+static void rec_close(uint32_t k, uint32_t e)   /* key k's note ends at step e */
+{
+    rkeys &= ~(1u << k);
+    sq_put(rk_note[k], rk_st[k], e > rk_st[k] ? e - rk_st[k] : sq_div());
+}
+
+static void rec_up(uint32_t k)
+{
+    uint32_t q;
+    if (rkeys >> k & 1u)
+        rec_close(k, clock_at(&q) ? q_round(q) : 0u);
+}
+
+static void rec_stop(void)                      /* what is still held ends here */
+{
+    uint32_t k, q, e = clock_at(&q) ? q_round(q) : 0u;
+    if (rec == 2u && e > rec_to)
+        e = rec_to;
+    for (k = 0; k < 27u; k++)
+        if (rkeys >> k & 1u)
+            rec_close(k, e);
+    rec = 0;
+}
+
+static void seq_start(uint32_t cin)             /* from the top, after cin steps of count-in */
+{
+    seq_run = 1;
+    seq_gen++;
+    seq_cin = (uint8_t)cin;
+}
+
+static void rec_poll(void)                      /* every pass: begin an overdub, end a recording */
+{
+    uint32_t q;
+    if (!rec || !clock_at(&q))
+        return;
+    if (rec == 1u) {
+        rec_from = q >> 8;
+        rec_to = rec_from + sq_len();
+        rec = 2;
+    } else if ((q >> 8) >= rec_to) {
+        rec_stop();
+        say(sq_n ? "REC DONE" : "NOTHING RECORDED");
+    }
+}
+
+static uint32_t counting_in(void)               /* REC is waiting for the downbeat */
+{
+    uint32_t q;
+    return rec == 2u && (!clock_at(&q) || (q >> 8) < rec_from);
+}
+
+static void pl_sync(void)                       /* hand the ISR what it plays: every pass, as the
+                                                 * effects are, because it is cheaper than tracking */
+{
+    static const uint8_t ARP_DIV[6] = {1, 2, 3, 4, 6, 8};   /* RATE: steps to the beat */
+    play_t *d = &plbuf[plcur ^ 1u];
+    uint32_t a, i, g = ui[UI_AGATE] + 1u, v = ui[UI_AVEL];
+    d->step_q8 = FS * 15u * 256u / bpm();       /* 44100 * 15 * 256 still fits */
+    a = FS * 60u * 256u / bpm() / ARP_DIV[ui[UI_ARATE] < 6u ? ui[UI_ARATE] : 3u];   /* 52 s Q8 at most */
+    d->a_len[0] = a / 50u * (50u + ui[UI_SWING]);   /* the on-beat step the longer; the pair the same */
+    d->a_len[1] = 2u * a - d->a_len[0];
+    for (i = 0; i < 2u; i++)
+        d->a_gate[i] = d->a_len[i] / 100u * g;
+    d->vel = (uint8_t)(v ? (v * 127u + 49u) / 99u : 1u);
+    d->run = seq_run;
+    d->gen = seq_gen;
+    d->cin = seq_cin;
+    d->click = ui[UI_CLICK];
+    d->arp = arp_on;
+    d->pat = ui[UI_APAT];
+    d->oct = ui[UI_AOCT];
+    d->an = chord_n;
+    memcpy(d->chord, chord, chord_n);
+    memcpy(d->ord, chord_ord, chord_n);
+    d->sq_n = sq_n;
+    d->sq_len = (uint8_t)sq_len();
+    memcpy(d->sq, sq, sq_n * sizeof sq[0]);
+    RING_PUBLISH();
+    plcur ^= 1u;
+}
+
+/* ---- the step view
+ *
+ * The phrase as a grid: a row of sixteen sixteenths to each bar, a filled cell where a note starts
+ * and a dim one for as long as it is held. The cursor (SELECT) is a white frame; the keys that
+ * start on it are the keys lit on the keyboard, and pressing a key there puts that note on it or
+ * takes it off. Under a playing loop the step it is on is marked beneath the row. Only the cells
+ * that change are drawn, so following the loop costs a cell or two a step. */
+#define ST_Y 60u                                /* the first row; one more each 30 down */
+static uint8_t cell_drawn[SQ_MAX];              /* what each cell last showed; 0xFF: draw it */
+
+static uint32_t st_x(uint32_t i)                /* 14 a cell, and 2 more between beats */
+{
+    return 6u + i * 14u + (i >> 2) * 2u;
+}
+
+static void draw_steps(void)
+{
+    uint8_t occ[SQ_MAX];                        /* 2: a note starts here; 1: one is held over it */
+    uint32_t i, j, n = sq_len(), q, ph = 0xFFu;
+    memset(occ, 0, sizeof occ);
+    for (i = 0; i < sq_n; i++) {
+        if (sq[i].step >= n)
+            continue;                           /* past the loop: kept, but not played */
+        for (j = 1; j < sq[i].len && j < n; j++)
+            if (!occ[(sq[i].step + j) & (n - 1u)])
+                occ[(sq[i].step + j) & (n - 1u)] = 1;
+    }
+    for (i = 0; i < sq_n; i++)
+        if (sq[i].step < n)
+            occ[sq[i].step] = 2;
+    if (clock_at(&q) && (q >> 8) >= seq_cin)
+        ph = ((q >> 8) - seq_cin) & (n - 1u);
+    for (i = 0; i < SQ_MAX; i++) {
+        uint32_t x = st_x(i & 15u), y = ST_Y + (i >> 4) * 30u;
+        uint8_t c = (uint8_t)(i >= n ? 0x80u :
+                              occ[i] | (i == stc ? 4u : 0u) | (i == ph ? 8u : 0u));
+        if (c == cell_drawn[i])
+            continue;
+        cell_drawn[i] = c;
+        lcd_fill(x - 1u, y - 1u, 14, 21, C_BLACK);   /* its own, and not a pixel of the next */
+        if (c & 0x80u)
+            continue;
+        if (c & 4u)                             /* the cursor: a frame round the cell */
+            lcd_fill(x - 1u, y - 1u, 14, 16, RGB(255, 255, 255));
+        lcd_fill(x, y, 12, 14, (c & 3u) == 2u ? C_ACC : (c & 3u) == 1u ? RGB(80, 62, 125) :
+                               (i & 3u) ? RGB(34, 34, 34) : RGB(62, 62, 62));   /* a beat's first, lighter */
+        if (c & 8u)                             /* the loop is here */
+            lcd_fill(x, y + 16u, 12, 3, RGB(255, 200, 80));
+    }
+}
+
+static uint32_t st_find(uint32_t note)          /* the note starting on the cursor, or sq_n */
+{
+    uint32_t i;
+    for (i = 0; i < sq_n; i++)
+        if (sq[i].step == stc && sq[i].note == note)
+            break;
+    return i;
+}
+
+static uint32_t st_toggle(uint8_t note)         /* a key on the step view: 1 if it went in */
+{
+    uint32_t i = st_find(note), n = sq_len(), d = sq_div();
+    if (i < sq_n) {                             /* there: out */
+        for (; i + 1u < sq_n; i++)
+            sq[i] = sq[i + 1u];
+        sq_n--;
+        pl_dirty = 1;
+        return 0;
+    }
+    if (sq_n >= SQ_MAX) {
+        say("SEQ FULL");
+        return 0;
+    }
+    sq[sq_n].step = stc;
+    sq[sq_n].note = note;
+    sq[sq_n].len = (uint8_t)(d < n ? d : n);
+    sq_n++;
+    pl_dirty = 1;
+    return 1;
+}
+
+static void st_len(int32_t d)                   /* LENGTH, of every note on the cursor */
+{
+    uint32_t i, k = 0, n = sq_len(), first = 0;
+    for (i = 0; i < sq_n; i++) {
+        int32_t v;
+        if (sq[i].step != stc)
+            continue;
+        v = (int32_t)sq[i].len + d;
+        sq[i].len = (uint8_t)(v < 1 ? 1 : v > (int32_t)n ? (int32_t)n : v);
+        if (!k++)
+            first = sq[i].len;
+    }
+    if (!k) {
+        say("EMPTY STEP");
+        return;
+    }
+    k = put(hk_say, 0, "LENGTH ");
+    k = putn(hk_say, k, first, 1);
+    hk_say[k] = 0;
+    say(hk_say);
+    pl_dirty = 1;
+}
+
 /* Only ever append to this: settings_load takes a short store and leaves the rest at default,
  * so a new field costs nothing, but moving one would hand the old bytes to the wrong name. */
 typedef struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv;
-                 uint8_t genv[G_N]; uint8_t flt[3]; uint8_t fx[4 * FX_N]; uint8_t goff; } settings_t;
+                 uint8_t genv[G_N]; uint8_t flt[3]; uint8_t fx[4 * FX_N]; uint8_t goff;
+                 uint8_t pmark; uint8_t play[PL_N]; uint8_t sq_n; sqn_t sq[SQ_MAX];
+                 uint8_t play2[PL2_N]; } settings_t;
+typedef char fmlab_settings_255[(sizeof(settings_t) <= 255u) ? 1 : -1];   /* the host keeps a byte of length */
+#define PL_MARK 0xA5u                           /* the play block is this one: an earlier layout is ignored */
 
 /* The instrument's own bytes have moved: into the settings with them. A new span also drops the
  * held peaks, which belonged to the old axis. */
@@ -3544,6 +4111,13 @@ static void set_take(settings_t *set)
     for (k = 0; k < 4u * FX_N; k++)
         set->fx[k] = ui[UI_FX + k];
     set->goff = ui[UI_GOFF];
+    set->pmark = PL_MARK;
+    for (k = 0; k < PL_N; k++)
+        set->play[k] = ui[UI_TEMPO + k];
+    for (k = 0; k < PL2_N; k++)
+        set->play2[k] = ui[UI_AGATE + k];
+    set->sq_n = sq_n;
+    memcpy(set->sq, sq, sizeof sq);
     if (ui[UI_SPAN] != spspan) {
         spspan = ui[UI_SPAN];
         set->span = spspan;
@@ -3554,7 +4128,8 @@ static void set_take(settings_t *set)
 
 static void app_main(void)
 {
-    settings_t set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}, {60, 0, 0}, {FX_DEFAULTS}, 1};
+    settings_t set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}, {60, 0, 0}, {FX_DEFAULTS}, 1,
+                      PL_MARK, {PLAY_DEFAULTS}, 0, {{0, 0, 0}}, {PLAY2_DEFAULTS}};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
@@ -3566,6 +4141,11 @@ static void app_main(void)
     uint8_t gsel_drawn = 255;
     uint8_t foc_drawn = 255;
     uint32_t t_hold[FOC_N] = {0, 0, 0, 0}, long_fired[FOC_N] = {0, 0, 0, 0};  /* how long each is down */
+    uint32_t t_rec = 0, rec_long = 0;           /* REC: a tap or a hold */
+    uint32_t t_seq = 0, seq_long = 0;           /* SEQ: likewise -- the knobs, or the step view */
+    uint32_t t_aud = 0;                         /* the step view: when the cursor's notes began */
+    uint8_t aud[8], aud_n = 0, stc_was = 0;
+    uint8_t latch_was;
     uint8_t alg_drawn = 255, alg_op_drawn = 255, mute_drawn = 255, leg_drawn = 255;
     uint32_t lfo_sig_drawn = ~0u;               /* the LFO picture on HOME follows its own bytes */
 
@@ -3585,6 +4165,23 @@ static void app_main(void)
     for (k = 0; k < 4u * FX_N; k++)
         ui[UI_FX + k] = set.fx[k] > 99u ? 99u : set.fx[k];
     ui[UI_GOFF] = set.goff ? 1u : 0u;
+    if (set.pmark == PL_MARK) {
+        static const uint8_t PMAX[PL_N] = {99, 4, 3, 1, 2, 2, 1};
+        static const uint8_t PMAX2[PL2_N] = {99, 5, 25, 99};
+        for (k = 0; k < PL_N; k++)
+            ui[UI_TEMPO + k] = set.play[k] > PMAX[k] ? PMAX[k] : set.play[k];
+        for (k = 0; k < PL2_N; k++)
+            ui[UI_AGATE + k] = set.play2[k] > PMAX2[k] ? PMAX2[k] : set.play2[k];
+        for (k = 0; k < set.sq_n && k < SQ_MAX; k++)   /* one bad note and it is not a phrase we wrote */
+            if (set.sq[k].step >= SQ_MAX || !set.sq[k].len || set.sq[k].len > SQ_MAX ||
+                set.sq[k].note > 127u)
+                break;
+        if (set.sq_n <= SQ_MAX && k == set.sq_n) {
+            sq_n = set.sq_n;
+            memcpy(sq, set.sq, sizeof sq);
+        }
+    }
+    latch_was = ui[UI_LATCH];
     glo_sync();
     flt_sync();
     fx_sync();
@@ -3607,6 +4204,7 @@ static void app_main(void)
         glo_sync();                         /* whatever moved the four bytes, the ISR has them */
         flt_sync();                         /* ..and the filter's three, if they moved */
         fx_sync();                          /* ..and the effects' sixteen */
+        pl_sync();                          /* ..and what the clock plays */
 
         keys = fm1_in.notes;                    /* bit k: key k (0 = F3 .. 26 = G5) */
         down = keys & ~prev;
@@ -3631,12 +4229,28 @@ static void app_main(void)
                     say(set.mono ? "MONO" : "POLY");
                     t_change = fm1_ms;
                     dirty = 1;
+                } else if (page == PAGE_STEP) {   /* onto the cursor's step, or off it */
+                    held[k] = (uint8_t)(base + k);
+                    if (st_toggle(held[k])) {   /* heard going in, not coming out */
+                        sp_note = held[k];
+                        sounding |= 1u << k;
+                        ev_push(EV_ON, held[k], 100);
+                    }
                 } else {
                     held[k] = (uint8_t)(base + k);
-                    sounding |= 1u << k;
                     sp_note = held[k];          /* the analyser marks the harmonics of the last note */
-                    ev_push(EV_ON, held[k], 100);
-                    midi_send(0x90, held[k], 100);
+                    if (rec)
+                        rec_down(k, held[k]);   /* into the phrase, and heard as it goes in */
+                    if (arp_on) {               /* the arpeggiator's, not a note of its own */
+                        if (ui[UI_LATCH] && !arpkeys)
+                            chord_n = 0;        /* a fresh chord replaces the latched one */
+                        arpkeys |= 1u << k;
+                        chord_add(held[k]);
+                    } else {
+                        sounding |= 1u << k;
+                        ev_push(EV_ON, held[k], 100);
+                        midi_send(0x90, held[k], 100);
+                    }
                 }
             }
             if ((up >> k & 1u) && k == AB_KEY && ab_t) {
@@ -3646,6 +4260,13 @@ static void app_main(void)
                     t_change = fm1_ms;
                 }
                 ab_t = 0;
+            }
+            if (up >> k & 1u)
+                rec_up(k);
+            if ((up >> k & 1u) && (arpkeys >> k & 1u)) {
+                arpkeys &= ~(1u << k);
+                if (!ui[UI_LATCH])
+                    chord_del(held[k]);
             }
             if ((up >> k & 1u) && (sounding >> k & 1u)) {
                 sounding &= ~(1u << k);
@@ -3745,12 +4366,109 @@ static void app_main(void)
         }
         if (rel & (1u << BTN_SEL)) {
             draw_legend();
-            if (!sel_used) {
+            if (!sel_used && (page != PAGE_HOME || foc_op())) {   /* plain HOME has no operator to pick */
                 if (fm1_ms - t_sel >= LONG_MS)
                     op_solo(opsel);                        /* only the selected operator */
                 else
                     op_toggle(opsel);                      /* the selected operator, off and on */
             }
+        }
+        /* ARP: the first tap puts its knobs on HOME, the way ENV and the rest do; a tap there turns
+         * it on and off. SEQ puts the sequencer's knobs there, and has nothing to switch. */
+        if (b & (1u << BTN_ARP)) {
+            if (focus == FOC_ARP && page == PAGE_HOME) {
+                arp_on ^= 1u;
+                chord_n = 0;
+                arpkeys = 0;
+                say(arp_on ? (ui[UI_LATCH] ? "ARP ON, LATCHED" : "ARP ON") : "ARP OFF");
+            } else {
+                focus = FOC_ARP;
+                if (page != PAGE_HOME)
+                    page_to(PAGE_HOME);
+            }
+        }
+        if (ui[UI_LATCH] != latch_was) {                   /* LATCH turned: the chord is the keys still down */
+            latch_was = ui[UI_LATCH];
+            chord_n = 0;
+            for (k = 0; k < 27u; k++)
+                if (arpkeys >> k & 1u)
+                    chord_add(held[k]);
+        }
+        /* SEQ: a tap puts its knobs on HOME; a hold opens the step view */
+        if (b & (1u << BTN_SEQ)) {
+            t_seq = fm1_ms ? fm1_ms : 1u;
+            seq_long = 0;
+        }
+        if (t_seq && !seq_long && (fm1_in.buttons & (1u << BTN_SEQ)) && fm1_ms - t_seq >= LONG_MS) {
+            seq_long = 1;
+            focus = FOC_SEQ;
+            if (stc >= sq_len())
+                stc = 0;
+            stc_was = stc;                      /* arriving is not moving: no audition */
+            page_to(PAGE_STEP);
+        }
+        if (rel & (1u << BTN_SEQ)) {
+            if (t_seq && !seq_long) {
+                focus = FOC_SEQ;
+                if (page != PAGE_HOME)
+                    page_to(PAGE_HOME);
+            }
+            t_seq = 0;
+        }
+        /* REC: a tap records, or stops recording; a hold clears -- decided on the clock, so the
+         * hold does not have to wait for the release to be sure. */
+        if (b & (1u << BTN_REC)) {
+            t_rec = fm1_ms ? fm1_ms : 1u;
+            rec_long = 0;
+        }
+        if (t_rec && !rec_long && (fm1_in.buttons & (1u << BTN_REC)) && fm1_ms - t_rec >= LONG_MS) {
+            rec_long = 1;
+            rkeys = 0;
+            rec = 0;
+            seq_run = 0;
+            sq_n = 0;
+            pl_dirty = 1;
+            say("SEQ CLEARED");
+        }
+        if (rel & (1u << BTN_REC)) {
+            if (t_rec && !rec_long) {
+                if (rec) {
+                    rec_stop();
+                    say("REC DONE");
+                } else if (seq_run) {
+                    rkeys = 0;
+                    rec = 1;                               /* over what is playing, from where it is */
+                    say("REC: OVERDUB");
+                } else {
+                    seq_start(16u);                        /* a bar of clicks, then the downbeat */
+                    rkeys = 0;
+                    rec = 2;
+                    rec_from = 16u;
+                    rec_to = 16u + sq_len();
+                    say("REC: COUNT-IN");
+                }
+            }
+            t_rec = 0;
+        }
+        if (b & (1u << BTN_PLAY)) {
+            if (seq_run) {
+                if (rec)
+                    rec_stop();
+                seq_run = 0;
+                say("STOP");
+            } else if (!sq_n) {
+                say("NOTHING RECORDED");
+            } else {
+                seq_start(0u);
+                say("PLAY");
+            }
+        }
+        rec_poll();
+        if (pl_dirty) {
+            pl_dirty = 0;
+            set_take(&set);
+            dirty = 1;
+            t_change = fm1_ms;
         }
         if (b & (1u << BTN_SAVE)) {                        /* press to pick a slot, press again to write */
             if (!saving) {
@@ -3843,6 +4561,46 @@ static void app_main(void)
                 patch_publish();
             }
         }
+        if (page == PAGE_STEP) {                /* LENGTH of the cursor's notes; TEMPO, BARS, DIV */
+            for (e = 0; e < 4u; e++) {
+                const param_t *p = e ? &PG_SEQ[e - 1u] : 0;
+                int32_t v;
+                if ((enc = knob_take(e, p ? p_step(p) : 1)) == 0)
+                    continue;
+                if (!p) {
+                    st_len(enc);
+                    continue;
+                }
+                v = (int32_t)ui[p->idx] + enc;
+                ui[p->idx] = (uint8_t)(v < 0 ? 0 : v > (int32_t)p->max ? (int32_t)p->max : v);
+                say_param(p);
+                set_take(&set);
+                dirty = 1;
+                t_change = fm1_ms;
+            }
+            if (stc >= sq_len())                /* fewer bars: the cursor comes back in */
+                stc = 0;
+            if (stc != stc_was || (aud_n && fm1_ms - t_aud > 250u)) {   /* the audition ends */
+                for (k = 0; k < aud_n; k++)
+                    ev_push(EV_OFF, aud[k], 0);
+                aud_n = 0;
+            }
+            if (stc != stc_was) {               /* moved, stopped: hear what is on it */
+                stc_was = stc;
+                if (!seq_run) {
+                    for (k = 0; k < sq_n && aud_n < 8u; k++)
+                        if (sq[k].step == stc) {
+                            aud[aud_n++] = sq[k].note;
+                            ev_push(EV_ON, sq[k].note, 100);
+                        }
+                    t_aud = fm1_ms;
+                }
+            }
+        } else if (aud_n) {                     /* left with one sounding */
+            for (k = 0; k < aud_n; k++)
+                ev_push(EV_OFF, aud[k], 0);
+            aud_n = 0;
+        }
         for (e = 0; e < bank_rows(bank); e++) {            /* KNOB1..n: the parameters on screen */
             uint32_t pi = bank_first(bank) + e;
             const param_t *p;
@@ -3887,9 +4645,13 @@ static void app_main(void)
         for (k = 0; k < NV; k++)                /* what sounds, on the keys of this octave */
             if (v_lit >> k & 1u) {
                 nv++;
-                if (vst[k].note >= base && vst[k].note < base + 27u)
+                if (page != PAGE_STEP && vst[k].note >= base && vst[k].note < base + 27u)
                     lit |= 1u << (vst[k].note - base);
             }
+        if (page == PAGE_STEP)                  /* ..or, on the step view, what is on the cursor */
+            for (k = 0; k < sq_n; k++)
+                if (sq[k].step == stc && sq[k].note >= base && sq[k].note < base + 27u)
+                    lit |= 1u << (sq[k].note - base);
         for (k = 0; k < 27u; k++)
             fm1_led_key(KEY_LED(k), lit >> k & 1u);
         {                                       /* the OP1..OP6 keys: all six glow where they work,
@@ -3927,6 +4689,15 @@ static void app_main(void)
         fm1_led_key(BTN_GLO, page == PAGE_GLO);
         fm1_led_key(BTN_FX, page == PAGE_FX || focus == FOC_FX);
         fm1_led_key(BTN_SEL, opmute != 0u);                /* something is off: you are not hearing it all */
+        fm1_led_key(BTN_ARP, arp_on);
+        fm1_led_key_glow(BTN_ARP, ui[UI_LATCH]);           /* latched, whether or not it is running */
+        fm1_led_key(BTN_SEQ, (focus == FOC_SEQ && page == PAGE_HOME) || page == PAGE_STEP);
+        {   /* PLAY is the beat: a flash on each one, count-in and all */
+            uint32_t q, cin = counting_in();
+            fm1_led_key(BTN_PLAY, clock_at(&q) && (q & 0x3FFu) < 0x100u);
+            fm1_led_key_glow(BTN_PLAY, sq_n != 0u);        /* there is a phrase to play */
+            fm1_led_key(BTN_REC, rec && !(cin && (fm1_ms % 300u) >= 150u));   /* flickering: counting in */
+        }
         fm1_led_key(BTN_SAVE, saving);                     /* lit while it is asking which slot */
 
         if (flash_msg && fm1_ms - flash_at > 1500u)
@@ -3944,12 +4715,15 @@ static void app_main(void)
                 sp_pk[k] = 0;
             lcd_fill(0, 0, 240, 240, C_BLACK);  /* all of it: the meter is only on one page now */
             corner_sig = 0xFFFFFFFFu;           /* the clear took the corners with it */
+            memset(cell_drawn, 0xFF, sizeof cell_drawn);
             foc_drawn = 255;
             repaint = 1;
         }
         if (page == PAGE_HOME) {                /* the banner, or what the knobs have become */
             uint8_t ft = (uint8_t)(focus == FOC_OFF ? (home_flt() ? 60u : bank == 2u ? 61u : 0u) :
                                    focus == FOC_FX ? 64u :
+                                   focus == FOC_SEQ ? 65u :
+                                   focus == FOC_ARP ? 66u + arp_pg :
                                    gsel && focus == FOC_ENV ? 63u :
                                    gsel && focus == FOC_LFO ? 62u :
                                    focus * 8u + opsel);
@@ -3964,6 +4738,8 @@ static void app_main(void)
                                     lfo_glo() ? 41u :
                                     home_flt() ? 45u :
                                     focus == FOC_FX && page == PAGE_HOME ? 50u :
+                                    focus == FOC_SEQ && page == PAGE_HOME ? 51u :
+                                    focus == FOC_ARP && page == PAGE_HOME ? 52u + arp_pg :
                                     focus != FOC_OFF && page == PAGE_HOME ?
                                         20u + focus * 2u +
                                             (*op_byte(opsel, 17) ? 1u : 0u) :
@@ -4003,7 +4779,8 @@ static void app_main(void)
              * The ring and the curve belong to an operator, and GLOBAL is not one -- so GLOBAL
              * gets the diagram's room instead, and the same picture the ENVELOPE page draws.
              * Adjusting a shape you cannot see is no way to learn what the shape does. */
-            uint8_t asel = (uint8_t)(opsel | (eg_glo() ? 0x80u : 0u) | (lfo_glo() ? 0x40u : 0u));
+            uint8_t asel = (uint8_t)(opsel | (eg_glo() ? 0x80u : 0u) | (lfo_glo() ? 0x40u : 0u) |
+                                     (foc_op() ? 0x20u : 0u));   /* the ring: only with an operator to pick */
             /* the LFO's picture follows bytes the diagram never cared about, so it brings its own */
             uint32_t lsig = lfo_glo() ? (1u | (uint32_t)edit[137] << 1 | (uint32_t)edit[138] << 9
                                             | (uint32_t)edit[142] << 17) : 0u;
@@ -4027,6 +4804,8 @@ static void app_main(void)
                 draw_eg_cells();
                 eg_dirty = 1;
             }
+        } else if (page == PAGE_STEP) {
+            draw_steps();                       /* every pass: it draws only what moved */
         } else {
             for (e = 0; e < bank_rows(bank); e++) {
                 uint32_t pi = bank_first(bank) + e;
@@ -4099,7 +4878,9 @@ static void app_main(void)
             }
         }
 
-        if (dirty && !v_lit && fm1_ms - t_change > 2000u) {   /* an erase stalls the sound: save when silent */
+        if (dirty && !v_lit && !seq_run && !(arp_on && chord_n) && fm1_ms - t_change > 2000u) {
+            /* an erase stalls the sound: save when silent, and not in the gaps of a loop, which the
+             * stall would put out of time */
             settings_save(&set, sizeof set);
             dirty = 0;
         }

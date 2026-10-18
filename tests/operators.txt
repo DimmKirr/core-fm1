@@ -22,6 +22,8 @@
 1600 keys 0
 
 # a tap of SEL: OP1 off. It is the only carrier, so this is silence, and the output bus goes red.
+# SEL switches the operator the knobs are on, so EDIT first: plain HOME has none.
+1650 btn 6
 1700 btn 3
 1800 keys 0x4880
 2100 shot
@@ -33,12 +35,10 @@
 2900 shot
 3200 keys 0
 
-# OP2, picked by its key under a tap of EDIT, and HOME to put the keys back; then SEL held: OP2
-# soloed, on the release. A modulator is never heard, only felt, so this is silent too.
-3250 btn 6
+# OP2, picked by its key, still under EDIT; then SEL held: OP2 soloed, on the release. A modulator
+# is never heard, only felt, so this is silent too.
 3350 keys 0x8
 3400 keys 0
-3450 btn 8
 3500 btn 3 500
 4100 keys 0x4880
 4400 shot
@@ -49,6 +49,7 @@
 5400 keys 0x4880
 5700 shot
 6000 keys 0
+6050 btn 8
 
 # A/B: F#5 held copies this side onto the other, then a tap switches to it. Nothing should change.
 6100 keys 0x2000000

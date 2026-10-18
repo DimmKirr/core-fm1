@@ -32,12 +32,14 @@
 3000 keys 0
 3400 shot
 
-# The selected operator switched off: struck through, and contributing nothing.
+# The selected operator switched off, under EDIT: struck through, and contributing nothing.
+3650 btn 6
 3700 btn 3
 3900 keys 0x80
 4100 shot
 4300 keys 0
 4500 btn 3
+4600 btn 8
 
 # Algorithm 32 is six carriers side by side -- the tightest the boxes ever pack, and the case where
 # one box's live redraw could reach into the next one.

@@ -44,6 +44,7 @@ case "$script" in                                           # while the screens 
   */effects.txt) python3 tests/effectscheck.py "$out" ;;       # chorus, phaser, delay and reverb, heard
   */waves.txt)   python3 tests/wavescheck.py "$out" ;;         # the operator waves, heard, drawn and saved
   */scope.txt)   python3 tests/scopecheck.py "$out" ;;         # the waveform screen, by its trace
+  */play.txt)    python3 tests/playcheck.py "$out" ;;          # the arpeggiator and the sequencer, heard
 esac
 OUT="$out" python3 - <<'PY'
 import os

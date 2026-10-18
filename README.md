@@ -4,9 +4,11 @@
 
 **A six-operator FM synthesizer for the M-VAVE FM-1, built to learn FM on.**
 
-Most of the custom firmwares for the FM-1 turn it into a groovebox. This one goes the other way: no sequencer,
-no drums, no pattern chaining. One instrument, the real DX7 engine behind it, and every parameter under a knob
+Most of the custom firmwares for the FM-1 turn it into a groovebox. This one goes the other way: no drums, no
+pattern chaining, no song mode. One instrument, the real DX7 engine behind it, and every parameter under a knob
 with the sound still playing. You turn something, you hear what it did, and the screen tells you what it was.
+There is a small [arpeggiator and a one-phrase looper](#something-to-keep-playing), but only so that the
+notes can keep coming while both hands are on the knobs.
 
 ```
 firmware/src/fmlab.c      <- the instrument: voices, the panel, the editor, the screen
@@ -51,6 +53,9 @@ so a bank fills them exactly.
 | **HOME** | Three screens, and pressing it again steps through them: the algorithm drawn out, the spectrum of what you are hearing, or its waveform. |
 | **MONO / POLY** | The top two black keys, on the OPERATOR page. Mono is one voice, last note wins. |
 | **A / B** | The voice line starts with the side you are listening to. The top black key, **F#5**, flips it on a tap and copies this side onto the other on a hold. |
+| **ARP** | The [arpeggiator](#something-to-keep-playing): the first tap puts its knobs on HOME, a tap there turns it on and off. |
+| **SEQ** | The [looper](#something-to-keep-playing)'s knobs on HOME; held, the step view. |
+| **REC** / **PLAY** | Record a phrase (a bar is counted in), or record over the one playing; held, **REC** clears it. **PLAY** starts and stops it. |
 
 ## Editing it
 
@@ -151,7 +156,8 @@ driven by the same code that drives them there. A tap is a shortcut to the top o
 controls to learn, and anything you change this way is on the page waiting for you when you hold the button
 instead.
 
-The operator is the one with the white ring round its box in the diagram. Tapping the same button again
+The operator is the one with the white ring round its box in the diagram — which is only there while a tap
+has the knobs on one, since plain HOME has no operator to pick. Tapping the same button again
 steps to the next one, and so does turning **SELECT**; the `OP1` to `OP6` black keys jump straight to
 theirs. Press **HOME** to leave.
 
@@ -375,9 +381,9 @@ back, so two controls do nothing but that.
 | **F#5**, held | Copy this side onto the other one, so there is something to come back to. |
 
 **SEL** decides on the release, because while it is down it is also the fine-adjust shift: turn a knob under
-it and the press does neither. The top black key never plays a note — a compare that sometimes sounds one
-instead is not one you can trust with your eyes shut. **ARP**, **SEQ**, **PLAY** and **REC** are kept free for
-an arpeggiator and a sequencer.
+it and the press does neither. It works wherever there is a selected operator — a tap of **EDIT**, **ENV** or
+**LFO**, or a page — and does nothing on plain HOME, where there is none. The top black key never plays a
+note — a compare that sometimes sounds one instead is not one you can trust with your eyes shut.
 
 The switches are not part of the voice — a DX7's were front-panel switches, not voice data — so they are not
 saved, they survive an A/B switch, and changing voice brings all six back on.
@@ -392,6 +398,34 @@ The way to use A/B is: land on a sound, hold **F#5** to copy it across, tap it t
 side, change *one* thing, then flip back and forth. Hearing the same parameter two ways in succession tells
 you far more than hearing it once. Each side carries its own voice number and its own `*`, so you can also
 park a factory voice on one side and your edit of it on the other.
+
+## Something to keep playing
+
+A sound is designed by listening to it, and that is easier when the notes keep coming without a hand on the
+keys. So there are two small things that keep them coming, and nothing more: they are not a groovebox.
+
+**The arpeggiator.** Tap **ARP** for its knobs on HOME; tap again to turn it on. Hold keys and it walks them;
+let go and it stops — unless `LATCH` is on, when it keeps walking the last chord and the next key pressed with
+none held starts a new one. **SELECT** turns to its second set of four. One clock drives it and the looper, so
+the two stay in time.
+
+| | Knobs |
+| --- | --- |
+| `ARP 1/2` | `TEMPO` 40 to 238 BPM, shared with the looper; `PATTERN` up, down, up/down, random or as played; `OCTAVE` one to four; `LATCH` |
+| `ARP 2/2` | `GATE` how much of each step sounds; `RATE` 1/4 to 1/32, triplets too; `SWING` 50 to 75 %; `VELO` |
+
+**The looper.** One phrase of one, two or four bars. Tap **SEQ** for `TEMPO`, `BARS`, `DIV` — what a recorded
+note snaps to, 1/16, 1/8 or 1/4 — and `CLICK`, a tick on the quarters. **REC** from stopped clicks a bar in,
+records one time round from the downbeat and goes on playing it; **REC** while it plays records over it for
+one time round, from wherever it is. Either way it stops recording by itself, so there is nothing to hit in
+time. A hold of **REC** clears the phrase, and **PLAY** starts and stops it. The phrase and the settings are
+kept, though never saved while it plays: writing flash stalls the sound for long enough to be heard.
+
+**Hold SEQ for the step view**: the phrase as a grid, a row of sixteen to each bar, a bright cell where a note
+starts and a dim one while it is held. **SELECT** moves the white cursor, and stopped, the notes on the step
+it lands on sound. The keys lit on the keyboard are the notes on that step; press a key to put that note
+there or take it off. The knobs are `LENGTH` — of the notes on the cursor — then `TEMPO`, `BARS` and `DIV`.
+It all works while the loop plays, with a yellow mark under the step it is on.
 
 ## The four drawings
 
@@ -639,6 +673,7 @@ tests/run_host.sh tests/fx.txt            # the filter, harmonic by harmonic, on
 tests/run_host.sh tests/effects.txt       # chorus, phaser, delay and reverb, by ear
 tests/run_host.sh tests/waves.txt         # the operator waves, harmonic by harmonic; drawn, and saved
 tests/run_host.sh tests/scope.txt         # the waveform screen, by its trace
+tests/run_host.sh tests/play.txt          # the arpeggiator, the looper and the step view, by ear and by pixel
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -798,6 +833,15 @@ exactly twice, and start at zero on the way up; and two pictures a tick apart ha
 which is the trigger doing its job. A `SQUARE` has to jump across the middle rather than pass through it —
 three columns near zero against the sine's forty-eight. A tap of **FX** has to leave the waveform where it is,
 and so does **HOME**, taking the knobs back; and the title has to be the scope's own.
+
+`tests/playcheck.py` finds every note by where it starts and names it by its pitch. The arpeggiator has to play
+the held chord in the pattern and over the octaves asked for, one note a step to within 3 ms, sounding for its
+`GATE` and silent after; `RATE` 1/8 has to space them 250 ms apart, `SWING` 75 % has to make the pairs 375 and
+125, and `AS PLAYED` has to follow the order the keys went down. The looper has to click a bar in with the
+downbeat higher, then loop what was played snapped to the grid, add an overdub for exactly one time round,
+tick the quarters with `CLICK` and be gone after a hold of **REC**. The step view has to draw what it holds,
+cell by cell; a note put in and moved with the keys has to play where the grid says and as long, one taken out
+while it plays has to stop sounding, and `BARS` on its knob has to add a row.
 
 ## Where to go next
 
