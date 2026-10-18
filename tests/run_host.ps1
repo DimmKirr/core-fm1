@@ -24,7 +24,7 @@ Remove-Item "$out-*.ppm" -ErrorAction SilentlyContinue
 # the bank file outlives a run, the way the flash sector does: clear it so a run starts from nothing
 Remove-Item "$out-bank.bin", "$out-out.syx" -ErrorAction SilentlyContinue
 
-if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'bank.txt') {
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -in 'bank.txt', 'alias.txt') {
     python tests\mksyx.py build\host          # the .syx files the script sends itself
     if ($LASTEXITCODE) { throw 'could not make the test .syx files' }
 }
@@ -115,4 +115,8 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'corners.txt') {
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'depth.txt') {
     python tests\depthcheck.py build\host       # and the 24 bits the DAC is given
     if ($LASTEXITCODE) { throw 'the sound is not reaching the DAC with its 24 bits' }
+}
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'alias.txt') {
+    python tests\aliascheck.py build\host       # and OVERSAMPLE, against what folds back
+    if ($LASTEXITCODE) { throw 'OVERSAMPLE is not keeping the fold-back out' }
 }

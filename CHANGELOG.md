@@ -6,6 +6,13 @@ GLOBAL's top-right corner. Versions are `MAJOR.MINOR.PATCH`: a patch fixes what 
 
 ## Unreleased
 
+### Added
+- **OVERSAMPLE** (GLOBAL, last bank, `ON` to start). The operators run at 88.2 kHz and a half-band filter
+  brings the sound back to 44.1 kHz, so the harmonics FM makes above 22 kHz no longer fold back into the
+  audible range as tones that don't belong to the note: about 40 dB less of them on a bright patch played
+  high. It roughly doubles the engine's CPU: ~72 % (82 % peak) with eight voices, the filter and every
+  effect on. `OFF` gives that back.
+
 ### Changed
 - **24-bit output.** The sound used to be cut to 16 bits right after the voices were mixed, and only then
   sent to the 24-bit DAC. The mix leaves room for an 8-voice chord, so a single soft note used only ~11 of

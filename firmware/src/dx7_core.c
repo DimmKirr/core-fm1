@@ -529,14 +529,18 @@ static int dx_playing(const dxv_t *v)          /* any carrier envelope still act
 }
 
 /* FmOpKernel: one operator over the block (input: the modulation bus, 0 = none). w: the wave, and
- * anything but a sine takes its own loop, so the sine's is Dexed's to the instruction. */
+ * anything but a sine takes its own loop, so the sine's is Dexed's to the instruction.
+ * dx_os 1 renders the block twice over, at 88.2 kHz: freq is then half a 44.1 kHz step, and the
+ * caller takes the 2 * DX_N samples back down. The envelopes and the LFO still move once a block. */
+static uint8_t dx_os;
 static void dx_op(int32_t *out, const int32_t *in, int32_t phase, int32_t freq, int32_t g1, int32_t g2, int add,
                   int w)
 {
-    int32_t dg = (g2 - g1 + (DX_N >> 1)) >> DX_LG_N, g = g1;
+    int n = DX_N << dx_os;
+    int32_t dg = (g2 - g1 + (n >> 1)) >> (DX_LG_N + dx_os), g = g1;
     int i;
     if (w) {
-        for (i = 0; i < DX_N; i++) {
+        for (i = 0; i < n; i++) {
             int32_t y;
             g += dg;
             y = (int32_t)(((int64_t)dx_wave((int32_t)((uint32_t)phase + (uint32_t)(in ? in[i] : 0)), w) * g) >> 24);
@@ -545,7 +549,7 @@ static void dx_op(int32_t *out, const int32_t *in, int32_t phase, int32_t freq, 
         }
         return;
     }
-    for (i = 0; i < DX_N; i++) {
+    for (i = 0; i < n; i++) {
         int32_t y;
         g += dg;
         y = (int32_t)(((int64_t)dx_sin((int32_t)((uint32_t)phase + (uint32_t)(in ? in[i] : 0))) * g) >> 24);
@@ -557,10 +561,11 @@ static void dx_op(int32_t *out, const int32_t *in, int32_t phase, int32_t freq, 
 static void dx_op_fb(int32_t *out, int32_t phase, int32_t freq, int32_t g1, int32_t g2, int32_t *fb, int shift,
                      int add, int w)
 {
-    int32_t dg = (g2 - g1 + (DX_N >> 1)) >> DX_LG_N, g = g1, y0 = fb[0], y = fb[1];
+    int n = DX_N << dx_os;
+    int32_t dg = (g2 - g1 + (n >> 1)) >> (DX_LG_N + dx_os), g = g1, y0 = fb[0], y = fb[1];
     int i;
     if (w) {
-        for (i = 0; i < DX_N; i++) {
+        for (i = 0; i < n; i++) {
             int32_t s;
             g += dg;
             s = (y0 + y) >> (shift + 1);
@@ -573,7 +578,7 @@ static void dx_op_fb(int32_t *out, int32_t phase, int32_t freq, int32_t g1, int3
         fb[1] = y;
         return;
     }
-    for (i = 0; i < DX_N; i++) {
+    for (i = 0; i < n; i++) {
         int32_t s;
         g += dg;
         s = (y0 + y) >> (shift + 1);
@@ -586,14 +591,14 @@ static void dx_op_fb(int32_t *out, int32_t phase, int32_t freq, int32_t g1, int3
     fb[1] = y;
 }
 
-/* one block: adds the note into out[DX_N]. pitch: an offset in Q24 log2 for the ratio operators and the
+/* one block: adds the note into out[DX_N << dx_os]. pitch: an offset in Q24 log2 for the ratio operators and the
  * fixed ones alike (Dexed's pitch bend / master tune: the part's glide, LFO and tuning here); lfo_val /
  * lfo_delay as Dexed's synth gives them (dx_compute_lfo: the note's own) */
 static uint8_t dx_peg_off;                       /* FM Lab's: the pitch envelope runs, but is not heard */
 
 static void dx_compute_ext(dxv_t *v, int32_t *out, int32_t lfo_val, int32_t lfo_delay, int32_t pitch)
 {
-    static int32_t bus[2][DX_N];
+    static int32_t bus[2][2 * DX_N];
     int32_t fq[6];
     uint8_t has[3] = {1, 0, 0};
     int32_t pmod, amod, senslfo, pm1;
@@ -633,18 +638,18 @@ static void dx_compute_ext(dxv_t *v, int32_t *out, int32_t lfo_val, int32_t lfo_
         uint8_t fl = DX_ALG[v->alg][op];
         int add = (fl & 4) != 0, inb = (fl >> 4) & 3, outb = fl & 3;
         int32_t *o = outb == 0 ? out : bus[outb - 1];
-        int32_t g1 = v->gain[op], g2 = dx_exp2(v->level_in[op] - (14 * (1 << 24)));
+        int32_t g1 = v->gain[op], g2 = dx_exp2(v->level_in[op] - (14 * (1 << 24))), f = fq[op] >> dx_os;
         v->gain[op] = g2;
         if (g1 >= 1120 || g2 >= 1120) {
             if (!has[outb])
                 add = 0;
             if (inb == 0 || !has[inb]) {
                 if ((fl & 0xc0) == 0xc0 && v->fb_shift < 16)
-                    dx_op_fb(o, v->phase[op], fq[op], g1, g2, v->fb, v->fb_shift, add, v->wave[op]);
+                    dx_op_fb(o, v->phase[op], f, g1, g2, v->fb, v->fb_shift, add, v->wave[op]);
                 else
-                    dx_op(o, 0, v->phase[op], fq[op], g1, g2, add, v->wave[op]);
+                    dx_op(o, 0, v->phase[op], f, g1, g2, add, v->wave[op]);
             } else {
-                dx_op(o, bus[inb - 1], v->phase[op], fq[op], g1, g2, add, v->wave[op]);
+                dx_op(o, bus[inb - 1], v->phase[op], f, g1, g2, add, v->wave[op]);
             }
             has[outb] = 1;
         } else if (!add) {

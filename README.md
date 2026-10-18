@@ -269,6 +269,18 @@ keyboard or pad controller through a TRS-to-DIN adapter. TRS MIDI adapters come 
 and type B; if a keyboard on the jack plays nothing, the adapter is the first thing to swap. The jack
 takes notes and program changes; SysEx and anything going out are USB only.
 
+### Oversampling
+
+The third knob of that last bank, `OVERSAMPLE`, starts `ON`. FM makes harmonics far above what 44.1 kHz
+can hold, and those above 22 kHz don't vanish: they fold back down as tones that don't belong to the note,
+the metallic grit of a bright patch played high. With it `ON` the operators run at twice the rate and a
+filter removes what lies above 20 kHz before the sound comes back down, so a bright note high up keeps
+about 40 dB less of that than with it `OFF`. Mellow patches and low notes sound the same either way.
+
+It costs CPU. With all eight voices, the filter and every effect running, the meter reads about 72 %,
+peaking at 82 %, with it `ON`; `OFF` gives back roughly half the engine's share. If you're running short
+(above 85 % the instrument drops a voice), switch it `OFF`. It's saved with the instrument, not the voice.
+
 ### The pitch envelope
 
 The other envelope a DX7 voice has bends the pitch rather than the volume, and it is the black key marked
@@ -725,6 +737,7 @@ tests/run_host.sh tests/play.txt          # the arpeggiator, the looper and the 
 tests/run_host.sh tests/pitch.txt         # PIT and the pitch envelope: an octave by zero crossings, and its switch
 tests/run_host.sh tests/midi.txt          # the MIDI channel, in and out, and program change both ways
 tests/run_host.sh tests/depth.txt         # a soft note's tail, in the 24 bits the DAC gets (also -24.wav)
+tests/run_host.sh tests/alias.txt         # a bright high note with OVERSAMPLE on and off: what folds back
 tests/run_host.sh tests/docshots.txt      # the screenshots in docs/; then python3 tools/docshots.py puts them there
 ```
 

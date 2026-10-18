@@ -96,6 +96,15 @@ def one_voice():
     return u
 
 
+def bright_voice():
+    """OP2 at full level on OP1, both x1, no LFO: every harmonic, far past 22 kHz, and nothing else,
+    so whatever lands between the harmonics has folded back (tests/alias.txt)."""
+    u = named(init_voice(), "BRIGHT")
+    u[4 * 21 + 16] = 99
+    u[143] = 0                                          # no vibrato to smear the harmonics
+    return u
+
+
 def main(outdir):
     d = Path(outdir)
     d.mkdir(parents=True, exist_ok=True)
@@ -103,6 +112,7 @@ def main(outdir):
     bad = bytearray(good)
     bad[-2] ^= 0x01                                     # one bit of the checksum: must be refused
     for name, data in (("bank.syx", good), ("voice.syx", single(one_voice())), ("bad.syx", bytes(bad)),
+                       ("bright.syx", single(bright_voice())),
                        ("req.syx", b"\xf0\x43\x20\x09\xf7\xf0\x43\x20\x00\xf7")):
         (d / name).write_bytes(data)
         print("%-10s %5d B -> %s" % (name, len(data), d / name))

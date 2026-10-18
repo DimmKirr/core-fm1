@@ -1107,9 +1107,37 @@ static void fx_run(const fx_t *x, int32_t *l, int32_t *r)
  * the 8 bits under Q15 carry it to the DAC, which takes 24. */
 #define OUT_SHIFT 14
 
+/* ---- 2x oversampling. FM puts partials far above 22 kHz, and at 44.1 kHz they fold back down as
+ * tones that are not in the harmony: the hard, glassy edge of a bright patch. OVERSAMPLE renders the
+ * operators at 88.2 kHz (dx_os) and this takes the sum back down: a half-band FIR, 63 taps (Kaiser,
+ * beta 8), flat to 0.04 dB at 19 kHz, and anything that would fold below 18 kHz is 81 dB down. Every
+ * other tap but the middle one is zero, and the rest are symmetric: 16 multiplies a sample. */
+static const int32_t HB_Q[16] = {      /* Q24: the taps 1, 3, 5 .. 31 either side of the middle (0.5) */
+    5319600, -1718700, 968449, -628967, 430129, -298713, 206621, -140529,
+    93007, -59298, 36002, -20503, 10706, -4925, 1829, -403};
+#define HB_H 62u                                /* the history: the taps less one */
+static int32_t hb_x[HB_H + 2u * DX_N];
+static volatile uint8_t os_want;                /* the GLOBAL switch, read by the audio ISR once a render */
+
+static void hb_down(int32_t *x)                 /* x[2 * DX_N] at 88.2 kHz, the sum -> x[DX_N], Q23 */
+{
+    uint32_t i, j;
+    for (i = 0; i < 2u * DX_N; i++)
+        hb_x[HB_H + i] = x[i] >> (OUT_SHIFT - 8);
+    for (i = 0; i < DX_N; i++) {
+        const int32_t *c = &hb_x[32u + 2u * i];
+        int64_t a = (int64_t)c[0] << 23;
+        for (j = 0; j < 16u; j++)
+            a += (int64_t)HB_Q[j] * (c[-(int32_t)(2u * j + 1u)] + c[2u * j + 1u]);
+        x[i] = (int32_t)((a + (1 << 23)) >> 24);
+    }
+    for (i = 0; i < HB_H; i++)
+        hb_x[i] = hb_x[2u * DX_N + i];
+}
+
 static void app_audio(int32_t *out, uint32_t n)
 {
-    static int32_t mono[DX_N], one[DX_N];
+    static int32_t mono[2 * DX_N], one[2 * DX_N];
     static int32_t dc_x, dc_y;
     static int32_t f_ic1, f_ic2;                /* the filter's two integrators */
     flt_t ft = fbuf[fcur];
@@ -1117,15 +1145,20 @@ static void app_audio(int32_t *out, uint32_t n)
     const play_t *pq = &plbuf[plcur];
     uint32_t b, v, i, lit = 0, us, t0 = fm1_ticks();
     uint32_t ge = !genv_idle();                 /* is the global envelope worth the multiply? */
+    uint32_t os = os_want ? 1u : 0u, m = DX_N << os, lg = DX_LG_N + os;
     int32_t g0;
 
     ev_drain();
     if (!ft.type)                               /* off is off: nothing kept to ring when it comes back */
         f_ic1 = f_ic2 = 0;
+    if (os && !dx_os)                           /* switched on: no stale history to play out */
+        for (i = 0; i < HB_H; i++)
+            hb_x[i] = 0;
+    dx_os = (uint8_t)os;
 
     for (b = 0; b < n; b += DX_N) {
         pl_tick(pq);                            /* the arpeggiator and the phrase, on the block */
-        for (i = 0; i < DX_N; i++)
+        for (i = 0; i < m; i++)
             mono[i] = 0;
         for (v = 0; v < NV; v++) {
             if (!dxv[v].on)
@@ -1146,19 +1179,24 @@ static void app_audio(int32_t *out, uint32_t n)
             }
             {   /* one voice on its own, then faded in as it is added. The gain is interpolated
                  * across the block, because a block is 0.7 ms and a step every 0.7 ms is audible;
-                 * it is carried shifted up by DX_LG_N so the step divides without a division. */
-                int32_t g = g0 << DX_LG_N, dg = (genv[v].g >> 12) - g0;
-                for (i = 0; i < DX_N; i++)
+                 * it is carried shifted up by lg so the step divides without a division. */
+                int32_t g = g0 << lg, dg = (genv[v].g >> 12) - g0;
+                for (i = 0; i < m; i++)
                     one[i] = 0;
                 dx_compute(&dxv[v], one, 0);
-                for (i = 0; i < DX_N; i++) {
-                    mono[i] += ((one[i] >> 8) * (g >> DX_LG_N)) >> 4;
+                for (i = 0; i < m; i++) {
+                    mono[i] += ((one[i] >> 8) * (g >> lg)) >> 4;
                     g += dg;
                 }
             }
         }
+        if (os)
+            hb_down(mono);
+        else
+            for (i = 0; i < DX_N; i++)
+                mono[i] >>= OUT_SHIFT - 8;      /* Q23: the 8 bits under Q15 are kept */
         for (i = 0; i < DX_N; i++) {
-            int32_t s = mono[i] >> (OUT_SHIFT - 8);     /* Q23: the 8 bits under Q15 are kept */
+            int32_t s = mono[i];
             /* a ~34 Hz high pass. The feedback truncates towards zero: >> would floor it, and a
              * negative state then feeds itself exactly back and the offset sits there for ever. */
             int64_t fb = (int64_t)dc_y * 32610;
@@ -1261,6 +1299,7 @@ enum { UI_SPAN = 0, UI_GATK, UI_GDEC, UI_GSUS, UI_GREL, UI_FCUT, UI_FRES, UI_FTY
        UI_POFF,                                 /* the pitch envelope switched out, its bytes kept;
                                                  * it starts in, since it is the patch's own */
        UI_MCH, UI_PCH,                          /* MIDI: the channel (0 = all), program change on */
+       UI_OS,                                   /* 2x oversampling */
        UI_N };
 #define PL2_N 4u                                /* UI_AGATE onwards */
 #define PL_N 7u                                 /* UI_TEMPO onwards */
@@ -1620,6 +1659,9 @@ static const param_t PG_GLO[] = {
      * of the voice list for program N, and turning PRESETS sends one the other way. */
     {"MIDI CHANNEL", "MIDICH", P_UI, UI_MCH, 16, K_MCH},
     {"PROG CHANGE",  "PRG CH", P_UI, UI_PCH, 1,  K_ONOFF},
+    /* the operators at 88.2 kHz, and back down: the partials over 22 kHz go, rather than folding
+     * back as tones that are not in the harmony. OFF is the 44.1 kHz of Dexed, and half the work. */
+    {"OVERSAMPLE",   "OVERSM", P_UI, UI_OS,  1,  K_ONOFF},
 };
 #define PG_GLO_FB 1u                            /* reached by name: HOME has a knob for it */
 /* ..and the same eight as the PIT key gives them: a rate with the level it is heading for, the way
@@ -4329,7 +4371,7 @@ static void st_len(int32_t d)                   /* LENGTH, of every note on the 
 typedef struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv;
                  uint8_t genv[G_N]; uint8_t flt[3]; uint8_t fx[4 * FX_N]; uint8_t goff;
                  uint8_t pmark; uint8_t play[PL_N]; uint8_t sq_n; sqn_t sq[SQ_MAX];
-                 uint8_t play2[PL2_N]; uint8_t poff; uint8_t mch; uint8_t pch; } settings_t;
+                 uint8_t play2[PL2_N]; uint8_t poff; uint8_t mch; uint8_t pch; uint8_t os; } settings_t;
 typedef char fmlab_settings_255[(sizeof(settings_t) <= 255u) ? 1 : -1];   /* the host keeps a byte of length */
 #define PL_MARK 0xA5u                           /* the play block is this one: an earlier layout is ignored */
 
@@ -4348,6 +4390,7 @@ static void set_take(settings_t *set)
     set->poff = ui[UI_POFF];
     set->mch = ui[UI_MCH];
     set->pch = ui[UI_PCH];
+    set->os = ui[UI_OS];
     set->pmark = PL_MARK;
     for (k = 0; k < PL_N; k++)
         set->play[k] = ui[UI_TEMPO + k];
@@ -4366,7 +4409,7 @@ static void set_take(settings_t *set)
 static void app_main(void)
 {
     settings_t set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}, {60, 0, 0}, {FX_DEFAULTS}, 1,
-                      PL_MARK, {PLAY_DEFAULTS}, 0, {{0, 0, 0}}, {PLAY2_DEFAULTS}, 0, 0, 1};
+                      PL_MARK, {PLAY_DEFAULTS}, 0, {{0, 0, 0}}, {PLAY2_DEFAULTS}, 0, 0, 1, 1};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
@@ -4405,6 +4448,8 @@ static void app_main(void)
     ui[UI_POFF] = set.poff ? 1u : 0u;
     ui[UI_MCH] = set.mch > 16u ? 0u : set.mch;
     ui[UI_PCH] = set.pch ? 1u : 0u;
+    ui[UI_OS] = set.os ? 1u : 0u;
+    os_want = ui[UI_OS];
     if (set.pmark == PL_MARK) {
         static const uint8_t PMAX[PL_N] = {99, 4, 3, 1, 2, 2, 1};
         static const uint8_t PMAX2[PL2_N] = {99, 5, 25, 99};
@@ -4445,6 +4490,7 @@ static void app_main(void)
         flt_sync();                         /* ..and the filter's three, if they moved */
         fx_sync();                          /* ..and the effects' sixteen */
         pl_sync();                          /* ..and what the clock plays */
+        os_want = ui[UI_OS];                /* ..and whether it renders at twice the rate */
 
         keys = fm1_in.notes;                    /* bit k: key k (0 = F3 .. 26 = G5) */
         down = keys & ~prev;

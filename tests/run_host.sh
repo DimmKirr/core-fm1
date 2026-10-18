@@ -24,7 +24,7 @@ fi
 cc -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER="\"${APP_VER:-DEV}\"" -Ifirmware/src -Ifirmware/gen -o build/host/fmlab firmware/src/fmlab.c
 rm -f "$out"-*.ppm "$out"-*.png "$out"-bank.bin "$out"-out.syx   # the bank outlives a run, as flash does
 case "$script" in
-*/bank.txt) python3 tests/mksyx.py build/host ;;            # the .syx files it sends itself
+*/bank.txt|*/alias.txt) python3 tests/mksyx.py build/host ;; # the .syx files it sends itself
 esac
 build/host/fmlab "$out" $script > "$out".log   # the log is kept: panelcheck.py reads the MIDI out of it
 cat "$out".log
@@ -61,4 +61,5 @@ case "$script" in
 */operators.txt) python3 tests/wavcheck.py "$out".wav ;;    # the switches have to agree with the sound
 */bank.txt) python3 tests/syxcheck.py "$out" ;;             # and what was stored with what was sent
 */depth.txt) python3 tests/depthcheck.py build/host ;;      # and the 24 bits the DAC is given
+*/alias.txt) python3 tests/aliascheck.py build/host ;;      # and OVERSAMPLE, against what folds back
 esac
