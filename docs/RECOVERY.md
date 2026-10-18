@@ -88,7 +88,31 @@ Source: https://github.com/keremimo/melodee (tag v1.4.0).
 Protocol reference: https://github.com/kurogedelic/FM-1-transporter.
 Licences and corresponding libusb source are included in the archive.
 
+## Switching to another custom firmware
+
+In the web installer, choose **Back up and install TransitFM1** before leaving Melodee
+for another custom firmware. Once the FM-1 shows **TRANSIT**, open the destination
+firmware's own installer and install it there. Use TransitFM1 as the stop between
+firmwares instead of returning to official V15. It makes no sound and reports V15's
+identity so other installers accept it.
+
+The browser downloads TransitFM1 0.1 from its publisher and verifies its pinned
+SHA-256 before sending anything to the FM-1. A complete Melodee backup is saved first;
+**Skip backup** requires accepting possible data loss. Reinstall Melodee and restore
+the archive in the editor to bring your data back.
+
+TransitFM1 guards the next write against interruptions until the last sector; it
+does not guarantee recovery from every power loss. If an install is interrupted,
+resume **the same firmware**. For an interrupted TransitFM1 install, choose its button
+again and select the saved-backup option (or explicitly skip backup). For an
+interrupted destination install, use that firmware's installer. See the
+[TransitFM1 instructions](https://quixotic7.github.io/TransitFM1/) for its update-mode
+and recovery procedure.
+
 ## Return to stock from running Melodee
+
+Use this option when you want to run official V15 itself. For switching between
+custom firmwares, use TransitFM1 as described above.
 
 Use **Return to official V15** in the web installer, or `tools/fm1_install.py FM-1.fwsc`,
 with the unmodified M-VAVE `FM-1.fwsc`. The browser checks the file's SHA-256 locally;

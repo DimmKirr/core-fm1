@@ -1732,7 +1732,7 @@ async function installerBuildRaces() {
   const finish = url => pending.get(url)({ok:true,arrayBuffer:async()=>Uint8Array.from(Buffer.from(url)).buffer});
   const tick = () => new Promise(resolve=>setImmediate(resolve));
   vm.runInContext(script, context);
-  ok(element("rc-options").hidden && element("nightly-options").hidden, "installer: unavailable RC/nightly channels are hidden");
+  ok(element("advanced-installs").hidden && element("rc-options").hidden && element("nightly-options").hidden, "installer: unavailable RC/nightly channels and Advanced installs are hidden");
   element("release").value="1.0.1";
   element("release").listeners.change();
   ok(element("go").disabled,"installer: Install is disabled while the selected package loads");

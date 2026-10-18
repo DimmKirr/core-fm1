@@ -55,18 +55,36 @@
     <a href="https://github.com/keremimo/melodee/blob/next/docs/RECOVERY.md" target="_blank" rel="noopener" style="color:inherit" data-t="recoveryLink"></a></p>
   <p><label><span data-t="releaseTitle"></span><br><select id="release"></select></label></p>
   <p><label><input type="radio" name="build" id="build-dual" checked> <span data-t="dual"></span></label></p>
-  <section id="rc-options" hidden>
-    <p><strong data-t="rcTitle"></strong> · <span id="rc-version"></span></p>
-    <p><label><input type="radio" name="build" id="build-rc-dual"> <span data-t="rc-dual"></span></label></p>
-    <p class="small" data-t="rcWhy"></p>
-  </section>
-  <section id="nightly-options" hidden>
-    <p><strong data-t="nightlyTitle"></strong></p>
-    <p><label><input type="radio" name="build" id="build-nightly-dual"> <span data-t="nightly-dual"></span></label></p>
-    <p class="small" data-t="nightlyWhy"></p>
-    <p class="small" id="nightly-info"></p>
-  </section>
+  <details id="advanced-installs" hidden>
+    <summary data-t="advancedTitle"></summary>
+    <section id="rc-options" hidden>
+      <p><strong data-t="rcTitle"></strong> · <span id="rc-version"></span></p>
+      <p><label><input type="radio" name="build" id="build-rc-dual"> <span data-t="rc-dual"></span></label></p>
+      <p class="small" data-t="rcWhy"></p>
+    </section>
+    <section id="nightly-options" hidden>
+      <p><strong data-t="nightlyTitle"></strong></p>
+      <p><label><input type="radio" name="build" id="build-nightly-dual"> <span data-t="nightly-dual"></span></label></p>
+      <p class="small" data-t="nightlyWhy"></p>
+      <p class="small" id="nightly-info"></p>
+    </section>
+  </details>
   <p><button id="go" disabled data-t="install"></button></p>
+  <section style="margin-top:24px" aria-labelledby="transit-title">
+    <h2 id="transit-title" data-t="transitTitle"></h2>
+    <p data-t="transitWhy"></p>
+    <ol>
+      <li data-t="transitFirst"></li>
+      <li data-t="transitNext"></li>
+    </ol>
+    <p><button id="transit-go" data-t="transitGo"></button></p>
+    <p class="small" data-t="stockBackup"></p>
+    <p class="small"><label><input id="transit-skip-backup" type="checkbox"> <span data-t="stockSkipBackup"></span></label></p>
+    <p class="small"><label><input id="transit-recovery" type="checkbox"> <span data-t="stockRecovery"></span></label></p>
+    <p class="small" data-t="transitSafety"></p>
+    <p class="small"><a href="https://quixotic7.github.io/TransitFM1/" target="_blank" rel="noopener" style="color:inherit" data-t="transitAbout"></a>
+      · <a href="https://github.com/Quixotic7/TransitFM1" target="_blank" rel="noopener" style="color:inherit" data-t="transitSource"></a></p>
+  </section>
   <details style="margin-top:24px">
     <summary data-t="stockTitle"></summary>
     <p class="small" data-t="back"></p>
@@ -97,6 +115,7 @@ const TEXT = {
     warn: "書き込み中は USB を抜かないでください。",
     install: "インストール", other: "English",
     releaseTitle: "安定版のバージョン", latest: "最新版",
+    advancedTitle: "詳細なインストール（RC・Nightly）",
     rcTitle: "リリース候補", "rc-dual": "RC",
     "rc-dualTag": "リリース候補",
     rcWhy: "次のリリースのテスト版です。標準を選んでインストールすると安定版へ戻せます。",
@@ -109,6 +128,18 @@ const TEXT = {
     brick: "起動保護付きファームウェアの更新が中断した場合は、電源を入れ直すか、OCT− だけを押しながら電源を入れてください。キーのライトが短く3回点滅したら更新モードです。USB を接続し直して、もう一度インストールしてください。以前のファームウェアや長い1回の点滅の場合は、USB 復旧手順を確認してください:",
     recoveryLink: "USB 復旧手順とダウンロード",
     beta: "Melodee の不具合は GitHub で知らせてください。このカスタムファームウェアを使ったことで FM-1 が壊れたり不具合が起きたりしても、作者は一切の責任を負いません。自己責任でお使いください。",
+    transitTitle: "別のファームウェアへ切り替える",
+    transitWhy: "別のカスタムファームウェアへ移る前に、公式V15へ戻す代わりにTransitFM1をインストールしてください。切り替えのための中継用ファームウェアで、音は出ません。",
+    transitFirst: "下のボタンでTransitFM1 0.1をインストールします。",
+    transitNext: "FM-1にTRANSITと表示されたら、移行先のファームウェア専用インストーラーでインストールします。",
+    transitGo: "バックアップしてTransitFM1をインストール",
+    transitGoNoBackup: "バックアップせずTransitFM1をインストール",
+    transitConfirm: "全体バックアップをパソコンに保存できましたか？ TransitFM1をインストールします。次は移行先のインストーラーを使ってください。",
+    transitConfirmNoBackup: "バックアップを作成せずTransitFM1をインストールしますか？ Melodeeの曲・音色・設定が失われる可能性があり、バックアップなしでは復元できません。続けますか？",
+    transitLoading: "TransitFM1をダウンロードして検証中",
+    transitDone: "TransitFM1をインストールしました。FM-1のTRANSIT表示を確認し、移行先のインストーラーを開いてください。",
+    transitSafety: "TransitFM1は移行先への書き込み中断に備えますが、最後のセクターは保護できない場合があります。充電し、書き込み中はUSBを抜かないでください。中断時は同じファームウェアで再開してください。",
+    transitAbout: "TransitFM1の使い方・復旧手順", transitSource: "Quixotic7によるソース・ライセンス",
     back: "M-VAVEから公式FM-1 V15を取得し、未変更のFM-1.fwscを選んでください。ファイルはこのブラウザ内で検証し、サーバーへ送りません。ファイルは変更せず、M-VAVE公式の書き込みモードで書き込みます。",
     stockTitle: "公式V15に戻す", stockFile: "公式FM-1.fwsc", stockGo: "バックアップして公式V15へ戻す",
     stockBackup: "現在の曲・保存曲・音色バンク・サンプル・設定を先に保存します。バックアップできない場合は、Melodeeを更新するか、データ消失を了承してバックアップを省略できます。復元はMelodeeを再インストールしてエディタから行います。",
@@ -145,6 +176,7 @@ const TEXT = {
     warn: "Do not unplug the USB cable while writing.",
     install: "Install", other: "日本語",
     releaseTitle: "Stable release", latest: "Latest",
+    advancedTitle: "Advanced installs",
     rcTitle: "Release candidate", "rc-dual": "Release candidate",
     "rc-dualTag": "release candidate",
     rcWhy: "Preview of the next release, available for testing. Choose Standard to return to stable.",
@@ -157,6 +189,18 @@ const TEXT = {
     brick: "If an update is interrupted on firmware with boot protection, switch the FM-1 on again (or hold OCT− alone while switching on). Three short key-light flashes mean update mode: reconnect USB and press Install again. Older firmware and one long flash need the USB recovery instructions:",
     recoveryLink: "USB recovery instructions and downloads",
     beta: "Please report Melodee problems on GitHub. The author accepts no responsibility if your FM-1 is damaged or misbehaves because of this custom firmware. Use it at your own risk.",
+    transitTitle: "Switching to another firmware",
+    transitWhy: "Before leaving Melodee for another custom firmware, install TransitFM1 instead of returning to official V15. It is a temporary stop for switching firmware and makes no sound.",
+    transitFirst: "Install TransitFM1 0.1 using the button below.",
+    transitNext: "Once the FM-1 shows TRANSIT, open the next firmware’s own installer and install it there.",
+    transitGo: "Back up and install TransitFM1",
+    transitGoNoBackup: "Install TransitFM1 without backup",
+    transitConfirm: "Has the complete backup file been saved to this computer? Continue to install TransitFM1, then use the next firmware’s own installer.",
+    transitConfirmNoBackup: "Install TransitFM1 without creating a backup? Melodee music, sounds and settings may be lost and cannot be restored without a backup. Continue?",
+    transitLoading: "Downloading and verifying TransitFM1",
+    transitDone: "TransitFM1 installed. Check that the FM-1 shows TRANSIT, then open the next firmware’s own installer.",
+    transitSafety: "TransitFM1 guards the next firmware’s write against interruptions, except possibly its last sector. Charge the FM-1 and keep USB connected while writing. If interrupted, resume with the same firmware.",
+    transitAbout: "TransitFM1 instructions and recovery", transitSource: "Source and licences by Quixotic7",
     back: "Get official FM-1 V15 from M-VAVE and select the unmodified FM-1.fwsc. The browser validates it locally; it is not sent to a server. The file is installed unchanged, with M-VAVE's own update loader.",
     stockTitle: "Return to official V15", stockFile: "Official FM-1.fwsc", stockGo: "Back up and return to official V15",
     stockBackup: "Current music, saved music, sound banks, samples and settings are saved first. If backups are unavailable, update Melodee or choose to skip the backup and accept possible data loss. To restore an archive later, reinstall Melodee and use the editor.",
@@ -197,6 +241,7 @@ function applyLang() {
   document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t(e.dataset.t); });
   $("lang").textContent = t("other");
   $("stock-go").textContent = t($("stock-skip-backup").checked ? "stockGoNoBackup" : "stockGo");
+  $("transit-go").textContent = t($("transit-skip-backup").checked ? "transitGoNoBackup" : "transitGo");
   if ($("release").options.length) releaseOptions();
   if (lastKey === "ready") ready();
   else if (lastKey) $("status").textContent = t(lastKey) + lastArg;
@@ -204,6 +249,7 @@ function applyLang() {
 $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
 applyLang();
 $("stock-skip-backup").addEventListener("change", applyLang);
+$("transit-skip-backup").addEventListener("change", applyLang);
 const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; };
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const buildIds = ["dual", "rc-dual", "nightly-dual"];
@@ -227,6 +273,7 @@ function releaseOptions() {
   }));
 }
 releaseOptions();
+$("advanced-installs").hidden = !meta.rc && !meta.nightly;
 $("rc-options").hidden = !meta.rc;
 if (meta.rc) $("rc-version").textContent = meta.rc.version;
 $("nightly-options").hidden = !meta.nightly;
@@ -234,7 +281,12 @@ if (meta.nightly) $("nightly-info").textContent = `next · ${meta.nightly.commit
 const images = {};                // a build ("dual", "nightly-dual" ..) -> its package's image, each fetched once
 
 let writing = false, stock = null, stockFileEpoch = 0, buildEpoch = 0;
-const lockInstaller = (on) => { writing = on; $("release").disabled = on; $("go").disabled = on || !image; buildIds.forEach(k => { $("build-" + k).disabled = on; }); $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; $("stock-skip-backup").disabled = on; };
+const lockInstaller = (on) => {
+  writing = on; $("release").disabled = on; $("go").disabled = on || !image;
+  buildIds.forEach(k => { $("build-" + k).disabled = on; });
+  $("stock-go").disabled = on || !stock;
+  ["stock-file", "stock-recovery", "stock-skip-backup", "transit-go", "transit-recovery", "transit-skip-backup"].forEach(id => { $(id).disabled = on; });
+};
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
 
 // the chosen build's package: Install stays off until it is loaded and checked
@@ -306,14 +358,15 @@ $("go").addEventListener("click", async () => {
 });
 
 $("stock-file").addEventListener("change", async () => {
+  if (writing) return;
   const epoch = ++stockFileEpoch, file = $("stock-file").files[0]; stock = null; lockInstaller(false);
   if (!file) return;
   try {
     if (file.size !== STOCK_V15_SIZE) throw new Error("FM-1 V15 / FM-1.fwsc");
     const verified = await validateStockPackage(new Uint8Array(await file.arrayBuffer()));
     if (epoch !== stockFileEpoch) return;
-    stock = verified; sayK("stockValid"); lockInstaller(false);
-  } catch (e) { if (epoch === stockFileEpoch) sayK("stockError", e.message); }
+    stock = verified; if (!writing) sayK("stockValid"); lockInstaller(writing);
+  } catch (e) { if (epoch === stockFileEpoch && !writing) sayK("stockError", e.message); }
 });
 function saveArchive(archive) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(archive)], {type:"application/json"}));
@@ -331,22 +384,35 @@ function archiveInfo(a) {
     ext[8] === 0x42 && ext[9] === 1 && (ext[10] & 1);
   return {version,supported};
 }
-$("stock-go").addEventListener("click", async () => {
-  if (!stock || writing) return;
-  const selected = stock, skipBackup = $("stock-skip-backup").checked; lockInstaller(true);
+async function leaveMelodee(target) {
+  if (writing || (target === "stock" && !stock)) return;
+  if (!navigator.requestMIDIAccess) { sayK("nomidi"); return; }
+  let selected = stock;
+  const transit = target === "transit", ownLoader = transit ? MELODEE_LOADER : STOCK_LOADER;
+  const skipBackup = $(target + "-skip-backup").checked;
+  const confirmation = () => confirm(t(target + (skipBackup ? "ConfirmNoBackup" : "Confirm")));
+  const complete = () => { $("bar").value = 100; sayK(transit ? "transitDone" : "done"); };
+  lockInstaller(true); $("bar").value = 0;
   let link = null;
   try {
     let midi;
     try { midi = await navigator.requestMIDIAccess({sysex:true}); } catch (e) { sayK("denied"); return; }
+    if (transit) { sayK("transitLoading"); selected = await fetchTransitPackage(); }
     const up = new Updater(midi, log);
-    const step = (k, n) => { log(`${k} ${n ?? ""}`); if (["start","verify","loader","write","reboot","done"].includes(k)) sayK(k); if (k === "done") $("bar").value = 100; };
+    const step = (k, n) => {
+      log(`${k} ${n ?? ""}`);
+      if (["start","verify","loader","write","reboot","done"].includes(k)) sayK(k);
+      if (k === "verify") $("bar").value = Math.min(10, n / 10);
+      if (k === "write") $("bar").value = Math.min(99, 10 + n / (selected.image.length / 512) * 90);
+    };
     const loader = await up.find(id => /^ota-/i.test(id.model));
     if (loader) {
       loader.link.close();
-      if (loader.id.text !== STOCK_LOADER) { refuseLoader(loader.id.text); return; }
-      if (!skipBackup && !$("stock-recovery").checked) { sayK("stockNeedBackup"); return; }
-      if (!confirm(t(skipBackup ? "stockConfirmNoBackup" : "stockConfirm"))) return;
-      sayK(await up.resume(selected.image, step, selected.product, STOCK_LOADER) ? "done" : "stopped");
+      if (loader.id.text !== ownLoader) { refuseLoader(loader.id.text); return; }
+      if (!skipBackup && !$(target + "-recovery").checked) { sayK("stockNeedBackup"); return; }
+      if (!confirmation()) return;
+      if (await up.resume(selected.image, step, selected.product, ownLoader)) complete();
+      else sayK("stopped");
     } else {
       const device = await up.find(id => id.model === "FM-1");
       if (!device) { sayK("notfound"); return; }
@@ -359,18 +425,21 @@ $("stock-go").addEventListener("click", async () => {
           (done,total) => sayK("backup", `${Math.round(done / Math.max(1,total) * 100)}%`));
         saveArchive(archive); link.close(); link = null;
       }
-      if (!confirm(t(skipBackup ? "stockConfirmNoBackup" : "stockConfirm"))) return;
-      await up.install(selected.image, selected.product, step, STOCK_LOADER);
+      if (!confirmation()) return;
+      await up.install(selected.image, selected.product, step, ownLoader);
+      complete();
     }
   } catch (e) {
     // Melodee stops reading at CHECK HEAD when the device's boot data differs from V15's (FAILED -5):
     // refused, never retried another way
-    if (e.code === "stopped" && e.lastRead >= selected.head.from && e.lastRead < selected.head.to) sayK("stockHead");
+    if (!transit && e.code === "stopped" && e.lastRead >= selected.head.from && e.lastRead < selected.head.to) sayK("stockHead");
     else if (e.code === "wrongloader") refuseLoader(e.detail);
     else if (e.code && TEXT[lang][e.code]) sayK(e.code,e.detail || ""); else sayK("error",e.message);
     log(String(e.stack || e));
   } finally { if (link) link.close(); lockInstaller(false); }
-});
+}
+$("stock-go").addEventListener("click", () => leaveMelodee("stock"));
+$("transit-go").addEventListener("click", () => leaveMelodee("transit"));
 </script>
 </body>
 </html>

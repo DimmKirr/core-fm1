@@ -42,6 +42,13 @@ function selectBuild(kind) {
 }
 
 assert.equal(elements.release.options.length, 2);
+const advanced = template.match(/<details id="advanced-installs"([^>]*)>([\s\S]*?)<\/details>/);
+assert.ok(advanced, "development channels belong inside Advanced installs");
+assert.doesNotMatch(advanced[1], /\bopen\b/, "Advanced installs is collapsed by default");
+assert.match(advanced[2], /id="rc-options"/);
+assert.match(advanced[2], /id="nightly-options"/);
+assert.doesNotMatch(advanced[2], /id="transit-go"/, "Transit guidance stays visible outside development channels");
+assert.equal(elements["advanced-installs"].hidden, false);
 assert.equal(elements.release.value, "1.3.2");
 assert.equal(pending[0].url, "new-dual");
 await finish(pending.shift(), 0, 10);

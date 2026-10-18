@@ -169,6 +169,7 @@ web_tests() {                                     # the editor mock's tables mus
     if command -v node >/dev/null 2>&1; then
         step "web pages: editor protocol + native CZ patches, package builder, update protocol" node web/test_web.mjs
         step "installer UI: release selection, fetch races, cache and write lock" node web/test_installer.mjs
+        step "TransitFM1: verified package, backup, loader isolation and resume" node web/test_transit.mjs
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
         step "stock restore: the unmodified official V15 file is the image, CHECK HEAD range" node web/test_stock_restore.mjs
         if [ -f FM-1_v15.fwsc ]; then

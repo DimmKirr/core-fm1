@@ -10,6 +10,24 @@ export const STOCK_V15_SHA256 = "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644
 export const STOCK_APP_SIZE = 0x8DFBC;
 export const STOCK_V15_SIZE = 699956;
 
+// TransitFM1 v0.1, pinned to the upstream release's releases.json / SHA256SUMS.
+// Fetch from its publisher so its package, source and licence notices stay together.
+export const TRANSIT_RELEASE = Object.freeze({
+  version: "0.1", product: "FM-1_015", size: 610637,
+  url: "https://quixotic7.github.io/TransitFM1/firmware/transit-0.1.fwsc",
+  sha256: "9bcee26a8791232ce13c47b8210cc4f2ecde44e07cb9442f271054a73f68c90d",
+});
+
+export async function fetchTransitPackage(fetchFn = fetch) {
+  const response = await fetchFn(TRANSIT_RELEASE.url, {cache: "no-cache"});
+  if (!response.ok) throw new Error(`TransitFM1: HTTP ${response.status}`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length !== TRANSIT_RELEASE.size || await sha256hex(bytes) !== TRANSIT_RELEASE.sha256 ||
+      productOf(bytes) !== TRANSIT_RELEASE.product)
+    throw new Error("TransitFM1: the file does not match the verified release. Reload the page.");
+  return {product: TRANSIT_RELEASE.product, image: logicalImage(bytes)};
+}
+
 const T = new Uint16Array(256);
 for (let i = 0; i < 256; i++) {
   let c = i << 8;

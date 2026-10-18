@@ -17,9 +17,15 @@ again. The first installation of this protection still needs uninterrupted power
 its boot sector is written. Older releases do not have it. See
 [boot protection and validation limits](docs/BOOT-SAFETY.md).
 
-No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the installer's
-**Return to official V15** takes you back to the official firmware.
-It saves a complete backup first. If your firmware cannot export one, you can select
+No extra hardware is needed. Use at your own risk. **Switching to another custom firmware?**
+Use **Back up and install TransitFM1** in the web installer first, then install your
+destination firmware with its own installer once the FM-1 shows **TRANSIT**. Use
+[TransitFM1](https://quixotic7.github.io/TransitFM1/) as the stop between firmwares
+instead of returning to V15: it guards the next write against interruptions, except
+possibly the last sector. Keep power and USB connected throughout.
+
+**Return to official V15** is still available if you want the official firmware itself.
+Both options save a complete backup first. If your firmware cannot export one, you can select
 **Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
