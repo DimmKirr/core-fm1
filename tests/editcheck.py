@@ -11,7 +11,8 @@ switches to counting frequency steps in FIXED mode.
 
 The claim worth proving is the last one -- that RATIO is not a new thing stored anywhere, only the
 COARSE and FINE bytes said differently. SHOW ALL puts those two back on the page, so the test
-drives RATIO to each end of its list and then goes and reads the bytes it wrote.
+drives RATIO to each end of its list and then goes and reads the bytes it wrote -- and, with SEL
+held, walks off the list a hundredth at a time and reads those too.
 """
 import sys
 from pathlib import Path
@@ -115,6 +116,15 @@ def main(stem):
     # on HOME, or stayed put, or landed on a different bank, the two screens could not match.
     check("a tap on OPERATOR walks the banks", full(14000) == full(17700))
     check("and it is a different bank", full(14000) != full(13000))
+
+    # SEL held: every ratio, in order, rather than the list. COARSE is 0..31 and FINE 0..99, so a
+    # bar is a byte scaled to 228 pixels over 31 or 99.
+    def cf(ms):
+        b = bars(ms)
+        return round(b[1] * 31 / BAR_W), round(b[2] * 99 / BAR_W)
+    check("SEL and a click down from x1.00 is x0.99", cf(20000) == (0, 99), f"{cf(20000)}")
+    check("and three up is x1.02: a hundredth a click", cf(21600) == (1, 2), f"{cf(21600)}")
+    check("and without SEL the list again, at x1.41", cf(22600) == (1, 41), f"{cf(22600)}")
 
     print(f"\n{bad} checks failed")
     return 1 if bad else 0

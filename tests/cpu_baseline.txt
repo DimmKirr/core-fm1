@@ -581,3 +581,12 @@ after the effects. The step view is all main loop.
 
 The clock costs nothing that shows: the readings moved down, not up, which
 is the difference in what was sounding when they were taken.
+
+HOME's FEEDBK knob, SEL's free ratio, PIT and the pitch envelope's switch,
+F#5 as a note on plain HOME. The pitch envelope's switch is one compare a
+sample; the rest is main loop.
+
+  image   136484 B -> 139404 B   (+2920)
+  cpu     41 % / PK 47 %   with the pitch envelope page
+
+2026-10-18, FM-1 hardware, FM-1_970, measured by the user on the device.

@@ -52,7 +52,7 @@ so a bank fills them exactly.
 | **SAVE** | Keep the sound you are on, under a name of your own. Press, name it and pick the slot, press again. Any other button backs out. |
 | **HOME** | Three screens, and pressing it again steps through them: the algorithm drawn out, the spectrum of what you are hearing, or its waveform. |
 | **MONO / POLY** | The top two black keys, on the OPERATOR page. Mono is one voice, last note wins. |
-| **A / B** | The voice line starts with the side you are listening to. The top black key, **F#5**, flips it on a tap and copies this side onto the other on a hold. |
+| **A / B** | The voice line starts with the side you are listening to. The top black key, **F#5**, flips it on a tap and copies this side onto the other on a hold — wherever you are editing; on plain HOME it is just a key. |
 | **ARP** | The [arpeggiator](#something-to-keep-playing): the first tap puts its knobs on HOME, a tap there turns it on and off. |
 | **SEQ** | The [looper](#something-to-keep-playing)'s knobs on HOME; held, the step view. |
 | **REC** / **PLAY** | Record a phrase (a bar is counted in), or record over the one playing; held, **REC** clears it. **PLAY** starts and stops it. |
@@ -97,7 +97,9 @@ HOME has no parameters to list, but it is the screen you are looking at while yo
 the knobs are not idle there. They move four operators at once — `LVL 1` through `LVL 4` to begin with — and
 **SELECT** steps which four, the same thing it means everywhere else: the next four things under the knobs.
 There are four sets, `LVL 1-4`, `LVL 5 6`, `RAT 1-4`, `RAT 5 6`, and then it comes round again. The two sets
-that run past operator six leave those knobs blank rather than pretend.
+that run past operator six put `FEEDBK` on the third knob — the algorithm's feedback loop, 0 to 7, the one
+thing besides levels and ratios that changes an FM sound most — and leave the fourth blank rather than
+pretend. The feedback bracket on the diagram glows brighter the higher it goes.
 
 This is the balancing view, and balancing the operators against each other is most of what making an FM sound
 turns out to be. A modulator's level is how hard it modulates, so sweeping `LVL 2` with a note held is the
@@ -130,6 +132,10 @@ which is in there because an operator at the square root of two is the quickest 
 *inharmonic* means. Nothing is stored differently — it is those same two bytes, so a sound edited here is
 still a DX7 voice and still exports as one, and a ratio the list does not reach is still shown faithfully
 if a patch arrives using it.
+
+Hold **SEL** and the list is left behind: each click is the next ratio the two bytes can make at all, in
+order — `x1.00`, `x1.01`, `x1.02` and on — which is where the slow beating of a slightly sour ratio lives.
+Let go and the next plain click goes back to the list, from wherever you are.
 
 Switch **MODE** to `FIXED` and the same two bytes stop being a multiple of the key and become a frequency
 instead, anywhere from 1 Hz to about 9.8 kHz. The row follows: it is called `FIXED HZ`, it says the
@@ -243,6 +249,25 @@ shape worth having and the only way to make a note start quiet.
 It is a setting of the instrument and not of the sound, for the same reason mono is: the 156 bytes are a
 DX7 voice and have no room for it, and a bank saved here should stay a real DX7 dump. So there is one of it,
 it is saved with the octave, and it is under every voice you load.
+
+### The pitch envelope
+
+The other envelope a DX7 voice has bends the pitch rather than the volume, and it is the black key marked
+`PIT`, between `OP6` and `GLOBAL` — which is what the stock firmware's manual says it is for. Press it wherever
+the `OP` keys are pointing: after a tap of **EDIT**, **ENV** or **LFO** it puts the pitch envelope under the
+knobs on HOME, titled `PITCH`, and draws it where the diagram was; from a page it opens ENVELOPE on it. Any
+`OP` key goes back to that operator's.
+
+It is four rates and four levels, and the knobs take them a pair at a time — `RATE 1` `LVL 1` `RATE 2`
+`LVL 2`, and **SELECT** for 3 and 4. A note starts at `LVL 4`, travels to 1, 2 and 3 at their rates, stays at 3
+while the key is held, and returns to 4 when you let go. The levels read in semitones: `0.0` is the key you
+played, and `+12.0` an octave above it. The picture draws the middle line as the note itself, up as sharp,
+with a white dot where the newest note has got to. Try `LVL 4` at `+12.0` with a quick `RATE 1`: every note
+swoops down into place, the start of a hundred laser and drum sounds.
+
+A tap of **ENV** switches it out and in, as it does the global envelope — out, the notes are at the key's
+pitch and the shape waits in grey with `OFF` over it. Unlike that one it is part of the voice, so it starts
+in, and switching it out is for hearing a patch without it rather than a change to the patch.
 
 ## The LFO
 
@@ -382,8 +407,8 @@ back, so two controls do nothing but that.
 
 **SEL** decides on the release, because while it is down it is also the fine-adjust shift: turn a knob under
 it and the press does neither. It works wherever there is a selected operator — a tap of **EDIT**, **ENV** or
-**LFO**, or a page — and does nothing on plain HOME, where there is none. The top black key never plays a
-note — a compare that sometimes sounds one instead is not one you can trust with your eyes shut.
+**LFO**, or a page — and does nothing on plain HOME, where there is none. The top black key is the same: it
+is the compare wherever you are editing, and on plain HOME, which is for playing, it plays its F#5.
 
 The switches are not part of the voice — a DX7's were front-panel switches, not voice data — so they are not
 saved, they survive an A/B switch, and changing voice brings all six back on.
@@ -674,6 +699,7 @@ tests/run_host.sh tests/effects.txt       # chorus, phaser, delay and reverb, by
 tests/run_host.sh tests/waves.txt         # the operator waves, harmonic by harmonic; drawn, and saved
 tests/run_host.sh tests/scope.txt         # the waveform screen, by its trace
 tests/run_host.sh tests/play.txt          # the arpeggiator, the looper and the step view, by ear and by pixel
+tests/run_host.sh tests/pitch.txt         # PIT and the pitch envelope: an octave by zero crossings, and its switch
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single

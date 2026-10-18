@@ -1,0 +1,75 @@
+# FM Lab -- PIT: the black key between OP6 and GLOBAL, and the pitch envelope it opens.
+#
+#   build/host/fmlab build/host/pitch tests/pitch.txt
+#
+# The stock firmware's manual says PIT selects the pitch envelope for editing, and here it does:
+# wherever the OP keys point instead of playing, PIT points at the envelope that bends the note.
+# On HOME it puts that envelope under the ENV knobs, two segments at a time -- a rate with the
+# level it is heading for -- and draws it where the diagram was. From a page it opens ENVELOPE on
+# it. Its eight bytes are a DX7's own, so GLOBAL still has them, which is where they are read back.
+#
+# INIT VOICE is one sine, and its pitch envelope is flat: every level 50, every rate 99. So a
+# held note is the key's pitch, until LEVEL 3 -- the one held while the key is down -- goes up.
+
+200 enc 6 20
+
+# The note as it is: no pitch envelope to speak of.
+600 keys 0x80
+1400 keys 0
+
+# EDIT's tap: the OP keys point. PIT, which is G#4, key 15, points too -- and sounds nothing.
+1600 btn 6
+2000 shot
+2200 keys 0x8000
+2300 keys 0
+2800 shot
+
+# SELECT has the second pair: RATE 3, LEVEL 3, RATE 4, LEVEL 4.
+3000 enc 0 1
+3400 shot
+
+# LEVEL 3 up an octave: 50 to 80 is six clicks of five, and SEL makes the last two a click each.
+# 82 is 32 of the engine's units, which is an octave exactly.
+3600 enc 3 6
+3700 btn 3 400
+3800 enc 3 2
+4400 shot
+
+# The same note again, and this time it is held an octave up.
+4600 keys 0x80
+5200 shot
+5600 keys 0
+
+# A hold of ENV is the ENVELOPE page, still on the pitch envelope, and SELECT its second bank.
+6000 btn 4 600
+6800 shot
+7000 enc 0 1
+7600 shot
+
+# A tap of ENV switches the pitch envelope out, as it does the global one: the note is the key's.
+7800 btn 4
+8000 keys 0x80
+8400 shot
+8600 keys 0
+
+# ... and a second tap back in, the shape as it was.
+8800 btn 4
+9200 shot
+
+# GLOBAL has the same bytes: its third bank is P LEVEL 1..4.
+9400 btn 7
+9600 btn 7
+9800 btn 7
+10400 shot
+
+# From the OPERATOR page, PIT opens ENVELOPE on the pitch envelope, at its first bank ...
+10600 btn 6 600
+11400 keys 0x8000
+11500 keys 0
+12000 shot
+
+# ... and OP1 takes it back to an operator's.
+12200 keys 0x2
+12300 keys 0
+12800 shot
+13000 end

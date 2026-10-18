@@ -46,4 +46,19 @@
 6200 enc 2 5
 6400 btn 6 600
 7300 shot
-7700 end
+
+# The set with OP5 and OP6 has two knobs over, and the third is FEEDBACK: the one number the diagram
+# already draws, as the bracket round the operator that modulates itself. All the way down, where
+# the bracket goes dim because nothing goes round it, then five clicks up -- 0..7, a click each.
+# KNOB4 is still nothing. GLOBAL's first bank has FEEDBACK as its second row, to read it off.
+7500 btn 8
+7700 enc 0 -1
+7900 shot
+8100 enc 4 -9
+8300 shot
+8500 enc 4 5
+8550 enc 5 3
+8700 shot
+8900 btn 7
+9700 shot
+9900 end

@@ -66,7 +66,9 @@ INK = {
     "fb_edge":  lambda r, g, b: r >= 245 and _near(g, 140, 158) and _near(b, 82, 98),
     "fb_body":  lambda r, g, b: _near(r, 130, 150) and _near(g, 74, 90) and _near(b, 42, 58),
     "fb_frame": lambda r, g, b: _near(r, 96, 118) and _near(g, 52, 70) and _near(b, 24, 42),
-    "bracket":  lambda r, g, b: _near(r, 195, 215) and _near(g, 140, 158) and _near(b, 82, 98),
+    # the bracket's brightness follows FEEDBACK, so it is known by its hue
+    "bracket":  lambda r, g, b: _near(r, 60, 255) and _near(g, 0.68 * r, 0.85 * r)
+                                and _near(b, 0.32 * r, 0.52 * r),
     "strike":   lambda r, g, b: _near(r, 180, 200) and _near(g, 78, 94) and _near(b, 82, 98),
     "white":    lambda r, g, b: r >= 250 and g >= 250 and b >= 250,
 }

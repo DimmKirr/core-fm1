@@ -10,14 +10,16 @@ the bar that draws the byte. A bar is a byte scaled to 228 pixels, so "thirty st
 prediction of 69 pixels and not a vague claim that something changed.
 
 The legend is the other half. Four knobs have to be named on both HOME screens, SELECT has to step
-through four sets and come back, and the sets that reach past OP6 have to leave those two cells
-blank rather than name something that is not there.
+through four sets and come back, and the sets that reach past OP6 have to leave the last cell blank
+rather than name something that is not there -- the third is FEEDBACK, which is measured off the
+GLOBAL page the same way, and drawn on the diagram as a bracket as bright as it is high.
 """
 import sys
 from pathlib import Path
 
 LEG_Y, LEG_H, CELL = 208, 16, 60        # the knob legend, four cells across the bottom
 VOICE_Y, VOICE_H = 40, 24               # the line HOME flashes messages on
+ALG_Y, ALG_H = 64, 136                  # the diagram
 ROW_Y = (81, 113, 145, 177)             # the bar under each of OPERATOR's four rows
 BAR_X, BAR_W = 6, 228
 ACC = (180, 141, 255)                   # C_ACC, lilac, after 565 and back
@@ -99,9 +101,9 @@ def main(stem):
     check("SELECT steps through four different sets",
           len({bytes(b"".join(s)) for s in seen}) == 4)
     check("and the fourth step wraps back to the first", sets[1800] == sets[200])
-    check("the set that runs past OP6 leaves two knobs blank",
+    check("the set that runs past OP6 names FEEDBACK third, the fourth blank",
           ink(sets[600][0]) > 0 and ink(sets[600][1]) > 0
-          and ink(sets[600][2]) == 0 and ink(sets[600][3]) == 0,
+          and ink(sets[600][2]) > 0 and ink(sets[600][3]) == 0,
           " ".join(str(ink(c)) for c in sets[600]))
     check("the analyser has the filter's four knobs instead", sets[2200] != sets[200]
           and all(ink(c) > 0 for c in sets[2200]), " ".join(str(ink(c)) for c in sets[2200]))
@@ -125,6 +127,16 @@ def main(stem):
           f"{after[1]} -> {last[1]} pixels")
     check("and leaves the level where the first set put it", last[0] == after[0],
           f"{after[0]} against {last[0]}")
+
+    # FEEDBACK, from HOME. Five clicks up from the bottom is 5 of 7, on GLOBAL's second row.
+    check("the LVL 5/6 set is the one with FEEDBACK", cells(7900) == sets[600])
+    fb = bars(9700)[1]
+    want = round(5 * BAR_W / 7.0)
+    check("HOME's third knob is FEEDBACK, a click a step", abs(fb - want) <= 2,
+          f"{fb} pixels, want {want}")
+    check("and the bracket brightens as it goes up",
+          band(8300, ALG_Y, ALG_H) != band(8700, ALG_Y, ALG_H))
+    check("and HOME says what it did", band(8700, VOICE_Y, VOICE_H) != band(7900, VOICE_Y, VOICE_H))
 
     print(f"\n{bad} checks failed")
     return 1 if bad else 0

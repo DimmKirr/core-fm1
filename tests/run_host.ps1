@@ -84,6 +84,10 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'play.txt') {
     python tests\playcheck.py $out           # the arpeggiator and the sequencer, heard
     if ($LASTEXITCODE) { throw 'the arpeggiator or the sequencer is not what it should be' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'pitch.txt') {
+    python tests\pitchcheck.py $out          # the PIT key, and the pitch envelope it opens
+    if ($LASTEXITCODE) { throw 'the pitch envelope is not what it should be' }
+}
 if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'fx.txt') {
     python tests\fxcheck.py $out             # the filter and the effects' knobs
     if ($LASTEXITCODE) { throw 'the filter is not what it should be' }

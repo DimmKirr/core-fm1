@@ -49,9 +49,8 @@
 5400 keys 0x4880
 5700 shot
 6000 keys 0
-6050 btn 8
 
-# A/B: F#5 held copies this side onto the other, then a tap switches to it. Nothing should change.
+# A/B, still under EDIT's tap -- plain HOME plays the key: F#5 held copies this side onto the other, then a tap switches to it. Nothing should change.
 6100 keys 0x2000000
 6700 keys 0
 6800 keys 0x2000000
@@ -82,4 +81,11 @@
 9900 keys 0x4880
 10200 shot
 10500 keys 0
-10800 end
+
+# plain HOME: F#5 is a note there, and it leaves the side alone -- the chord is still B's
+10600 btn 8
+11000 keys 0x2000000
+11300 keys 0
+11400 keys 0x4880
+11700 keys 0
+12000 end

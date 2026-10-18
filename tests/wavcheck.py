@@ -35,6 +35,8 @@ WINDOWS = [
     ('B with OP1 level down 20', 8450, 8700, 'quieter'),
     ('back on A', 9250, 9500, 'loud'),
     ('B again', 10050, 10300, 'quieter'),
+    ('F#5 on plain HOME plays', 11050, 11250, 'sounds'),
+    ('..and the side is still B', 11450, 11650, 'quieter'),
 ]
 
 full = peak(1150, 1400)
@@ -43,6 +45,8 @@ for name, t0, t1, want in WINDOWS:
     p = peak(t0, t1)
     if want == 'silent':
         ok = p == 0
+    elif want == 'sounds':
+        ok = p > full // 20 and peak(10900, 10990) < 20
     elif want == 'loud':
         ok = p == full
     else:

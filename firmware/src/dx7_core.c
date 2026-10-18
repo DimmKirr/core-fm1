@@ -589,6 +589,8 @@ static void dx_op_fb(int32_t *out, int32_t phase, int32_t freq, int32_t g1, int3
 /* one block: adds the note into out[DX_N]. pitch: an offset in Q24 log2 for the ratio operators and the
  * fixed ones alike (Dexed's pitch bend / master tune: the part's glide, LFO and tuning here); lfo_val /
  * lfo_delay as Dexed's synth gives them (dx_compute_lfo: the note's own) */
+static uint8_t dx_peg_off;                       /* FM Lab's: the pitch envelope runs, but is not heard */
+
 static void dx_compute_ext(dxv_t *v, int32_t *out, int32_t lfo_val, int32_t lfo_delay, int32_t pitch)
 {
     static int32_t bus[2][DX_N];
@@ -602,7 +604,10 @@ static void dx_compute_ext(dxv_t *v, int32_t *out, int32_t lfo_val, int32_t lfo_
     senslfo = v->pmsens * (lfo_val - (1 << 23));
     pm1 = (int32_t)(((int64_t)pmd * (int64_t)senslfo) >> 39);
     pm1 = pm1 < 0 ? -pm1 : pm1;
-    pmod = dx_penv_sample(&v->penv) + pm1 * (senslfo < 0 ? -1 : 1) + pitch;
+    pmod = dx_penv_sample(&v->penv);
+    if (dx_peg_off)
+        pmod = 0;
+    pmod += pm1 * (senslfo < 0 ? -1 : 1) + pitch;
     /* amplitude: the LFO */
     lfo_val = (1 << 24) - lfo_val;
     amod = (int32_t)(uint32_t)(((int64_t)v->amdepth * lfo_delay) >> 8);

@@ -88,4 +88,30 @@
 15900 btn 6 600
 16800 btn 6 600
 17700 shot
-17900 end
+
+# SEL held, RATIO stops walking the list and walks every ratio the two bytes can make, in order --
+# a hundredth a click around x1. From x1.00 one click down is x0.99 (coarse 0, which is a half,
+# times 1.99), then three up is x1.02 (coarse 1, fine 2). Let go, and the next plain click goes
+# back onto the list at the entry above, x1.41. Read off the COARSE and FINE bank each time.
+17900 btn 8
+18100 btn 6 600
+19000 enc 3 -99
+19100 enc 3 2
+19200 btn 3 400
+19300 enc 3 -1
+19800 btn 6
+20000 shot
+20200 btn 6
+20300 btn 6
+20400 btn 6
+20600 btn 3 600
+20700 enc 3 3
+21400 btn 6
+21600 shot
+21800 btn 6
+21900 btn 6
+22000 btn 6
+22200 enc 3 1
+22400 btn 6
+22600 shot
+22800 end

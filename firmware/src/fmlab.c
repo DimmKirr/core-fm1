@@ -1239,7 +1239,8 @@ enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, 
        K_PCT,                                   /* 1..100 % */
        K_ARATE,                                 /* the arpeggiator's step, as a note value */
        K_SWING,                                 /* 50..75 %: how far the off-beat step is pushed */
-       K_VEL };                                 /* 0..99, said as the MIDI velocity it is */
+       K_VEL,                                   /* 0..99, said as the MIDI velocity it is */
+       K_PLVL };                                /* a pitch envelope level, said in semitones */
 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
@@ -1252,6 +1253,8 @@ enum { UI_SPAN = 0, UI_GATK, UI_GDEC, UI_GSUS, UI_GREL, UI_FCUT, UI_FRES, UI_FTY
        UI_APAT, UI_AOCT, UI_LATCH,              /* the arpeggiator's */
        UI_BARS, UI_DIV, UI_CLICK,               /* the sequencer's */
        UI_AGATE, UI_ARATE, UI_SWING, UI_AVEL,   /* the arpeggiator's second four */
+       UI_POFF,                                 /* the pitch envelope switched out, its bytes kept;
+                                                 * it starts in, since it is the patch's own */
        UI_N };
 #define PL2_N 4u                                /* UI_AGATE onwards */
 #define PL_N 7u                                 /* UI_TEMPO onwards */
@@ -1274,6 +1277,7 @@ static void glo_sync(void)
     uint32_t i;
     for (i = 0; i < G_N; i++)
         gpar[i] = ui[UI_GOFF] ? NONE[i] : ui[UI_GATK + i];
+    dx_peg_off = ui[UI_POFF];                   /* and the pitch envelope's switch, likewise */
 }
 
 /* ---- the filter
@@ -1601,10 +1605,24 @@ static const param_t PG_GLO[] = {
     {"P RATE 2", "PRATE2", P_G, 127, 99, K_NUM},
     {"P RATE 3", "PRATE3", P_G, 128, 99, K_NUM},
     {"P RATE 4", "PRATE4", P_G, 129, 99, K_NUM},
-    {"P LEVEL 1", "P LVL1", P_G, 130, 99, K_NUM},
-    {"P LEVEL 2", "P LVL2", P_G, 131, 99, K_NUM},
-    {"P LEVEL 3", "P LVL3", P_G, 132, 99, K_NUM},
-    {"P LEVEL 4", "P LVL4", P_G, 133, 99, K_NUM},
+    {"P LEVEL 1", "P LVL1", P_G, 130, 99, K_PLVL},
+    {"P LEVEL 2", "P LVL2", P_G, 131, 99, K_PLVL},
+    {"P LEVEL 3", "P LVL3", P_G, 132, 99, K_PLVL},
+    {"P LEVEL 4", "P LVL4", P_G, 133, 99, K_PLVL},
+};
+#define PG_GLO_FB 1u                            /* reached by name: HOME has a knob for it */
+/* ..and the same eight as the PIT key gives them: a rate with the level it is heading for, the way
+ * the ENVELOPE page pairs an operator's, so the first four are the note's start and the second its
+ * end. A level of 50 is the note's own pitch. */
+static const param_t PG_PEG[] = {
+    {"P RATE 1",  "RATE 1",  P_G, 126, 99, K_NUM},
+    {"P LEVEL 1", "LVL 1",   P_G, 130, 99, K_PLVL},
+    {"P RATE 2",  "RATE 2",  P_G, 127, 99, K_NUM},
+    {"P LEVEL 2", "LVL 2",   P_G, 131, 99, K_PLVL},
+    {"P RATE 3",  "RATE 3",  P_G, 128, 99, K_NUM},
+    {"P LEVEL 3", "LVL 3",   P_G, 132, 99, K_PLVL},
+    {"P RATE 4",  "RATE 4",  P_G, 129, 99, K_NUM},
+    {"P LEVEL 4", "LVL 4",   P_G, 133, 99, K_PLVL},
 };
 /* the filter, and how far across the spectrum it is drawn on: the spectrum screen's four knobs */
 static const param_t PG_FLT[] = {
@@ -1678,7 +1696,8 @@ static const struct { const char *name; const param_t *p; uint8_t n, rows, y0; }
 #define HOME_NBANK 3u                           /* HOME's screens: the diagram, the spectrum, the wave */
 
 static uint8_t page, bank, opsel = 5;           /* opsel is the engine's operator index: 0 = OP6 .. 5 = OP1 */
-static uint8_t gsel;                            /* ..or the global envelope, which is not an operator */
+static uint8_t gsel;                            /* ..or 1, the global envelope, which is not an operator,
+                                                 * or 2, the pitch envelope, which is not one either */
 enum { FOC_OFF = 0, FOC_EDIT, FOC_ENV, FOC_LFO, FOC_FX, FOC_SEQ, FOC_ARP };  /* a tap puts the top of a page under the knobs */
 static uint8_t focus;
 #define LONG_MS 400u                            /* longer than a tap, shorter than a wait */
@@ -1689,6 +1708,7 @@ static const uint8_t FOC_PAGE[FOC_N] = {PAGE_OP, PAGE_EG, PAGE_LFO, PAGE_FX};
 static const char *const FOC_NAME[] = {"EDIT", "ENV", "LFO", "FX", "SEQ", "ARP"};
 static uint8_t fxsel;                           /* the effect the EFFECTS page last showed */
 static uint8_t arp_pg;                          /* ARP's knobs: the first four, or SELECT's second */
+static uint8_t pit_pg;                          /* the pitch envelope's on HOME: segments 1-2, or 3-4 */
 static uint8_t stc;                             /* the step view's cursor */
 
 /* ---- a few things under the four knobs, without leaving the screen you play on
@@ -1752,9 +1772,9 @@ static const param_t *focus_at(uint32_t e)
         return e < 4u ? &PG_OP[e] : 0;          /* LEVEL RATIO DETUNE WAVE */
     if (focus == FOC_ENV)                       /* ATTACK DECAY SUSTAIN RELEASE, of one of the
                                                  * operators or of the whole voice */
-        return e < 4u ? (gsel ? &PG_GEG[e] : &PG_EG[e]) : 0;
+        return e < 4u ? (gsel == 2u ? &PG_PEG[pit_pg * 4u + e] : gsel ? &PG_GEG[e] : &PG_EG[e]) : 0;
     if (focus == FOC_LFO)                       /* the LFO itself, or this operator's ear on it */
-        return gsel ? (e < 4u ? &PG_LFO[LFO_FOC[e]] : 0)
+        return gsel == 1u ? (e < 4u ? &PG_LFO[LFO_FOC[e]] : 0)
                     : (e < 1u ? &PG_OP[PG_OP_AMS] : 0);
     if (focus == FOC_FX)                        /* the four MIXes, one knob an effect */
         return e < 4u ? &PG_MIX[e] : 0;
@@ -1786,6 +1806,11 @@ static void foc_step(int32_t d)
     int32_t o;
     if (focus == FOC_ARP && (d & 1))            /* ARP has two sets of four, and no operator */
         arp_pg ^= 1u;
+    if (focus == FOC_ENV && gsel == 2u) {       /* ..and so has the pitch envelope */
+        if (d & 1)
+            pit_pg ^= 1u;
+        return;
+    }
     if (focus >= FOC_FX)                        /* ..FX and SEQ, one set and no operator */
         return;
     o = (int32_t)opsel - d % 6;                 /* forward: OP1 -> OP2 -> .. */
@@ -1806,7 +1831,18 @@ static uint32_t glo_point(void)
 
 static uint32_t eg_glo(void)                    /* ..and it is the global envelope that is showing */
 {
-    return gsel && (page == PAGE_EG || (focus == FOC_ENV && page == PAGE_HOME));
+    return gsel == 1u && (page == PAGE_EG || (focus == FOC_ENV && page == PAGE_HOME));
+}
+
+/* The black key between OP6 and GLOBAL, which the panel prints PIT under: the stock firmware's
+ * "edit the pitch envelope", and ours. It points wherever the OP keys do, and takes you to the
+ * envelope that bends the note's pitch rather than an operator's level -- on HOME by putting it
+ * under the ENV knobs, from a page by opening ENVELOPE on it. Its eight bytes are the voice's, a
+ * DX7's own, so they also stay on GLOBAL where the panel's manual put them. */
+#define PIT_KEY 15u                             /* G#4 */
+static uint32_t eg_pit(void)                    /* the pitch envelope is the one showing */
+{
+    return gsel == 2u && (page == PAGE_EG || (focus == FOC_ENV && page == PAGE_HOME));
 }
 
 /* ..or the LFO itself in place of one operator's share of it. One flag, because GLOBAL asks the
@@ -1814,7 +1850,7 @@ static uint32_t eg_glo(void)                    /* ..and it is the global envelo
  * one of the two can be on the screen to ask it of. */
 static uint32_t lfo_glo(void)
 {
-    return gsel && focus == FOC_LFO && page == PAGE_HOME;
+    return gsel == 1u && focus == FOC_LFO && page == PAGE_HOME;
 }
 
 static uint32_t flt_shown(void)                 /* the filter's curve: always, over the spectrum,
@@ -1869,13 +1905,15 @@ static int32_t knob_take(uint32_t e, int32_t step)
  * are what every bank walker goes through. */
 static uint32_t page_n(void)
 {
-    return eg_glo() ? 4u : PAGE[page].n;
+    return eg_glo() ? 4u : eg_pit() ? 8u : PAGE[page].n;
 }
 
 static const param_t *page_at(uint32_t want)
 {
     if (eg_glo())                               /* the global envelope is four rows and no more */
         return want < 4u ? &PG_GEG[want] : 0;
+    if (eg_pit())                               /* the pitch envelope, two segments a bank */
+        return want < 8u ? &PG_PEG[want] : 0;
     return want < PAGE[page].n ? &PAGE[page].p[want] : 0;
 }
 
@@ -1887,7 +1925,7 @@ static const param_t *page_at(uint32_t want)
  * that walks one has to ask how long it is and where it starts. */
 static uint32_t bank_rows(uint32_t b)
 {
-    if (eg_glo())                               /* four, once: it has no raw segments underneath */
+    if (eg_glo() || eg_pit())                   /* four: it has no raw segments underneath */
         return 4u;
     if (page == PAGE_EG)
         return b == 0u ? 4u : 2u;
@@ -1898,6 +1936,8 @@ static uint32_t bank_first(uint32_t b)
 {
     if (eg_glo())
         return 0u;
+    if (eg_pit())
+        return b * 4u;
     if (page == PAGE_EG)
         return b == 0u ? 0u : 4u + (b - 1u) * 2u;
     return b * PAGE_ROWS;
@@ -1922,7 +1962,7 @@ static uint32_t page_nbank(void)
  * SELECT steps which four -- the same thing it means on every other page, the next four things
  * under the knobs -- so there is nothing new to learn, and HOME's own button goes on stepping the
  * screens. Four knobs and six operators do not divide, so the sets come in pairs: operators 1 to 4,
- * then 5 and 6 with two knobs spare. The legend names every knob, so which set you are on is never
+ * then 5 and 6 with FEEDBACK on the third knob and the fourth spare. The legend names every knob, so which set you are on is never
  * something you have to carry in your head. */
 enum { HK_LVL = 0, HK_RAT };
 static const struct { uint8_t what, op0; } HSET[] = {
@@ -1936,6 +1976,14 @@ static uint32_t home_op(uint32_t e)
 {
     uint32_t n = (uint32_t)HSET[homeset].op0 + e;
     return n <= 6u ? n : 0u;
+}
+
+/* ..and the third knob of the 5-and-6 sets, which would otherwise do nothing, is FEEDBACK: the
+ * one number the diagram already draws (the bracket round the operator modulating itself) and the
+ * one most worth reaching for while you are balancing levels -- 0 is a sine, 7 is nearly a saw. */
+static uint32_t home_fb(uint32_t e)
+{
+    return e == 2u && HSET[homeset].op0 == 5u;
 }
 
 /* Go to a page; pressing the button for the page you are already on walks its banks and wraps. */
@@ -2001,7 +2049,7 @@ static uint32_t bank_has_op(void)
 static const uint8_t OP_KEY[6] = {1, 3, 5, 8, 10, 13};   /* F#3 G#3 A#3 C#4 D#4 F#4 = OP1..OP6 */
 static uint32_t op_point(void)                  /* are the black keys pointing rather than playing? */
 {
-    return bank_has_op() || eg_glo() || lfo_glo() || (page == PAGE_HOME && foc_op());
+    return bank_has_op() || eg_glo() || eg_pit() || lfo_glo() || (page == PAGE_HOME && foc_op());
 }
 
 static int op_key(uint32_t k)
@@ -2022,11 +2070,11 @@ static int op_key(uint32_t k)
 #define MONO_KEY 20u                            /* C#5 */
 #define POLY_KEY 22u                            /* D#5 */
 
-/* The top black key is the A/B compare, everywhere: a tap swaps sides on its release, a hold copies
- * the side you are on over the other one -- a place to come back to before you start changing
- * things. It never plays: a compare that sometimes sounds a note instead is not one you can trust
- * with your eyes shut, and an F#5 is the least missed key on the keyboard. */
+/* The top black key is the A/B compare wherever you are editing: a tap swaps sides on its release,
+ * a hold copies the side you are on over the other one -- a place to come back to before you start
+ * changing things. Plain HOME, with nothing focused, is for playing, so there it is an F#5. */
 #define AB_KEY 25u                              /* F#5 */
+#define ab_point() (page != PAGE_HOME || focus != FOC_OFF)
 static uint32_t ab_t;                           /* when it went down, or 0 */
 static uint8_t ab_long;                         /* ..and the hold has already copied */
 
@@ -2137,6 +2185,41 @@ static uint32_t fix_hz_x100(uint32_t x)         /* the frequency those steps mea
                                                  * quarter of the room needed to hold it */
 }
 
+/* SEL held: not the list but every ratio the two bytes can make, in order. COARSE 1..31 times
+ * 1.00..1.99, or a half times the same, overlap all the way up, so the next one above or below is
+ * the nearest of 32 candidates -- the least FINE that gets past the current value, coarse by coarse.
+ * Around x1 that is a hundredth a click, which is what a little detune-by-ratio wants. Ties go to
+ * the smaller FINE, so x3.00 is coarse 3 rather than coarse 2 and a half again. */
+static void rat_free(uint32_t op, int32_t dir)
+{
+    uint32_t v = rat_now(op), c, best = dir > 0 ? 0xFFFFFFFFu : 0u, bc = 0, bf = 0, found = 0;
+    for (c = 0; c < 32u; c++) {
+        int32_t f;
+        uint32_t x;
+        if (dir > 0)                            /* the least FINE above v */
+            f = c ? (int32_t)(v / c) + 1 - 100 : (int32_t)(2u * v) + 2 - 100;
+        else                                    /* the most FINE below it */
+            f = c ? (int32_t)((v - 1u) / c) - 100 : (int32_t)(2u * v) - 1 - 100;
+        if (dir > 0 && f < 0) f = 0;
+        if (dir < 0 && f > 99) f = 99;
+        if (f < 0 || f > 99)
+            continue;
+        x = rat_x100(c, (uint32_t)f);
+        if (dir > 0 ? x <= v : x >= v)
+            continue;
+        if (!found || (dir > 0 ? x < best : x > best) || (x == best && (uint32_t)f < bf)) {
+            best = x;
+            bc = c;
+            bf = (uint32_t)f;
+            found = 1;
+        }
+    }
+    if (!found)                                 /* the end of the range: stay */
+        return;
+    *op_byte(op, 18) = (uint8_t)bc;
+    *op_byte(op, 19) = (uint8_t)bf;
+}
+
 /* Turn an operator's pitch by one or more clicks, whichever of the two things it currently means.
  * The HOME knobs drive this for an operator you are not editing, so it takes one. */
 static void rat_turn(uint32_t op, int32_t enc)
@@ -2146,6 +2229,9 @@ static void rat_turn(uint32_t op, int32_t enc)
         x = x < 0 ? 0 : x > 399 ? 399 : x;
         *op_byte(op, 18) = (uint8_t)(x / 100);
         *op_byte(op, 19) = (uint8_t)(x % 100);
+    } else if (sel_fine()) {                    /* RATIO, SEL held: every ratio there is */
+        for (; enc > 0; enc--) rat_free(op, 1);
+        for (; enc < 0; enc++) rat_free(op, -1);
     } else {                                    /* RATIO: walk the list */
         uint32_t exact;
         int32_t x = (int32_t)rat_index(op, &exact);
@@ -2259,6 +2345,16 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
     case K_ARATE: return put(s, i, ARATE[v < 6u ? v : 3u]);
     case K_SWING: i = putn(s, i, 50u + v, 1); return put(s, i, "%");
     case K_VEL: return putn(s, i, v ? (v * 127u + 49u) / 99u : 1u, 1);
+    case K_PLVL: {                              /* 32 of the engine's units are an octave: 3/8 a semitone */
+        int32_t t = DX_PITCH[v < 100u ? v : 99u] * 15;   /* tenths of a semitone, times four */
+        uint32_t a = (uint32_t)((t < 0 ? -t : t) + 2) / 4u;
+        if (a)
+            s[i++] = t < 0 ? '-' : '+';
+        i = putn(s, i, a / 10u, 1);
+        s[i++] = '.';
+        s[i++] = (char)('0' + a % 10u);
+        return i;
+    }
     case K_ALG:  return putn(s, i, v + 1u, 1);
     case K_BRK:                                 /* 0..99 is A-1 upwards */
         i = put(s, i, NOTE_NAME[(v + 21u) % 12u]);
@@ -2756,8 +2852,11 @@ static void alg_box(int32_t x, int32_t y, uint32_t op, int sel)
             alg_wave(x + 2, y + a_bh - 5, mw, 2, wave, off ? RGB(110, 110, 110) : C_WHITE, 0);
         }
     }
-    if (a_fb >> op & 1u) {                      /* the feedback loop, round the right-hand side */
-        uint16_t fc = off ? RGB(60, 45, 35) : RGB(200, 150, 90);
+    if (a_fb >> op & 1u) {                      /* the feedback loop, round the right-hand side,
+                                                 * as bright as FEEDBACK is high: dim at 0, where
+                                                 * nothing goes round it */
+        uint32_t fb = edit[135] > 7u ? 7u : edit[135], t = 70u + fb * 26u;
+        uint16_t fc = off ? RGB(60, 45, 35) : RGB(t, (t * 150u) / 200u, (t * 90u) / 200u);
         cv_line(x + a_bw, y + 3, x + a_bw + 4, y + 3, fc);
         cv_line(x + a_bw + 4, y + 3, x + a_bw + 4, y + a_bh - 3, fc);
         cv_line(x + a_bw + 4, y + a_bh - 3, x + a_bw, y + a_bh - 3, fc);
@@ -3179,6 +3278,109 @@ static void draw_geg(int32_t y, int32_t h)
     cv_blit(0, (uint32_t)y);
 }
 
+/* The pitch envelope's picture. Pitch, not loudness: the line across the middle is the note you
+ * played, up is sharp and down is flat, and the scale is in octaves -- one either way unless a
+ * level reaches further, labelled in semitones so a LEVEL's number and its height say the same
+ * thing. A DX7's pitch envelope starts at LEVEL 4, goes to 1, 2 and 3 at their RATEs, holds at 3
+ * while the key is down, and goes back to 4 when it comes up.
+ *
+ * A rate here is a speed rather than a time -- the same rate crosses an octave in twice the time it
+ * crosses a fifth -- so each slope is drawn as wide as it really takes, distance over speed, square
+ * rooted so a slow glide and a snap can share a screen. Two levels the same take no time at all, so
+ * they get no width. `seg` is the segments the knobs are on, bright; bit 0 is the first. */
+static void draw_peg(int32_t y, int32_t h, uint32_t seg)
+{
+    const int32_t x0 = 4, x1 = 236, hold = 40;
+    int32_t top = 3, bot = h - 4, mid = (top + bot) / 2, half = (bot - top) / 2;
+    int32_t lv[5], x[6], span, k, mx = 0, sum = 0, w[4];
+    uint32_t i, off = ui[UI_POFF];              /* switched out: the shape kept, in grey */
+    char s[8];
+
+    lv[0] = DX_PITCH[edit[133] % 100u];         /* from LEVEL 4, through 1, 2, 3, and back to 4 */
+    lv[1] = DX_PITCH[edit[130] % 100u];
+    lv[2] = DX_PITCH[edit[131] % 100u];
+    lv[3] = DX_PITCH[edit[132] % 100u];
+    lv[4] = DX_PITCH[edit[133] % 100u];
+    for (i = 0; i < 5u; i++)
+        if ((lv[i] < 0 ? -lv[i] : lv[i]) > mx)
+            mx = lv[i] < 0 ? -lv[i] : lv[i];
+    span = 32 * ((mx + 31) / 32);               /* whole octaves, 32 units each */
+    if (span < 32) span = 32;
+    for (i = 0; i < 4u; i++) {                  /* distance over speed, square rooted */
+        int32_t d = lv[i + 1u] - lv[i];
+        uint32_t t = (uint32_t)(d < 0 ? -d : d) * 4096u / DX_PRATE[edit[126u + i] % 100u], r = 0;
+        while ((r + 1u) * (r + 1u) <= t)
+            r++;
+        w[i] = (int32_t)r;
+        sum += w[i];
+    }
+    for (i = 0; i < 4u; i++) {                  /* to the room there is, around the held stretch */
+        int32_t room = x1 - x0 - hold - 8;
+        w[i] = sum ? 2 + w[i] * room / sum : 2 + room / 4;
+    }
+    x[0] = x0;
+    x[1] = x[0] + w[0];
+    x[2] = x[1] + w[1];
+    x[3] = x[2] + w[2];
+    x[4] = x[3] + hold;
+    x[5] = x[4] + w[3];
+
+    cv_begin(240, (uint32_t)h, C_BLACK);
+    cv_rect(0, h - 2, 240, 1, RGB(40, 40, 40));
+    for (k = 32; k <= span; k += 32) {          /* an octave either way, and the note itself */
+        cv_rect(x0, mid - k * half / span, x1 - x0, 1, RGB(26, 26, 32));
+        cv_rect(x0, mid + k * half / span, x1 - x0, 1, RGB(26, 26, 32));
+    }
+    cv_rect(x0, mid, x1 - x0, 1, RGB(48, 48, 60));
+    i = 0;
+    s[i++] = '+';
+    i = putn(s, i, (uint32_t)(span * 3 / 8), 1);
+    i = put(s, i, " ST");
+    s[i] = 0;
+    cv_text(6, top, &FONT_S, s, RGB(80, 80, 80));
+    s[0] = '-';
+    cv_text(6, bot - 14, &FONT_S, s, RGB(80, 80, 80));
+    {
+        int32_t yy[5];
+        for (i = 0; i < 5u; i++)
+            yy[i] = mid - lv[i] * half / span;
+        for (i = 0; i < 4u; i++) {
+            int32_t xa = i == 3u ? x[4] : x[i], xb = i == 3u ? x[5] : x[i + 1u];
+            uint16_t c = off ? RGB(70, 70, 85) : (seg >> i & 1u) ? C_ACC : RGB(95, 100, 135);
+            cv_line(xa, yy[i], xb, yy[i + 1u], c);
+            if (!off && (seg >> i & 1u) && seg != 0xFu) {
+                cv_line(xa, h - 2, xa, h - 6, C_ACC);
+                cv_line(xb, h - 2, xb, h - 6, C_ACC);
+            }
+        }
+        cv_line(x[3], yy[3], x[4], yy[3], off ? RGB(70, 70, 85) : RGB(90, 95, 120));   /* held there while the key is */
+        if (off)
+            cv_text((240 - text_w(&FONT_L, "OFF")) / 2, (h - 32) / 2, &FONT_L, "OFF", C_WHITE);
+        else {   /* where the newest note has got to */
+            uint32_t v = v_last;
+            if (v < NV && dxv[v].on && (v_lit >> v & 1u)) {
+                const dx_penv_t *pe = &dxv[v].penv;
+                uint32_t ix = pe->ix;
+                int32_t l = pe->level >> 12, px, py;   /* a 128th of a unit */
+                if (ix >= 4u)
+                    px = x[5];
+                else if (ix == 3u && pe->down)
+                    px = x[4];                  /* holding */
+                else {
+                    int32_t a = lv[ix] * 128, b = lv[ix + 1u] * 128;
+                    int32_t xa = ix == 3u ? x[4] : x[ix], xb = ix == 3u ? x[5] : x[ix + 1u];
+                    px = a == b ? xb : xa + (l - a) * (xb - xa) / (b - a);
+                }
+                if (px < x0) px = x0;
+                if (px > x1) px = x1;
+                py = mid - l * half / (span * 128);
+                cv_rect(px - 1, py - 1, 3, 3, C_WHITE);
+            }
+        }
+    }
+    cv_blit(0, (uint32_t)y);
+}
+
 /* ---- the LFO, drawn
  *
  * Four numbers of the LFO's seven are things you can only really judge by looking: what shape it
@@ -3317,9 +3519,14 @@ static void draw_eg_now(uint32_t bank)
     static const uint8_t EG_SEG[] = {EG_ALL, 0x1u, 0x2u, 0x4u, 0x8u};
     uint32_t seg = EG_SEG[bank < sizeof EG_SEG ? bank : 0];
     dx_env_t scratch;
-    eg_h = bank == 0u ? EG_H_TALL : EG_H;   /* the ADSR bank needs one row, so the graph gets the rest */
+    eg_h = bank == 0u || eg_pit() ? EG_H_TALL : EG_H;   /* a bank of four cells needs one row,
+                                                         * so the graph gets the rest */
     if (eg_glo()) {
         draw_geg(EG_Y, eg_h);
+        return;
+    }
+    if (eg_pit()) {
+        draw_peg(EG_Y, eg_h, bank ? 0xCu : 0x3u);
         return;
     }
     {
@@ -3437,7 +3644,7 @@ static void draw_eg_cells(void)
             }
             continue;
         }
-        if (eg_glo()) {                         /* a real time needs five characters; the knob
+        if (eg_glo() || eg_pit()) {             /* a real time needs five characters; the knob
                                                  * legend under it is already naming the four */
             i = putval(s, 0, p, *p_ref(p));
             s[i] = 0;
@@ -3476,6 +3683,8 @@ static void draw_home_title(void)
         i = put(s, 0, "FX MIX");
     else if (eg_glo())
         i = put(s, 0, "ENV GLOBAL");
+    else if (eg_pit())
+        i = put(s, 0, "PITCH");
     else if (lfo_glo())
         i = put(s, 0, "LFO GLOBAL");
     else {
@@ -3508,6 +3717,10 @@ static void draw_head(void)
     }
     if (eg_glo() || lfo_glo()) {                /* not an operator at all: the whole voice */
         i = put(s, i, "  GLOBAL");
+        perop = 0;
+    }
+    if (eg_pit()) {                             /* ..and nor is this */
+        i = put(s, i, "  PITCH");
         perop = 0;
     }
     if (perop) {
@@ -3556,7 +3769,9 @@ static void draw_legend(void)
                 s = p_knob(p);
         } else if (page == PAGE_HOME) {
             uint32_t n = home_op(e);             /* four operators at a time, levels or ratios */
-            if (n) {
+            if (home_fb(e))
+                s = p_knob(&PG_GLO[PG_GLO_FB]);
+            else if (n) {
                 uint32_t i = put(buf, 0, HSET[homeset].what == HK_LVL ? "LVL " : "RAT ");
                 buf[i++] = (char)('0' + n);
                 buf[i] = 0;
@@ -4095,7 +4310,7 @@ static void st_len(int32_t d)                   /* LENGTH, of every note on the 
 typedef struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv;
                  uint8_t genv[G_N]; uint8_t flt[3]; uint8_t fx[4 * FX_N]; uint8_t goff;
                  uint8_t pmark; uint8_t play[PL_N]; uint8_t sq_n; sqn_t sq[SQ_MAX];
-                 uint8_t play2[PL2_N]; } settings_t;
+                 uint8_t play2[PL2_N]; uint8_t poff; } settings_t;
 typedef char fmlab_settings_255[(sizeof(settings_t) <= 255u) ? 1 : -1];   /* the host keeps a byte of length */
 #define PL_MARK 0xA5u                           /* the play block is this one: an earlier layout is ignored */
 
@@ -4111,6 +4326,7 @@ static void set_take(settings_t *set)
     for (k = 0; k < 4u * FX_N; k++)
         set->fx[k] = ui[UI_FX + k];
     set->goff = ui[UI_GOFF];
+    set->poff = ui[UI_POFF];
     set->pmark = PL_MARK;
     for (k = 0; k < PL_N; k++)
         set->play[k] = ui[UI_TEMPO + k];
@@ -4165,6 +4381,7 @@ static void app_main(void)
     for (k = 0; k < 4u * FX_N; k++)
         ui[UI_FX + k] = set.fx[k] > 99u ? 99u : set.fx[k];
     ui[UI_GOFF] = set.goff ? 1u : 0u;
+    ui[UI_POFF] = set.poff ? 1u : 0u;
     if (set.pmark == PL_MARK) {
         static const uint8_t PMAX[PL_N] = {99, 4, 3, 1, 2, 2, 1};
         static const uint8_t PMAX2[PL2_N] = {99, 5, 25, 99};
@@ -4220,7 +4437,18 @@ static void app_main(void)
                     gsel = 1;                   /* ..or at the envelope over all six of them */
                     bank = 0;
                     repaint = 1;
-                } else if (k == AB_KEY) {
+                } else if (op_point() && k == PIT_KEY) {
+                    gsel = 2;                   /* ..or at the one that bends the note's pitch */
+                    if (page == PAGE_HOME)
+                        focus = FOC_ENV;
+                    else if (page != PAGE_EG) {
+                        focus = FOC_OFF;
+                        page_to(PAGE_EG);
+                    }
+                    if (page == PAGE_EG)
+                        bank = 0;
+                    repaint = 1;
+                } else if (k == AB_KEY && ab_point()) {
                     ab_t = fm1_ms ? fm1_ms : 1u;    /* the compare: decided on the way up */
                     ab_long = 0;
                 } else if (op_point() && (k == MONO_KEY || k == POLY_KEY)) {
@@ -4323,9 +4551,15 @@ static void app_main(void)
             }
             if (rel & m) {
                 if (!long_fired[k]) {
-                    if (FOC_MODE[k] == FOC_ENV && eg_glo()) {     /* the global envelope: in or out */
-                        ui[UI_GOFF] ^= 1u;
-                        say(ui[UI_GOFF] ? "GLOBAL ENV OFF" : "GLOBAL ENV ON");
+                    if (FOC_MODE[k] == FOC_ENV && (eg_glo() || eg_pit())) {   /* the global or the
+                                                 * pitch envelope: in or out; SELECT has the pages */
+                        if (eg_pit()) {
+                            ui[UI_POFF] ^= 1u;
+                            say(ui[UI_POFF] ? "PITCH ENV OFF" : "PITCH ENV ON");
+                        } else {
+                            ui[UI_GOFF] ^= 1u;
+                            say(ui[UI_GOFF] ? "GLOBAL ENV OFF" : "GLOBAL ENV ON");
+                        }
                         set_take(&set);
                         dirty = 1;
                         t_change = fm1_ms;
@@ -4542,12 +4776,24 @@ static void app_main(void)
                     t_change = fm1_ms;
                     continue;
                 }
+                eg_dirty = 1;                   /* the pitch envelope's picture is these bytes */
                 modified = 1;
                 patch_publish();
             }
         } else if (page == PAGE_HOME) {         /* the four knobs are four operators, either screen */
             for (e = 0; e < 4u; e++) {
                 uint32_t n = home_op(e), op;
+                if (home_fb(e)) {               /* 0..7: every click is worth hearing */
+                    int32_t v;
+                    if ((enc = knob_take(e, 1)) == 0)
+                        continue;
+                    v = (int32_t)edit[135] + enc;
+                    edit[135] = (uint8_t)(v < 0 ? 0 : v > 7 ? 7 : v);
+                    say_param(&PG_GLO[PG_GLO_FB]);
+                    modified = 1;
+                    patch_publish();
+                    continue;
+                }
                 if ((enc = knob_take(e, HSET[homeset].what == HK_LVL ? COARSE : 1)) == 0 || !n)
                     continue;
                 op = 6u - n;                    /* the panel counts OP1 first, the voice OP6 */
@@ -4659,8 +4905,11 @@ static void app_main(void)
             int opk = (int)op_point();
             for (k = 0; k < 6u; k++)
                 fm1_led_key_glow(KEY_LED(OP_KEY[k]), opk);
-            if (opk && !eg_glo() && !lfo_glo())
+            if (opk && !eg_glo() && !eg_pit() && !lfo_glo())
                 fm1_led_key(KEY_LED(OP_KEY[5u - opsel]), 1);
+            fm1_led_key_glow(KEY_LED(PIT_KEY), opk);
+            if (eg_pit())
+                fm1_led_key(KEY_LED(PIT_KEY), 1);
             fm1_led_key_glow(KEY_LED(GLO_KEY), (int)glo_point());
             if (eg_glo() || lfo_glo())
                 fm1_led_key(KEY_LED(GLO_KEY), 1);
@@ -4668,8 +4917,8 @@ static void app_main(void)
             fm1_led_key_glow(KEY_LED(POLY_KEY), opk);
             if (opk)                            /* and the mode you are in is the one that is lit */
                 fm1_led_key(KEY_LED(set.mono ? MONO_KEY : POLY_KEY), 1);
-            fm1_led_key_glow(KEY_LED(AB_KEY), 1);   /* the compare always works; lit on side B */
-            fm1_led_key(KEY_LED(AB_KEY), ab != 0u);
+            fm1_led_key_glow(KEY_LED(AB_KEY), (int)ab_point());   /* the compare; lit on side B */
+            fm1_led_key(KEY_LED(AB_KEY), ab_point() && ab != 0u);
         }
         /* The octave buttons: lit for a shift that way, and pulsing at the end of the travel. The
          * pulse rides the glow layer, so the LED dips rather than going dark -- a limit, not an
@@ -4724,8 +4973,9 @@ static void app_main(void)
                                    focus == FOC_FX ? 64u :
                                    focus == FOC_SEQ ? 65u :
                                    focus == FOC_ARP ? 66u + arp_pg :
+                                   gsel == 2u && focus == FOC_ENV ? 68u + pit_pg :
                                    gsel && focus == FOC_ENV ? 63u :
-                                   gsel && focus == FOC_LFO ? 62u :
+                                   gsel == 1u && focus == FOC_LFO ? 62u :
                                    focus * 8u + opsel);
             if (ft != foc_drawn || repaint) {
                 foc_drawn = ft;
@@ -4735,6 +4985,7 @@ static void app_main(void)
         }
         {   /* the legend outlives a page, but not a change of mode: RATIO becomes FIXED HZ */
             uint8_t leg = (uint8_t)(eg_glo() ? 40u :
+                                    eg_pit() ? 42u + (page == PAGE_HOME ? pit_pg : bank) :
                                     lfo_glo() ? 41u :
                                     home_flt() ? 45u :
                                     focus == FOC_FX && page == PAGE_HOME ? 50u :
@@ -4780,7 +5031,8 @@ static void app_main(void)
              * gets the diagram's room instead, and the same picture the ENVELOPE page draws.
              * Adjusting a shape you cannot see is no way to learn what the shape does. */
             uint8_t asel = (uint8_t)(opsel | (eg_glo() ? 0x80u : 0u) | (lfo_glo() ? 0x40u : 0u) |
-                                     (foc_op() ? 0x20u : 0u));   /* the ring: only with an operator to pick */
+                                     (foc_op() ? 0x20u : 0u) |   /* the ring: only with an operator to pick */
+                                     (eg_pit() ? 0x10u | pit_pg << 3 : 0u));
             /* the LFO's picture follows bytes the diagram never cared about, so it brings its own */
             uint32_t lsig = lfo_glo() ? (1u | (uint32_t)edit[137] << 1 | (uint32_t)edit[138] << 9
                                             | (uint32_t)edit[142] << 17) : 0u;
@@ -4790,10 +5042,11 @@ static void app_main(void)
                 alg_op_drawn = asel;
                 lfo_sig_drawn = lsig;
                 if (eg_glo())       { draw_geg(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
+                else if (eg_pit())  { draw_peg(ALG_Y, ALG_H, pit_pg ? 0xCu : 0x3u); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
                 else if (lfo_glo()) { draw_lfo_plot(ALG_Y, ALG_H); eg_live = v_lit ? 1u : 0u; eg_dirty = 0; }
                 else                { draw_alg(); }
             }
-        } else if (page == PAGE_LFO || (page == PAGE_EG && bank == 0u)) {
+        } else if (page == PAGE_LFO || (page == PAGE_EG && (bank == 0u || eg_pit()))) {
             uint32_t ch = 0;                    /* the four cells are one blit, so one of them is all */
             for (e = 0; e < 4u; e++) {
                 const param_t *p = e < bank_rows(bank) ? page_at(bank_first(bank) + e) : 0;
@@ -4829,6 +5082,13 @@ static void app_main(void)
                         eg_live = snd;
                         eg_dirty = 0;
                         draw_geg(ALG_Y, ALG_H);
+                    }
+                } else if (bank == 0u && eg_pit()) {    /* ..and the pitch envelope's */
+                    uint32_t snd = v_lit ? 1u : 0u;
+                    if (snd || snd != eg_live || eg_dirty) {
+                        eg_live = snd;
+                        eg_dirty = 0;
+                        draw_peg(ALG_Y, ALG_H, pit_pg ? 0xCu : 0x3u);
                     }
                 } else if (bank == 0u && lfo_glo()) {   /* ..and the LFO's, which runs the fastest */
                     uint32_t snd = v_lit ? 1u : 0u;
