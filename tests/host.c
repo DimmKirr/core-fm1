@@ -205,6 +205,7 @@ static void read_script(const char *path)
 
 static const char *host_out = "build/host/fmlab";
 static int16_t *wav;
+static uint8_t *wav24;                          /* the same, as the DAC gets it: 24-bit, beside it as -24.wav */
 static uint32_t wav_n;
 
 /* the voice bank, as a file beside the WAV and the screenshots, so a run can see what the one
@@ -290,19 +291,26 @@ static void write_ppm(uint32_t t)
     printf("%6u ms  screen -> %s\n", t, name);
 }
 
-static void write_wav(void)
+static void write_wav_as(const char *suffix, const void *data, uint32_t bps)
 {
     char name[512];
     FILE *f;
-    uint32_t bytes = wav_n * 4u, v[] = {16, 0x00020001u, FS, FS * 4u, 0x00100004u};
-    snprintf(name, sizeof name, "%s.wav", host_out);
+    uint32_t fb = 2u * bps / 8u, bytes = wav_n * fb;
+    uint32_t v[] = {16, 0x00020001u, FS, FS * fb, fb | bps << 16};
+    snprintf(name, sizeof name, "%s%s.wav", host_out, suffix);
     if (!(f = fopen(name, "wb"))) { perror(name); exit(1); }
     fwrite("RIFF", 1, 4, f); bytes += 36; fwrite(&bytes, 4, 1, f); bytes -= 36;
     fwrite("WAVEfmt ", 1, 8, f); fwrite(v, 4, 5, f);
     fwrite("data", 1, 4, f); fwrite(&bytes, 4, 1, f);
-    fwrite(wav, 4, wav_n, f);
+    fwrite(data, fb, wav_n, f);
     fclose(f);
     printf("sound  -> %s (%u frames)\n", name, wav_n);
+}
+
+static void write_wav(void)
+{
+    write_wav_as("", wav, 16u);
+    write_wav_as("-24", wav24, 24u);
 }
 
 static void platform_poll(void)                 /* one call = one millisecond */
@@ -346,9 +354,14 @@ static void platform_poll(void)                 /* one call = one millisecond */
         memset(blk, 0, sizeof blk);
         app_audio(blk, HALF_FRAMES);
         wav = realloc(wav, (wav_n + HALF_FRAMES) * 4u);
+        wav24 = realloc(wav24, (wav_n + HALF_FRAMES) * 6u);
         for (i = 0; i < 2u * HALF_FRAMES; i++) {
-            int32_t v = blk[i];                 /* (USB audio at the MASTER knob all the way up) */
-            wav[2u * wav_n + i] = (int16_t)(v > 32767 ? 32767 : v < -32767 ? -32767 : v);
+            int32_t v = blk[i];                 /* (the MASTER knob all the way up) Q23 */
+            uint8_t *p = &wav24[6u * wav_n + 3u * i];
+            v = v > 8388607 ? 8388607 : v < -8388607 ? -8388607 : v;
+            p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16);
+            v = (v + 128) >> 8;                 /* rounded, not dithered: a run is the same every time */
+            wav[2u * wav_n + i] = (int16_t)(v > 32767 ? 32767 : v);
         }
         wav_n += HALF_FRAMES;
     }

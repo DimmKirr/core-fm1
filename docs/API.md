@@ -135,9 +135,11 @@ static void app_audio(int32_t *out, uint32_t n)
 ```
 
 - Runs in the audio interrupt, every 5.8 ms, with `n` = 256 frames at **44.1 kHz** (`FS`).
-- `out` is `L R L R ...`, **already zero**: add your sound to it. Full scale is **±32767** (Q15); more is clipped.
-- After you: the MASTER knob, the clip, the USB audio stream (the computer records exactly this), the DAC.
-  The DAC gets it 6 dB under its full scale, so the FM-1's output stage does not distort.
+- `out` is `L R L R ...`, **already zero**: add your sound to it. Full scale is **±8388607** (Q23: 24 bits,
+  Q15 << 8); more is clipped. Keep the low bits: a soft note sits far under full scale, and its tail lives in them.
+- After you: the MASTER knob, the clip, the DAC (all 24 bits), and the USB audio stream (16-bit, dithered:
+  the computer records what the speaker plays). The DAC gets it 6 dB under its full scale, so the FM-1's
+  output stage does not distort.
 - Keep it fast and simple: no flash, no screen, no waiting. Talk to the main loop through `volatile` variables
   (one writer each). If a render runs late the sound breaks up; see [RULES.md](RULES.md).
 

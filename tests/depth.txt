@@ -1,0 +1,10 @@
+# FM Lab -- depth: the sound reaches the DAC with 24 bits, not 16.
+#
+#   build/host/fmlab build/host/depth tests/depth.txt
+#
+# One soft note, held and let go, so its tail falls through the last steps 16 bits have and on
+# below them. tests/depthcheck.py reads depth-24.wav (the DAC) against depth.wav (16-bit, USB).
+
+300 midi 0x90 60 30
+2300 midi 0x80 60 0
+7000 shot

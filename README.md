@@ -724,6 +724,7 @@ tests/run_host.sh tests/scope.txt         # the waveform screen, by its trace
 tests/run_host.sh tests/play.txt          # the arpeggiator, the looper and the step view, by ear and by pixel
 tests/run_host.sh tests/pitch.txt         # PIT and the pitch envelope: an octave by zero crossings, and its switch
 tests/run_host.sh tests/midi.txt          # the MIDI channel, in and out, and program change both ways
+tests/run_host.sh tests/depth.txt         # a soft note's tail, in the 24 bits the DAC gets (also -24.wav)
 tests/run_host.sh tests/docshots.txt      # the screenshots in docs/; then python3 tools/docshots.py puts them there
 ```
 

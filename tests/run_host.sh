@@ -60,4 +60,5 @@ PY
 case "$script" in
 */operators.txt) python3 tests/wavcheck.py "$out".wav ;;    # the switches have to agree with the sound
 */bank.txt) python3 tests/syxcheck.py "$out" ;;             # and what was stored with what was sent
+*/depth.txt) python3 tests/depthcheck.py build/host ;;      # and the 24 bits the DAC is given
 esac

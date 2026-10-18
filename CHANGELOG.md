@@ -4,6 +4,16 @@ FM Lab's releases, newest first. Each one is on the
 [releases page](https://github.com/jsmith13/fm_lab/releases) with its `.fwsc`; the version a build is shows in
 GLOBAL's top-right corner. Versions are `MAJOR.MINOR.PATCH`: a patch fixes what was there, a minor adds to it.
 
+## Unreleased
+
+### Changed
+- **24-bit output.** The sound used to be cut to 16 bits right after the voices were mixed, and only then
+  sent to the 24-bit DAC. The mix leaves room for an 8-voice chord, so a single soft note used only ~11 of
+  those 16 bits, and its decay ran out of steps and turned gritty (the DC blocker's rounding added a
+  distortion that followed the note). The mix, the filter, the effects and MASTER now carry 24 bits to the
+  DAC. USB audio stays 16-bit and is dithered. The delay's echoes are still stored at 16 bits, which saves
+  128 KiB of RAM.
+
 ## 1.0.1 — 2026-10-18
 
 ### Fixed

@@ -13,7 +13,7 @@
  *   crash screen        the PC of a fault, then a reboot
  *
  * The app (fmlab.c) includes this file first and supplies:
- *   static void app_audio(int32_t *out, uint32_t n)   audio ISR: n stereo frames, L R L R, Q15 (+-32767), out is zero
+ *   static void app_audio(int32_t *out, uint32_t n)   audio ISR: n stereo frames, L R L R, Q23 (+-8388607), out is zero
  *   static void app_main(void)                        never returns; calls platform_poll() often (every few ms)
  */
 /* the panel by name: buttons (fm1_in.buttons, fm1_input_edges, fm1_led_key: bit / id), the encoders
@@ -273,7 +273,9 @@ void fm1_timer5_irq(void)
 }
 extern void isr_timer5(void);
 
-/* ---- the sound: ALNK0 I2S, two halves; the app renders, the MASTER knob scales, Q15 -> 24 bit (-6 dBFS ceiling) */
+/* ---- the sound: ALNK0 I2S, two halves; the app renders Q23, the MASTER knob scales, and the DAC gets
+ * 24 bits (-6 dBFS ceiling). USB audio is 16-bit: its copy is dithered (TPDF, +-1 LSB) rather than
+ * cut, so a quiet tail fades into a little hiss instead of into steps. */
 static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
 static volatile int32_t master_q12 = 2048;
 static int32_t batt_raw;                        /* smoothed ADC ch3, 0 = never read */
@@ -294,13 +296,22 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
         uac_render_start();
         app_audio(o, HALF_FRAMES);
         for (i = 0; i < HALF_WORDS; i++) {
-            int32_t v = (o[i] * master_q12) >> 12;
-            o[i] = v > 32767 ? 32767 : v < -32767 ? -32767 : v;
+            int32_t v = (int32_t)(((int64_t)o[i] * master_q12) >> 12);
+            o[i] = v > 8388607 ? 8388607 : v < -8388607 ? -8388607 : v;
         }
-        for (b = 0; b < HALF_FRAMES; b += 32u)
-            uac_tap(o + 2u * b, 32u);           /* the computer records what the speaker plays */
+        if (uac.feed) {
+            static uint32_t rnd = 1u;
+            int32_t q[64];
+            for (b = 0; b < HALF_FRAMES; b += 32u) {    /* the computer records what the speaker plays */
+                for (i = 0; i < 64u; i++) {
+                    rnd = rnd * 1664525u + 1013904223u;
+                    q[i] = (o[2u * b + i] + (int32_t)(rnd >> 24) - (int32_t)(rnd >> 16 & 255u) + 128) >> 8;
+                }
+                uac_tap(q, 32u);
+            }
+        }
         for (i = 0; i < HALF_WORDS; i++)
-            o[i] <<= 7;
+            o[i] >>= 1;
         fm1_audio_ack_half();
     }
     in_audio = 0;

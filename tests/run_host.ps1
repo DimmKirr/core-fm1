@@ -112,3 +112,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'corners.txt') {
     python tests\cornercheck.py $out         # and the battery and the pips at the top
     if ($LASTEXITCODE) { throw 'the corners are not saying what they should' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'depth.txt') {
+    python tests\depthcheck.py build\host       # and the 24 bits the DAC is given
+    if ($LASTEXITCODE) { throw 'the sound is not reaching the DAC with its 24 bits' }
+}

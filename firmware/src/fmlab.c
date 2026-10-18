@@ -957,9 +957,9 @@ static volatile uint8_t xcur;
 #define RV_NA (211u + 159u + 563u + 411u)
 static const uint16_t RV_LEN[4] = {1499, 1889, 2381, 2833};   /* coprime, so the echoes never line up */
 static const uint16_t RV_AP[4] = {211, 159, 563, 411};
-static int16_t cho_buf[CHO_LEN] __attribute__((section(".pool")));
-static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));
-static int16_t pre_buf[PRE_LEN] __attribute__((section(".pool")));
+static int32_t cho_buf[CHO_LEN] __attribute__((section(".pool")));      /* Q23, as the dry sound */
+static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));      /* Q15: at 32 bits, 128 KiB more */
+static int32_t pre_buf[PRE_LEN] __attribute__((section(".pool")));      /* Q23 */
 static int32_t rv_line[RV_NL] __attribute__((section(".pool")));  /* Q8: a tail fades below a bit */
 static int32_t rv_ap[RV_NA] __attribute__((section(".pool")));
 static struct {
@@ -971,13 +971,15 @@ static struct {
 } xs;
 
 static int32_t sat16(int32_t x) { return x > 32767 ? 32767 : x < -32767 ? -32767 : x; }
+static int32_t sat24(int32_t x) { return x > 8388607 ? 8388607 : x < -8388607 ? -8388607 : x; }
+static int32_t mulq15(int32_t x, int32_t q15) { return (int32_t)(((int64_t)x * q15) >> 15); }
 static uint32_t tri16(uint32_t ph)              /* a triangle, 0 .. 65535 .. 0, once a turn */
 {
     uint32_t t = ph >> 15;
     return t < 65536u ? t : 131071u - t;
 }
 
-/* n = DX_N samples: l in, and l and r out */
+/* n = DX_N samples: l in, and l and r out, all Q23 */
 static void fx_run(const fx_t *x, int32_t *l, int32_t *r)
 {
     uint32_t i, k;
@@ -997,7 +999,7 @@ static void fx_run(const fx_t *x, int32_t *l, int32_t *r)
         a = xs.ph_a;
         for (i = 0; i < DX_N; i++) {
             a += da;
-            s = (l[i] << 8) + (int32_t)(((int64_t)xs.ph_last * x->ph_fb) >> 15);
+            s = l[i] + (int32_t)(((int64_t)xs.ph_last * x->ph_fb) >> 15);
             for (k2 = 0; k2 < 6; k2++) {        /* y = a (x - y') + x': a quarter turn at the break */
                 int32_t y = (int32_t)(((int64_t)a * (s - xs.ph_y[k2])) >> 15) + xs.ph_x[k2];
                 xs.ph_x[k2] = s;
@@ -1006,7 +1008,7 @@ static void fx_run(const fx_t *x, int32_t *l, int32_t *r)
             }
             s = s > 8388607 ? 8388607 : s < -8388607 ? -8388607 : s;
             xs.ph_last = s;
-            l[i] += (((s >> 8) - l[i]) * x->ph_mix) >> 15;
+            l[i] += mulq15(s - l[i], x->ph_mix);
         }
         xs.ph_a = a1;
     }
@@ -1016,16 +1018,16 @@ static void fx_run(const fx_t *x, int32_t *l, int32_t *r)
     } else {
         for (i = 0; i < DX_N; i++) {
             int32_t m = l[i], d, p, f, a, b;
-            cho_buf[xs.cw & (CHO_LEN - 1u)] = (int16_t)m;
+            cho_buf[xs.cw & (CHO_LEN - 1u)] = m;
             xs.ch_ph += x->ch_inc;
             d = CHO_BASE + (int32_t)(((tri16(xs.ch_ph) >> 4) * (uint32_t)x->ch_dep) >> 12);
             p = (int32_t)xs.cw - (d >> 8); f = d & 255;
             a = cho_buf[(uint32_t)p & (CHO_LEN - 1u)]; b = cho_buf[(uint32_t)(p - 1) & (CHO_LEN - 1u)];
-            l[i] = m + (((a + (((b - a) * f) >> 8)) - m) * x->ch_mix >> 15);
+            l[i] = m + mulq15(a + (int32_t)(((int64_t)(b - a) * f) >> 8) - m, x->ch_mix);
             d = CHO_BASE + (int32_t)(((tri16(xs.ch_ph + (uint32_t)x->ch_wid) >> 4) * (uint32_t)x->ch_dep) >> 12);
             p = (int32_t)xs.cw - (d >> 8); f = d & 255;
             a = cho_buf[(uint32_t)p & (CHO_LEN - 1u)]; b = cho_buf[(uint32_t)(p - 1) & (CHO_LEN - 1u)];
-            r[i] = m + (((a + (((b - a) * f) >> 8)) - m) * x->ch_mix >> 15);
+            r[i] = m + mulq15(a + (int32_t)(((int64_t)(b - a) * f) >> 8) - m, x->ch_mix);
             xs.cw++;
         }
     }
@@ -1041,9 +1043,9 @@ static void fx_run(const fx_t *x, int32_t *l, int32_t *r)
             e = a + (((b - a) * f) >> 8);
             xs.d_lp += ((e - xs.d_lp) * x->dl_tone) >> 15;
             dly_buf[xs.dw & (DLY_LEN - 1u)] =
-                (int16_t)sat16(((l[i] + r[i]) >> 1) + ((xs.d_lp * x->dl_fb) >> 15));
+                (int16_t)sat16(((l[i] + r[i]) >> 9) + ((xs.d_lp * x->dl_fb) >> 15));
             xs.dw++;
-            e = (xs.d_lp * x->dl_mix) >> 15;
+            e = (xs.d_lp * x->dl_mix) >> 7;     /* Q15 by Q15, out as Q23 */
             l[i] += e;
             r[i] += e;
         }
@@ -1055,8 +1057,8 @@ static void fx_run(const fx_t *x, int32_t *l, int32_t *r)
         for (i = 0; i < DX_N; i++) {
             int32_t v, o[4], h[4], ol, or_;
             uint32_t base = 0;
-            pre_buf[xs.pw & (PRE_LEN - 1u)] = (int16_t)sat16((l[i] + r[i]) >> 2);
-            v = (int32_t)pre_buf[(xs.pw - (uint32_t)x->rv_pre) & (PRE_LEN - 1u)] << 8;
+            pre_buf[xs.pw & (PRE_LEN - 1u)] = sat24((l[i] >> 2) + (r[i] >> 2));
+            v = pre_buf[(xs.pw - (uint32_t)x->rv_pre) & (PRE_LEN - 1u)];
             xs.pw++;
             for (k = 0; k < 4u; k++) {          /* the diffusers: allpasses, g = 5/8 */
                 int32_t d = rv_ap[base + xs.ai[k]], t = v + ((d * 5) >> 3);
@@ -1082,24 +1084,27 @@ static void fx_run(const fx_t *x, int32_t *l, int32_t *r)
                 if (++xs.li[k] >= RV_LEN[k]) xs.li[k] = 0;
                 base += RV_LEN[k];
             }
-            ol = (o[0] + o[2]) >> 11;           /* at MIX 99, a held note about as loud wet as dry */
-            or_ = (o[1] + o[3]) >> 11;
-            ol = ol > 65535 ? 65535 : ol < -65535 ? -65535 : ol;
-            or_ = or_ > 65535 ? 65535 : or_ < -65535 ? -65535 : or_;
-            l[i] += (ol * x->rv_mix) >> 15;
-            r[i] += (or_ * x->rv_mix) >> 15;
+            ol = (o[0] + o[2]) >> 3;            /* at MIX 99, a held note about as loud wet as dry */
+            or_ = (o[1] + o[3]) >> 3;
+            ol = ol > 16777215 ? 16777215 : ol < -16777215 ? -16777215 : ol;
+            or_ = or_ > 16777215 ? 16777215 : or_ < -16777215 ? -16777215 : or_;
+            l[i] += mulq15(ol, x->rv_mix);
+            r[i] += mulq15(or_, x->rv_mix);
         }
     }
     for (i = 0; i < DX_N; i++) {
-        l[i] = sat16(l[i]);
-        r[i] = sat16(r[i]);
+        l[i] = sat24(l[i]);
+        r[i] = sat24(r[i]);
     }
 }
 
 /* ---- the sound. dx_compute adds DX_N mono samples; one carrier at full level is buf >> 12 = 8192,
  * so OUT_SHIFT 13 would let eight of them reach full scale together -- but eight real voices have more
  * than one carrier each, so 14 is where a full chord stops clipping. The DC blocker is on the sum: FM
- * with feedback is not symmetric, and the offsets of the voices add. */
+ * with feedback is not symmetric, and the offsets of the voices add.
+ * Everything from the sum on is Q23 (+-8388607: 24 bits, Q15 << 8). The headroom a chord needs leaves
+ * one soft note far under full scale, and at 16 bits its tail ran out of steps and turned to grit;
+ * the 8 bits under Q15 carry it to the DAC, which takes 24. */
 #define OUT_SHIFT 14
 
 static void app_audio(int32_t *out, uint32_t n)
@@ -1153,19 +1158,19 @@ static void app_audio(int32_t *out, uint32_t n)
             }
         }
         for (i = 0; i < DX_N; i++) {
-            int32_t s = mono[i] >> OUT_SHIFT;
+            int32_t s = mono[i] >> (OUT_SHIFT - 8);     /* Q23: the 8 bits under Q15 are kept */
             /* a ~34 Hz high pass. The feedback truncates towards zero: >> would floor it, and a
              * negative state then feeds itself exactly back and the offset sits there for ever. */
-            int32_t fb = dc_y * 32610;          /* |dc_y| <= 32767, so this stays inside an int32 */
-            int32_t y = s - dc_x + ((fb + (fb < 0 ? 32767 : 0)) >> 15);
+            int64_t fb = (int64_t)dc_y * 32610;
+            int32_t y = s - dc_x + (int32_t)((fb + (fb < 0 ? 32767 : 0)) >> 15);
             dc_x = s;
-            y = y > 32767 ? 32767 : y < -32767 ? -32767 : y;
+            y = sat24(y);
             dc_y = y;
             if (ft.type) {                      /* the filter, on the finished sound, so the spectrum
                                                  * shows what it did. A state-variable filter in the
                                                  * Zavalishin form: stable however it is turned, and
-                                                 * one pass gives all three of its outputs. Q8 inside. */
-                int32_t x = y * 256, v3 = x - f_ic2, v1, v2;
+                                                 * one pass gives all three of its outputs. */
+                int32_t x = y, v3 = x - f_ic2, v1, v2;
                 v1 = (int32_t)(((int64_t)ft.a1 * f_ic1 + (int64_t)ft.a2 * v3) >> 30);
                 v2 = f_ic2 + (int32_t)(((int64_t)ft.a2 * f_ic1 + (int64_t)ft.a3 * v3) >> 30);
                 f_ic1 = 2 * v1 - f_ic1;
@@ -1173,11 +1178,10 @@ static void app_audio(int32_t *out, uint32_t n)
                 x = ft.type == 1u ? v2 :
                     ft.type == 2u ? (int32_t)(((int64_t)ft.k * v1) >> 30) :
                     x - (int32_t)(((int64_t)ft.k * v1) >> 30) - v2;
-                x >>= 8;
-                y = x > 32767 ? 32767 : x < -32767 ? -32767 : x;
+                y = sat24(x);
             }
             if (sp_want)
-                sp_feed(y);                     /* the analyser's tap, before the effects */
+                sp_feed(y >> 8);                /* the analyser's tap, before the effects: Q15 */
             mono[i] = y;
         }
         if (xf->on)
@@ -1187,7 +1191,7 @@ static void app_audio(int32_t *out, uint32_t n)
                 one[i] = mono[i];
         for (i = 0; clk_a > 0 && i < DX_N; i++) {   /* the click, after everything: not reverberated,
                                                      * and not in the analyser or the scope */
-            int32_t c = clk_ph >> 31 ? clk_a >> 8 : -(clk_a >> 8);
+            int32_t c = clk_ph >> 31 ? clk_a : -clk_a;     /* (Q8 of Q15 is Q23) */
             mono[i] += c;
             one[i] += c;
             clk_ph += clk_inc;
