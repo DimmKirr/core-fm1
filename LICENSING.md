@@ -12,7 +12,7 @@ as a whole is GPL-3.0-only.
 
 | | |
 | --- | --- |
-| The platform: `firmware/hal/`, `firmware/loader/`, `crt0.S`, `app.ld`, `firmware/src/` (`usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c`, `libc.c`, `bootguard.h`, `uac_fir.h`), `tools/` | Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments ([Felucca](https://github.com/hugelton/Felucca)), with the changes of [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) |
+| The platform: `firmware/hal/`, `firmware/loader/`, `crt0.S`, `app.ld`, `firmware/src/` (`usb.c`, `midi_uart.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c`, `libc.c`, `bootguard.h`, `uac_fir.h`), `tools/` | Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments ([Felucca](https://github.com/hugelton/Felucca)), with the changes of [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) |
 | `firmware/src/platform.c`, the host mode `tests/host.c`, `docs/` | zvenson ([Dinghy](https://github.com/zvenson/dinghy)) |
 | The FM engine `firmware/src/dx7_core.c` and its tables `dx7_tables.h` | see below; carried here from [dxsloop](https://github.com/zvenson/dxsloop) (zvenson) |
 | The 20 factory voices, `tools/gen_voices.py` and the `firmware/src/dx7_voices.h` it generates | Copyright (C) 2026 Sven Trogus, designed for sloopDX ([dxsloop](https://github.com/zvenson/dxsloop) `tools/gen_dx7_bank.py`); FM Lab keeps the voices as they are and drops the drum kit |

@@ -40,8 +40,8 @@ hub use it to tell firmwares apart: two firmwares with the same identity look li
 ```
 
 Without `--release` a build says `DEV` there instead, so a test build on the device is never mistaken for a
-release. On GitHub: a release with a tag (`v1.0.0`) and the `.fwsc` attached. Say what changed in its notes: the
-hub links them.
+release. Add the release to `CHANGELOG.md`. On GitHub: a release with a tag (`v1.0.0`) and the `.fwsc` attached.
+Say what changed in its notes (the changelog entry will do): the hub links them.
 
 ## 5. Into the hub
 

@@ -4902,7 +4902,7 @@ static void app_main(void)
             patch_publish();
         }
 
-        while (midi_get(&st, &d1, &d2)) {       /* USB-MIDI in: any channel, or the one picked */
+        while (midi_get(&st, &d1, &d2)) {       /* MIDI in, USB and the jack: any channel, or the one picked */
             if (st < 0xF0u && ui[UI_MCH] && (st & 0x0Fu) != ui[UI_MCH] - 1u)
                 continue;
             if ((st & 0xF0u) == 0x90u && d2) { sp_note = d1; ev_push(EV_ON, d1, d2); }

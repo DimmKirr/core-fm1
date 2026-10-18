@@ -37,7 +37,7 @@ says why each one works the way it does.
 ## The instrument
 
 **8 voices**, each a full six-operator DX7: 32 algorithms, feedback, per-operator envelopes and keyboard
-scaling, the pitch envelope, the LFO. Notes come from the keys or from USB-MIDI — on any channel, or the one GLOBAL's `MIDI` bank picks. When all eight
+scaling, the pitch envelope, the LFO. Notes come from the keys, from USB-MIDI or from the 3.5 mm MIDI IN jack — on any channel, or the one GLOBAL's `MIDI` bank picks. When all eight
 are busy the oldest released note goes first, then the oldest held one.
 
 **20 factory voices** to start from, and between them they show a lot — what feedback does, what a 7:1 ratio
@@ -257,12 +257,17 @@ it is saved with the octave, and it is under every voice you load.
 
 ### MIDI
 
-The last bank of GLOBAL is how the instrument talks over USB, and like the global envelope it belongs to
+The last bank of GLOBAL is how the instrument talks MIDI, and like the global envelope it belongs to
 the instrument rather than the voice, so it is saved with the octave. `MIDI CHANNEL` starts at `ALL`,
 which listens to every channel; set it to a number and only that channel is heard, and the keys send on
 it too. `PROG CHANGE` `ON` makes program *N* load voice *N*+1 of the list that **PRESETS** turns
 through — the factory voices first, then the user slots — and turning **PRESETS** sends one the other
 way, so a DAW can follow along. `OFF` does neither.
+
+MIDI comes in two ways, and both are heard the same: over USB, and on the 3.5 mm **MIDI IN** jack, from a
+keyboard or pad controller through a TRS-to-DIN adapter. TRS MIDI adapters come in two wirings, type A
+and type B; if a keyboard on the jack plays nothing, the adapter is the first thing to swap. The jack
+takes notes and program changes; SysEx and anything going out are USB only.
 
 ### The pitch envelope
 
@@ -893,6 +898,7 @@ while it plays has to stop sounding, and `BARS` on its knob has to add a row.
 
 - **[docs/QUICK-REFERENCE.md](docs/QUICK-REFERENCE.md)**: every knob, button and black key on one page, and
   what is saved where.
+- **[CHANGELOG.md](CHANGELOG.md)**: what changed in each release.
 - **[docs/API.md](docs/API.md)**: everything `platform.c` gives you — the panel's ids, the screen calls, the
   audio contract, MIDI, settings, the flash map, timing.
 - **[docs/RULES.md](docs/RULES.md)**: the chip's rules (no FPU, no libgcc, the audio ISR's budget) and what the
