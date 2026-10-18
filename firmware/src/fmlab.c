@@ -1118,6 +1118,8 @@ static const int32_t HB_Q[16] = {      /* Q24: the taps 1, 3, 5 .. 31 either sid
 #define HB_H 62u                                /* the history: the taps less one */
 static int32_t hb_x[HB_H + 2u * DX_N];
 static volatile uint8_t os_want;                /* the GLOBAL switch, read by the audio ISR once a render */
+static const uint8_t CRUSH_SH[4] = {16, 12, 8, 0};   /* BIT DEPTH 8 12 16 24: the bits under it, dropped */
+static volatile uint8_t crush_sh;               /* ..as the ISR reads it */
 
 static void hb_down(int32_t *x)                 /* x[2 * DX_N] at 88.2 kHz, the sum -> x[DX_N], Q23 */
 {
@@ -1204,6 +1206,12 @@ static void app_audio(int32_t *out, uint32_t n)
             dc_x = s;
             y = sat24(y);
             dc_y = y;
+            if (crush_sh) {                     /* BIT DEPTH: rounded to the coarser step, against full
+                                                 * scale, as an old DAC would. The voices only: the
+                                                 * filter and the effects after it stay smooth. */
+                uint32_t sh = crush_sh;
+                y = sat24((int32_t)(((int64_t)y + (1 << (sh - 1u))) >> sh) << sh);
+            }
             if (ft.type) {                      /* the filter, on the finished sound, so the spectrum
                                                  * shows what it did. A state-variable filter in the
                                                  * Zavalishin form: stable however it is turned, and
@@ -1283,7 +1291,8 @@ enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, 
        K_SWING,                                 /* 50..75 %: how far the off-beat step is pushed */
        K_VEL,                                   /* 0..99, said as the MIDI velocity it is */
        K_PLVL,                                  /* a pitch envelope level, said in semitones */
-       K_MCH };                                 /* a MIDI channel, or ALL of them */
+       K_MCH,                                   /* a MIDI channel, or ALL of them */
+       K_BITS };                                /* BIT DEPTH: 8 12 16 24 */
 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
@@ -1300,6 +1309,7 @@ enum { UI_SPAN = 0, UI_GATK, UI_GDEC, UI_GSUS, UI_GREL, UI_FCUT, UI_FRES, UI_FTY
                                                  * it starts in, since it is the patch's own */
        UI_MCH, UI_PCH,                          /* MIDI: the channel (0 = all), program change on */
        UI_OS,                                   /* 2x oversampling */
+       UI_BITS,                                 /* the voices' bit depth: 8 12 16 24, so 24 is a full bar */
        UI_N };
 #define PL2_N 4u                                /* UI_AGATE onwards */
 #define PL_N 7u                                 /* UI_TEMPO onwards */
@@ -1662,6 +1672,9 @@ static const param_t PG_GLO[] = {
     /* the operators at 88.2 kHz, and back down: the partials over 22 kHz go, rather than folding
      * back as tones that are not in the harmony. OFF is the 44.1 kHz of Dexed, and half the work. */
     {"OVERSAMPLE",   "OVERSM", P_UI, UI_OS,  1,  K_ONOFF},
+    /* the voices cut to fewer bits before the filter and the effects: 16 is the CD, 12 the DX7's
+     * DAC and the '80s samplers, 8 the home computers before them */
+    {"BIT DEPTH",    "BITS",   P_UI, UI_BITS, 3, K_BITS},
 };
 #define PG_GLO_FB 1u                            /* reached by name: HOME has a knob for it */
 /* ..and the same eight as the PIT key gives them: a rate with the level it is heading for, the way
@@ -2400,6 +2413,7 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
     case K_SWING: i = putn(s, i, 50u + v, 1); return put(s, i, "%");
     case K_VEL: return putn(s, i, v ? (v * 127u + 49u) / 99u : 1u, 1);
     case K_MCH: return v ? putn(s, i, v, 1) : put(s, i, "ALL");
+    case K_BITS: i = putn(s, i, 24u - CRUSH_SH[v < 4u ? v : 3u], 1); return put(s, i, " BIT");
     case K_PLVL: {                              /* 32 of the engine's units are an octave: 3/8 a semitone */
         int32_t t = DX_PITCH[v < 100u ? v : 99u] * 15;   /* tenths of a semitone, times four */
         uint32_t a = (uint32_t)((t < 0 ? -t : t) + 2) / 4u;
@@ -4371,7 +4385,7 @@ static void st_len(int32_t d)                   /* LENGTH, of every note on the 
 typedef struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv;
                  uint8_t genv[G_N]; uint8_t flt[3]; uint8_t fx[4 * FX_N]; uint8_t goff;
                  uint8_t pmark; uint8_t play[PL_N]; uint8_t sq_n; sqn_t sq[SQ_MAX];
-                 uint8_t play2[PL2_N]; uint8_t poff; uint8_t mch; uint8_t pch; uint8_t os; } settings_t;
+                 uint8_t play2[PL2_N]; uint8_t poff; uint8_t mch; uint8_t pch; uint8_t os; uint8_t bits; } settings_t;
 typedef char fmlab_settings_255[(sizeof(settings_t) <= 255u) ? 1 : -1];   /* the host keeps a byte of length */
 #define PL_MARK 0xA5u                           /* the play block is this one: an earlier layout is ignored */
 
@@ -4391,6 +4405,7 @@ static void set_take(settings_t *set)
     set->mch = ui[UI_MCH];
     set->pch = ui[UI_PCH];
     set->os = ui[UI_OS];
+    set->bits = 3u - ui[UI_BITS];               /* saved the other way up: 0, the default, is 24 */
     set->pmark = PL_MARK;
     for (k = 0; k < PL_N; k++)
         set->play[k] = ui[UI_TEMPO + k];
@@ -4409,7 +4424,7 @@ static void set_take(settings_t *set)
 static void app_main(void)
 {
     settings_t set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}, {60, 0, 0}, {FX_DEFAULTS}, 1,
-                      PL_MARK, {PLAY_DEFAULTS}, 0, {{0, 0, 0}}, {PLAY2_DEFAULTS}, 0, 0, 1, 1};
+                      PL_MARK, {PLAY_DEFAULTS}, 0, {{0, 0, 0}}, {PLAY2_DEFAULTS}, 0, 0, 1, 1, 0};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
@@ -4450,6 +4465,8 @@ static void app_main(void)
     ui[UI_PCH] = set.pch ? 1u : 0u;
     ui[UI_OS] = set.os ? 1u : 0u;
     os_want = ui[UI_OS];
+    ui[UI_BITS] = set.bits > 3u ? 3u : 3u - set.bits;
+    crush_sh = CRUSH_SH[ui[UI_BITS]];
     if (set.pmark == PL_MARK) {
         static const uint8_t PMAX[PL_N] = {99, 4, 3, 1, 2, 2, 1};
         static const uint8_t PMAX2[PL2_N] = {99, 5, 25, 99};
@@ -4491,6 +4508,7 @@ static void app_main(void)
         fx_sync();                          /* ..and the effects' sixteen */
         pl_sync();                          /* ..and what the clock plays */
         os_want = ui[UI_OS];                /* ..and whether it renders at twice the rate */
+        crush_sh = CRUSH_SH[ui[UI_BITS] & 3u];   /* ..and at how many bits */
 
         keys = fm1_in.notes;                    /* bit k: key k (0 = F3 .. 26 = G5) */
         down = keys & ~prev;

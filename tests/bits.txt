@@ -1,0 +1,31 @@
+# FM Lab -- bits: BIT DEPTH, heard. The same note at 24, 16, 12 and 8 bits; tests/bitscheck.py counts
+# the levels each one is made of, and checks the coarse ones are the fine one rounded.
+#
+#   build/host/fmlab build/host/bits tests/bits.txt
+
+# GLOBAL's fourth bank, where BIT DEPTH is the fourth knob.
+200 btn 7
+400 btn 7
+600 btn 7
+800 btn 7
+1000 shot
+
+# 24 bits (as it starts).
+1200 midi 0x90 69 100
+2200 midi 0x80 69 0
+# 16
+2800 enc 5 -1
+3000 midi 0x90 69 100
+4000 midi 0x80 69 0
+# 12
+4600 enc 5 -1
+4800 midi 0x90 69 100
+5800 midi 0x80 69 0
+# 8
+6400 enc 5 -1
+6600 shot
+6800 midi 0x90 69 100
+7800 midi 0x80 69 0
+# and no further than 8
+8400 enc 5 -1
+8600 shot

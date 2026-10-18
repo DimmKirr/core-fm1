@@ -12,6 +12,8 @@ GLOBAL's top-right corner. Versions are `MAJOR.MINOR.PATCH`: a patch fixes what 
   audible range as tones that don't belong to the note: about 40 dB less of them on a bright patch played
   high. It roughly doubles the engine's CPU: ~72 % (82 % peak) with eight voices, the filter and every
   effect on. `OFF` gives that back.
+- **BIT DEPTH** (GLOBAL, last bank): the voices cut to 16, 12 or 8 bits before the filter and the effects,
+  for the sound of older hardware. It starts at `24 BIT`, which is FM Lab as before.
 
 ### Changed
 - **24-bit output.** The sound used to be cut to 16 bits right after the voices were mixed, and only then

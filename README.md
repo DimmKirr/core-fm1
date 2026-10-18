@@ -281,6 +281,19 @@ It costs CPU. With all eight voices, the filter and every effect running, the me
 peaking at 82 %, with it `ON`; `OFF` gives back roughly half the engine's share. If you're running short
 (above 85 % the instrument drops a voice), switch it `OFF`. It's saved with the instrument, not the voice.
 
+### Bit depth
+
+The fourth knob, `BIT DEPTH`, cuts the voices to fewer bits, for the sound of older hardware. `24 BIT`,
+where it starts, is FM Lab as it is. `16 BIT` is the CD, `12 BIT` the DX7's own DAC and the late-'80s
+samplers, and `8 BIT` the home computers before them. The voices are rounded to the coarser step before the
+filter and the effects, so the filter, the echoes and the reverb tails stay smooth, the way old hardware
+sounds through modern effects.
+
+The steps are measured against full scale, as an old DAC's were, and a single note uses only part of it. A
+soft note at `8 BIT` is made of a couple of dozen levels: gritty and buzzy, and its quiet tail breaks up and
+then cuts to silence before it would have faded out. Play harder, or play chords, and more of the bits get
+used. It costs no CPU, and is saved with the instrument, not the voice.
+
 ### The pitch envelope
 
 The other envelope a DX7 voice has bends the pitch rather than the volume, and it is the black key marked
@@ -738,6 +751,7 @@ tests/run_host.sh tests/pitch.txt         # PIT and the pitch envelope: an octav
 tests/run_host.sh tests/midi.txt          # the MIDI channel, in and out, and program change both ways
 tests/run_host.sh tests/depth.txt         # a soft note's tail, in the 24 bits the DAC gets (also -24.wav)
 tests/run_host.sh tests/alias.txt         # a bright high note with OVERSAMPLE on and off: what folds back
+tests/run_host.sh tests/bits.txt          # one note at 24, 16, 12 and 8 bits: BIT DEPTH's grid
 tests/run_host.sh tests/docshots.txt      # the screenshots in docs/; then python3 tools/docshots.py puts them there
 ```
 

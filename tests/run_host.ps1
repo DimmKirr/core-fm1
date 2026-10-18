@@ -120,3 +120,7 @@ if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'alias.txt') {
     python tests\aliascheck.py build\host       # and OVERSAMPLE, against what folds back
     if ($LASTEXITCODE) { throw 'OVERSAMPLE is not keeping the fold-back out' }
 }
+if ($args.Count -and [IO.Path]::GetFileName($args[0]) -eq 'bits.txt') {
+    python tests\bitscheck.py build\host        # and BIT DEPTH, against its grid
+    if ($LASTEXITCODE) { throw 'BIT DEPTH is not cutting the voices to its bits' }
+}
