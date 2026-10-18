@@ -16,7 +16,7 @@ as a whole is GPL-3.0-only.
 | `firmware/src/platform.c`, the host mode `tests/host.c`, `docs/` | zvenson ([Dinghy](https://github.com/zvenson/dinghy)) |
 | The FM engine `firmware/src/dx7_core.c` and its tables `dx7_tables.h` | see below; carried here from [dxsloop](https://github.com/zvenson/dxsloop) (zvenson) |
 | The 20 factory voices, `tools/gen_voices.py` and the `firmware/src/dx7_voices.h` it generates | Copyright (C) 2026 Sven Trogus, designed for sloopDX ([dxsloop](https://github.com/zvenson/dxsloop) `tools/gen_dx7_bank.py`); FM Lab keeps the voices as they are and drops the drum kit |
-| The instrument `firmware/src/fmlab.c`, `dx7_voice.h`, `tools/load_test.py`, `assets/logo.svg`, the test scripts and checks in `tests/`, this documentation | FM Lab |
+| The instrument `firmware/src/fmlab.c`, `dx7_voice.h`, `tools/load_test.py`, `tools/docshots.py`, `assets/logo.svg`, the test scripts and checks in `tests/`, this documentation | FM Lab |
 
 ## Third-party material
 

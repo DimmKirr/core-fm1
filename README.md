@@ -27,8 +27,12 @@ FM Lab is built on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), whose 
 <p align="center"><img src="docs/screen.png" width="240" alt="FM Lab drawing algorithm 16 with a note held: operator 1 at the bottom as the only carrier, fed by operators 2, 3 and 5, with 4 above 3 and 6 above 5 carrying the feedback, and every box part filled to show how loud that operator is at this instant"> <img src="docs/envelope.png" width="240" alt="FM Lab drawing an envelope to scale, with the second segment picked out and its rate and level on the two knobs below"></p>
 
 > **Status: runs on the FM-1.** Measured on the device: 8 voices of six operators cost about 26 % of the audio
-> ISR's budget, and editing while eight notes sound costs nothing on top of that. See
+> ISR's budget, and editing while eight notes sound costs nothing on top of that. With the filter and all four
+> effects on as well it is about 40 %, under 50 % at its worst. See
 > [tests/cpu_baseline.txt](tests/cpu_baseline.txt).
+
+**Every control on one page: [docs/QUICK-REFERENCE.md](docs/QUICK-REFERENCE.md).** The rest of this README
+says why each one works the way it does.
 
 ## The instrument
 
@@ -216,8 +220,8 @@ fade-in wrong, and six things to learn before you can hear what any of them does
 envelope that is not an operator's at all: a single ADSR over the finished voice, after the operators and
 before the mix.
 
-Press the black key marked `GLOBAL` — the one just above `OP6` — wherever `OP1` to `OP6` are already
-selecting an operator: on the OPERATOR and ENVELOPE pages, or after a tap of **ENV** — or of **LFO**,
+Press the black key marked `GLOBAL` — two above `OP6`, past `PIT` — wherever an envelope or the LFO is
+under the knobs: on the ENVELOPE page, or after a tap of **ENV** — or of **LFO**,
 where it does the same for the LFO, as [the LFO](#the-lfo) describes. The title says
 `ENV GLOBAL`, the four knobs become `ATK` `DEC` `SUS` `REL` for the whole voice, and any `OP` key takes you
 back. On a tap of **ENV** the algorithm diagram steps aside and draws the envelope instead, because with
@@ -427,7 +431,7 @@ saved, they survive an A/B switch, and changing voice brings all six back on.
 never heard, only felt. The diagram says so — the operator is alive, every carrier is struck through, and the
 output bus at the bottom turns red to show that nothing is reaching it.
 
-<p align="center"><img src="docs/solo.png" width="240" alt="FM Lab with operator 2 soloed under algorithm 16: operator 2 is outlined in white and the other five are greyed and struck through in red, and the output bus at the bottom of the screen is red to show that nothing reaches it"></p>
+<p align="center"><img src="docs/solo.png" width="240" alt="FM Lab with operator 2 soloed under algorithm 16 after a tap of EDIT, titled EDIT OP2: operator 2 is outlined in white and draws its sine wave, the other five are greyed and struck through in red, and the output bus at the bottom of the screen is red to show that nothing reaches it"></p>
 
 The way to use A/B is: land on a sound, hold **F#5** to copy it across, tap it to move to the other
 side, change *one* thing, then flip back and forth. Hearing the same parameter two ways in succession tells
@@ -468,8 +472,9 @@ It all works while the loop plays, with a yellow mark under the step it is on.
 operator is *right now* — read straight out of the running voice, the same number the engine is about to
 multiply by. The body of the fill is dim and the level itself is a bright edge riding on top of it, so two
 operators a little apart are easy to tell apart. The orange box and the loop beside it is the one carrying
-feedback. The white outline is the operator you have picked, so you can see where the thing you are
-editing sits before you edit it. An operator that is switched off is struck through in red, and its wires
+feedback. While a tap of **EDIT**, **ENV** or **LFO** has the knobs on one operator, a white outline says
+which, so you can see where the thing you are editing sits before you edit it; plain HOME has no outline,
+because there is no operator to pick. An operator that is switched off is struck through in red, and its wires
 fade out with it.
 
 Hold one note and watch. The modulators empty out while the carrier is still half full, and that gap is
@@ -492,7 +497,7 @@ with no note held a bar is empty. Tap **EDIT** instead and the same box draws th
 
 **HOME again draws the spectrum.** This is the one screen here purely to teach, and it is worth the stare.
 
-<p align="center"><img src="docs/spectrum.png" width="240" alt="FM Lab drawing the spectrum of BRASS held at C4 over 0 to 5 kHz: a row of bars falling away to the right, each one standing under a tick of the harmonic ruler along the top edge"></p>
+<p align="center"><img src="docs/spectrum.png" width="240" alt="FM Lab's FILTER screen: the spectrum of BRASS held at C4 over 0 to 5 kHz, a row of bars falling away to the right, each one standing under a tick of the harmonic ruler along the top edge, with the filter switched off drawn as a flat green line and CUT RESO TYPE SPAN along the bottom"></p>
 
 FM makes its harmonics by a rule you can write down: a carrier at *fc* modulated at *fm* grows sidebands at
 *fc* ± *k·fm*, and the number of them loud enough to matter grows with how hard you are modulating. That is
@@ -523,6 +528,8 @@ you hear, always.
 height against time. The spectrum says which partials there are; this says what they add up to. Put
 `INIT VOICE` on, hold a note, and bring a modulator's **LEVEL** up from the HOME knobs — the sine bends, leans
 and then folds over on itself, and the spectrum one press away is the same thing seen from the other side.
+
+<p align="center"><img src="docs/scope.png" width="240" alt="FM Lab's SCOPE screen with BRASS held at C4: two cycles of the waveform across the screen, 7.6 ms, filled down to the centre line"></p>
 
 It stands still because it is locked to the note you played: the screen is two cycles of it, starting each
 time at the same rise through zero, and the time across the screen is written in the top corner. Below about
@@ -711,6 +718,7 @@ tests/run_host.sh tests/scope.txt         # the waveform screen, by its trace
 tests/run_host.sh tests/play.txt          # the arpeggiator, the looper and the step view, by ear and by pixel
 tests/run_host.sh tests/pitch.txt         # PIT and the pitch envelope: an octave by zero crossings, and its switch
 tests/run_host.sh tests/midi.txt          # the MIDI channel, in and out, and program change both ways
+tests/run_host.sh tests/docshots.txt      # the screenshots in docs/; then python3 tools/docshots.py puts them there
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
@@ -882,6 +890,8 @@ while it plays has to stop sounding, and `BARS` on its knob has to add a row.
 
 ## Where to go next
 
+- **[docs/QUICK-REFERENCE.md](docs/QUICK-REFERENCE.md)**: every knob, button and black key on one page, and
+  what is saved where.
 - **[docs/API.md](docs/API.md)**: everything `platform.c` gives you — the panel's ids, the screen calls, the
   audio contract, MIDI, settings, the flash map, timing.
 - **[docs/RULES.md](docs/RULES.md)**: the chip's rules (no FPU, no libgcc, the audio ISR's budget) and what the
