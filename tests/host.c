@@ -25,7 +25,7 @@
 #define APP_NAME "FM LAB"
 #endif
 #ifndef APP_VER
-#define APP_VER "0.0"
+#define APP_VER "DEV"
 #endif
 #define FS 44100u
 #define HALF_FRAMES 256u

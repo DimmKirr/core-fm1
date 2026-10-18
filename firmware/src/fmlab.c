@@ -3817,7 +3817,8 @@ static void draw_legend(void)
  *
  * Right, which of HOME's three screens you are on. The screen itself tells you which one you are
  * looking at; what it cannot tell you is that there are others, which is the whole job of a row
- * of pips. Pages other than HOME already say 1/4 in their title, so they get none. */
+ * of pips. Pages other than HOME already say 1/4 in their title, so they get none. On GLOBAL, the
+ * page of the instrument rather than the sound, that corner says which FM Lab this is instead. */
 #define BATT_1 531                              /* raw counts: anything under this is the last bar */
 #define BATT_2 561
 #define BATT_3 591
@@ -3831,12 +3832,13 @@ static uint32_t batt_bars(void)
 
 static void draw_corners(void)
 {
-    uint32_t charging = fm1_usb_host() != 0, lvl = batt_bars(), pips, k, sig;
+    uint32_t charging = fm1_usb_host() != 0, lvl = batt_bars(), pips, ver, k, sig;
     uint16_t c = charging ? C_ACC : lvl == 0u ? RGB(255, 90, 90) : lvl == 1u ? RGB(235, 170, 60) : C_OFF;
     if (charging)
         lvl = 1u + (fm1_ms / 600u) % 3u;        /* filling, over and over, while a host is there */
     pips = page == PAGE_HOME ? HOME_NBANK : 0u;
-    sig = lvl * 7u + charging * 97u + pips * 1013u + (uint32_t)bank * 31u + c;
+    ver = page == PAGE_GLO;
+    sig = lvl * 7u + charging * 97u + pips * 1013u + (uint32_t)bank * 31u + c + ver * 50021u;
     if (sig == corner_sig)
         return;
     corner_sig = sig;
@@ -3850,6 +3852,10 @@ static void draw_corners(void)
         cv_rect(8 + (int32_t)k * 5, 5, 3, 5, c);
     for (k = 0; k < pips; k++)
         cv_rect(238 - (int32_t)pips * 10 + (int32_t)k * 10, 5, 6, 6, k == bank ? C_ACC : RGB(56, 56, 64));
+    if (ver) {                                  /* tools/build.py --release X.Y.Z sets it; DEV if not */
+        const char *v = APP_VER[0] >= '0' && APP_VER[0] <= '9' ? "V" APP_VER : APP_VER;
+        cv_text(234 - text_w(&FONT_S, v), 0, &FONT_S, v, C_OFF);
+    }
     cv_blit(0, 0);
 }
 

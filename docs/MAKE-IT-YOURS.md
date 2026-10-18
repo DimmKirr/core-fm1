@@ -36,11 +36,12 @@ hub use it to tell firmwares apart: two firmwares with the same identity look li
 ## 4. Release
 
 ```sh
-./build.sh --release 0.2        # -> build/fmlab-0.2.fwsc, identity FM-1_972, the version "0.2" on the screen
+./build.sh --release 1.0.0      # -> build/fmlab-1.0.0.fwsc, identity FM-1_970, "V1.0.0" in GLOBAL's top corner
 ```
 
-On GitHub: a release with a tag (`v0.2`) and the `.fwsc` attached. Say what changed in its notes: the hub links
-them.
+Without `--release` a build says `DEV` there instead, so a test build on the device is never mistaken for a
+release. On GitHub: a release with a tag (`v1.0.0`) and the `.fwsc` attached. Say what changed in its notes: the
+hub links them.
 
 ## 5. Into the hub
 

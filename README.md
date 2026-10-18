@@ -650,7 +650,8 @@ used here with credit in the source. The whole useful span is about sixty counts
 is smoothed hard before it is drawn.
 
 Top right is a row of three pips for which HOME screen you are on. They appear on HOME only; every other page
-already says `1/4` in its title, and repeating that would be noise.
+already says `1/4` in its title, and repeating that would be noise. On **GLOBAL** that corner says which FM Lab
+you are running instead — `V1.0.0`, or `DEV` for a build of your own that was not made with `--release`.
 
 ## Building it
 

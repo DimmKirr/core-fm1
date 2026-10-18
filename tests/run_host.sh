@@ -21,7 +21,7 @@ if [ -n "$script" ]; then
     name=${script##*/}
     out=build/host/${name%.*}
 fi
-cc -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER="\"${APP_VER:-dev}\"" -Ifirmware/src -Ifirmware/gen -o build/host/fmlab firmware/src/fmlab.c
+cc -O2 -Wall -Wno-unused-function -DDINGHY_HOST -DAPP_VER="\"${APP_VER:-DEV}\"" -Ifirmware/src -Ifirmware/gen -o build/host/fmlab firmware/src/fmlab.c
 rm -f "$out"-*.ppm "$out"-*.png "$out"-bank.bin "$out"-out.syx   # the bank outlives a run, as flash does
 case "$script" in
 */bank.txt) python3 tests/mksyx.py build/host ;;            # the .syx files it sends itself

@@ -68,7 +68,7 @@ A tap of **EDIT**, **ENV**, **LFO**, **FX**, **ARP** or **SEQ** borrows the knob
 | OPERATOR | `LEVEL RATIO DETUNE WAVE` · `MODE COARSE FINE V SENS` · `AMSENS RT SCL BRK PT L DEP` · `R DEP L CRV R CRV` |
 | ENVELOPE | `ATTACK DECAY SUSTAIN RELEASE` · then the four segments, a rate and its level each. On `PITCH`: the pitch envelope's four. |
 | LFO | `SPEED DELAY WAVE` · `P MOD A MOD PMSENS` · `K SYNC` |
-| GLOBAL | `ALGO FEEDBK O SYNC TRANSP` · the pitch envelope's rates · its levels · `MIDICH PRG CH`. The CPU meter is the bottom line. |
+| GLOBAL | `ALGO FEEDBK O SYNC TRANSP` · the pitch envelope's rates · its levels · `MIDICH PRG CH`. The CPU meter is the bottom line; the firmware version is top right. |
 | EFFECTS | `CHORUS` · `PHASER` · `DELAY` · `REVERB`, each `MIX` first; `MIX 0` is off |
 | ARP (tap) | `TEMPO PATTERN OCTAVE LATCH` · `GATE RATE SWING VELO` |
 | SEQ (tap) | `TEMPO BARS DIV CLICK` |
