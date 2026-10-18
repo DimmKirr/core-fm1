@@ -1223,7 +1223,9 @@ static void seq_advance_part(uint32_t n)
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], n);
     for (i = 0; i < NPART; i++)
-        arp_step(&trk[i], song.playing || !song.g[G_CLOCK] ? n : 0u, n);
+        /* Held keys play at the local tempo while the selected master is
+         * stopped. A released HOLD chord still waits for external transport. */
+        arp_step(&trk[i], song.playing || !song.g[G_CLOCK] || trk[i].arp_phys ? n : 0u, n);
     beat_pos += n;
     while (beat_pos >= beat) {
         beat_pos -= beat;
@@ -1366,7 +1368,8 @@ static void events_block(uint32_t n)
         if (!song.playing) {
             uint32_t elapsed = (uint32_t)((uint64_t)n * MIDI_BEAT_UNITS / beat_samples());
             chord_strum_tick(elapsed);
-            for (i = 0; i < NPART; i++) arp_step(&trk[i], 0, elapsed);
+            for (i = 0; i < NPART; i++)
+                arp_step(&trk[i], trk[i].arp_phys ? elapsed : 0u, elapsed);
         }
     } else {
         uint32_t left=n;
