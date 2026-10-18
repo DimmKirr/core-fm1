@@ -79,6 +79,46 @@ release ships: the package, the app (`melodee-0.11.1-app.bin`), `SHA256SUMS`, `L
 `LICENSES/` (the package contains Apache-2.0 SDK files, so the licence texts travel with it).
 For example, `--release 1.0.0` uses the distinct identity `FM-1_91000`.
 
+## Releases
+
+All future tagged releases, including release candidates, must use
+[zvenson/fm1-build](https://github.com/zvenson/fm1-build) through
+`.github/workflows/release.yml`. The firmware job calls the reviewed `@v1` reusable
+workflow, which installs the JieLi toolchain and SDK, runs our build and blocking
+host/web tests, and attests the resulting `.fwsc` and application binary. Keep the
+reviewed version tag when updating this integration; the Firmware Hub recognises
+the shared builder's identity. Local release builds are for development and do not
+replace these attested artifacts.
+
+1. Set the release version in the firmware and recovery tool, prepare
+   `docs/RELEASE_<version>.md`, and commit the release source.
+2. Push the matching `v<version>` tag. The workflow validates the version and notes,
+   then creates a draft (a prerelease for versions with a suffix). An existing public
+   release is refused; an interrupted draft can be retried.
+3. The shared builder builds, tests, attests and attaches the firmware to that draft.
+   Four native recovery builds run alongside it. The publish job downloads the shared
+   builder's artifacts without rebuilding firmware and verifies their signer, source
+   ref and source commit before validating application bytes and recovery checksums.
+4. After all checks pass, the workflow uploads the complete asset set, licence archive,
+   `BUILD_INFO.json` and final `SHA256SUMS`, then publishes the draft. Stable releases
+   update the stable installer and manual; RCs update only the candidate channel.
+   Stable manual screenshots travel through the shared artifact as a temporary archive,
+   which is removed from the draft before publication.
+
+For a downloaded package from a release using this workflow:
+
+```sh
+gh attestation verify melodee-<version>.fwsc --repo keremimo/melodee \
+  --signer-workflow zvenson/fm1-build/.github/workflows/build.yml \
+  --source-ref refs/tags/v<version>
+```
+
+Replace `<version>` with the actual version. The attestation ties those bytes to the
+source and shared builder; it does not establish hardware safety or musical behavior.
+Historical releases are unchanged. Nightly builds retain their separate workflow.
+
+## Build options
+
 Build options (environment; most use `0` or `1`; defaults in `firmware/src/build_options.h`, `melodee.c`, `core.h` and `icons.c`):
 
 | Flag | Default | |

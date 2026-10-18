@@ -13,76 +13,89 @@ on:
       - 'assets/recovery/**'
       - 'tests/recovery_test.py'
       - 'tests/recovery_correction_test.py'
+      - 'tests/release_assets_test.py'
     tags: ['v[0-9]*']
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A rerun must not replace a public release with a partially rebuilt one.
+concurrency:
+  group: melodee-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  firmware:
+  prepare:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
-    env:
-      JIELI_TOOLCHAIN: ${{ github.workspace }}/.nightly-deps/jieli/toolchain
-      AC79_SDK: ${{ github.workspace }}/.nightly-deps/sdk
-      PARALLEL: '2'
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libharfbuzz-dev libfribidi-dev libraqm-dev
-          python -m pip install Pillow fonttools mido
-      - uses: actions/cache@v4
-        with:
-          path: .nightly-deps
-          key: jieli-linux-sdk-d179b448-v1
-      - name: Fetch pinned SDK and toolchain
-        run: |
-          if [ ! -x "$JIELI_TOOLCHAIN/pi32v2/bin/clang" ]; then
-            tools/get_toolchain.sh "$GITHUB_WORKSPACE/.nightly-deps/jieli"
-          fi
-          if [ ! -d "$AC79_SDK/.git" ]; then
-            git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$AC79_SDK"
-          fi
-          test "$(git -C "$AC79_SDK" rev-parse HEAD)" = d179b4484759423312073f5fbb232501aa491047
-      - name: Build dual-core firmware and run full host suite
-        # Release packages use the nightly configuration; the CPU fast paths are source defaults.
+      - name: Validate version and prepare a draft release
         env:
-          MELODEE_DUAL_CORE: '1'
-          MELODEE_CORE1_FALLBACK: '0'
-          MELODEE_RAM_AUDIO: '1'
-          MELODEE_CACHE_RAM: '1'
-          MELODEE_ADMISSION: '0'
-          MELODEE_AUDIO_PROFILE: '0'
-          MELODEE_AUDIO_BENCH: '0'
+          GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(python tools/fm1_recover.py --version | awk '{print $NF}')
-          ./build.sh --release "$version"
-          cp "build/melodee-$version.fwsc" build/melodee.fwsc
-          tests/run_tests.sh
-          mkdir -p build/release-assets
-          cp "build/release-$version/"*.fwsc "build/release-$version/"*-app.bin build/release-assets/
-          # The live manual is published only with a stable tag. Release candidates leave it alone.
-          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != *-* ]]; then
-            python3 tools/manual_shots.py
-            python3 tools/manual_shots.py --require
-            tar -czf build/manual-screenshots.tar.gz -C web/manual \
-              $(find web/manual -name '*.png' | sed 's|^web/manual/||')
+          version=$(python3 tools/fm1_recover.py --version | awk '{print $NF}')
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then exit 0; fi
+          test "$GITHUB_REF_NAME" = "v$version"
+          test -f "docs/RELEASE_$version.md"
+          release_flags=(--prerelease=false)
+          if [[ "$version" == *-* ]]; then
+            release_flags=(--prerelease --latest=false)
           fi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-firmware
-          path: build/release-assets/*
-      - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
-        with:
-          name: manual-screenshots
-          path: build/manual-screenshots.tar.gz
+          if draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft); then
+            test "$draft" = true || { echo 'Refusing to rebuild a public release'; exit 1; }
+            gh release edit "$GITHUB_REF_NAME" --draft=true \
+              --title "Melodee $version" --notes-file "docs/RELEASE_$version.md" \
+              "${release_flags[@]}"
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+              --title "Melodee $version" --notes-file "docs/RELEASE_$version.md" \
+              "${release_flags[@]}"
+          fi
+
+  firmware:
+    needs: prepare
+    # Keep the reviewed version tag: the Firmware Hub recognises this builder.
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    with:
+      sdk: true
+      tests-block: true
+      build: |
+        set -euo pipefail
+        export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
+        export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
+        export MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0
+        sudo apt-get update
+        sudo apt-get install -y libharfbuzz-dev libfribidi-dev libraqm-dev
+        python3 -m pip install fonttools mido
+        test "$(git -C "$AC79_SDK" rev-parse HEAD)" = d179b4484759423312073f5fbb232501aa491047
+        version=$(python3 tools/fm1_recover.py --version | awk '{print $NF}')
+        if [[ "$GITHUB_REF" == refs/tags/* ]]; then test "$GITHUB_REF_NAME" = "v$version"; fi
+        ./build.sh --release "$version"
+        cp "build/melodee-$version.fwsc" build/melodee.fwsc
+        mkdir -p build/release-assets
+        cp "build/release-$version/"*.fwsc "build/release-$version/"*-app.bin build/release-assets/
+      test: |
+        set -euo pipefail
+        export PARALLEL=2 MELODEE_DUAL_CORE=1 MELODEE_CORE1_FALLBACK=0
+        export MELODEE_RAM_AUDIO=1 MELODEE_CACHE_RAM=1 MELODEE_ADMISSION=0
+        export MELODEE_AUDIO_PROFILE=0 MELODEE_AUDIO_BENCH=0
+        tests/run_tests.sh
+        # Carry stable manual renders through the shared workflow's packages artifact.
+        # This archive is removed from the draft before the complete release goes live.
+        if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != *-* ]]; then
+          python3 tools/manual_shots.py
+          python3 tools/manual_shots.py --require
+          tar -czf build/release-assets/manual-screenshots.tar.gz -C web/manual \
+            $(find web/manual -name '*.png' | sed 's|^web/manual/||')
+        fi
+      packages: build/release-assets/*
 
   recovery:
     strategy:
@@ -125,6 +138,7 @@ jobs:
     permissions:
       contents: write
       pages: write
+      attestations: read
     concurrency:
       group: ${{ github.ref == 'refs/heads/release/recovery-v1.3.1' && 'melodee-recovery-v1.3.1' || 'melodee-nightly-pages' }}
       cancel-in-progress: false
@@ -135,24 +149,33 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
-          name: release-firmware
-          path: build/release-assets
+          name: packages
+          path: build/attested
+      - name: Stage the attested firmware without rebuilding
+        run: |
+          mkdir -p build/release-assets
+          # The shared artifact also has a root SHA256SUMS, so upload-artifact
+          # preserves build/release-assets/ beneath the artifact root.
+          cp build/attested/build/release-assets/* build/release-assets/
+      - name: Verify firmware attestations from the reviewed builder
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for package in build/release-assets/*.fwsc build/release-assets/*-app.bin; do
+            gh attestation verify "$package" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow zvenson/fm1-build/.github/workflows/build.yml \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA"
+          done
       - uses: actions/download-artifact@v4
         with:
           pattern: recovery-*
           path: build/release-assets
           merge-multiple: true
-      - uses: actions/download-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
-        with:
-          name: manual-screenshots
-          path: build/manual-screenshots-artifact
       - name: Unpack generated manual screenshots
         if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
         run: |
-          archive=$(find build/manual-screenshots-artifact -name manual-screenshots.tar.gz -print -quit)
-          test -n "$archive"
-          tar -xzf "$archive" -C web/manual
+          mv build/release-assets/manual-screenshots.tar.gz build/manual-screenshots.tar.gz
+          tar -xzf build/manual-screenshots.tar.gz -C web/manual
           python3 tools/manual_shots.py --require
       - name: Validate release provenance and every archive checksum
         run: |
@@ -165,12 +188,26 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version=${GITHUB_REF_NAME#v}
-          release_flags=()
+          release_flags=(--prerelease=false)
           if [[ "$version" == *-* ]]; then
-            release_flags+=(--prerelease --latest=false)
+            release_flags=(--prerelease --latest=false)
           fi
-          gh release create "$GITHUB_REF_NAME" build/release-assets/* \
-            --verify-tag --title "Melodee $version" --notes-file "docs/RELEASE_$version.md" \
+          # The shared builder has already attached the attested firmware to
+          # this draft. Add the complete recovery set and replace its partial sums.
+          gh release upload "$GITHUB_REF_NAME" \
+            build/release-assets/fm1-recover-*.zip \
+            "build/release-assets/melodee-$version-licenses.zip" \
+            build/release-assets/BUILD_INFO.json build/release-assets/SHA256SUMS --clobber
+          if [[ "$version" != *-* ]]; then
+            # A retry of this job may already have removed the temporary asset.
+            archive=$(gh release view "$GITHUB_REF_NAME" --json assets \
+              --jq '.assets[] | select(.name == "manual-screenshots.tar.gz") | .name')
+            if [[ -n "$archive" ]]; then
+              gh release delete-asset "$GITHUB_REF_NAME" "$archive" --yes
+            fi
+          fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false \
+            --title "Melodee $version" --notes-file "docs/RELEASE_$version.md" \
             "${release_flags[@]}"
       - name: Prepare correction while preserving published firmware
         if: github.ref == 'refs/heads/release/recovery-v1.3.1'

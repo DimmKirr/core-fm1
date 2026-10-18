@@ -31,8 +31,8 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**[Melodee 1.4.3](https://github.com/keremimo/melodee/releases/tag/v1.4.3)**
-([release notes](docs/RELEASE_1.4.3.md), [what's new](#whats-new-in-143)).
+**[Melodee 1.4.4](https://github.com/keremimo/melodee/releases/tag/v1.4.4)**
+([release notes](docs/RELEASE_1.4.4.md), [what's new](#whats-new-in-144)).
 
 The stock-restore installer accepts 1.4's backup capabilities. Existing Melodee 1.4.0
 users can return to official V15 directly from the updated web installer.
@@ -51,6 +51,18 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+Tagged releases from 1.4.4 use the [FM-1 shared build workflow](https://github.com/zvenson/fm1-build)
+to build and attest firmware from the tagged source. See [release verification](BUILDING.md#releases)
+for the process and the command to check a downloaded package. An attestation establishes
+build provenance; hardware validation is a separate check.
+
+## What's new in 1.4.4
+
+- **Signed build provenance:** the shared FM-1 builder builds, tests and attests the
+  firmware and application binary. GitHub can verify their source commit and builder.
+- **Release process:** packages stay in a draft until recovery tools, attestations and
+  checksums pass validation. The synthesizer and project format remain as in 1.4.3.
 
 ## What's new in 1.4.3
 
