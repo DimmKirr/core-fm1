@@ -15,7 +15,8 @@ as a whole is GPL-3.0-only.
 | The platform: `firmware/hal/`, `firmware/loader/`, `crt0.S`, `app.ld`, `firmware/src/` (`usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c`, `libc.c`, `bootguard.h`, `uac_fir.h`), `tools/` | Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments ([Felucca](https://github.com/hugelton/Felucca)), with the changes of [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) |
 | `firmware/src/platform.c`, the host mode `tests/host.c`, `docs/` | zvenson ([Dinghy](https://github.com/zvenson/dinghy)) |
 | The FM engine `firmware/src/dx7_core.c` and its tables `dx7_tables.h` | see below; carried here from [dxsloop](https://github.com/zvenson/dxsloop) (zvenson) |
-| The instrument `firmware/src/fmlab.c`, `dx7_voice.h`, `tools/gen_voices.py` and the voices it generates, `tools/load_test.py`, `assets/logo.svg`, this documentation | FM Lab |
+| The 20 factory voices, `tools/gen_voices.py` and the `firmware/src/dx7_voices.h` it generates | Copyright (C) 2026 Sven Trogus, designed for sloopDX ([dxsloop](https://github.com/zvenson/dxsloop) `tools/gen_dx7_bank.py`); FM Lab keeps the voices as they are and drops the drum kit |
+| The instrument `firmware/src/fmlab.c`, `dx7_voice.h`, `tools/load_test.py`, `assets/logo.svg`, the test scripts and checks in `tests/`, this documentation | FM Lab |
 
 ## Third-party material
 
@@ -27,10 +28,10 @@ as a whole is GPL-3.0-only.
 
 ## Voice data
 
-**No Yamaha and no M-VAVE voice data is in this tree, and none should be added.** Every factory voice is
-designed from scratch in `tools/gen_voices.py`, which is the readable source for `firmware/src/dx7_voices.h`;
-both are GPL-3.0-only like the rest of the code. If FM Lab later loads `.syx` banks, those stay on your device
-and are yours, not part of this repository.
+**No Yamaha and no M-VAVE voice data is in this tree, and none should be added.** The factory voices are
+Sven Trogus's, designed from scratch for sloopDX and written out in `tools/gen_voices.py`, which is the readable
+source for `firmware/src/dx7_voices.h`; both are GPL-3.0-only like the rest of the code. `.syx` banks you import
+stay on your device and are yours, not part of this repository.
 
 This rule is inherited from dxsloop and is not a formality: a DX7 voice is 156 bytes of someone's authorship,
 and the factory banks are Yamaha's.

@@ -36,9 +36,10 @@ FM Lab is built on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), whose 
 scaling, the pitch envelope, the LFO. Notes come from the keys or from USB-MIDI — on any channel, or the one GLOBAL's `MIDI` bank picks. When all eight
 are busy the oldest released note goes first, then the oldest held one.
 
-**20 factory voices** to start from, each designed to show one thing — what feedback does, what a 7:1 ratio
-sounds like, how an algorithm with four carriers differs from one with one. None of them are Yamaha's or
-M-VAVE's; they are written out in `tools/gen_voices.py`, which is the readable source for all of them.
+**20 factory voices** to start from, and between them they show a lot — what feedback does, what a 7:1 ratio
+sounds like, how an algorithm with four carriers differs from one with one. They are Sven Trogus's, made
+for dxsloop and carried over unchanged; none of them are Yamaha's or M-VAVE's. They are written out in
+`tools/gen_voices.py`, which is the readable source for all of them.
 
 **32 user slots** after them, in flash, for your own sounds and for other people's — a DX7 bank is 32 voices,
 so a bank fills them exactly.
@@ -895,7 +896,7 @@ GPL-3.0-only. The FM engine is Apache-2.0 AND GPL-3.0-only; details, credits and
 
 The platform is Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments, with SLOOP's changes
 (isod89) and Dinghy's (zvenson). The FM engine is Google's and Pascal Gauthier's, in Sven Trogus's integer port
-as dxsloop (zvenson) carries it.
+as dxsloop (zvenson) carries it; the factory voices are Sven Trogus's, from dxsloop.
 
-**No Yamaha or M-VAVE voice data is in this repository**, and none should be added: every factory voice is
-written from scratch in `tools/gen_voices.py`.
+**No Yamaha or M-VAVE voice data is in this repository**, and none should be added: every factory voice was
+designed from scratch for dxsloop and is written out in `tools/gen_voices.py`.
