@@ -33,7 +33,8 @@ def main(prefix):
         i = line.find("MIDI out ")
         if i >= 0:
             st, d1, d2 = line[i + 9:].split()[:3]
-            sent.append((int(st, 16), int(d1), int(d2)))
+            if int(st, 16) & 0xF0 in (0x80, 0x90):    # the notes: a program change is PRESETS'
+                sent.append((int(st, 16), int(d1), int(d2)))
 
     # F3 is key 0 and the keyboard starts at 53, so F3 is 53 and F#4 (key 13) is 66.
     chord = [60, 64, 67]                         # keys 7, 11 and 14

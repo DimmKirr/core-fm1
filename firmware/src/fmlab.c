@@ -9,7 +9,7 @@
  *   OCT- OCT+    the octave (kept in flash)
  *   PRESETS      the voice
  *   MASTER       the volume (platform.c)
- *   USB-MIDI     notes in play, any channel
+ *   USB-MIDI     notes in play, on any channel or the one GLOBAL's MIDI bank picks
  *
  * Editing, which is the point of the thing. Every knob takes effect under the notes you are already
  * holding -- dx_update is Dexed's Dx7Note::update, so the timbre changes without restarting the
@@ -1240,7 +1240,8 @@ enum { K_NUM = 0, K_RAT, K_DET, K_MODE, K_ONOFF, K_CURVE, K_WAVE, K_ALG, K_BRK, 
        K_ARATE,                                 /* the arpeggiator's step, as a note value */
        K_SWING,                                 /* 50..75 %: how far the off-beat step is pushed */
        K_VEL,                                   /* 0..99, said as the MIDI velocity it is */
-       K_PLVL };                                /* a pitch envelope level, said in semitones */
+       K_PLVL,                                  /* a pitch envelope level, said in semitones */
+       K_MCH };                                 /* a MIDI channel, or ALL of them */
 
 /* The handful of switches that belong to the instrument and not to the sound. They sit in their
  * own bytes rather than in the 156, because the 156 is a DX7 voice and has no room for our
@@ -1255,6 +1256,7 @@ enum { UI_SPAN = 0, UI_GATK, UI_GDEC, UI_GSUS, UI_GREL, UI_FCUT, UI_FRES, UI_FTY
        UI_AGATE, UI_ARATE, UI_SWING, UI_AVEL,   /* the arpeggiator's second four */
        UI_POFF,                                 /* the pitch envelope switched out, its bytes kept;
                                                  * it starts in, since it is the patch's own */
+       UI_MCH, UI_PCH,                          /* MIDI: the channel (0 = all), program change on */
        UI_N };
 #define PL2_N 4u                                /* UI_AGATE onwards */
 #define PL_N 7u                                 /* UI_TEMPO onwards */
@@ -1609,6 +1611,11 @@ static const param_t PG_GLO[] = {
     {"P LEVEL 2", "P LVL2", P_G, 131, 99, K_PLVL},
     {"P LEVEL 3", "P LVL3", P_G, 132, 99, K_PLVL},
     {"P LEVEL 4", "P LVL4", P_G, 133, 99, K_PLVL},
+    /* the instrument's, not the voice's: how it listens over USB. ALL is every channel, as it
+     * always was; a number is that one only, and the keys send on it too. PROG CHG loads voice N+1
+     * of the voice list for program N, and turning PRESETS sends one the other way. */
+    {"MIDI CHANNEL", "MIDICH", P_UI, UI_MCH, 16, K_MCH},
+    {"PROG CHANGE",  "PRG CH", P_UI, UI_PCH, 1,  K_ONOFF},
 };
 #define PG_GLO_FB 1u                            /* reached by name: HOME has a knob for it */
 /* ..and the same eight as the PIT key gives them: a rate with the level it is heading for, the way
@@ -2074,6 +2081,7 @@ static int op_key(uint32_t k)
  * a hold copies the side you are on over the other one -- a place to come back to before you start
  * changing things. Plain HOME, with nothing focused, is for playing, so there it is an F#5. */
 #define AB_KEY 25u                              /* F#5 */
+#define MIDI_TX (ui[UI_MCH] ? ui[UI_MCH] - 1u : 0u)   /* the channel the keys send on */
 #define ab_point() (page != PAGE_HOME || focus != FOC_OFF)
 static uint32_t ab_t;                           /* when it went down, or 0 */
 static uint8_t ab_long;                         /* ..and the hold has already copied */
@@ -2345,6 +2353,7 @@ static uint32_t putval(char *s, uint32_t i, const param_t *p, uint32_t v)
     case K_ARATE: return put(s, i, ARATE[v < 6u ? v : 3u]);
     case K_SWING: i = putn(s, i, 50u + v, 1); return put(s, i, "%");
     case K_VEL: return putn(s, i, v ? (v * 127u + 49u) / 99u : 1u, 1);
+    case K_MCH: return v ? putn(s, i, v, 1) : put(s, i, "ALL");
     case K_PLVL: {                              /* 32 of the engine's units are an octave: 3/8 a semitone */
         int32_t t = DX_PITCH[v < 100u ? v : 99u] * 15;   /* tenths of a semitone, times four */
         uint32_t a = (uint32_t)((t < 0 ? -t : t) + 2) / 4u;
@@ -4310,7 +4319,7 @@ static void st_len(int32_t d)                   /* LENGTH, of every note on the 
 typedef struct { int8_t oct; uint8_t voice; uint8_t slot; uint8_t mono; uint8_t span; uint8_t rsv;
                  uint8_t genv[G_N]; uint8_t flt[3]; uint8_t fx[4 * FX_N]; uint8_t goff;
                  uint8_t pmark; uint8_t play[PL_N]; uint8_t sq_n; sqn_t sq[SQ_MAX];
-                 uint8_t play2[PL2_N]; uint8_t poff; } settings_t;
+                 uint8_t play2[PL2_N]; uint8_t poff; uint8_t mch; uint8_t pch; } settings_t;
 typedef char fmlab_settings_255[(sizeof(settings_t) <= 255u) ? 1 : -1];   /* the host keeps a byte of length */
 #define PL_MARK 0xA5u                           /* the play block is this one: an earlier layout is ignored */
 
@@ -4327,6 +4336,8 @@ static void set_take(settings_t *set)
         set->fx[k] = ui[UI_FX + k];
     set->goff = ui[UI_GOFF];
     set->poff = ui[UI_POFF];
+    set->mch = ui[UI_MCH];
+    set->pch = ui[UI_PCH];
     set->pmark = PL_MARK;
     for (k = 0; k < PL_N; k++)
         set->play[k] = ui[UI_TEMPO + k];
@@ -4345,7 +4356,7 @@ static void set_take(settings_t *set)
 static void app_main(void)
 {
     settings_t set = {0, 0, 0, 0, 2, 0, {0, 50, 99, 99}, {60, 0, 0}, {FX_DEFAULTS}, 1,
-                      PL_MARK, {PLAY_DEFAULTS}, 0, {{0, 0, 0}}, {PLAY2_DEFAULTS}};
+                      PL_MARK, {PLAY_DEFAULTS}, 0, {{0, 0, 0}}, {PLAY2_DEFAULTS}, 0, 0, 1};
     uint32_t prev = 0, k, t_change = 0, dirty = 0, t_meter = 0, repaint = 1, repaint_meter = 1;
     uint32_t sounding = 0;                      /* keys that really started a note: a page change must not strand one */
     uint32_t t_live = 0, eg_dirty = 1, eg_live = 0;
@@ -4382,6 +4393,8 @@ static void app_main(void)
         ui[UI_FX + k] = set.fx[k] > 99u ? 99u : set.fx[k];
     ui[UI_GOFF] = set.goff ? 1u : 0u;
     ui[UI_POFF] = set.poff ? 1u : 0u;
+    ui[UI_MCH] = set.mch > 16u ? 0u : set.mch;
+    ui[UI_PCH] = set.pch ? 1u : 0u;
     if (set.pmark == PL_MARK) {
         static const uint8_t PMAX[PL_N] = {99, 4, 3, 1, 2, 2, 1};
         static const uint8_t PMAX2[PL2_N] = {99, 5, 25, 99};
@@ -4477,7 +4490,7 @@ static void app_main(void)
                     } else {
                         sounding |= 1u << k;
                         ev_push(EV_ON, held[k], 100);
-                        midi_send(0x90, held[k], 100);
+                        midi_send(0x90u | MIDI_TX, held[k], 100);
                     }
                 }
             }
@@ -4499,7 +4512,7 @@ static void app_main(void)
             if ((up >> k & 1u) && (sounding >> k & 1u)) {
                 sounding &= ~(1u << k);
                 ev_push(EV_OFF, held[k], 0);
-                midi_send(0x80, held[k], 0);
+                midi_send(0x80u | MIDI_TX, held[k], 0);
             }
         }
 
@@ -4734,6 +4747,8 @@ static void app_main(void)
                 while (vi < 0) vi += NVOICE;
                 set.voice = (uint8_t)(vi % NVOICE);
                 load_voice(set.voice);
+                if (ui[UI_PCH])                 /* so whatever is listening can follow */
+                    midi_send(0xC0u | MIDI_TX, set.voice, 0);
                 dirty = 1;
                 t_change = fm1_ms;
             }
@@ -4881,10 +4896,19 @@ static void app_main(void)
             patch_publish();
         }
 
-        while (midi_get(&st, &d1, &d2)) {       /* USB-MIDI in, any channel */
+        while (midi_get(&st, &d1, &d2)) {       /* USB-MIDI in: any channel, or the one picked */
+            if (st < 0xF0u && ui[UI_MCH] && (st & 0x0Fu) != ui[UI_MCH] - 1u)
+                continue;
             if ((st & 0xF0u) == 0x90u && d2) { sp_note = d1; ev_push(EV_ON, d1, d2); }
             else if ((st & 0xF0u) == 0x80u || (st & 0xF0u) == 0x90u) ev_push(EV_OFF, d1, 0);
             else if ((st & 0xF0u) == 0xB0u && d1 == 123u) ev_push(EV_PANIC, 0, 0);
+            else if ((st & 0xF0u) == 0xC0u && ui[UI_PCH] && !saving && d1 < NVOICE) {
+                set.voice = d1;                 /* program N: the voice list's N+1 */
+                load_voice(set.voice);
+                dirty = 1;
+                t_change = fm1_ms;
+                repaint = 1;
+            }
         }
 
         base = (uint32_t)(KEY0 + 12 * set.oct);

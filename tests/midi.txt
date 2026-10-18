@@ -1,0 +1,51 @@
+# FM Lab -- MIDI: GLOBAL's fourth bank, the channel it listens on and program change.
+#
+#   build/host/fmlab build/host/midi tests/midi.txt
+#
+# Out of the box it listens to every channel, as it always has. MIDI CH picks one: the others are
+# ignored, and the keys send on it. PROG CHG ON loads voice N+1 of the voice list for program N on
+# that channel, and turning PRESETS sends one; OFF does neither.
+
+# ALL: a note on channel 3 is heard.
+400 midi 0x92 60 100
+800 midi 0x82 60 0
+
+# GLOBAL, then its banks to the fourth: MIDI.
+1200 btn 7
+1400 btn 7
+1600 btn 7
+1700 shot
+1800 btn 7
+2200 shot
+
+# Channel 3.
+2400 enc 2 3
+2800 shot
+
+# Channel 1 is not heard now; channel 3 is.
+3000 midi 0x90 64 100
+3400 midi 0x80 64 0
+3800 midi 0x92 67 100
+4200 midi 0x82 67 0
+
+# A key sends on channel 3.
+4600 keys 0x80
+4800 keys 0
+
+# Program 5 on channel 3 loads voice 6; program 3 on channel 1 does nothing.
+5200 shot
+5400 midi 0xC2 5 0
+5800 shot
+6000 midi 0xC0 3 0
+6400 shot
+
+# PROG CHG off: program 9 is ignored, and PRESETS sends nothing.
+6600 enc 3 -1
+6800 midi 0xC2 9 0
+7200 shot
+7400 enc 6 1
+
+# On again: PRESETS sends its program, on channel 3.
+7800 enc 3 1
+8000 enc 6 1
+8400 end

@@ -33,7 +33,7 @@ FM Lab is built on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), whose 
 ## The instrument
 
 **8 voices**, each a full six-operator DX7: 32 algorithms, feedback, per-operator envelopes and keyboard
-scaling, the pitch envelope, the LFO. Notes come from the keys or from USB-MIDI on any channel. When all eight
+scaling, the pitch envelope, the LFO. Notes come from the keys or from USB-MIDI — on any channel, or the one GLOBAL's `MIDI` bank picks. When all eight
 are busy the oldest released note goes first, then the oldest held one.
 
 **20 factory voices** to start from, each designed to show one thing — what feedback does, what a 7:1 ratio
@@ -116,7 +116,7 @@ the title says what moved instead — `OP1 LVL 69`, or `OP3 x2.00` — for a sec
 | **EDIT** | OPERATOR | hold for the page: level, ratio, detune and wave, then mode, the coarse and fine bytes and velocity sensitivity, then amp mod and the keyboard scaling — or tap it to put `LEVEL RATIO DETUNE WAVE` under the knobs without leaving HOME |
 | **ENV** | ENVELOPE | hold for the page: the envelope drawn to scale, attack, decay, sustain and release, then the four raw segments a rate and level at a time — or tap it for `ATK DEC SUS REL` without leaving HOME |
 | **LFO** | LFO | hold for the page: the LFO drawn over speed, delay and wave, then pitch mod, amp mod and pitch mod sensitivity, then key sync — or tap it for this operator's `A M SENS` without leaving HOME |
-| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose and the pitch envelope |
+| **GLO** | GLOBAL | algorithm, feedback, oscillator key sync, transpose and the pitch envelope; then MIDI: the channel it listens and sends on, and program change |
 | **FX** | EFFECTS | hold for the page: chorus, phaser, delay and reverb, a bank each — or tap it for the four effects' `MIX` without leaving HOME |
 
 ### Ratio, and the two bytes under it
@@ -249,6 +249,15 @@ shape worth having and the only way to make a note start quiet.
 It is a setting of the instrument and not of the sound, for the same reason mono is: the 156 bytes are a
 DX7 voice and have no room for it, and a bank saved here should stay a real DX7 dump. So there is one of it,
 it is saved with the octave, and it is under every voice you load.
+
+### MIDI
+
+The last bank of GLOBAL is how the instrument talks over USB, and like the global envelope it belongs to
+the instrument rather than the voice, so it is saved with the octave. `MIDI CHANNEL` starts at `ALL`,
+which listens to every channel; set it to a number and only that channel is heard, and the keys send on
+it too. `PROG CHANGE` `ON` makes program *N* load voice *N*+1 of the list that **PRESETS** turns
+through — the factory voices first, then the user slots — and turning **PRESETS** sends one the other
+way, so a DAW can follow along. `OFF` does neither.
 
 ### The pitch envelope
 
@@ -700,6 +709,7 @@ tests/run_host.sh tests/waves.txt         # the operator waves, harmonic by harm
 tests/run_host.sh tests/scope.txt         # the waveform screen, by its trace
 tests/run_host.sh tests/play.txt          # the arpeggiator, the looper and the step view, by ear and by pixel
 tests/run_host.sh tests/pitch.txt         # PIT and the pitch envelope: an octave by zero crossings, and its switch
+tests/run_host.sh tests/midi.txt          # the MIDI channel, in and out, and program change both ways
 ```
 
 `tests/wavcheck.py` is the one that keeps the switches honest: under algorithm 16, which has a single
