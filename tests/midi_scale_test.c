@@ -3,7 +3,7 @@
 /* MIDI IN through the scale layouts (seq.c midi_map, midi_control.c midi_play): WHITE and ALL map incoming notes as the
  * keys, MPC banks E..H play tracks 1..4 as scale degrees from DEG (DRUM uses finger-drumming pads), other kits
  * and slices keep their own map; a mapped
- * note's note-off ends exactly what it started; SCL, QNT and DEG are shared by every part (ui.c scale_share). */
+ * note's note-off ends exactly what it started; ROOT, SCL, QNT and DEG are shared by every part (ui.c scale_share). */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
 #include "fixtures/mpc_sample_pad_notes.h"
@@ -270,8 +270,10 @@ static int share_test(void)
     edit_param(3, 1);                                 /* QNT */
     for (k = 0; k < NPART; k++) ok &= trk[k].p[P_SCALE] == TSEL->p[P_SCALE] && trk[k].p[P_QUANT] == TSEL->p[P_QUANT];
     bad += check("SCL and QNT turned on one track are every part's", ok && TSEL->p[P_SCALE] == 3 && TSEL->p[P_QUANT] == 1);
-    edit_param(2, 5);                                 /* ROOT: the track's own */
-    bad += check("ROOT stays the track's", TSEL->p[P_ROOT] == 5 && trk[1].p[P_ROOT] == 0);
+    song.sel = 2;                                    /* edits from another track update the project too */
+    edit_param(2, 5);
+    for (k = 0; k < NPART; k++) ok &= trk[k].p[P_ROOT] == 5;
+    bad += check("ROOT turned on another track is every part's", ok);
     return bad;
 }
 

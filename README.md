@@ -906,6 +906,11 @@ as the synthesized 808 kit.
 
 ## Scale keyboard
 
+**Scale, ROOT (key note), and scale/key-map QNT apply to the whole project.** Changing them on any track
+updates every track. Drum tracks keep their drum note mappings and bypass scale quantization.
+TRN remains per track. Projects and templates save the shared settings; older projects with different
+roots per track use the selected track's root when loaded.
+
 The first **SCL** page is **SCALES**, a browser with full names and note counts.
 **KNOB 1** selects a family (or ALL / FAV), **KNOB 2** browses that list,
 **KNOB 3** sets ROOT beside SCALE, and **KNOB 4** sets QNT.
@@ -955,7 +960,7 @@ octave stays independent. The default program map is E: MIDI 100–115,
 F: 116–127 then 0–3, G: 4–19, H: 20–35. Banks A–D and banks for absent tracks are silent.
 Use the MPC's default pad map and enable Pad MIDI Out (Always, or Empty for empty pads).
 WHITE and ALL map incoming MIDI as the keys, without the octave buttons.
-SCL, QNT and DEG are shared by all four tracks; ROOT and TRN stay per track. DRUM tracks automatically
+ROOT, SCL, QNT and DEG are shared by all four tracks; TRN stays per track. DRUM tracks automatically
 use the finger-drumming layout below in their assigned bank. Drum pads ignore bank octave, ROOT, TRN
 and DEG so each pad keeps its sound; the native keys retain their chromatic drum map and octave.
 Other kits and slices keep their own pitches. Controllers retain their MIDI channel routing;

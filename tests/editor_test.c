@@ -585,6 +585,25 @@ static int scale_catalogue(void)
     }
     return check("SCL DESC carries every legacy and microtonal name in one complete frame", good && at == n - 1);
 }
+static int project_scale_protocol(void)
+{
+    reset();
+    int ok = 1;
+    const uint8_t ids[] = {P_ROOT, P_SCALE, P_QUANT};
+    const int16_t values[] = {9, 2, Q_WHITE};
+    for (uint32_t i = 0; i < NELEM(ids); i++) {
+        uint16_t v = (uint16_t)(values[i] + 8192);
+        uint8_t a[4] = {0, ids[i], v & 127u, v >> 7};
+        request(ED_SET, a, sizeof a);
+        for (uint32_t k = 0; k < NTRK; k++) ok &= trk[k].p[ids[i]] == values[i];
+        a[0] = 2;
+        v = (uint16_t)(TP[ids[i]].def + 8192);
+        a[2] = v & 127u; a[3] = v >> 7;
+        request(ED_TRACK_PARAM, a, sizeof a);
+        for (uint32_t k = 0; k < NTRK; k++) ok &= trk[k].p[ids[i]] == TP[ids[i]].def;
+    }
+    return check("SET and TRACK_PARAM share project ROOT, scale and note quantization", ok);
+}
 static int prophet_protocol(void)
 {
     reset();int bad=0;p5_patch_t patch,copy;uint8_t frame[P5_FRAME_MAX],args[P5_FRAME_MAX];
@@ -666,7 +685,7 @@ static int library_transfers(void)
 int main(void)
 {
     int bad = library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
-              native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue();
+              native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }
