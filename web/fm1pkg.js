@@ -10,12 +10,13 @@ export const STOCK_V15_SHA256 = "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644
 export const STOCK_APP_SIZE = 0x8DFBC;
 export const STOCK_V15_SIZE = 699956;
 
-// TransitFM1 v0.1, pinned to the upstream release's releases.json / SHA256SUMS.
+// TransitFM1 v0.1.3, pinned to the upstream release's releases.json / SHA256SUMS.
+// 0.1 has startup/MIDI stalls; withdrawn 0.1.2 can truncate oversized firmware.
 // Fetch from its publisher so its package, source and licence notices stay together.
 export const TRANSIT_RELEASE = Object.freeze({
-  version: "0.1", product: "FM-1_015", size: 610637,
-  url: "https://quixotic7.github.io/TransitFM1/firmware/transit-0.1.fwsc",
-  sha256: "9bcee26a8791232ce13c47b8210cc4f2ecde44e07cb9442f271054a73f68c90d",
+  version: "0.1.3", product: "FM-1_015", size: 610594,
+  url: "https://quixotic7.github.io/TransitFM1/firmware/transit-0.1.3.fwsc",
+  sha256: "d1b027d5fcafc374ff174bbd5f3b6dac7686554f5a3f44c04cc4d30cc3213baa",
 });
 
 export async function fetchTransitPackage(fetchFn = fetch) {
