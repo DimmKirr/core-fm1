@@ -4014,29 +4014,32 @@ static int test_quick_layers(void)
 {
     static const uint8_t LB[2] = {B_GLO, B_SCL};
     static const uint8_t LL[2] = {LAYER_GLO, LAYER_SCL};
-    static const char *const HINT[2] = {"HOLD [GLO] QUICK", "HOLD [SCL] QUICK"};
     int bad = 0, ok, flash, hint;
     uint32_t i, k, a, b2, mo;
-    /* tap / peek / combo, the hint once */
+    /* tap / peek / combo, with no shortcut hint on page navigation */
     ok = 1; hint = 1;
     for (i = 0; i < 2u; i++) {
         ui_power_on_general();                    /* (EDIT 1: the general engines' first page) */
+        ui.msg_t = 0;
         btn_down(LB[i]);
         for (flash = 0, k = 0; k < 20u; k++) { frame(); flash |= ui.layer; }      /* 0.32 s */
         btn_up(LB[i]); frame();
         ok &= !flash && !ui.home && (LB[i] == B_GLO ? cur_page()->graph == GR_TRK :
                                      LB[i] == B_SCL ? cur_page()->fam == FAM_SCL : str_eq(cur_page()->title, "EDIT 1"));
-        hint &= msg_is(HINT[i]);
+        hint &= !ui.msg_t;
+        frames(320);                              /* another ordinary tap, outside the double-tap window */
+        press(LB[i]);
+        hint &= !ui.msg_t && !ui.layer;
         go_home(); frame();
         btn_down(LB[i]); frames(368);
         ok &= !ui.layer;
         frames(64);
-        ok &= ui.layer == LL[i] && ((layer_seen >> LL[i]) & 1u);
+        ok &= ui.layer == LL[i];
         btn_up(LB[i]); frame();
         ok &= ui.home && !ui.layer;
         ui.msg_t = 0;
         press(LB[i]);
-        hint &= !msg_is(HINT[i]);
+        hint &= !ui.msg_t;
         go_home(); frame();
         btn_down(LB[i]); key_down(white(9)); frame();
         ok &= ui.layer == LL[i] && !gates();
@@ -4044,15 +4047,7 @@ static int test_quick_layers(void)
         ok &= ui.home && !ui.layer;
     }
     bad += check("GLO SCL: a tap opens the page, held past HOLD the map (no page), a key: the map at once", ok);
-    bad += check("  after a tap \"HOLD [BTN] QUICK\" until the layer has been opened once", hint);
-    {
-        persist_t p = {0};
-        p.magic = PERSIST_MAGIC; p.panel = panel;
-        layer_seen = 0x1Cu;
-        settings_export(&p); layer_seen = 0;
-        bad += check("  the seen bits are kept with the settings (a spare favorites byte)",
-                     settings_import(&p, sizeof p) && layer_seen == 0x1Cu);
-    }
+    bad += check("  first and repeated GLO / SCL taps open pages without shortcut hints, before and after a hold", hint);
 
     /* GLO: mutes latch (lit = sounding), SOLO while held, UNMUTE ALL, TAP, levels, OCT- */
     ui_power_on();
@@ -4328,14 +4323,12 @@ static int test_bughunt_ui(void)
     bad += check("SET layers: the OCT- LED lit (UNDO), OCT+ dark; after: the octave; FX: the octave", ok);
     /* 9: no "HOLD [EDIT] QUICK" over NAME (EDIT tapped on USER / PROJECT renames) */
     ui_power_on_general();
-    layer_seen = 0;
     up_ui(2, 0);
     go_page(GR_USER); ui.uslot = 0; frame();
     ui.msg_t = 0;
     press(B_EDIT);
     ok = name_on() && !msg_is("HOLD [EDIT] QUICK");
     ui_power_on();
-    layer_seen = 0;
     press(B_EDIT);
     bad += check("EDIT tap = RENAME on USER: no layer hint over NAME (no retired layer hint)",
                  ok && !msg_is("HOLD [EDIT] QUICK"));

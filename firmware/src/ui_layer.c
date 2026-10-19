@@ -16,8 +16,7 @@
  * PLAY and REC work in every layer (GLO + PLAY: RESTART); SAVE, HOME, SEQ and the other page buttons are swallowed. In SET
  * layers OCT± do not shift the octave: OCT- (on release, not with OCT+) puts back what the layer changed since it
  * opened. A HOLD key's effect lasts until the key is let go, the map with it. No layer in the menu, a dialog,
- * NAME or the UPDATE MODE countdown. After a tap, until the layer has been opened once: "HOLD [GLO] QUICK"
- * (the seen bits are kept with the settings, favorites.c spare byte). */
+ * NAME or the UPDATE MODE countdown. A tap opens the button's page without a shortcut hint. */
 enum { LK_HOLD, LK_SET };
 typedef struct {
     uint8_t btn, kind, fam;            /* the button, HOLD / SET, the family whose first page KNOB 1..4 edit */
@@ -30,13 +29,11 @@ static const layer_t LAYERS[LAYER_N] = {
     {B_GLO, LK_SET, FAM_HOME, "[GLO] SET", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}}},
     {B_SCL, LK_SET, FAM_SCL, "[SCL] SET", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
 };
-static const uint8_t LY_KC[LAYER_N] = {0, 0, KC_GLO, KC_SCL};
 /* SCL's knobs: the key and its chord (cur_page() while the layer edits or draws them: page_over) */
 static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_CHRD, P_VOIC}};
 #define LY_OPEN 2u                     /* ui.ly_t0: the map opened (no tap any more) */
 #define LY_COMBO 4u                    /* .. by a combo */
 #define LY_DEAD 8u                     /* .. pressed where there is no layer: does nothing */
-#define layer_seen (favorites.factory[15][31])   /* bit l: layer l opened once (a byte no engine uses) */
 
 static struct {
     uint8_t l, trk, oct;               /* SET: layer, snapshot track, OCT- / OCT+ pressed (bits) */
@@ -104,14 +101,10 @@ static void layer_arm(uint32_t pressed, uint32_t now)
         }
 }
 
-/* the layer opened: once seen, no more hint; SET: what OCT- will put back */
+/* the layer opened: SET: what OCT- will put back */
 static void layer_opened(uint32_t l)
 {
     uint32_t k;
-    if (!((layer_seen >> l) & 1u)) {
-        layer_seen |= (uint8_t)(1u << l);
-        settings_save();                                /* (deferred while playing) */
-    }
     lys.l = (uint8_t)l;
     lys.trk = song.sel;
     for (k = 0; k < 4u; k++)
@@ -187,20 +180,13 @@ static void layer_show(void)
     }
 }
 
-/* a tap: the button's page; the hint until its layer has been opened once (unless the tap said something, or
- * opened NAME: EDIT on USER / PROJECT renames; never over a dialog or the menu) */
+/* a tap: the button's page; keep the previous navigation state for a double tap */
 static void layer_tap(uint32_t l)
 {
     lys.dt_l=(uint8_t)l; lys.dt_ms=fm1_ms;
     lys.nv.home=ui.home; lys.nv.page=ui.page; lys.nv.act=ui.act; lys.nv.seq=song.seq_mode;
     memcpy(lys.nv.fam,ui.fam_last,sizeof ui.fam_last);
-    uint8_t m = ui.msg_t;
     page_tap(LAYERS[l].btn);
-    if (!((layer_seen >> l) & 1u) && ui.msg_t == m && !name_on() && !ui.confirm && !ui.menu) {
-        ui_say("HOLD [", KC[LY_KC[l]].label);
-        str_cpy(ui.msg + str_len(ui.msg), "] QUICK", sizeof ui.msg - str_len(ui.msg));
-        ui.msg_t = 90;                                  /* ~1.5 s */
-    }
 }
 
 /* GLO TAP: from the third tap the tempo of the taps (the last 4); 2 s without one starts over. INT clock only */
