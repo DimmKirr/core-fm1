@@ -34,8 +34,8 @@ For a black-screen device already in ROM UBOOT, use the
 [direct USB recovery tool](BUILDING.md#recover-a-black-screen-fm-1).
 
 Multi-engine synthesizer and sequencer firmware for the M-VAVE FM-1. Current release:
-**[Melodee 1.4.4](https://github.com/keremimo/melodee/releases/tag/v1.4.4)**
-([release notes](docs/RELEASE_1.4.4.md), [what's new](#whats-new-in-144)).
+**[Melodee 1.4.5](https://github.com/keremimo/melodee/releases/tag/v1.4.5)**
+([release notes](docs/RELEASE_1.4.5.md), [what's new](#whats-new-in-145)).
 
 The stock-restore installer accepts 1.4's backup capabilities. Existing Melodee 1.4.0
 users can return to official V15 directly from the updated web installer.
@@ -59,6 +59,19 @@ Tagged releases from 1.4.4 use the [FM-1 shared build workflow](https://github.c
 to build and attest firmware from the tagged source. See [release verification](BUILDING.md#releases)
 for the process and the command to check a downloaded package. An attestation establishes
 build provenance; hardware validation is a separate check.
+
+## What's new in 1.4.5
+
+- **USB identification:** the device and update loader identify as Melodee FM-1,
+  retaining the hardware family name when switching firmware.
+- **MIDI clock and ARP:** steadier external tempo measurement and display; held
+  keys keep arpeggiating while the USB or TRS sync master is stopped.
+- **Project root:** ROOT follows the project's shared scale across tracks.
+- **Navigation:** ordinary GLO and SCL taps no longer show repeated shortcut hints.
+- **Firmware switching:** the installer uses TransitFM1 0.1.3; recovery instructions
+  explain how to enter ROM UBOOT directly.
+
+See the [release notes](docs/RELEASE_1.4.5.md) for compatibility details.
 
 ## What's new in 1.4.4
 
