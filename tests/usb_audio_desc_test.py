@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """Validate the actual preprocessed USB descriptors in every app configuration."""
+import ast
 import os
 from pathlib import Path
 import re
@@ -11,12 +12,23 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def descriptors(audio, cdc):
+def descriptors(audio, cdc, loader=0):
     source = subprocess.check_output([
         *shlex.split(os.environ.get("CC", "cc")), "-E", "-P",
         f"-DMELODEE_USB_AUDIO={audio}", f"-DMELODEE_CDC={cdc}",
+        *(["-DMELODEE_LOADER=1"] if loader else []),
         str(ROOT / "firmware/src/usb.c"),
     ], text=True)
+    # Check the actual advertised name in MIDI-only, CDC, audio and loader
+    # builds. Other installers must recognise it even when macOS caches it
+    # across a firmware change; a name containing only Melodee is filtered out.
+    body = re.search(r"STR2\[.*?\]\s*=\s*\{(.*?)\};", source, re.S)[1]
+    values = [ast.literal_eval(x.strip()) for x in body.split(",") if x.strip()]
+    product = bytes(ord(x) if isinstance(x, str) else x for x in values)
+    assert product[0] == len(product) and product[1] == 3
+    name = product[2:].decode("utf-16-le")
+    assert name == ("Melodee FM-1 Update" if loader else "Melodee FM-1")
+    assert re.search(r"fm-1|felucca|ota|composite|sinco|usb-midi", name, re.I)
     body = re.search(r"CFG_DESC\[.*?\]\s*=\s*\{(.*?)\};", source, re.S)[1]
     data = bytes(int(x.strip(), 0) for x in body.split(",") if x.strip())
     assert int.from_bytes(data[2:4], "little") == len(data)
@@ -92,8 +104,9 @@ def descriptors(audio, cdc):
                 assert d[7] == source
             else:
                 assert d[7:10] == bytes([4, 0, 0] if unit == 3 else [2, 3, 0])
-    print(f"USB descriptors: audio={audio}, CDC={cdc}, {len(data)} bytes: OK")
+    print(f"USB descriptors: audio={audio}, CDC={cdc}, loader={loader}, {len(data)} bytes: OK")
 
 
 for mode in ((0, 0), (0, 1), (1, 0)):
     descriptors(*mode)
+descriptors(0, 0, loader=1)
