@@ -96,10 +96,43 @@ firmware's own installer and install it there. Use TransitFM1 as the stop betwee
 firmwares instead of returning to official V15. It makes no sound and reports V15's
 identity so other installers accept it.
 
-The browser downloads TransitFM1 0.1 from its publisher and verifies its pinned
+The browser downloads TransitFM1 0.1.3 from its publisher and verifies its pinned
 SHA-256 before sending anything to the FM-1. A complete Melodee backup is saved first;
 **Skip backup** requires accepting possible data loss. Reinstall Melodee and restore
 the archive in the editor to bring your data back.
+
+**Baud Girl requires official V15 first**, followed by Baud Girl's own installer.
+Its image can exceed the application area TransitFM1 writes (ending at `0x93000`).
+TransitFM1 0.1.3 refuses oversized images before writing. Do not bypass an
+installer's loader check: TransitFM1's running identity is `FM-1_015`, but its
+loader answers `ota-FM-1_900` and does not write the whole flash like V15's loader.
+Our Melodee installer accepts that loader for Melodee packages.
+
+Do not use TransitFM1 0.1 (startup faults and installs stalled by incoming MIDI)
+or 0.1.2 (withdrawn after a truncated Baud Girl install bricked a unit). Use 0.1.3,
+and close DAWs or other apps sending MIDI during installation. See upstream's
+[compatibility limits and version history](https://github.com/Quixotic7/TransitFM1/blob/main/docs/SAFETY.md).
+
+### Transit is running, but the next installer cannot find it
+
+The computer can retain the MIDI port name **Melodee** after TransitFM1 is
+installed, even though the update handshake now correctly answers `FM-1_015`.
+Sloop 2.7.1's browser and command-line installers filter MIDI port names before
+sending that handshake; their default filters omit `Melodee`. The FM-1 Firmware
+Hub's current filter also omits it. This can look like a firmware compatibility
+failure before the installer has contacted Transit at all.
+
+With Sloop's command-line installer and its verified release package, select the
+retained port explicitly:
+
+```sh
+python3 tools/fm1_install.py sloop-2.7.1.fwsc --port Melodee --yes
+```
+
+Here `tools/fm1_install.py` is **Sloop's** installer. The browser installer needs
+`melodee` added to its MIDI port-name filter (`web/fm1ota.js`, `FM1_PORT`); the
+command-line default needs the same addition (`PORT_RE`). Keep the update-loader
+checks intact. The port name and the firmware's handshake identity are separate.
 
 TransitFM1 guards the next write against interruptions until the last sector; it
 does not guarantee recovery from every power loss. If an install is interrupted,

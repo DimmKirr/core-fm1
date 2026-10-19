@@ -22,7 +22,10 @@ Use **Back up and install TransitFM1** in the web installer first, then install 
 destination firmware with its own installer once the FM-1 shows **TRANSIT**. Use
 [TransitFM1](https://quixotic7.github.io/TransitFM1/) as the stop between firmwares
 instead of returning to V15: it guards the next write against interruptions, except
-possibly the last sector. Keep power and USB connected throughout.
+possibly the last sector. Use TransitFM1 **0.1.3**; 0.1 has startup and MIDI stalls,
+and 0.1.2 was withdrawn. **For Baud Girl, install official V15 first, then use
+Baud Girl's installer:** its image can exceed TransitFM1's write range. Keep power
+and USB connected throughout, and close other apps sending MIDI.
 
 **Return to official V15** is still available if you want the official firmware itself.
 Both options save a complete backup first. If your firmware cannot export one, you can select

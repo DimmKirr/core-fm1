@@ -135,7 +135,7 @@
         <h2>Before you install</h2>
         <p>You need <strong>Chrome or Edge</strong>, a <strong>data USB cable</strong> plugged straight into the computer (not a charge-only cable or hub if you can avoid it), and the FM-1 powered and connected.</p>
         <ul>
-          <li>Switching to another custom firmware? Choose <strong>Back up and install TransitFM1</strong> in the installer first. Once the FM-1 shows <strong>TRANSIT</strong>, use the next firmware’s own installer. This replaces the V15 stopover; <strong>Return to official V15</strong> remains available for running stock firmware.</li>
+          <li>Switching to another custom firmware? Choose <strong>Back up and install TransitFM1</strong> in the installer first. Once the FM-1 shows <strong>TRANSIT</strong>, use the next firmware’s own installer. Use TransitFM1 <strong>0.1.3</strong>; 0.1 has startup and MIDI stalls, and 0.1.2 was withdrawn. <strong>For Baud Girl, install official V15 first, then use Baud Girl’s installer</strong>: its image can exceed TransitFM1’s write range.</li>
           <li>Before installing or downgrading, export anything you care about: projects and user sounds. This version keeps every engine in one shared bank of 384 slots (<strong>U001–U384</strong>). The first start after an update from an older bank may show <strong>MIGRATING PRESETS</strong>; leave the power connected until it finishes. Older firmware cannot read the new bank, so keep a backup made before that update if you may want to go back. A downgrade or skipped backup can lose Melodee music, sounds and settings.</li>
           <li>Projects, templates and presets from Melodee 1.0 or later load. Anything saved before 1.0 shows <strong>OLD FORMAT</strong> and stays untouched until you choose to replace it. If you still have those, open and save them with 1.1.0 before updating. A backup the device cannot read is refused before anything is written.</li>
           <li>Melodee is a field-testing release with <strong>no warranty</strong>. Use at your own risk.</li>
@@ -879,8 +879,8 @@
       <section id="backup">
         <h2>Backup and switching firmware</h2>
         <ul>
-          <li>Before leaving Melodee for another custom firmware, choose <strong>Back up and install TransitFM1</strong> in the <a href="../installer/">installer</a>, then use the destination firmware’s own installer once the FM-1 shows <strong>TRANSIT</strong>. Use this stopover instead of returning to V15.</li>
-          <li><a href="https://quixotic7.github.io/TransitFM1/" target="_blank" rel="noopener">TransitFM1</a> makes no sound. It guards the next firmware’s write against interruptions except possibly its last sector. Keep power and USB connected; if interrupted, resume the same firmware.</li>
+          <li>Before leaving Melodee for another custom firmware, choose <strong>Back up and install TransitFM1</strong> in the <a href="../installer/">installer</a>, then use the destination firmware’s own installer once the FM-1 shows <strong>TRANSIT</strong>. Use <strong>0.1.3</strong>. <strong>Baud Girl requires official V15 first</strong>, then its own installer; TransitFM1 refuses images beyond its write range.</li>
+          <li><a href="https://quixotic7.github.io/TransitFM1/" target="_blank" rel="noopener">TransitFM1</a> makes no sound. It guards the next firmware’s write against interruptions except possibly its last sector. Close DAWs and other apps sending MIDI. Keep power and USB connected; if interrupted, resume the same firmware.</li>
           <li>The installer’s <strong>Return to official V15</strong> saves a complete Melodee backup first when the firmware can export one.</li>
           <li><strong>Skip backup</strong> is available when export is impossible; confirm that Melodee music, sounds and settings may be lost.</li>
           <li>After reinstalling Melodee, restore from the <a href="../editor/">web editor</a>’s backup tools.</li>
