@@ -77,10 +77,17 @@ before testing.
 Each run that reaches E2E saves screenshots, logs, and JUnit XML in the
 `e2e-results` Actions artifact for 14 days, including when tests fail.
 `main` push/manual runs also attach captured PNGs to the rolling
-`ci-screenshots` prerelease and embed them in the job summary. Release notes
+`ci-screenshots` prerelease from a step in the test job, including after E2E
+failures, and embed them in the job summary. No separate screenshot job runs.
+Release notes
 identify the run, commit, and test outcome; older screenshot assets remain.
 Pull requests never publish releases. This is a screenshot prerelease, not a
 firmware release or a claim that hardware testing passed.
+
+The test job requests `contents: write` for this publication step. The
+main-only condition prevents PR publication; it is not a token-permission
+boundary. Same-repository PR jobs can receive write permission, while fork PR
+tokens are normally read-only. Runs on the same ref are serialized.
 
 ## Tagged releases
 

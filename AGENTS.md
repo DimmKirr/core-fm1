@@ -131,9 +131,11 @@ GitHub Actions (`.github/workflows/ci.yml`) installs the tools pinned in
 `.mise.toml` with `mise install`, syncs `uv.lock`, and runs both layers through
 Taskfile. CI uses `dimmkirr/setup-fm1-toolchain@v1` and
 `dimmkirr/setup-fm1-emulator@v1`; local Taskfile downloads remain the fallback.
-E2E results are retained as an Actions artifact. A separate write-enabled job
-publishes captured screenshots to the `ci-screenshots` prerelease on `main`
-push/manual runs only; pull request test jobs remain read-only.
+E2E results are retained as an Actions artifact. The test job also publishes
+captured screenshots to the `ci-screenshots` prerelease on `main` push/manual
+runs, including after E2E failures. It requests `contents: write`; publication
+is disabled for pull requests, but same-repository PR jobs can receive that
+permission (fork PR tokens are normally downgraded to read-only).
 `release.yml` handles `v[0-9]*` tags by calling the same CI workflow, then
 publishing the tested firmware, source, licenses, checksums, and screenshots
 as a prerelease. Failed verification never publishes a versioned release.

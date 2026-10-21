@@ -14,6 +14,9 @@ concurrency:
 jobs:
   verify:
     # Build once, test that package, and publish those exact bytes below.
+    # Allow the reusable workflow's test job to request its declared permission.
+    permissions:
+      contents: write
     uses: ./.github/workflows/ci.yml
     with:
       release_bundle: true

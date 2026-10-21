@@ -27,6 +27,11 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: write
+    concurrency:
+      group: ci-test-${{ github.ref }}
+      cancel-in-progress: false
     outputs:
       results_artifact_id: ${{ steps.results.outputs.artifact-id }}
       firmware_artifact_id: ${{ steps.firmware.outputs.artifact-id }}
@@ -35,13 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: jdx/mise-action@v4
-        with:
-          install: false
-          cache_save_post: true
-
       - name: Install project tools
-        run: mise install
+        uses: jdx/mise-action@v4
+        with:
+          # Install before the action exports UV_PYTHON from .mise.toml.
+          install: true
 
       - name: Install Python dependencies
         run: mise exec -- uv sync --locked
@@ -116,36 +119,23 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  screenshots:
-    needs: test
-    if: >-
-      always() && !cancelled() &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      github.ref == 'refs/heads/main' &&
-      needs.test.outputs.results_artifact_id != ''
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    concurrency:
-      group: ci-screenshots
-      cancel-in-progress: false
-    steps:
-      - name: Download this run's E2E results
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ needs.test.outputs.results_artifact_id }}
-          path: results
-          merge-multiple: true
-
       - name: Publish CI screenshots and summary
+        if: >-
+          always() && !cancelled() &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          github.ref == 'refs/heads/main' &&
+          (steps.e2e.outcome == 'success' || steps.e2e.outcome == 'failure')
         env:
           GH_TOKEN: ${{ github.token }}
-          TEST_RESULT: ${{ needs.test.result }}
+          TEST_RESULT: ${{ steps.e2e.outcome }}
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' screenshots < <(find results -type f -path '*/screenshots/*.png' -print0 | sort -z)
+          if [[ ! -d tests/results ]]; then
+            echo 'No E2E results were captured.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          mapfile -d '' screenshots < <(find tests/results -type f -path '*/screenshots/*.png' -print0 | sort -z)
           if (( ${#screenshots[@]} == 0 )); then
             echo 'No E2E screenshots were captured; see the e2e-results artifact.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -157,7 +147,7 @@ jobs:
           {
             echo '# CI screenshots'
             echo
-            echo "Latest main run: [$GITHUB_RUN_ID]($run_url). Test job: **$TEST_RESULT**."
+            echo "Latest main run: [$GITHUB_RUN_ID]($run_url). E2E outcome: **$TEST_RESULT**."
             echo "Commit: $GITHUB_SHA. Logs and JUnit results are in the run's e2e-results artifact."
             echo
           } > "$notes"
