@@ -141,11 +141,9 @@ class E2ETestCase(unittest.TestCase):
     def send_enc(page, physical_enc, clicks, delay_ms=300):
         FM1Controls(page).send_encoder(physical_enc, clicks, delay_ms=delay_ms)
 
-    def screenshot(self, page, screen_name, action_name='view'):
+    def screenshot(self, page, screen_name):
         """Save only the emulator panel canvas beside this run's logs."""
         screenshot_dir = self._results_dir() / 'screenshots'
         screenshot_dir.mkdir(parents=True, exist_ok=True)
-        now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%SZ')
-        test_name = self.id().rsplit('.', 1)[-1]
-        filename = f'{now}-kconfig-{test_name}-{screen_name}-{action_name}-1.png'
+        filename = f'{screen_name}.png'
         page.locator('canvas#panel').screenshot(path=str(screenshot_dir / filename))

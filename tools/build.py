@@ -236,6 +236,28 @@ def package():
     print(f'package: {path.relative_to(ROOT)} ({len(fwsc)} bytes)')
 
 
+def _firmware_version():
+    """Return the firmware version string.
+
+    Priority: FIRMWARE_VERSION env var > dev-<datetime>-<sha> > v0.0.0.
+    """
+    env_ver = os.environ.get('FIRMWARE_VERSION')
+    if env_ver:
+        return env_ver
+    try:
+        sha = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True, text=True, cwd=str(ROOT), timeout=5,
+        ).stdout.strip()
+        if sha:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            return f'dev-{now}-{sha}'
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return 'v0.0.0'
+
+
 def build(dry_run=False):
     flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/src', '-Ibuild/gen']
 
@@ -252,7 +274,18 @@ def build(dry_run=False):
         raise SystemExit('Not integrated yet: ' + ', '.join(sorted(pending | unsupported)) +
                          '. Load the minimal defconfig for the LCD boot milestone.')
 
+    # Strip the Kconfig version define so the build-time -D takes precedence
+    # without a macro-redefined warning.
+    config_text = config_h.read_text()
+    filtered = re.sub(r'^#define CONFIG_FIRMWARE_VERSION ".*"$', '', config_text, flags=re.M)
+    if filtered != config_text:
+        config_h.write_text(filtered)
+
     flags.append('-includebuild/gen/config.h')
+
+    version = _firmware_version()
+    flags.append(f'-DCONFIG_FIRMWARE_VERSION="{version}"')
+    print(f'build: version {version}')
 
     asm_srcs = []
     if (FW / 'crt0.S').exists():
@@ -272,6 +305,12 @@ def build(dry_run=False):
         print(f'Flags: {" ".join(flags)}')
         print('Then build firmware/stub, firmware/loader and package build/core-fm1.fwsc')
         return
+
+    logo_src = ROOT / 'assets' / 'logo.png'
+    logo_hdr = GEN / 'boot_logo.h'
+    if logo_src.exists() and not logo_hdr.exists():
+        subprocess.run([sys.executable, str(ROOT / 'tools' / 'logo_convert.py')],
+                       check=True, cwd=str(ROOT))
 
     runner = _pick_runner(toolchain_path())
     OUT.mkdir(parents=True, exist_ok=True)

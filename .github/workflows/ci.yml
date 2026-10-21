@@ -12,6 +12,10 @@ on:
         description: Package the tested firmware and corresponding source for release
         type: boolean
         default: false
+      firmware_version:
+        description: Version string baked into the firmware (e.g. v1.0.0)
+        type: string
+        default: ''
     outputs:
       firmware_artifact_id:
         description: Artifact containing the tested firmware release files
@@ -80,6 +84,7 @@ jobs:
           JIELI_TOOLCHAIN: ${{ steps.toolchain.outputs.toolchain-path }}
           AC79_SDK: ${{ steps.toolchain.outputs.sdk-path }}
           FM1_WEB_DIR: ${{ steps.emulator.outputs.web-path }}
+          FIRMWARE_VERSION: ${{ inputs.firmware_version }}
         run: mise exec -- task --yes test:e2e -- --junitxml=tests/results/e2e.xml
 
       - name: Save E2E screenshots and logs
@@ -141,9 +146,9 @@ jobs:
             exit 0
           fi
 
-          tag=ci-screenshots
+          tag=ci-screenshot
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          notes="$RUNNER_TEMP/ci-screenshots.md"
+          notes="$RUNNER_TEMP/ci-screenshot.md"
           {
             echo '# CI screenshots'
             echo
@@ -154,7 +159,7 @@ jobs:
 
           assets=()
           for screenshot in "${screenshots[@]}"; do
-            asset_name="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(basename "$screenshot")"
+            asset_name="$(basename "$screenshot")"
             assets+=("$screenshot#$asset_name")
             {
               echo "![${asset_name}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag/$asset_name)"
@@ -168,7 +173,7 @@ jobs:
               --notes-file "$notes" --prerelease --latest=false
           else
             gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" --title 'CI Screenshots' \
+              --target "$GITHUB_SHA" --title 'CI Screenshot' \
               --notes-file "$notes" --prerelease --latest=false
           fi
           cat "$notes" >> "$GITHUB_STEP_SUMMARY"

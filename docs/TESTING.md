@@ -57,7 +57,8 @@ mise exec -- task test:e2e -- -k test_panel_controls_reach_emulator
 
 Each run writes under `tests/results/<UTC-timestamp>-<test-module>/`:
 
-- `screenshots/*.png`: panel canvas only, captured automatically.
+- `screenshots/boot.png`: panel canvas after firmware boot.
+- `screenshots/panel.png`: panel canvas after control tests.
 - `fm1-emulator.log`: boot test diagnostics.
 - `panel-controls.log`: control test diagnostics.
 
@@ -77,10 +78,11 @@ before testing.
 Each run that reaches E2E saves screenshots, logs, and JUnit XML in the
 `e2e-results` Actions artifact for 14 days, including when tests fail.
 `main` push/manual runs also attach captured PNGs to the rolling
-`ci-screenshots` prerelease from a step in the test job, including after E2E
+`ci-screenshot` prerelease from a step in the test job, including after E2E
 failures, and embed them in the job summary. No separate screenshot job runs.
 Release notes
-identify the run, commit, and test outcome; older screenshot assets remain.
+identify the run, commit, and test outcome; screenshot assets use stable names
+and are replaced on each run so that URLs remain valid across rebuilds.
 Pull requests never publish releases. This is a screenshot prerelease, not a
 firmware release or a claim that hardware testing passed.
 

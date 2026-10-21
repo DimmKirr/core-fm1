@@ -20,6 +20,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       release_bundle: true
+      firmware_version: ${{ github.ref_name }}
 
   release:
     needs: verify

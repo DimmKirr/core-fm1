@@ -132,7 +132,7 @@ GitHub Actions (`.github/workflows/ci.yml`) installs the tools pinned in
 Taskfile. CI uses `dimmkirr/setup-fm1-toolchain@v1` and
 `dimmkirr/setup-fm1-emulator@v1`; local Taskfile downloads remain the fallback.
 E2E results are retained as an Actions artifact. The test job also publishes
-captured screenshots to the `ci-screenshots` prerelease on `main` push/manual
+captured screenshots to the `ci-screenshot` prerelease on `main` push/manual
 runs, including after E2E failures. It requests `contents: write`; publication
 is disabled for pull requests, but same-repository PR jobs can receive that
 permission (fork PR tokens are normally downgraded to read-only).

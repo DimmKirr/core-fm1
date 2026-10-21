@@ -6,7 +6,7 @@ config FIRMWARE_NAME
 
 config FIRMWARE_VERSION
     string "Firmware version"
-    default "0.1.0"
+    default "v0.0.0"
 
 source "kconf/hal.kconfig"
 
