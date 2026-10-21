@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_bundle:
+        description: Package the tested firmware and corresponding source for release
+        type: boolean
+        default: false
+    outputs:
+      firmware_artifact_id:
+        description: Artifact containing the tested firmware release files
+        value: ${{ jobs.test.outputs.firmware_artifact_id }}
+      results_artifact_id:
+        description: Artifact containing E2E screenshots, logs, and JUnit results
+        value: ${{ jobs.test.outputs.results_artifact_id }}
 
 permissions:
   contents: read
@@ -16,6 +29,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       results_artifact_id: ${{ steps.results.outputs.artifact-id }}
+      firmware_artifact_id: ${{ steps.firmware.outputs.artifact-id }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -73,6 +87,33 @@ jobs:
           name: e2e-results
           path: tests/results/
           if-no-files-found: warn
+          retention-days: 14
+
+      - name: Package tested firmware and corresponding source
+        if: ${{ inputs.release_bundle }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s build/core-fm1.fwsc
+          mkdir -p build/release
+          cp build/core-fm1.fwsc build/release/
+          cp .config build/release/minimal.config
+          git archive --format=tar.gz --prefix=core-fm1/ HEAD \
+            -o build/release/core-fm1-source.tar.gz
+          tar -czf build/release/core-fm1-licenses.tar.gz LICENSE LICENSES THIRD_PARTY.md
+          cd build/release
+          sha256sum core-fm1.fwsc minimal.config core-fm1-source.tar.gz \
+            core-fm1-licenses.tar.gz > SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Save tested release bundle
+        id: firmware
+        if: ${{ inputs.release_bundle }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-release
+          path: build/release/
+          if-no-files-found: error
           retention-days: 14
 
   screenshots:

@@ -82,6 +82,21 @@ identify the run, commit, and test outcome; older screenshot assets remain.
 Pull requests never publish releases. This is a screenshot prerelease, not a
 firmware release or a claim that hardware testing passed.
 
+## Tagged releases
+
+Pushing a tag matching `v[0-9]*` starts `release.yml`. It calls the same CI
+build and test workflow, then publishes only if that workflow succeeds.
+The release uses the exact firmware tested by E2E; it does not rebuild it.
+
+Release assets are `core-fm1.fwsc`, `minimal.config`, the tagged source archive,
+license notices, `SHA256SUMS`, and the panel screenshots. Screenshots are also
+embedded in the release notes and job summary. Failed test runs retain their
+diagnostic artifact but do not publish a versioned release.
+
+The minimal LCD-only milestone is marked as a prerelease and is not hardware
+verified. Existing releases are not overwritten on reruns, and no moving
+major-version tag is created.
+
 ## Panel controls in tests
 
 ```python

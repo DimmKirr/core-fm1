@@ -134,6 +134,9 @@ Taskfile. CI uses `dimmkirr/setup-fm1-toolchain@v1` and
 E2E results are retained as an Actions artifact. A separate write-enabled job
 publishes captured screenshots to the `ci-screenshots` prerelease on `main`
 push/manual runs only; pull request test jobs remain read-only.
+`release.yml` handles `v[0-9]*` tags by calling the same CI workflow, then
+publishing the tested firmware, source, licenses, checksums, and screenshots
+as a prerelease. Failed verification never publishes a versioned release.
 
 ## Conventions
 

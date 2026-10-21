@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    # Build once, test that package, and publish those exact bytes below.
+    uses: ./.github/workflows/ci.yml
+    with:
+      release_bundle: true
+
+  release:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Download tested firmware bundle
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.verify.outputs.firmware_artifact_id }}
+          path: dist
+          merge-multiple: true
+
+      - name: Download E2E screenshots and logs
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.verify.outputs.results_artifact_id }}
+          path: results
+          merge-multiple: true
+
+      - name: Verify release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          test -s core-fm1.fwsc
+          test -s minimal.config
+          test -s core-fm1-source.tar.gz
+          test -s core-fm1-licenses.tar.gz
+          sha256sum -c SHA256SUMS
+
+      - name: Create versioned firmware release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          notes="$RUNNER_TEMP/release-notes.md"
+          mapfile -d '' screenshots < <(find results -type f -path '*/screenshots/*.png' -print0 | sort -z)
+          if (( ${#screenshots[@]} == 0 )); then
+            echo '::error::The E2E run did not produce release screenshots.'
+            exit 1
+          fi
+
+          {
+            echo "# core-fm1 $tag"
+            echo
+            echo "Minimal LCD boot firmware built from commit $GITHUB_SHA."
+            echo "Unit and emulator tests passed: [workflow run]($run_url)."
+            echo
+            echo 'This build has no audio or panel-input functionality and has not been verified on hardware.'
+            echo 'Assets include the tested .fwsc, resolved minimal configuration, corresponding source, license notices, and SHA-256 checksums.'
+            echo 'E2E logs and JUnit results remain available in the run artifacts for 14 days.'
+            echo
+            echo '## Emulator screenshots'
+            echo
+          } > "$notes"
+
+          assets=(dist/core-fm1.fwsc dist/minimal.config dist/core-fm1-source.tar.gz
+                  dist/core-fm1-licenses.tar.gz dist/SHA256SUMS)
+          for screenshot in "${screenshots[@]}"; do
+            asset_name="$(basename "$screenshot")"
+            assets+=("$screenshot#$asset_name")
+            printf '![%s](%s/%s/releases/download/%s/%s)\n\n' \
+              "$asset_name" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$tag" "$asset_name" >> "$notes"
+          done
+
+          # Preserve published releases on reruns. No deletion or asset replacement.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists; refusing to replace published assets."
+            exit 1
+          fi
+          # The current milestone is intentionally a prerelease, even for vX.Y.Z tags.
+          gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --title "core-fm1 $tag" --notes-file "$notes" \
+            --prerelease --latest=false
+          cat "$notes" >> "$GITHUB_STEP_SUMMARY"
