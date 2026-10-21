@@ -1,0 +1,41 @@
+mainmenu "core-fm1 Firmware Configuration"
+
+config FIRMWARE_NAME
+    string "Firmware name"
+    default "core-fm1"
+
+config FIRMWARE_VERSION
+    string "Firmware version"
+    default "0.1.0"
+
+source "kconf/hal.kconfig"
+
+menu "Subsystems (integration pending)"
+
+comment "Only the minimal LCD boot is buildable today"
+
+config AUDIO
+    bool "Audio"
+    default n
+
+config INPUT
+    bool "Panel input"
+    default n
+
+config FLASH
+    bool "Application flash storage"
+    default n
+
+config MIDI_UART
+    bool "UART MIDI"
+    default n
+
+config USB
+    bool "Application USB"
+    default n
+
+config DUAL_CORE
+    bool "Second application core"
+    default n
+
+endmenu

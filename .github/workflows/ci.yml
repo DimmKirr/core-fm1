@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      results_artifact_id: ${{ steps.results.outputs.artifact-id }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache_save_post: true
+
+      - name: Install project tools
+        run: mise install
+
+      - name: Install Python dependencies
+        run: mise exec -- uv sync --locked
+
+      - name: Run unit tests
+        # Fresh runners must accept the two remote Taskfiles explicitly.
+        run: mise exec -- task --yes test:unit
+
+      - name: Install FM-1 SDK and compiler
+        id: toolchain
+        uses: dimmkirr/setup-fm1-toolchain@v1
+
+      - name: Install FM-1 emulator
+        id: emulator
+        uses: dimmkirr/setup-fm1-emulator@v1
+        with:
+          version: v0.2.0
+          # Use the Playwright version locked in uv.lock, not a second pip install.
+          install-playwright: 'false'
+
+      - name: Check native emulator
+        run: fm1-emu --help
+
+      - name: Install Chromium
+        run: mise exec -- uv run playwright install --with-deps chromium
+
+      - name: Load minimal configuration
+        run: mise exec -- task --yes config:defconfig -- minimal
+
+      - name: Build firmware and run E2E tests
+        id: e2e
+        env:
+          JIELI_TOOLCHAIN: ${{ steps.toolchain.outputs.toolchain-path }}
+          AC79_SDK: ${{ steps.toolchain.outputs.sdk-path }}
+          FM1_WEB_DIR: ${{ steps.emulator.outputs.web-path }}
+        run: mise exec -- task --yes test:e2e -- --junitxml=tests/results/e2e.xml
+
+      - name: Save E2E screenshots and logs
+        id: results
+        if: ${{ always() && steps.e2e.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: tests/results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  screenshots:
+    needs: test
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main' &&
+      needs.test.outputs.results_artifact_id != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: ci-screenshots
+      cancel-in-progress: false
+    steps:
+      - name: Download this run's E2E results
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.test.outputs.results_artifact_id }}
+          path: results
+          merge-multiple: true
+
+      - name: Publish CI screenshots and summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_RESULT: ${{ needs.test.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' screenshots < <(find results -type f -path '*/screenshots/*.png' -print0 | sort -z)
+          if (( ${#screenshots[@]} == 0 )); then
+            echo 'No E2E screenshots were captured; see the e2e-results artifact.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          tag=ci-screenshots
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          notes="$RUNNER_TEMP/ci-screenshots.md"
+          {
+            echo '# CI screenshots'
+            echo
+            echo "Latest main run: [$GITHUB_RUN_ID]($run_url). Test job: **$TEST_RESULT**."
+            echo "Commit: $GITHUB_SHA. Logs and JUnit results are in the run's e2e-results artifact."
+            echo
+          } > "$notes"
+
+          assets=()
+          for screenshot in "${screenshots[@]}"; do
+            asset_name="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(basename "$screenshot")"
+            assets+=("$screenshot#$asset_name")
+            {
+              echo "![${asset_name}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag/$asset_name)"
+              echo
+            } >> "$notes"
+          done
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+              --notes-file "$notes" --prerelease --latest=false
+          else
+            gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title 'CI Screenshots' \
+              --notes-file "$notes" --prerelease --latest=false
+          fi
+          cat "$notes" >> "$GITHUB_STEP_SUMMARY"

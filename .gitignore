@@ -6,3 +6,7 @@ build/
 .config
 .config.old
 .scratch/
+tests/results/
+.venv/
+.pytest_cache/
+.task/remote/

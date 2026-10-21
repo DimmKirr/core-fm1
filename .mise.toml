@@ -1,0 +1,9 @@
+[tools]
+python = "3.12.13"
+uv = "0.10.2"
+task = "3.53.1"
+
+[env]
+# mise owns Python; uv owns .venv and the dependencies in pyproject.toml.
+UV_PYTHON = { value = "{{ tools.python.path }}/bin/python", tools = true }
+UV_PYTHON_DOWNLOADS = "never"

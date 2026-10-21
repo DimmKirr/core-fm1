@@ -8,18 +8,21 @@ core-fm1 is a modular firmware framework for the M-VAVE FM-1 synthesizer (JieLi 
 
 ## Build System
 
-Kconfiglib-based configuration. No firmware sources are in the tree yet (Phase 1: config infrastructure).
+Kconfiglib-based configuration. All commands go through [Taskfile](https://taskfile.dev):
 
-```bash
-pip install kconfiglib                          # one-time
-python tools/menuconfig.py                      # interactive config
-python tools/genconfig.py --defconfig melodee   # load a preset
-python tools/build_core.py --dry-run            # inspect resolved config
+```
+task build                              # download toolchain + compile firmware
+task config                             # interactive menuconfig
+task config:defconfig -- melodee        # load a preset defconfig
+task config:generate                    # .config -> build/gen/config.h
+task test                               # run all tests (unit + e2e)
+task test:unit                          # Python unit tests only
+task test:e2e                           # emulator + Playwright e2e tests
 ```
 
-Defconfig profiles live in `configs/`: `defconfig_melodee`, `defconfig_felucca`, `defconfig_sloop`, `defconfig_minimal`, `defconfig_full`.
+Defconfig profiles live in `configs/`: `melodee_defconfig`, `felucca_defconfig`, `sloop_defconfig`, `minimal_defconfig`.
 
-Generated files go to `build/gen/autoconf.h`. The `.config` file is gitignored.
+Generated files go to `build/gen/config.h`. The `.config` file is gitignored.
 
 ## Architecture
 
@@ -50,8 +53,8 @@ Each firmware defines different parameter counts and IDs. core-fm1 defines a `P_
 ## Directory Layout
 
 ```
-Kconfig                     # root Kconfig (sources kconfig/*.kconfig)
-kconfig/                    # per-subsystem Kconfig menus
+Kconfig                     # root Kconfig (sources kconf/*.kconfig)
+kconf/                      # per-subsystem Kconfig menus (not kconfig/ due to macOS case-insensitive FS)
 configs/                    # saved defconfigs per firmware lineage
 firmware/
   hal/                      # HAL headers (common + per-variant)
@@ -88,6 +91,49 @@ Source code for the three lineages lives outside this repo:
 - SLOOP: check `.scratch/examples/sloop/`
 
 Research data: `.scratch/fw-test.json` (firmware catalog), `.scratch/kconfig-layers.json` (layer analysis), `.scratch/GLUE.md` (contract specs).
+
+## Testing
+
+Two test layers, all via Taskfile. See [docs/TESTING.md](docs/TESTING.md)
+for mise setup, commands, and screenshot locations.
+
+### Unit tests (host, no hardware)
+
+Python tests cover configuration, packaging, and emulator control helpers:
+
+```
+task test:unit                    # Python unit tests (genconfig, defconfigs, tooling)
+```
+
+Test files live in `tests/`. Three lineage preset tests skip until their
+defconfigs are implemented.
+
+### E2E tests (emulator + Playwright)
+
+Browser-based tests using the fm1-emu WASM emulator and Playwright. No hardware needed:
+
+```
+task test:e2e                     # downloads emulator, builds firmware, runs e2e suite
+```
+
+E2E tests inherit from `E2ETestCase` (in `tests/e2e_fixtures.py`), which:
+- Starts a local HTTP server serving the emulator
+- Launches headless Chromium via Playwright
+- Provides `controls(page)` for named encoders, buttons, and notes
+- Provides helpers: `push(page, key)`, `long_push(page, key)`, `send_enc(page, enc, clicks)`, `screenshot(page, name, desc)`
+- Saves panel-only screenshots and logs in `tests/results/<timestamp>-<module>/`
+
+A typical E2E test uploads the built `.fwsc` into the emulator, waits for boot, then interacts with the virtual panel (buttons, encoders) and asserts LCD canvas state.
+
+### CI
+
+GitHub Actions (`.github/workflows/ci.yml`) installs the tools pinned in
+`.mise.toml` with `mise install`, syncs `uv.lock`, and runs both layers through
+Taskfile. CI uses `dimmkirr/setup-fm1-toolchain@v1` and
+`dimmkirr/setup-fm1-emulator@v1`; local Taskfile downloads remain the fallback.
+E2E results are retained as an Actions artifact. A separate write-enabled job
+publishes captured screenshots to the `ci-screenshots` prerelease on `main`
+push/manual runs only; pull request test jobs remain read-only.
 
 ## Conventions
 

@@ -1,0 +1,155 @@
+menu "Hardware Abstraction Layer"
+
+comment "Always included: fm1_adc.h, fm1_cc.h, fm1_gpio.h, fm1_xip.h, fm1_time.h"
+
+choice
+    prompt "System init HAL"
+    default HAL_SYS_MELODEE
+
+config HAL_SYS_FELUCCA
+    bool "Felucca sys"
+
+config HAL_SYS_SLOOP
+    bool "SLOOP sys"
+
+config HAL_SYS_MELODEE
+    bool "Melodee sys"
+
+endchoice
+
+choice
+    prompt "Interrupt controller HAL"
+    default HAL_IRQ_MELODEE
+
+config HAL_IRQ_FELUCCA
+    bool "Felucca IRQ"
+
+config HAL_IRQ_SLOOP
+    bool "SLOOP IRQ"
+
+config HAL_IRQ_MELODEE
+    bool "Melodee IRQ"
+
+endchoice
+
+choice
+    prompt "LCD display HAL"
+    default HAL_LCD_MELODEE
+
+config HAL_LCD_FELUCCA
+    bool "Felucca LCD HAL"
+
+config HAL_LCD_MELODEE
+    bool "Melodee LCD HAL (shared with SLOOP)"
+
+endchoice
+
+choice
+    prompt "Panel input HAL"
+    default HAL_INPUT_MELODEE
+
+config HAL_INPUT_FELUCCA
+    bool "Felucca input HAL"
+
+config HAL_INPUT_SLOOP
+    bool "SLOOP input HAL"
+
+config HAL_INPUT_MELODEE
+    bool "Melodee input HAL"
+
+endchoice
+
+choice
+    prompt "Watchdog/safety HAL"
+    default HAL_GUARD_MELODEE
+
+config HAL_GUARD_FELUCCA
+    bool "Felucca guard"
+
+config HAL_GUARD_SLOOP
+    bool "SLOOP guard"
+
+config HAL_GUARD_MELODEE
+    bool "Melodee guard"
+
+endchoice
+
+choice
+    prompt "Flash storage HAL"
+    default HAL_FLASH_MELODEE
+
+config HAL_FLASH_FELUCCA
+    bool "Felucca flash HAL"
+
+config HAL_FLASH_SLOOP
+    bool "SLOOP flash HAL"
+
+config HAL_FLASH_MELODEE
+    bool "Melodee flash HAL"
+
+endchoice
+
+choice
+    prompt "UART (TRS MIDI) HAL"
+    default HAL_UART_MELODEE
+
+config HAL_UART_FELUCCA
+    bool "Felucca/SLOOP UART"
+
+config HAL_UART_MELODEE
+    bool "Melodee UART"
+
+endchoice
+
+choice
+    prompt "USB device HAL"
+    default HAL_USB_MELODEE
+
+config HAL_USB_FELUCCA
+    bool "Felucca/SLOOP USB"
+
+config HAL_USB_MELODEE
+    bool "Melodee USB"
+
+endchoice
+
+choice
+    prompt "Timer HAL"
+    default HAL_TIMER_MELODEE
+
+config HAL_TIMER_FELUCCA
+    bool "Felucca/SLOOP timer"
+
+config HAL_TIMER_MELODEE
+    bool "Melodee timer"
+
+endchoice
+
+choice
+    prompt "Dual-core management"
+    default HAL_MULTICORE_MELODEE
+
+config HAL_MULTICORE_FELUCCA
+    bool "Felucca dual-core"
+
+config HAL_MULTICORE_SLOOP
+    bool "SLOOP dual-core"
+
+config HAL_MULTICORE_MELODEE
+    bool "Melodee dual-core"
+
+endchoice
+
+config HAL_MELODEE_CACHE
+    bool "Cache control (fm1_cache.h)"
+    default y if HAL_SYS_MELODEE
+
+config HAL_MELODEE_CLOCK
+    bool "PLL/clock tuning (fm1_clock.h)"
+    default y if HAL_SYS_MELODEE
+
+config HAL_MELODEE_POWER
+    bool "Power management (fm1_power.h)"
+    default y if HAL_SYS_MELODEE
+
+endmenu

@@ -1,0 +1,69 @@
+version: '3'
+
+includes:
+  fm1-platform:
+    taskfile: https://raw.githubusercontent.com/DimmKirr/setup-fm1-toolchain/v1/Taskfile.yml
+  fm1-emulator:
+    taskfile: https://raw.githubusercontent.com/DimmKirr/setup-fm1-emulator/v1/Taskfile.yml
+
+tasks:
+  build:
+    desc: Generate config.h and compile firmware
+    deps: [fm1-platform:download:sdk, fm1-platform:download:toolchain]
+    env:
+      JIELI_TOOLCHAIN: '{{env "JIELI_TOOLCHAIN" | default (printf "%s/.fm1-toolchain/toolchain" .HOME)}}'
+      AC79_SDK: '{{env "AC79_SDK" | default (printf "%s/.fm1-toolchain/AC79_SDK" .HOME)}}'
+    cmds:
+      - uv run python tools/build.py {{.CLI_ARGS}}
+
+  build:dry-run:
+    desc: Show what would be compiled without building
+    cmds:
+      - uv run python tools/build.py --dry-run
+
+  test:
+    desc: Run all tests (unit + e2e)
+    cmds:
+      - task: test:unit
+      - task: test:e2e
+
+  test:unit:
+    desc: Run Python unit tests (genconfig, defconfigs, tooling)
+    cmds:
+      - uv run python -m pytest tests/ -v --ignore-glob="tests/e2e_*"
+
+  test:e2e:
+    desc: Run E2E tests via fm1-emu emulator + Playwright
+    deps:
+      - task: build
+        vars:
+          CLI_ARGS: ''
+      - fm1-emulator:download:wasm
+    env:
+      FM1_WEB_DIR: '{{env "FM1_WEB_DIR" | default (printf "%s/.fm1-emulator/web" .HOME)}}'
+    cmds:
+      - uv run python -m pytest tests/e2e_boot_test.py -v {{.CLI_ARGS}}
+
+  emulator:build:
+    desc: Build WASM from a local fm1-emu checkout (requires the Rust WASM target)
+    requires:
+      vars: [EMU_SOURCE]
+    preconditions:
+      - test -f '{{.EMU_SOURCE}}/web/build.sh'
+    cmds:
+      - bash '{{.EMU_SOURCE}}/web/build.sh' '{{.HOME}}/.fm1-emulator/web'
+
+  config:
+    desc: Run menuconfig (ncurses) to configure the build
+    cmds:
+      - uv run python tools/menuconfig.py
+
+  config:defconfig:
+    desc: Load a named defconfig (e.g. task config:defconfig -- melodee)
+    cmds:
+      - uv run python tools/genconfig.py --defconfig {{.CLI_ARGS}}
+
+  config:generate:
+    desc: Generate build/gen/config.h from current .config
+    cmds:
+      - uv run python tools/genconfig.py
