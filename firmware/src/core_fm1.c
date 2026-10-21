@@ -319,14 +319,24 @@ static void boot_logo_reveal(void)
     }
 }
 
+/* --- component manifest (survives in binary for verification) --- */
+#include "manifest.h"
+volatile const char *cfm1_manifest_anchor = cfm1_manifest;
+
 /* --- audio subsystem --- */
 
 #ifdef CONFIG_AUDIO
 #include "adapters/cfm1_audio.h"
 #include "audio/params.c"
-#include "engines/engines.c"
+#include "audio/engines/engines.c"
 #include "audio/voice.c"
-#include "audio/audio.c"
+#include "audio/core/audio.c"
+
+#ifdef CONFIG_EFFECTS_FELUCCA
+#include "audio/effects/felucca/fx.c"
+#elif defined(CONFIG_EFFECTS_MELODEE)
+#include "audio/effects/melodee/fx.c"
+#endif
 #endif
 
 /* --- main loop --- */

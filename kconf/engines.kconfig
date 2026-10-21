@@ -1,24 +1,22 @@
-menu "Synthesis Engines"
+menu "Engines"
     depends on AUDIO
 
-comment "Engines with multiple implementations"
+comment "Multi-lineage"
 
 config ENGINE_FM6
     bool "FM6 (DX7 6-op FM)"
     default n
 
 choice
-    prompt "FM6 implementation"
+    prompt "FM6 lineage"
     depends on ENGINE_FM6
     default ENGINE_FM6_MELODEE
 
 config ENGINE_FM6_FELUCCA
-    bool "Felucca FM6"
+    bool "Felucca"
 
 config ENGINE_FM6_MELODEE
-    bool "Melodee FM6"
-    help
-      FPU float paths, MARK I/MODERN/OPL modes.
+    bool "Melodee (FPU, MARK I/MODERN/OPL)"
 
 endchoice
 
@@ -27,63 +25,54 @@ config ENGINE_DRUM
     default n
 
 choice
-    prompt "Drum implementation"
+    prompt "Drum lineage"
     depends on ENGINE_DRUM
     default ENGINE_DRUM_MELODEE
 
 config ENGINE_DRUM_FELUCCA
-    bool "Felucca GM drums"
+    bool "Felucca (GM)"
 
 config ENGINE_DRUM_SLOOP
-    bool "SLOOP drums"
+    bool "SLOOP"
 
 config ENGINE_DRUM_MELODEE
-    bool "Melodee 808/909/SID drums"
+    bool "Melodee (808/909/SID)"
 
 endchoice
 
-comment "Melodee engines"
+comment "Melodee"
 
 config ENGINE_PROPHET
     bool "Prophet-5"
     default n
     help
-      Sequential Prophet-5 Rev 4. 2 osc, hard sync, Poly-Mod,
-      SSI/Curtis filter. 2-3 VBUDGET units per voice.
+      Sequential Prophet-5 Rev 4. 2-3 VBUDGET units per voice.
 
 config ENGINE_CZ1
     bool "CZ-1 (Phase Distortion)"
     default n
-    help
-      Casio CZ-1 native tone engine. uPD933 model, 64 factory presets.
 
 config ENGINE_SID
     bool "SID (C64 6581/8580)"
     default n
-    help
-      MOS 6581/8580 register-level emulation after reSID.
 
-comment "Felucca engines"
+comment "Felucca (MIT)"
 
 config ENGINE_ANALOG
-    bool "Virtual Analog"
+    bool "Analog"
     default n
-    help
-      2 oscillators, PWM, resonant LPF.
 
 config ENGINE_DIGITAL
-    bool "Digital (4-op FM)"
+    bool "Digital (4-op FM, retired)"
     default n
 
 config ENGINE_PHASE
-    bool "Phase Distortion (CrispyZebra)"
+    bool "Phase Distortion"
     default n
 
 config ENGINE_SAMPLE
     bool "Sample Playback"
     default n
-    help
-      Multisampled instrument playback + user sample slots.
 
 config ENGINE_GRANULAR
     bool "Granular"
@@ -92,41 +81,25 @@ config ENGINE_GRANULAR
 config ENGINE_LOFI
     bool "LoFi/Chiptune"
     default n
-    help
-      4-bit wave RAM chiptune engine.
 
 config ENGINE_TRIO
     bool "Trio (3-osc)"
     default n
-    help
-      Three oscillators with ring mod and sync.
 
 config ENGINE_TONEWHEEL
     bool "Tonewheel Organ"
     default n
-    help
-      Tonewheel organ with drawbars and rotary speaker.
 
 config ENGINE_FORMANT
     bool "Formant/Vocal"
     default n
-    help
-      Formant vocal synthesizer after klattsch.
 
 config ENGINE_PHYSICAL
     bool "Physical Modeling"
     default n
-    help
-      Ported from DaisySP/Rings.
 
 config ENGINE_NOISE
-    bool "Noise Generator"
-    default n
-
-comment "Modulation"
-
-config MODULATION
-    bool "Modulation matrix (4-slot per track)"
+    bool "Noise"
     default n
 
 endmenu

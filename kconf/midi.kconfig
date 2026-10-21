@@ -1,4 +1,4 @@
-menu "MIDI & Communication"
+menu "MIDI"
 
 config MIDI_UART
     bool "UART MIDI (TRS)"
@@ -14,13 +14,13 @@ choice
     default MIDI_MELODEE
 
 config MIDI_FELUCCA
-    bool "Felucca MIDI"
+    bool "Felucca"
 
 config MIDI_SLOOP
-    bool "SLOOP MIDI"
+    bool "SLOOP"
 
 config MIDI_MELODEE
-    bool "Melodee MIDI"
+    bool "Melodee"
     help
       Multi-channel routing, MPC pads, clock sources.
 

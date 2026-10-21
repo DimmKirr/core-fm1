@@ -1,16 +1,16 @@
-menu "Scales & Tuning"
+menu "Scales"
 
 choice
     prompt "Scale system"
     default SCALES_MELODEE
 
 config SCALES_FELUCCA
-    bool "Felucca scales"
+    bool "Felucca"
     help
       16 scales, white-key QNT.
 
 config SCALES_MELODEE
-    bool "Melodee scales"
+    bool "Melodee"
     help
       70 scales incl. 54 microtonal, concert pitch 400-480Hz.
 

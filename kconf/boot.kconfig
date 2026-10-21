@@ -1,19 +1,17 @@
-menu "Boot & OTA"
+menu "Boot"
 
 choice
-    prompt "Boot/loader implementation"
+    prompt "Boot/OTA"
     default BOOT_MELODEE
 
 config BOOT_FELUCCA
-    bool "Felucca boot/loader"
+    bool "Felucca (stock DFU)"
 
 config BOOT_SLOOP
-    bool "SLOOP boot/loader"
+    bool "SLOOP (stock DFU)"
 
 config BOOT_MELODEE
-    bool "Melodee boot/loader"
-    help
-      Includes boot protection and safe-recovery stub.
+    bool "Melodee (M-UPGRADE SysEx OTA, safe-recovery)"
 
 endchoice
 

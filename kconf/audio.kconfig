@@ -1,7 +1,7 @@
-menu "Audio System"
+menu "Audio Core"
 
 config AUDIO
-    bool "Audio subsystem"
+    bool "Enable audio subsystem"
     default n
 
 config DUAL_CORE
@@ -10,22 +10,18 @@ config DUAL_CORE
     depends on AUDIO
 
 choice
-    prompt "Audio core pipeline"
+    prompt "Audio core lineage"
     depends on AUDIO
     default AUDIO_CORE_MELODEE
 
 config AUDIO_CORE_FELUCCA
-    bool "Felucca audio core"
-    help
-      8 synth + 6 drum voices.
+    bool "Felucca (8+6 voices)"
 
 config AUDIO_CORE_SLOOP
-    bool "SLOOP audio core"
+    bool "SLOOP"
 
 config AUDIO_CORE_MELODEE
-    bool "Melodee audio core"
-    help
-      18 voice budget units, FPU paths.
+    bool "Melodee (18 budget units, FPU)"
 
 endchoice
 

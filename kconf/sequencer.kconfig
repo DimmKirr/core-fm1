@@ -5,17 +5,17 @@ choice
     default SEQ_MELODEE
 
 config SEQ_FELUCCA
-    bool "Felucca sequencer"
+    bool "Felucca"
     help
       64-step, chords, ties, live loop.
 
 config SEQ_SLOOP
-    bool "SLOOP sequencer"
+    bool "SLOOP"
     help
       Arranger, scenes.
 
 config SEQ_MELODEE
-    bool "Melodee sequencer"
+    bool "Melodee"
     help
       64-step, 8 banks, 1024 timed notes, recording,
       undo, motion, song.

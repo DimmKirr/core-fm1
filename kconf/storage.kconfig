@@ -1,4 +1,4 @@
-menu "Storage & Projects"
+menu "Storage"
 
 config FLASH
     bool "Application flash storage"
@@ -10,13 +10,13 @@ choice
     default STORAGE_MELODEE
 
 config STORAGE_FELUCCA
-    bool "Felucca storage"
+    bool "Felucca"
 
 config STORAGE_SLOOP
-    bool "SLOOP storage"
+    bool "SLOOP"
 
 config STORAGE_MELODEE
-    bool "Melodee storage"
+    bool "Melodee"
     help
       FBKG format, 384 shared presets, migration, backup/restore.
 

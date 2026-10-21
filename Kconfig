@@ -8,13 +8,18 @@ config FIRMWARE_VERSION
     string "Firmware version"
     default "v0.0.0"
 
-source "kconf/hal.kconfig"
-source "kconf/boot.kconfig"
-source "kconf/audio.kconfig"
 source "kconf/engines.kconfig"
 source "kconf/effects.kconfig"
 source "kconf/sequencer.kconfig"
+source "kconf/scales.kconfig"
+
+menu "System"
+
+source "kconf/hal.kconfig"
+source "kconf/boot.kconfig"
+source "kconf/audio.kconfig"
 source "kconf/midi.kconfig"
 source "kconf/ui.kconfig"
 source "kconf/storage.kconfig"
-source "kconf/scales.kconfig"
+
+endmenu

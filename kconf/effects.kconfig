@@ -2,23 +2,22 @@ menu "Effects"
     depends on AUDIO
 
 choice
-    prompt "Effects system"
+    prompt "Effects chain"
     default EFFECTS_MELODEE
 
 config EFFECTS_FELUCCA
-    bool "Felucca FX"
-    help
-      Distortion, chorus, delay, reverb, slicer.
+    bool "Felucca (dist, chorus, delay, reverb, slicer)"
 
 config EFFECTS_SLOOP
-    bool "SLOOP FX"
+    bool "SLOOP"
 
 config EFFECTS_MELODEE
-    bool "Melodee FX"
-    help
-      3 inserts + shared chain: phaser, width, formant, tape,
-      spit, echo, room, reverb, chorus.
+    bool "Melodee (3 inserts + shared chain)"
 
 endchoice
+
+config MODULATION
+    bool "Modulation matrix (4-slot per track)"
+    default n
 
 endmenu
