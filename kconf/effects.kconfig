@@ -1,0 +1,24 @@
+menu "Effects"
+    depends on AUDIO
+
+choice
+    prompt "Effects system"
+    default EFFECTS_MELODEE
+
+config EFFECTS_FELUCCA
+    bool "Felucca FX"
+    help
+      Distortion, chorus, delay, reverb, slicer.
+
+config EFFECTS_SLOOP
+    bool "SLOOP FX"
+
+config EFFECTS_MELODEE
+    bool "Melodee FX"
+    help
+      3 inserts + shared chain: phaser, width, formant, tape,
+      spit, echo, room, reverb, chorus.
+
+endchoice
+
+endmenu

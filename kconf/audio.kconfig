@@ -1,0 +1,32 @@
+menu "Audio System"
+
+config AUDIO
+    bool "Audio subsystem"
+    default n
+
+config DUAL_CORE
+    bool "Dual-core voice dispatch"
+    default n
+    depends on AUDIO
+
+choice
+    prompt "Audio core pipeline"
+    depends on AUDIO
+    default AUDIO_CORE_MELODEE
+
+config AUDIO_CORE_FELUCCA
+    bool "Felucca audio core"
+    help
+      8 synth + 6 drum voices.
+
+config AUDIO_CORE_SLOOP
+    bool "SLOOP audio core"
+
+config AUDIO_CORE_MELODEE
+    bool "Melodee audio core"
+    help
+      18 voice budget units, FPU paths.
+
+endchoice
+
+endmenu

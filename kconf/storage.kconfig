@@ -1,0 +1,25 @@
+menu "Storage & Projects"
+
+config FLASH
+    bool "Application flash storage"
+    default n
+
+choice
+    prompt "Storage implementation"
+    depends on FLASH
+    default STORAGE_MELODEE
+
+config STORAGE_FELUCCA
+    bool "Felucca storage"
+
+config STORAGE_SLOOP
+    bool "SLOOP storage"
+
+config STORAGE_MELODEE
+    bool "Melodee storage"
+    help
+      FBKG format, 384 shared presets, migration, backup/restore.
+
+endchoice
+
+endmenu

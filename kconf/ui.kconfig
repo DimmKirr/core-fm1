@@ -1,0 +1,25 @@
+menu "User Interface"
+
+config INPUT
+    bool "Panel input"
+    default n
+
+choice
+    prompt "UI framework"
+    depends on INPUT
+    default UI_MELODEE
+
+config UI_FELUCCA
+    bool "Felucca UI"
+
+config UI_SLOOP
+    bool "SLOOP UI"
+
+config UI_MELODEE
+    bool "Melodee UI"
+    help
+      Rubik font, track colors, 8 palettes, partial screen updates.
+
+endchoice
+
+endmenu

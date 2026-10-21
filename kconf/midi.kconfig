@@ -1,0 +1,36 @@
+menu "MIDI & Communication"
+
+config MIDI_UART
+    bool "UART MIDI (TRS)"
+    default n
+
+config USB
+    bool "USB (MIDI + Audio)"
+    default n
+
+choice
+    prompt "MIDI routing"
+    depends on MIDI_UART || USB
+    default MIDI_MELODEE
+
+config MIDI_FELUCCA
+    bool "Felucca MIDI"
+
+config MIDI_SLOOP
+    bool "SLOOP MIDI"
+
+config MIDI_MELODEE
+    bool "Melodee MIDI"
+    help
+      Multi-channel routing, MPC pads, clock sources.
+
+endchoice
+
+config USB_AUDIO
+    bool "USB Audio (class-compliant)"
+    depends on USB
+    default n
+    help
+      Stereo or 4-track capture. Melodee only.
+
+endmenu

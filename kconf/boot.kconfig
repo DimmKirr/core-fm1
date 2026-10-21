@@ -1,0 +1,20 @@
+menu "Boot & OTA"
+
+choice
+    prompt "Boot/loader implementation"
+    default BOOT_MELODEE
+
+config BOOT_FELUCCA
+    bool "Felucca boot/loader"
+
+config BOOT_SLOOP
+    bool "SLOOP boot/loader"
+
+config BOOT_MELODEE
+    bool "Melodee boot/loader"
+    help
+      Includes boot protection and safe-recovery stub.
+
+endchoice
+
+endmenu
