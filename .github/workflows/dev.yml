@@ -80,8 +80,10 @@ jobs:
                   dist/core-fm1-source.tar.gz dist/core-fm1-licenses.tar.gz
                   dist/SHA256SUMS)
 
+          idx=0
           for screenshot in "${screenshots[@]}"; do
-            asset_name="${version}-$(basename "$screenshot")"
+            idx=$((idx + 1))
+            asset_name="screenshot-${idx}.png"
             assets+=("$screenshot#$asset_name")
             printf '![%s](%s/%s/releases/download/%s/%s)\n\n' \
               "$asset_name" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$tag" "$asset_name" >> "$notes"

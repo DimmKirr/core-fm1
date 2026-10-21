@@ -259,7 +259,8 @@ def _firmware_version():
 
 
 def build(dry_run=False):
-    flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/src', '-Ibuild/gen']
+    flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/adapters',
+             '-Ifirmware/src', '-Ibuild/gen']
 
     config_h = GEN / 'config.h'
     if not config_h.exists():

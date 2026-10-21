@@ -28,17 +28,28 @@ Generated files go to `build/gen/config.h`. The `.config` file is gitignored.
 
 All three firmwares compile as a **single translation unit** (unity build): one `.c` file `#include`s all others. Every function is `static`. Kconfig controls which `#include` directives are active via `CONFIG_*` defines in `autoconf.h`.
 
-### Layer Stack (bottom to top)
+### Terminology
+
+See [docs/COMPONENTS.md](docs/COMPONENTS.md) for full component map with diagrams.
+
+- **Subsystem**: architectural grouping with its own lifecycle (HAL, Audio, MIDI, UI, BLE, etc.)
+- **Module**: functional slot within a subsystem (Engines, Effects, Sequencer, Routing, etc.)
+- **Lineage**: firmware-specific implementation of a module (Felucca FX, Melodee Sequencer, etc.)
+
+### Subsystems (bottom to top)
 
 1. **HAL** (header-only, register-level): `fm1_*.h` files for AC791N peripherals. Identical files shared; diverged files selected via Kconfig radio choices.
-2. **Audio Core**: voice allocator, render pipeline, DMA half-buffer (128 samples @ 44.1kHz stereo). Three variants: Felucca (14 voices), SLOOP, Melodee (18 voice budget units, FPU).
+2. **Audio**: voice allocator, render pipeline, DMA half-buffer (128 samples @ 44.1kHz stereo). Contains modules for Audio Core, Engines, Effects, and Modulation. Three Audio Core lineages: Felucca (14 voices), SLOOP, Melodee (18 voice budget units, FPU).
 3. **Engine Plugin** (`engine_t` vtable): the cleanest boundary. `note_on`, `render`, `amp`, `block`, `done` + optional fields. Melodee's 14-field superset is canonical. Engines compile in/out independently.
-4. **Effects, Sequencer, MIDI, UI, Storage**: radio-selected per firmware lineage. UI stays bundled with its firmware (too many direct global reads to mix).
+4. **Sequencer, MIDI, UI, Storage, Scales, Boot**: each a subsystem with lineage-specific implementations selected via Kconfig radio choices. UI stays bundled with its firmware lineage (too many direct global reads to mix).
+5. **BLE**: optional subsystem (Optimist lineage) for Bluetooth Low Energy; depends on HAL, enables BLE MIDI transport.
 
-### Key Contracts (defined in `.scratch/GLUE.md`)
+### Adapters (defined in `.scratch/GLUE.md`)
 
-| Contract | Header | Enables |
-|----------|--------|---------|
+Thin compatibility headers (`cfm1_*.h`) that let subsystems from different firmware lineages plug into core-fm1. Each adapter defines the contract (types, vtable, signatures) that both sides conform to.
+
+| Adapter | Header | Enables |
+|---------|--------|---------|
 | Note Dispatch | `cfm1_note_dispatch.h` | Mix any sequencer with any audio core |
 | Engine Plugin | `cfm1_engine.h` | Any engine on any audio core |
 | Effects Chain | `cfm1_fx.h` | Swap FX implementations |
@@ -90,7 +101,7 @@ Source code for the three lineages lives outside this repo:
 - Felucca: check `.scratch/examples/felucca/`
 - SLOOP: check `.scratch/examples/sloop/`
 
-Research data: `.scratch/fw-test.json` (firmware catalog), `.scratch/kconfig-layers.json` (layer analysis), `.scratch/GLUE.md` (contract specs).
+Research data: `.scratch/fw-test.json` (firmware catalog), `.scratch/kconfig-subsystems.json` (layer analysis), `.scratch/GLUE.md` (contract specs).
 
 ## Testing
 

@@ -156,8 +156,10 @@ jobs:
           } > "$notes"
 
           assets=()
+          idx=0
           for screenshot in "${screenshots[@]}"; do
-            asset_name="$(basename "$screenshot")"
+            idx=$((idx + 1))
+            asset_name="screenshot-${idx}.png"
             assets+=("$screenshot#$asset_name")
             {
               echo "![${asset_name}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag/$asset_name)"
@@ -166,12 +168,16 @@ jobs:
           done
 
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            old_assets=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+            for old in $old_assets; do
+              gh release delete-asset "$tag" "$old" --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+            done
+            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --notes-file "$notes" --prerelease --latest=false
+              --notes-file "$notes" --target "$GITHUB_SHA" --prerelease --latest=false
           else
             gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" --title 'CI Screenshot' \
+              --target "$GITHUB_SHA" --title 'CI Screenshots' \
               --notes-file "$notes" --prerelease --latest=false
           fi
           cat "$notes" >> "$GITHUB_STEP_SUMMARY"

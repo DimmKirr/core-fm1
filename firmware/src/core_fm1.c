@@ -109,7 +109,7 @@ extern uint32_t _audio_start[], _audio_end[], _audio_load[];
 #include "libc.c"
 
 /* --- LCD driver (ST7789 240x240) --- */
-#include "lcd.c"
+#include "ui/lcd.c"
 
 /* --- minimal 5x7 bitmap font for boot screen --- */
 static const uint8_t font5x7[] = {
@@ -318,6 +318,16 @@ static void boot_logo_reveal(void)
         lcd_blit(0, y, 240, 1, logo_row);
     }
 }
+
+/* --- audio subsystem --- */
+
+#ifdef CONFIG_AUDIO
+#include "adapters/cfm1_audio.h"
+#include "audio/params.c"
+#include "engines/engines.c"
+#include "audio/voice.c"
+#include "audio/audio.c"
+#endif
 
 /* --- main loop --- */
 

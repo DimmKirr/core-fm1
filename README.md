@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="core-fm1" width="480">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo.svg">
+    <img src="assets/logo.svg" alt="core-fm1" width="480">
+  </picture>
 </p>
 
 <p align="center"><strong>Your FM-1. Your combination.</strong></p>
