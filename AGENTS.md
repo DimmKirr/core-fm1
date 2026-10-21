@@ -89,10 +89,6 @@ Source code for the three lineages lives outside this repo:
 
 Research data: `.scratch/fw-test.json` (firmware catalog), `.scratch/kconfig-layers.json` (layer analysis), `.scratch/GLUE.md` (contract specs).
 
-## Implementation Plans
-
-Active plan: `docs/plans/2026-10-21-kconfig-build-system.md` (10 tasks, Tasks 1-8 define the Kconfig infrastructure, Task 9 populates sources, Task 10 docs).
-
 ## Conventions
 
 - Unity build: all `.c` files are `#include`d into one translation unit. All functions are `static`.
