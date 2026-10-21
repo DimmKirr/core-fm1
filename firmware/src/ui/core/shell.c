@@ -3,7 +3,7 @@
  * Lineage shells (Felucca, Melodee) extend this with their visual
  * language. The core shell is a minimal fallback: bitmap font,
  * no theming, page name in the header, left/right to switch. */
-#include "adapters/cfm1_page.h"
+#include "cfm1_page.h"
 
 /* ---------------------------------------------------------------- state --- */
 
@@ -148,7 +148,7 @@ static void shell_boot(void)
     uint32_t i;
     /* find the HOME page */
     for (i = 0; i < shell_npage; i++) {
-        if (shell_pages[i]->flags & PAGE_HOME) {
+        if (shell_pages[i]->flags & PAGEF_HOME) {
             shell_set_page(i);
             return;
         }

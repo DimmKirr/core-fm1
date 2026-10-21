@@ -89,10 +89,74 @@ typedef struct {
 static track_t trk[NTRK];
 static song_t song;
 
-/* --- engine registry (engines.c) --- */
+/* --- engine registry --- */
+/* When CONFIG_AUDIO is enabled, engines.c defines ENGINES[] and NENGINES.
+ * When audio is off, provide a minimal stub so UI pages compile. */
 
+#ifndef CONFIG_AUDIO
+static const engine_t _eng_mock = {
+    .name       = "ANALOG",
+    .page_title = {"SYNTH 1", "SYNTH 2"},
+    .edit       = {
+        { "CUT",  F_CUTOFF, 20, 999, 355, 0, "Hz" },
+        { "RES",  F_PCT,     0, 100,  79, 0, "%"  },
+        { "ATK",  F_TIME,    0, 999,  10, 0, "ms" },
+        { "REL",  F_TIME,    0, 999,  88, 0, "ms" },
+        { "SHP",  F_PCT,     0, 100,  50, 0, "%"  },
+        { "FLT",  F_PCT,     0, 100,  64, 0, "%"  },
+        { "DRV",  F_PCT,     0, 100,   0, 0, "%"  },
+        { "MIX",  F_PCT,     0, 100, 100, 0, "%"  },
+    },
+    .knob       = {0, 1, 2, 3},
+    .note_on    = 0,
+    .render     = 0,
+};
+static const engine_t *const ENGINES[] = { &_eng_mock };
+#undef NENGINES
+#define NENGINES 1
+
+static void cfm1_mock_init(void)
+{
+    uint32_t k, e;
+    song.bpm = 120;
+    song.playing = 0;
+    song.sel = 0;
+    for (k = 0; k < NTRK; k++) {
+        trk[k].eng_req = 0;
+        for (e = 0; e < 8; e++)
+            trk[k].p[P_E0 + e] = _eng_mock.edit[e].def;
+        trk[k].p[P_ATK]   = 10;
+        trk[k].p[P_DEC]   = 40;
+        trk[k].p[P_SUS]   = 80;
+        trk[k].p[P_REL]   = 88;
+        trk[k].p[P_LEVEL] = 100;
+        trk[k].p[P_LFO]   = 50;
+        trk[k].p[P_LFRT]  = 30;
+        trk[k].p[P_DIST]  = 20;
+        trk[k].p[P_DLY]   = 35;
+        trk[k].p[P_REV]   = 45;
+        trk[k].p[P_ROOT]  = 0;
+        trk[k].p[P_SCALE] = 0;
+        trk[k].p[P_OCT]   = 0;
+        trk[k].p[P_ARP]   = 0;
+        trk[k].p[P_MONO]  = 0;
+        trk[k].p[P_HOLD]  = 0;
+        trk[k].p[P_GLI]   = 0;
+        trk[k].p[P_UNI]   = 0;
+    }
+    trk[0].step[0].note[0] = 60;
+    trk[0].step[0].vel = 100;
+    trk[0].step[2].note[0] = 64;
+    trk[0].step[2].vel = 80;
+    trk[0].step[4].note[0] = 67;
+    trk[0].step[4].vel = 90;
+    trk[0].step[6].note[0] = 72;
+    trk[0].step[6].vel = 110;
+}
+#else
 #ifndef NENGINES
 #define NENGINES 1
+#endif
 #endif
 
 #endif /* CFM1_AUDIO_H */

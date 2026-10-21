@@ -6,22 +6,49 @@ config INPUT
 
 choice
     prompt "UI framework"
-    depends on INPUT
-    default UI_MELODEE
+    default UI_MELODEE if INPUT
+    default UI_CORE
 
 config UI_FELUCCA
     bool "Felucca"
+    depends on INPUT
     select GEN_FELUCCA_UI
     help
       SURF cards, Inter Tight font, anti-aliased icons, knob arcs.
 
 config UI_SLOOP
     bool "SLOOP"
+    depends on INPUT
 
 config UI_MELODEE
     bool "Melodee"
+    depends on INPUT
     help
       Rubik font, track colors, 8 palettes, partial screen updates.
+
+config UI_CORE
+    bool "core-fm1 (minimal)"
+    help
+      Bitmap font, basic page navigation. No theming.
+      Uses the page adapter: any engine/seq/fx appears automatically.
+      Does not require INPUT: works in emulator-only builds.
+
+endchoice
+
+choice
+    prompt "Splash screen"
+    default SPLASH_LOGO
+
+config SPLASH_LOGO
+    bool "core-fm1 boot logo"
+    help
+      RLE-compressed logo from assets/logo-dark.png, centered on screen.
+      Generated at build time by tools/logo_convert.py.
+
+config SPLASH_NONE
+    bool "No splash screen"
+    help
+      Skip the splash screen, go straight to the home page.
 
 endchoice
 

@@ -6,10 +6,17 @@
 #include "eng_noise.c"
 #endif
 
+#ifdef CONFIG_ENGINE_STUB
+#include "eng_stub.c"
+#endif
+
 /* registry: order = engine numbers stored in presets and projects */
 static const engine_t *const ENGINES[] = {
 #ifdef CONFIG_ENGINE_NOISE
     &ENG_NOISE,
+#endif
+#ifdef CONFIG_ENGINE_STUB
+    &ENG_STUB,
 #endif
 };
 

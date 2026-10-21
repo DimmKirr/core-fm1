@@ -102,4 +102,13 @@ config ENGINE_NOISE
     bool "Noise"
     default n
 
+comment "Development"
+
+config ENGINE_STUB
+    bool "Stub (silent, for UI testing)"
+    default n
+    help
+      Silent engine with 4 dummy knobs. Useful for testing the UI
+      shell and page navigation without any real DSP.
+
 endmenu

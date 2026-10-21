@@ -60,7 +60,7 @@ static int home_button(uint32_t id, uint32_t down)
 static const cfm1_page_t PAGE_HOME = {
     .name  = "HOME",
     .title = "HOME",
-    .flags = PAGE_HOME,
+    .flags = PAGEF_HOME,
     .enter  = home_enter,
     .leave  = home_leave,
     .draw   = home_draw,

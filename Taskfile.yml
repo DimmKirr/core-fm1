@@ -41,6 +41,7 @@ tasks:
       - fm1-emulator:download:wasm
     env:
       FM1_WEB_DIR: '{{env "FM1_WEB_DIR" | default (printf "%s/.fm1-emulator/web" .HOME)}}'
+      PLAYWRIGHT_BROWSERS_PATH: '{{env "PLAYWRIGHT_BROWSERS_PATH" | default (printf "%s/.cache/ms-playwright" .HOME)}}'
     cmds:
       - uv run python -m pytest tests/e2e_boot_test.py -v {{.CLI_ARGS}}
 

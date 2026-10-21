@@ -21,32 +21,89 @@ class BootTest(E2ETestCase):
                 f'Firmware not built ({FWSC_PATH}). Run "task build" first.')
         super().setUpClass()
 
+    def _lcd_has_content(self, page, threshold=500):
+        """True when the LCD area of the panel canvas has non-black pixels."""
+        return page.evaluate('''(threshold) => {
+            const c = document.getElementById('panel');
+            const p = c.getContext('2d').getImageData(370, 42, 480, 480).data;
+            let n = 0;
+            for (let i = 0; i < p.length; i += 4)
+                if (p[i] > 30 || p[i+1] > 30 || p[i+2] > 30) n++;
+            return n > threshold;
+        }''', threshold)
+
     def test_firmware_boots(self):
-        page = self.new_emu_page()
+        page = self.new_emu_page(mhz=10)
         try:
-            self.load_firmware(page)
+            self.load_firmware(page, capture=True)
             status = page.locator('#status').text_content()
             self.assertIn('instructions/s', status)
+
             page.wait_for_function('''() => {
                 const c = document.getElementById('panel');
                 const p = c.getContext('2d').getImageData(370, 42, 480, 480).data;
-                let nonblack = 0;
+                let n = 0;
                 for (let i = 0; i < p.length; i += 4)
-                    if (p[i] > 30 || p[i+1] > 30 || p[i+2] > 30) nonblack++;
-                return nonblack > 500;
-            }''', timeout=60_000)
-            page.wait_for_timeout(10_000)
+                    if (p[i] > 30 || p[i+1] > 30 || p[i+2] > 30) n++;
+                return n > 500;
+            }''', timeout=120_000)
+
+            page.wait_for_timeout(30_000)
+            self.screenshot(page, 'home')
+
             self.assertNotIn('halted', page.locator('#status').text_content())
-            self.screenshot(page, 'boot')
         finally:
             self.write_log(page)
+            frames = self.stop_canvas_capture(page)
+            if frames:
+                splash_frame = self._find_splash_frame(frames)
+                if splash_frame is not None:
+                    self._save_frame(frames[splash_frame], 'boot-splash')
+                gif = self.frames_to_gif(frames)
+                print(f'\nBoot GIF ({len(frames)} frames, '
+                      f'splash at frame {splash_frame}): {gif}')
             page.close()
 
-    @staticmethod
-    def load_firmware(page):
+    def _find_splash_frame(self, frames):
+        """Find the first captured frame showing splash (LCD has content but not HOME page)."""
+        import base64
+        from io import BytesIO
+        try:
+            from PIL import Image
+        except ImportError:
+            return None
+        lcd_x, lcd_y, lcd_w, lcd_h = 370, 42, 480, 480
+        splash_idx = None
+        for i, data_url in enumerate(frames):
+            raw = base64.b64decode(data_url.split(',', 1)[1])
+            img = Image.open(BytesIO(raw))
+            lcd = img.crop((lcd_x, lcd_y, lcd_x + lcd_w, lcd_y + lcd_h))
+            px = lcd.tobytes()
+            step = 4 if lcd.mode == 'RGBA' else 3
+            bright = sum(1 for j in range(0, len(px), step)
+                         if px[j] > 30 or px[j+1] > 30 or px[j+2] > 30)
+            if bright < 50:
+                continue
+            if splash_idx is None:
+                splash_idx = i
+            elif bright > 5000:
+                return splash_idx
+        return splash_idx
+
+    def _save_frame(self, data_url, name):
+        """Save a captured data-URL frame as a screenshot PNG."""
+        import base64
+        screenshot_dir = self._results_dir() / 'screenshots'
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        raw = base64.b64decode(data_url.split(',', 1)[1])
+        (screenshot_dir / f'{name}.png').write_bytes(raw)
+
+    def load_firmware(self, page, capture=False):
         page.locator('#open').set_input_files(str(FWSC_PATH))
         page.wait_for_function(
             'document.getElementById("status").textContent.includes("ready")')
+        if capture:
+            self.start_canvas_capture(page, fps=30)
         page.locator('#start').click()
         page.wait_for_function(
             'document.getElementById("status")?.textContent?.includes("instructions/s")',
@@ -56,7 +113,7 @@ class BootTest(E2ETestCase):
         """Observe real UI-to-worklet messages; minimal firmware ignores inputs."""
         page = self.new_emu_page()
         try:
-            self.load_firmware(page)
+            self.load_firmware(page, capture=False)
             page.evaluate('''() => {
                 window.panelMessages = [];
                 const original = MessagePort.prototype.postMessage;

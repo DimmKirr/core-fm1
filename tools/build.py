@@ -284,7 +284,7 @@ def gen_felucca_ui():
 
 def build(dry_run=False):
     flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/adapters',
-             '-Ifirmware/src', '-Ibuild/gen',
+             '-Ifirmware/src', '-Ifirmware', '-Ibuild/gen',
              '-Ifirmware/upstream/felucca/build/gen']
 
     config_h = GEN / 'config.h'
@@ -296,7 +296,7 @@ def build(dry_run=False):
 
     if 'GEN_FELUCCA_UI' in enabled:
         gen_felucca_ui()
-    pending = enabled & {'AUDIO', 'INPUT', 'FLASH', 'MIDI_UART', 'USB', 'DUAL_CORE'}
+    pending = enabled & {'AUDIO', 'FLASH', 'MIDI_UART', 'USB', 'DUAL_CORE'}
     unsupported = {s for s in enabled if s.startswith('HAL_') and
                    s.endswith(('_FELUCCA', '_SLOOP'))}
     if pending or unsupported:
@@ -335,9 +335,9 @@ def build(dry_run=False):
         print('Then build firmware/stub, firmware/loader and package build/core-fm1.fwsc')
         return
 
-    logo_src = ROOT / 'assets' / 'logo.png'
+    logo_src = ROOT / 'assets' / 'logo-dark.png'
     logo_hdr = GEN / 'boot_logo.h'
-    if logo_src.exists() and not logo_hdr.exists():
+    if logo_src.exists():
         subprocess.run([sys.executable, str(ROOT / 'tools' / 'logo_convert.py')],
                        check=True, cwd=str(ROOT))
 

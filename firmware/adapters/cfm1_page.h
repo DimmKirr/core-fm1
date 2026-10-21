@@ -8,8 +8,8 @@
 #include <stdint.h>
 
 /* page flags */
-#define PAGE_HOME    (1u << 0)  /* the default page after boot */
-#define PAGE_SYSTEM  (1u << 1)  /* system page (settings, about) */
+#define PAGEF_HOME    (1u << 0)  /* the default page after boot */
+#define PAGEF_SYSTEM  (1u << 1)  /* system page (settings, about) */
 
 typedef struct cfm1_page {
     const char *name;           /* short label: "HOME", "ENGINE", "SEQ" */

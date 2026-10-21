@@ -56,14 +56,7 @@ def convert(src, dst, width=240, canvas=240):
             if a < 128:
                 row_px.append(rgb565_be(0, 0, 0))
             else:
-                lum = int(0.299 * r + 0.587 * g + 0.114 * b)
-                inv = 255 - lum
-                if inv < 20:
-                    row_px.append(rgb565_be(0, 0, 0))
-                elif r > 150 and g < 100 and b < 100:
-                    row_px.append(rgb565_be(r, g, b))
-                else:
-                    row_px.append(rgb565_be(inv, inv, inv))
+                row_px.append(rgb565_be(r, g, b))
         rows.append(row_px)
 
     y_off = (canvas - h) // 2
@@ -93,6 +86,6 @@ def convert(src, dst, width=240, canvas=240):
 
 
 if __name__ == '__main__':
-    src = ROOT / 'assets' / 'logo.png'
+    src = ROOT / 'assets' / 'logo-dark.png'
     dst = ROOT / 'build' / 'gen' / 'boot_logo.h'
     convert(src, dst)
