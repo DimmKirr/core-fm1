@@ -3,6 +3,7 @@ name = "core-fm1"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
+    "fonttools>=4.65.0",
     "kconfiglib>=14.1.0",
     "pillow>=12.3.0",
 ]

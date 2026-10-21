@@ -109,7 +109,13 @@ extern uint32_t _audio_start[], _audio_end[], _audio_load[];
 #include "libc.c"
 
 /* --- LCD driver (ST7789 240x240) --- */
-#include "ui/lcd.c"
+#if defined(CONFIG_UI_FELUCCA)
+#include "ui/felucca/lcd.c"
+#elif defined(CONFIG_UI_MELODEE)
+#include "ui/melodee/lcd.c"
+#else
+#include "ui/melodee/lcd.c"
+#endif
 
 /* --- minimal 5x7 bitmap font for boot screen --- */
 static const uint8_t font5x7[] = {
@@ -337,6 +343,20 @@ volatile const char *cfm1_manifest_anchor = cfm1_manifest;
 #elif defined(CONFIG_EFFECTS_MELODEE)
 #include "audio/effects/melodee/fx.c"
 #endif
+#endif
+
+/* --- GFX renderer --- */
+#if defined(CONFIG_UI_FELUCCA)
+#include "ui/felucca/gfx.c"
+#elif defined(CONFIG_UI_MELODEE)
+#include "ui/melodee/gfx.c"
+#endif
+
+/* --- UI --- */
+#if defined(CONFIG_UI_FELUCCA)
+#include "ui/felucca/ui.c"
+#elif defined(CONFIG_UI_MELODEE)
+/* TODO: melodee UI shim */
 #endif
 
 /* --- main loop --- */

@@ -11,6 +11,9 @@ choice
 
 config UI_FELUCCA
     bool "Felucca"
+    select GEN_FELUCCA_UI
+    help
+      SURF cards, Inter Tight font, anti-aliased icons, knob arcs.
 
 config UI_SLOOP
     bool "SLOOP"
@@ -21,5 +24,11 @@ config UI_MELODEE
       Rubik font, track colors, 8 palettes, partial screen updates.
 
 endchoice
+
+config GEN_FELUCCA_UI
+    bool
+    help
+      Hidden. Selected by UI_FELUCCA. Tells the build system to run
+      Felucca font/icon/keycap/palette generators before compiling.
 
 endmenu

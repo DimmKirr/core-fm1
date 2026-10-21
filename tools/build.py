@@ -258,9 +258,34 @@ def _firmware_version():
     return 'v0.0.0'
 
 
+def gen_felucca_ui():
+    """Run Felucca's font/icon/keycap/palette generators into build/gen/."""
+    GEN.mkdir(parents=True, exist_ok=True)
+    felucca = FW / 'upstream' / 'felucca'
+    tools = felucca / 'tools'
+    cmds = [
+        [tools / 'gen_aa_font.py', GEN / 'ui_fonts.h', '--preset', 'inter-tight'],
+        [tools / 'gen_aa_icons.py', GEN / 'ui_icons.h'],
+        [tools / 'gen_aa_keycaps.py', GEN / 'ui_keycaps.h'],
+        [tools / 'gen_ui_palettes.py', GEN / 'ui_palettes.h'],
+    ]
+    procs = [subprocess.Popen([sys.executable, *map(str, c)],
+             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+             for c in cmds]
+    failed = []
+    for c, p in zip(cmds, procs):
+        sys.stdout.write(p.communicate()[0])
+        if p.returncode:
+            failed.append(c[0].name)
+    if failed:
+        raise SystemExit(f'gen_felucca_ui: {", ".join(failed)} failed')
+    print(f'gen_felucca_ui: {len(cmds)} headers -> {GEN.relative_to(ROOT)}/')
+
+
 def build(dry_run=False):
     flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/adapters',
-             '-Ifirmware/src', '-Ibuild/gen']
+             '-Ifirmware/src', '-Ibuild/gen',
+             '-Ifirmware/upstream/felucca/build/gen']
 
     config_h = GEN / 'config.h'
     if not config_h.exists():
@@ -268,6 +293,9 @@ def build(dry_run=False):
             f'{config_h} not found. Run "task config:generate" first.')
 
     enabled = set(re.findall(r'^#define CONFIG_(\w+) 1$', config_h.read_text(), re.M))
+
+    if 'GEN_FELUCCA_UI' in enabled:
+        gen_felucca_ui()
     pending = enabled & {'AUDIO', 'INPUT', 'FLASH', 'MIDI_UART', 'USB', 'DUAL_CORE'}
     unsupported = {s for s in enabled if s.startswith('HAL_') and
                    s.endswith(('_FELUCCA', '_SLOOP'))}
