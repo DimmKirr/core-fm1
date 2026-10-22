@@ -1,0 +1,17 @@
+name: Nightly builds
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+# Scheduled runs load this file from the default branch. Keep the build,
+# dependency list and validation settings in nightly so they cannot drift.
+jobs:
+  nightly:
+    uses: keremimo/melodee/.github/workflows/nightly.yml@nightly
+    secrets: inherit
