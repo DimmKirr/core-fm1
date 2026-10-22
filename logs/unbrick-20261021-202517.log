@@ -1,0 +1,12 @@
+2026-10-21 20:25:17,469 DEBUG   fm1_unbrick 1.2.0, python 3.12.13, platform darwin, command 'restore'
+2026-10-21 20:25:17,469 DEBUG   args {'command': 'restore', 'dry_run': False, 'device': None, 'i_know': False, 'jl_dir': '/Users/dmitry/.fm1-toolchain/unbricker/jl-uboot-tool', 'log_dir': 'logs', 'mock_image': None, 'mock_flaky': None, 'mock_chip_key': None, 'package': 'build/core-fm1.fwsc', 'yes': False, 'verify_v15': False, 'force_write': False}
+2026-10-21 20:25:17,469 INFO    Step 1/6: package
+2026-10-21 20:25:17,470 INFO    Package     build/core-fm1.fwsc
+2026-10-21 20:25:17,470 INFO      file sha256      bc488d2e53dd0ef1c3bdf87576a6fa58241c412927bf21569944e09e22b4db30
+2026-10-21 20:25:17,470 INFO      identity         FM-1_900  = third-party Felucca-family firmware FM-1_900
+2026-10-21 20:25:17,470 INFO      firmware region  0x4000..0x92FFF (0x8F000 bytes)
+2026-10-21 20:25:17,470 INFO      flash.bin        offset 0x400 in the logical image, 0x93000 bytes
+2026-10-21 20:25:17,470 INFO      firmware sha256  ae08acc218094afa3741e103c3baa3538c45578efe2cbef08a90da65c4068de5
+2026-10-21 20:25:17,470 DEBUG     package head sha256 5f6e5901232b8ab4c8aa9e76e2a596ae8c5bdbe26f9d4aee3a1ae284c1e3d251
+2026-10-21 20:25:17,470 ERROR   ERROR: not supported: jl-uboot-tool has no macOS SCSI back end; use a Windows or Linux machine (a Raspberry Pi works)
+2026-10-21 20:25:17,470 INFO    Log: logs/unbrick-20261021-202517.log

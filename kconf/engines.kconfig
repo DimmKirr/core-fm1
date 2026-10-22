@@ -1,10 +1,16 @@
 menu "Engines"
-    depends on AUDIO
 
-comment "Multi-lineage"
+config ENGINES
+    bool
+    help
+      Auto-selected when any engine is enabled. Gates table generation
+      and DSP inclusion in the build.
+
+comment "Multi-lineage (require full audio core)"
 
 config ENGINE_FM6
     bool "FM6 (DX7 6-op FM)"
+    depends on AUDIO
     default n
 
 choice
@@ -22,6 +28,7 @@ endchoice
 
 config ENGINE_DRUM
     bool "Drum kits"
+    depends on AUDIO
     default n
 
 choice
@@ -44,68 +51,83 @@ comment "Melodee"
 
 config ENGINE_PROPHET
     bool "Prophet-5"
+    depends on AUDIO
     default n
     help
       Sequential Prophet-5 Rev 4. 2-3 VBUDGET units per voice.
 
 config ENGINE_CZ1
     bool "CZ-1 (Phase Distortion)"
+    depends on AUDIO
     default n
 
 config ENGINE_SID
     bool "SID (C64 6581/8580)"
+    depends on AUDIO
     default n
 
 comment "Felucca (MIT)"
 
 config ENGINE_ANALOG
     bool "Analog"
+    select ENGINES
     default n
 
 config ENGINE_DIGITAL
     bool "Digital (4-op FM, retired)"
+    select ENGINES
     default n
 
 config ENGINE_PHASE
     bool "Phase Distortion"
+    select ENGINES
     default n
 
 config ENGINE_SAMPLE
     bool "Sample Playback"
+    select ENGINES
     default n
 
 config ENGINE_GRANULAR
     bool "Granular"
+    select ENGINES
     default n
 
 config ENGINE_LOFI
     bool "LoFi/Chiptune"
+    select ENGINES
     default n
 
 config ENGINE_TRIO
     bool "Trio (3-osc)"
+    select ENGINES
     default n
 
 config ENGINE_TONEWHEEL
     bool "Tonewheel Organ"
+    select ENGINES
     default n
 
 config ENGINE_FORMANT
     bool "Formant/Vocal"
+    select ENGINES
     default n
 
 config ENGINE_PHYSICAL
     bool "Physical Modeling"
+    select ENGINES
     default n
 
 config ENGINE_NOISE
     bool "Noise"
+    select ENGINES
     default n
 
 comment "Development"
 
 config ENGINE_STUB
     bool "Stub (silent, for UI testing)"
+    select ENGINES
     default n
     help
       Silent engine with 4 dummy knobs. Useful for testing the UI

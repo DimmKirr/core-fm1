@@ -168,11 +168,22 @@ Engines implement the `engine_t` vtable (defined in `cfm1_engine.h`, MIT license
 
 Engine cost is measured in VBUDGET units (Prophet: 2-3, FM6: 2, CZ-1: 1).
 
+Engines compile independently of the full audio core via `CONFIG_ENGINES` (auto-selected). Build-time table generator (`tools/gen_engine_tables.py`) produces `fe_tables.h` with SINE, PITCH_OCT, SVF_G, and TANH_Q15 lookup tables. DSP helpers (`dsp.c`) provide fixed-point math.
+
 Porting an engine:
 1. Copy the engine source to `firmware/src/audio/engines/`
-2. Add Kconfig symbol `CONFIG_ENGINE_<NAME>` in `kconf/engines.kconfig`
-3. Add conditional `#include` in `engines.c`
-4. Register in the `ENGINES[]` array with a unique engine ID
+2. Copy `dsp.c` if not already present (shared DSP helpers, MIT)
+3. Add Kconfig symbol `CONFIG_ENGINE_<NAME>` in `kconf/engines.kconfig` with `select ENGINES`
+4. Add conditional `#include` in `engines.c`
+5. Register in the `ENGINES[]` array
+
+### NOISE engine (worked example)
+
+The NOISE engine was ported from Felucca (MIT, 271 lines). It compiles against `cfm1_engine.h` / `cfm1_audio.h` without modification: `voice_t`, `vmod_t`, `engine_t`, and `track_t` are type-compatible.
+
+Dependencies: `fe_tables.h` (generated), `dsp.c` (MIT helpers: `clamp`, `mulq15`, `noise32`, `softclip`, `soft_knee`, `voice_amp`), and the SVF_G cutoff table.
+
+Config: `CONFIG_ENGINE_NOISE=y` in the defconfig. No `CONFIG_AUDIO` required: the engine renders through the adapter types and appears in the `ENGINES[]` registry for the UI.
 
 ### Effects (pick one lineage)
 

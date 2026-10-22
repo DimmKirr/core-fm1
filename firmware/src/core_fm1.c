@@ -309,11 +309,21 @@ volatile const char *cfm1_manifest_anchor = cfm1_manifest;
 #include "cfm1_storage.h"
 #include "cfm1_mod.h"
 
+/* --- engine plugins (compile independently of the audio core) --- */
+
+#ifdef CONFIG_ENGINES
+#include "fe_tables.h"
+#include "audio/engines/dsp.c"
+#include "audio/engines/engines.c"
+#endif
+
 /* --- audio subsystem --- */
 
 #ifdef CONFIG_AUDIO
 #include "audio/params.c"
+#ifndef CONFIG_ENGINES
 #include "audio/engines/engines.c"
+#endif
 #include "audio/voice.c"
 #include "audio/core/audio.c"
 

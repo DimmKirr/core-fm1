@@ -13,6 +13,20 @@ tasks:
     env:
       JIELI_TOOLCHAIN: '{{env "JIELI_TOOLCHAIN" | default (printf "%s/.fm1-toolchain/toolchain" .HOME)}}'
       AC79_SDK: '{{env "AC79_SDK" | default (printf "%s/.fm1-toolchain/AC79_SDK" .HOME)}}'
+    sources:
+      - firmware/**/*
+      - tools/build.py
+      - tools/genconfig.py
+      - tools/logo_convert.py
+      - tools/gen_engine_tables.py
+      - kconf/**/*
+      - configs/**/*
+      - assets/**/*
+      - Kconfig
+      - .config
+    generates:
+      - build/core-fm1.fwsc
+    method: checksum
     cmds:
       - uv run python tools/build.py {{.CLI_ARGS}}
 
@@ -53,6 +67,29 @@ tasks:
       - test -f '{{.EMU_SOURCE}}/web/build.sh'
     cmds:
       - bash '{{.EMU_SOURCE}}/web/build.sh' '{{.HOME}}/.fm1-emulator/web'
+
+  flash:
+    desc: Flash firmware to FM-1 over USB-MIDI
+    preconditions:
+      - sh: test -f build/core-fm1.fwsc
+        msg: "build/core-fm1.fwsc not found. Run 'task build' first."
+    cmds:
+      - uv run --group flash python firmware/upstream/felucca/tools/fm1_install.py build/core-fm1.fwsc --force {{.CLI_ARGS}}
+
+  unbrick:soft:
+    desc: Restore firmware via USB ROM boot mode (soft-bricked device)
+    preconditions:
+      - sh: test -f build/core-fm1.fwsc
+        msg: "build/core-fm1.fwsc not found. Run 'task build' first."
+    vars:
+      UNBRICKER_DIR: '{{env "UNBRICKER_DIR" | default (printf "%s/.fm1-toolchain/unbricker" .HOME)}}'
+    cmds:
+      - |
+        if [ ! -d "{{.UNBRICKER_DIR}}" ]; then
+          echo "Cloning MvaveFM1Unbricker..."
+          git clone --depth 1 https://github.com/Quixotic7/MvaveFM1Unbricker "{{.UNBRICKER_DIR}}"
+        fi
+      - uv run --group unbrick python "{{.UNBRICKER_DIR}}/fm1_unbrick.py" restore build/core-fm1.fwsc {{.CLI_ARGS}}
 
   config:
     desc: Run menuconfig (ncurses) to configure the build

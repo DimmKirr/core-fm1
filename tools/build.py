@@ -282,6 +282,14 @@ def gen_felucca_ui():
     print(f'gen_felucca_ui: {len(cmds)} headers -> {GEN.relative_to(ROOT)}/')
 
 
+def gen_engine_tables():
+    """Generate fixed-point lookup tables for Felucca-derived engines."""
+    GEN.mkdir(parents=True, exist_ok=True)
+    dst = GEN / 'fe_tables.h'
+    subprocess.run([sys.executable, str(ROOT / 'tools' / 'gen_engine_tables.py'),
+                    str(dst)], check=True, cwd=str(ROOT))
+
+
 def build(dry_run=False):
     flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/adapters',
              '-Ifirmware/src', '-Ifirmware', '-Ibuild/gen',
@@ -296,6 +304,8 @@ def build(dry_run=False):
 
     if 'GEN_FELUCCA_UI' in enabled:
         gen_felucca_ui()
+    if 'ENGINES' in enabled:
+        gen_engine_tables()
     pending = enabled & {'AUDIO', 'FLASH', 'MIDI_UART', 'USB', 'DUAL_CORE'}
     unsupported = {s for s in enabled if s.startswith('HAL_') and
                    s.endswith(('_FELUCCA', '_SLOOP'))}

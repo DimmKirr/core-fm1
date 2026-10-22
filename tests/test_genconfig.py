@@ -88,7 +88,7 @@ def test_genconfig_writes_manifest():
         assert 'cfm1_manifest' in content
 
 
-DEFCONFIGS = ['melodee', 'felucca', 'sloop', 'minimal']
+DEFCONFIGS = ['melodee', 'felucca', 'sloop', 'minimal', 'felucca_mock']
 
 
 @pytest.mark.parametrize('name', DEFCONFIGS)
@@ -117,6 +117,14 @@ EXPECTED_COMPONENTS = {
         'effects:melodee',
         'scales:melodee',
         'seq:melodee',
+    ]),
+    'felucca_mock': sorted([
+        'engine:noise',
+        'seq:melodee',
+        'scales:melodee',
+        'input',
+        'ui:felucca',
+        'boot:melodee',
     ]),
 }
 

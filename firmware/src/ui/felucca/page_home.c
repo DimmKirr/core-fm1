@@ -11,10 +11,11 @@ static void fhome_draw(void)
 
     for (c = 0; c < 4; c++) {
         if (eng) {
-            uint32_t ki = eng->knob[c];
-            const param_desc_t *d = &eng->edit[ki < 8 ? ki : 0];
+            uint32_t pi = eng->knob[c];
+            uint32_t ei = (pi >= P_E0 && pi < P_E0 + 8) ? pi - P_E0 : pi;
+            const param_desc_t *d = &eng->edit[ei < 8 ? ei : 0];
             char val[12];
-            int16_t v = t->p[P_E0 + ki];
+            int16_t v = t->p[pi];
             const char *unit = d->unit ? d->unit : "";
             if (d->fmt == F_TIME)
                 fui_fmt_time(val, v);
@@ -82,9 +83,9 @@ static int fhome_knob(uint32_t id, int32_t clicks)
         track_t *t = &trk[song.sel];
         const engine_t *eng = (t->eng_req < NENGINES) ? ENGINES[t->eng_req] : 0;
         if (!eng) return 0;
-        uint32_t ki = eng->knob[id - 1];
-        uint32_t pi = P_E0 + ki;
-        const param_desc_t *d = &eng->edit[ki < 8 ? ki : 0];
+        uint32_t pi = eng->knob[id - 1];
+        uint32_t ei = (pi >= P_E0 && pi < P_E0 + 8) ? pi - P_E0 : pi;
+        const param_desc_t *d = &eng->edit[ei < 8 ? ei : 0];
         int16_t v = t->p[pi] + (int16_t)(clicks * 4);
         if (v < d->min) v = d->min;
         if (v > d->max) v = d->max;

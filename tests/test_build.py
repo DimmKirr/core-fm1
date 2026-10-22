@@ -60,3 +60,26 @@ def test_unimplemented_subsystem_is_rejected(tmp_path, monkeypatch):
     (tmp_path / 'config.h').write_text('#define CONFIG_AUDIO 1\n')
     with pytest.raises(SystemExit, match='Not integrated yet: AUDIO'):
         build.build(dry_run=True)
+
+
+def test_engine_tables_generated(tmp_path):
+    """gen_engine_tables.py produces valid fe_tables.h with expected symbols."""
+    import subprocess
+    dst = tmp_path / 'fe_tables.h'
+    r = subprocess.run(
+        [sys.executable, str(ROOT / 'tools' / 'gen_engine_tables.py'), str(dst)],
+        capture_output=True, text=True, cwd=str(ROOT))
+    assert r.returncode == 0, r.stderr
+    content = dst.read_text()
+    for sym in ('SINE', 'PITCH_OCT', 'pitch_inc', 'SVF_G', 'TANH_Q15', 'FS', 'CTL'):
+        assert sym in content, f'{sym} not found in fe_tables.h'
+
+
+def test_engines_without_audio_passes_dry_run(tmp_path, monkeypatch):
+    """CONFIG_ENGINES without CONFIG_AUDIO should not be rejected."""
+    monkeypatch.setattr(build, 'GEN', tmp_path)
+    (tmp_path / 'config.h').write_text(
+        '#define CONFIG_ENGINES 1\n'
+        '#define CONFIG_ENGINE_NOISE 1\n'
+        '#define CONFIG_HAL_SYS_MELODEE 1\n')
+    build.build(dry_run=True)

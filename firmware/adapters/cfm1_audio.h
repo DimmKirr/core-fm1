@@ -94,6 +94,10 @@ static song_t song;
  * When audio is off, provide a minimal stub so UI pages compile. */
 
 #ifndef CONFIG_AUDIO
+
+/* When real engines are compiled (CONFIG_ENGINES), engines.c provides
+ * ENGINES[] and NENGINES. Otherwise, provide a mock for the UI. */
+#ifndef CONFIG_ENGINES
 static const engine_t _eng_mock = {
     .name       = "ANALOG",
     .page_title = {"SYNTH 1", "SYNTH 2"},
@@ -114,17 +118,19 @@ static const engine_t _eng_mock = {
 static const engine_t *const ENGINES[] = { &_eng_mock };
 #undef NENGINES
 #define NENGINES 1
+#endif /* !CONFIG_ENGINES */
 
 static void cfm1_mock_init(void)
 {
-    uint32_t k, e;
+    uint32_t k;
     song.bpm = 120;
     song.playing = 0;
     song.sel = 0;
     for (k = 0; k < NTRK; k++) {
+        uint32_t e;
         trk[k].eng_req = 0;
         for (e = 0; e < 8; e++)
-            trk[k].p[P_E0 + e] = _eng_mock.edit[e].def;
+            trk[k].p[P_E0 + e] = 0;
         trk[k].p[P_ATK]   = 10;
         trk[k].p[P_DEC]   = 40;
         trk[k].p[P_SUS]   = 80;
@@ -153,10 +159,11 @@ static void cfm1_mock_init(void)
     trk[0].step[6].note[0] = 72;
     trk[0].step[6].vel = 110;
 }
-#else
+
+#else /* CONFIG_AUDIO */
 #ifndef NENGINES
 #define NENGINES 1
 #endif
-#endif
+#endif /* CONFIG_AUDIO */
 
 #endif /* CFM1_AUDIO_H */
