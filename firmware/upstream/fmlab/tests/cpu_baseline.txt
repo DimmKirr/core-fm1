@@ -1,0 +1,592 @@
+FM Lab -- audio ISR load, measured on the device
+================================================
+
+How
+---
+Flash the build (PK starts at zero with the FM-1), select a voice, then:
+
+    python tools/load_test.py            # 1, 2, 4, 6, 8 notes held, 10 s each
+
+Read CPU (smoothed) and PK (worst single block) off the bottom of the screen.
+Both are a percentage of the budget: the ISR must render HALF_FRAMES (256) before
+the DMA plays them, which at FS 44100 is 5804 us. Over 100 % means it cannot keep up.
+
+Measured
+--------
+2026-10-11, FM-1 hardware, FM-1_970, DX_LG_N 6, NV 8, voice 6 BRASS
+(algorithm 22, all six operators sounding, four carriers, sustains while held --
+the worst case among the factory voices):
+
+    8 notes held     CPU ~26 %     PK 33 %
+
+So roughly 3.3 % of the ISR budget per six-operator voice, and eight voices leave
+about three quarters of the budget unused. No red line, no shed voices, no glitching.
+
+This agrees with sloopDX, which measured 65 % for 14 voices that each also carry a
+filter and an amp envelope (14 x 3.3 % = 46 % for the FM alone, the rest theirs).
+
+Editing while it sounds (step 3)
+--------------------------------
+Same day, same voice, with the parameter editor in. A knob detent copies the 156
+bytes, publishes them, and makes the ISR run dx_update over every sounding voice,
+so the worst case is eight notes held while a knob is spun as fast as it will go:
+
+    8 notes held                     CPU 26 %   PK 32 %
+    8 notes + LEVEL spun hard        CPU 26 %   PK 32 %
+    8 notes + ALGORITHM spun hard    CPU 26 %   PK 33 %
+
+Editing is free, to within the resolution of the meter. That is the point of
+dx_update: it recomputes the operator rates and levels but leaves every phase and
+envelope where it stood, so it is a few hundred cycles per voice and never a
+retrigger. Spinning ALGORITHM costs the extra 1 % because it also re-reads which
+operators are carriers.
+
+Drawing while it sounds (step 4)
+--------------------------------
+Same day, same voice. Step 4 added the two live drawings and raised CV_MAX from
+240x64 to 240x136, so this is the measurement that matters most:
+
+    8 notes held, HOME page        CPU 26 %   PK 33 %
+    8 notes held, ENVELOPE page    CPU 26 %   PK 33 %
+
+Nothing moved, and nothing clicked. HOME re-blits only the six operator boxes
+(~1.3 k pixels each) about 16 times a second; ENVELOPE redraws the whole 240x72
+graph at the same rate and is the more expensive of the two, yet neither is
+visible in the meter.
+
+The reason is structural rather than lucky: all drawing happens in app_main, and
+CPU/PK measure the audio ISR, which pre-empts it. Painting can only hurt the
+audio by stealing memory bandwidth from the ISR or by holding it off, and a 1 %
+move in PK is the size of that effect. The headroom the UI actually spends is the
+main loop's, which has no deadline. The number to watch would be the frame rate,
+not CPU -- and the drawing stays smooth.
+
+Switching operators off while it sounds (step 5)
+------------------------------------------------
+8 notes held, operators switched off and soloed, sides flipped: CPU 26 PK 32.
+Unchanged again, and for a simpler reason than step 4's: the mute mask is applied
+in patch_publish, which runs once per changed parameter, not once per block. By
+the time the ISR sees the voice it is an ordinary 156 bytes with some zeroes in
+it, and dx_update costs the same whatever those bytes say. A switched-off
+operator still runs -- its envelope floors at 16<<16 and it multiplies through at
+nothing. Not free in principle, but free in the meter, and keeping it running is
+what lets it come back mid-note without a click.
+
+Saving, and .syx in and out (step 6)
+------------------------------------
+2026-10-11, same hardware, voice 6 BRASS, 8 notes held: CPU 26 PK 33. Unchanged.
+A bank sent in and dumped back out while the chord sounded did not move either
+number. The bank costs nothing per block -- it is 4 KiB of RAM the ISR never
+reads, and load_voice touches the voice once, the same as turning PRESETS always
+did.
+
+Two things here are not free, and both are deliberate:
+
+  - bank_store writes flash: two fl_erase4k calls at roughly 50 ms each with
+    interrupts off, so about 100 ms of silence on a save. Nothing can be done
+    about that -- the chip cannot fetch instructions from flash while it is being
+    programmed -- so it is made visible instead: it happens only on a SAVE you
+    pressed twice, and the screen says SAVED.
+  - a bulk dump arriving is 4102 bytes assembled in the USB ISR a few at a time,
+    then unpacked in the main loop. The main loop has no deadline, and the per-
+    byte work in the ISR is a bounds check and a store. PK did not move.
+
+A note for anyone writing their own librarian: sending a 4104-byte dump back is
+fine on the device -- ota_wire_send queues 3 bytes per USB-MIDI packet and the
+2 kHz TIMER5 ISR drains 16 packets a go, so the whole bank clears in well under
+100 ms -- but RtMidi on Windows gives WinMM only 4 x 1024 bytes of SysEx input
+buffer and drops a longer message with no error at all. The device says BANK SENT
+and nothing arrives. tools/syx.py talks to WinMM directly for that reason.
+
+RAM went from 17064 to 24712 bytes of 98304: sx_frame grew 640 -> 4160 to hold a
+bulk dump, and bankmsg is 4104. Image 103112 -> 105484 of 581564. Both still
+comfortable.
+
+The panel tweaks
+----------------
+Image 105484 -> 105988 -> 106904 of 581564, RAM 24712 -> 24728 -> 24760 of
+98304, over the two panel commits. Nothing in either touches the audio path per
+sample, and the measured 26 % / PK 33 % on voice 6 BRASS with eight voices is
+unchanged.
+
+Mono mode uses one voice, so the figure there is roughly an eighth of the poly
+one. It is not a number to tune against: measure in poly, which is the worst
+case.
+
+The spectrum
+------------
+Image 106904 -> 107516 -> 109464 of 581564, RAM 24760 -> 24776 -> 30648 of 98304,
+over the naming and spectrum commits. The spectrum's RAM is the ring, the
+twiddles, the window and the two column arrays, 5874 bytes; its 8 KB of FFT
+workspace is in the pool, 65280 -> 73472 of 344064.
+
+The measured figure on voice 6 BRASS with eight voices is 26 % / PK 33 % with
+the spectrum screen up and playing -- unchanged. That is not quite the result it
+looks like, because the meter only times app_audio: the only thing the analyser
+adds to the ISR is sp_feed, a store and an increment, and the transform itself
+runs in the main loop where the meter cannot see it.
+
+So the cost of this screen has to be judged the other way, by whether the panel
+still answers. A 1024-point FFT is 5120 butterflies, once every 60 ms, which is
+small; the thing that is not small is the blit. The plot is 240 x 136 and it goes
+to the screen sixteen times a second, by far the most screen traffic this
+firmware has ever pushed. lcd_blit is asynchronous and cv_begin waits on it, so
+the transform for the next frame overlaps the last frame's DMA -- but if the DMA
+ever took longer than the frame, the main loop would stall in cv_begin and the
+keys would go with it. On the hardware it does not: nothing feels slow. If a
+later change makes it feel slow, the first thing to try is drawing it less often.
+
+To measure anything that you cannot watch the meter during, switch the FM-1 on
+(PK starts at zero), do the thing, then go to GLOBAL and read it: PK holds until
+the power goes, and GLOBAL is the only page the meter is on now. FX used to clear
+it; the filter has that button now.
+
+The knob legend
+---------------
+image 109668 B, RAM .data+.bss 30648 B, pool 73472 B. 28 bytes of image over the
+spectrum build, no RAM at all: the names are const strings in the four parameter
+tables and the strip is one 240x16 canvas blit.
+
+It is drawn once, from the same block that clears the screen on a page or bank
+change, because that is exactly when its contents change -- not on the 60 ms tick.
+So it costs nothing while you are playing. The audio ISR cannot see it either
+way; the meter read the same 26 % / PK 33 % after it as before.
+
+Six characters is the width of a cell (FONT_S advances 8, cells are 60 wide, and
+3 px of margin either side of the rules at x 60 / 120 / 180). The param_t `knob`
+field holds the short name, or 0 to use the long one when it already fits.
+
+The operator boxes
+------------------
+image 109708 B, RAM .data+.bss 30648 B, pool 73472 B. 40 bytes over the knob
+legend, no RAM. 26 % / PK 32 % on the hardware, which is the same as before it
+within the noise of reading the meter twice.
+
+The boxes already redrew every 60 ms to brighten with level, so filling them
+instead costs nothing new in the main loop. The patch each box blits grew from
+(bw + 6) x (bh + 6) to (bw + 13) x (bh + 6) so that the feedback bracket is
+inside it -- about 10 KB of pixels a second across all six, against the 520 KB
+a second the spectrum screen moves. It is the cheapest of the three drawings.
+
+The width is clamped to the column pitch, so a box can never blit over its
+neighbour however tight the algorithm packs them. Algorithm 32, six carriers
+abreast, is the worst case and tests/levels.txt holds it there.
+
+Ratio, and the parameters that are hidden
+-----------------------------------------
+image 111260 B, RAM .data+.bss 30648 B, pool 73472 B. 1552 bytes over the
+operator boxes, no RAM. The meter is untouched: none of this is in app_audio.
+
+Most of those bytes are the ratio list, the two decade tables and the string
+work to print "x4.50" and "3162HZ" without floating point. Forty of them are
+the decade tables, which are two tables of ten rather than one of a hundred --
+10^(f/100) factored as 10^(f/10) x 10^(f%10/100), both in Q12. That costs one
+extra multiply and one rounding, worth 0.015 % against an exact table, and
+saves 160 bytes.
+
+Two things here are per-frame rather than per-edit and so worth watching. A
+page is no longer an array that a bank indexes: page_at() walks the table
+skipping what SHOW ALL is hiding, and it is called four times a frame to decide
+what to draw and once more per knob that moved. The table is thirteen entries
+long, so the walk is bounded at thirteen comparisons -- call it two hundred a
+second, against the 520 000 pixels a second the spectrum moves. It does not
+register.
+
+The other is rat_index(), which finds where an operator sits in the list by
+walking all thirty-seven entries and doing a multiply and a divide at each. It
+runs once per frame for the bar under RATIO, and once per click. Also nothing,
+but it is the one thing here that would grow if the list did, and the obvious
+fix -- the list is sorted, so a binary search -- is not worth writing until the
+list is long enough to need it.
+
+The knobs on HOME
+-----------------
+image 111932 B, RAM .data+.bss 30664 B, pool 73472 B. 672 bytes over ratio, and
+16 of RAM -- the twenty-byte buffer the voice line's message is built into,
+rounded up. The meter is untouched again: nothing here is in app_audio.
+
+A knob turned on HOME does exactly what a knob turned on a parameter page does
+-- write one byte of the 156 and publish them -- plus build a short string and
+hand it to say(). That is the same work the save prompt already did a letter at
+a time. The legend is redrawn only when its key changes, which on HOME is the
+set number, so stepping SEL costs one 240x16 blit and holding a knob costs none.
+
+The span moving off KNOB1 and onto GLOBAL took the one special case out of the
+knob loop, so HOME's two screens now run the same code. That is worth more than
+the bytes it saved.
+
+What it means
+-------------
+NV 8 was chosen to be safe and is nowhere near the limit; the headroom is better
+spent on what the instrument is for (drawing envelopes, the algorithm, operator
+levels) than on more voices. Step 4 spent some of it and cost nothing measurable.
+
+Watch this number again after:
+  - raising NV
+  - raising CV_MAX / drawing more per frame (the UI steals memory bandwidth, and
+    at some point the main loop stops keeping up even if the ISR does)
+  - anything per-sample added to app_audio
+  - DX_LG_N changed from 6 (smaller blocks cost more per sample)
+  - anything that makes a knob detent do more than publish 156 bytes
+  - say() being called from somewhere that repeats (it is cheap once, and the
+    voice line redraws on every message)
+
+
+ADSR
+====
+
+The envelope page gained a bank that says the DX7's eight envelope bytes as the four knobs every
+other synth has, and a bank stopped being a fixed number of rows so that bank could be one row of
+four cells instead of two rows of one.
+
+  image   112112 B -> 112524 B   (+412)
+  RAM     30664 B                (unchanged)
+  cpu     unchanged
+
+The +412 is the three bank helpers that replaced the stride arithmetic, the four-cell drawing, and
+the four new parameter rows. There is no audio cost at all: ADSR writes the same eight bytes the raw
+rows always wrote, and the engine never learns that anything changed. The drawing cost moved rather
+than grew -- the graph is 104 pixels tall on the ADSR bank instead of 72, which is 7680 more pixels
+to blit sixteen times a second, but the two parameter rows it replaced were 15360 pixels between
+them. cpu_q8 does not see either, as ever; both are blit bandwidth, not audio.
+
+
+FOCUS
+=====
+
+EDIT and ENV learned the difference between a tap and a hold. A hold is the page they always were; a
+tap leaves HOME on the screen and lends that page's first rows to the four knobs. SHOW ALL came out
+at the same time -- there is no longer a wall between the parameters worth reaching for and the rest,
+because a tap reaches the first three without leaving the sound.
+
+  image   112524 B -> 113232 B   (+708)
+  RAM     30664 B                (unchanged)
+  cpu     unchanged
+
+Removing SHOW ALL gave back more than it looks: the adv flag was a byte on every one of the sixty-odd
+parameter rows and a filter in front of every page lookup, so page_n and page_at went back to plain
+indexing. The +708 is net of that -- the long-press timing, the two focus tables, focus_at, p_turn,
+op_point, say_param and draw_home_title, less what SHOW ALL cost.
+
+No audio cost. A focused knob turn goes through exactly the same p_turn as a knob turn on the page,
+which is the reason it was factored out, and it publishes the same 156 bytes. Drawing is cheaper than
+a page, not dearer: the title is 240x32 and the legend is already redrawn on any page change.
+
+Watch this number again after:
+  - the fourth EDIT cell gaining a WAVE parameter
+  - LONG_MS being changed (400 ms is comfortably past a deliberate tap and comfortably
+    short of a wait, but it has only been judged by one pair of hands)
+
+ENVELOPES IN THE BOXES
+----------------------
+The operator boxes on HOME filled from the left already, and that fill was only ever worth anything
+while a note was sounding. The gap was the screen you are actually looking at while you edit: nothing
+playing, and six empty outlines. So the operator the knobs are on draws its envelope instead.
+
+It gets the picture for free. eg_target() already folds the operator's output LEVEL into every
+segment target -- which is why the ENVELOPE page's curve rises and falls as you turn LEVEL -- so the
+same curve shows level and shape together with no new meaning invented, and the axes stop fighting
+(x is time, y is level, exactly as on the page). The maths was pulled out of draw_eg into eg_shape(),
+parametrised by width and hold, so the page and the thumbnail cannot drift apart.
+
+  image   113232 B -> 114060 B   (+828)
+  RAM     30664 B -> 30712 B     (+48)
+  cpu     unchanged
+
+The +48 is the cache: five x, five levels, and a checksum. A checksum rather than a dirty flag,
+because `edit` is written from a dozen places and a checksum cannot go stale -- it is a hash of the
+selected operator's twenty-one bytes plus the box width plus which operator it is. alg_eg_build()
+runs at the top of both draw_alg and draw_alg_levels, and draw_alg_levels runs sixteen times a
+second, so the check has to be the cheap path and the rebuild the rare one.
+
+No audio cost at all: this is drawing. The rebuild itself walks eight envelope segments in integer
+arithmetic and only happens on a knob turn or a voice load.
+
+Only one box is ever a curve. The other five stay bars, which is what makes the curve read as "this
+is the one you are editing" without a second cue -- and it is why the cost is five values and not
+thirty.
+
+Watch this number again after:
+  - non-sine operators (the shape of the wave would want to show in the box too)
+  - any new page that wants eg_shape() at a third size
+A CLICK IS WORTH FIVE
+---------------------
+Crossing a 0..99 byte was a hundred clicks of wrist, which is the right resolution for landing on a
+value and the wrong one for finding out what is at the other end of a range -- and the second is
+most of what you do while you are still learning what a parameter does. So a click is worth five,
+and SEL held is the fine-adjust shift that gives the single step back.
+
+Only the 0..99 bytes, which is p->max == 99 and nothing cleverer. Everything else is a list of
+choices rather than a range -- 32 algorithms, the ratio list, the curves, the switches, DETUNE,
+TRANSPOSE -- and one click is already one meaningful thing there. p_step() is the whole rule.
+
+Every knob read goes through knob_take(e, step), so there is one place the shift can be applied
+and one place to get it wrong. ALGORITHM and SELECT have their own encoders and do not go through
+it at all.
+
+  image   114060 B -> 114268 B   (+208)
+  RAM     30712 B                (unchanged)
+  cpu     unchanged
+
+SEL's own job moved to the release edge, because while it is down it is the shift and a knob
+turned under it has spoken for the press. That is the only way the two can share a button without
+a reach for a precise value also stepping the bank every time. The legend is repainted on both
+edges so the lilac names say when the fine step is live; it is a 240x16 blit and it already
+happens on every page change.
+
+This rescaled four test scripts that had been clicking raw units -- home, env, focus and operators
+all drive a parameter to a known number by counting clicks, and those counts are now a fifth of
+the values they land on. The scripts say so where they do it.
+
+Watch this number again after:
+  - any new parameter whose range is 0..99 but which is really a list (there are none today)
+  - SEL growing a third job
+
+TWO CORNERS
+-----------
+A battery cell top left and the HOME pips top right, in the sixteen-pixel band above everything
+else. The band was already free: HOME's banner clears from y 18 down and every page title draws
+at y 24, so nothing had to move to make room.
+
+  image   114268 B -> 114784 B   (+516)
+  RAM     30712 B  -> 30744 B    (+32)
+  cpu     unchanged -- this is a 240x16 blit, not audio
+
+The 32 bytes are the battery's smoothing accumulator and the corner signature. The redraw is
+cached behind that signature, so the blit happens only when a bar, a hue or a pip actually
+changes -- which on battery is a handful of times an hour, and while charging is once every
+600 ms for the animation.
+
+The battery read rides along with the MASTER pot in the existing poll, smoothed by an IIR with
+a divisor of 32 because the whole charge span is only about sixty ADC counts and the raw value
+wanders by several. Thresholds 531/561/591 come from dxsloop, measured on real hardware; they
+are credited in the source rather than re-derived, because the divider and the ADC reference
+are both undocumented and there is nothing to derive them from.
+
+Watch this number again after:
+  - a third HOME bank (the pips are drawn from HOME_NBANK and will follow, but the right
+    margin is hand-placed at x 218 to match the battery's 6 px on the left)
+  - anything else wanting the top band, which is now spoken for
+
+THE GLOBAL ENVELOPE
+-------------------
+One linear ADSR over the whole voice, after the operators and before the mix.
+This is the first thing in this firmware that is genuinely per-sample, and it is
+the first entry here where the meter moves.
+
+  image   114784 B -> 117128 B   (+2344)
+  RAM     30744 B  -> 31064 B    (+320)
+  cpu     26 % / PK 33 %  ->  29 % / PK 33 %   while the envelope is active
+
+2026-10-14, FM-1 hardware, FM-1_970, voice 6 BRASS, 8 notes held, measured by the
+user on the device.
+
+Three points of CPU for a multiply and an add per sample per voice, and PK did
+not move at all. The arithmetic is deliberately int32 throughout --
+
+    mono[i] += ((one[i] >> 8) * (g >> DX_LG_N)) >> 4;
+
+-- with the gain carried as Q12 shifted up by DX_LG_N so the per-sample ramp step
+divides without a division. one[i] reaches +/- 33.5 M, so >> 8 leaves 18 signed
+bits and x 4096 is 31: no int64 anywhere in the block loop. The 8 bits of
+precision given away sit at 1/64 of an output LSB.
+
+The gain is interpolated across the block rather than stepped at the block edge,
+because a block is 1.45 ms and a step every 1.45 ms is audible on a fast attack.
+That is the add; the multiply is the cost.
+
+The qualifier is the whole design. genv_idle() -- attack 0, sustain 99, release
+OFF, which is where it starts -- skips the branch entirely and runs the original
+dx_compute(&dxv[v], mono, 0) straight into the mix, so an instrument nobody has
+touched this on reads the 26 % it always read. You pay the 3 % when you ask for
+it. On a device where the meter is itself a feature, that mattered more than the
+three points did.
+
+The +2344 of image is mostly two 100-entry tables (GMS and GSTEP, 600 bytes),
+draw_geg, and the K_MS / K_MSO / K_MSR printing. The +320 of RAM is genv[8] at
+64 bytes and the second DX_N scratch buffer, one[64], at 256.
+
+A trap, recorded because it cost an hour and would cost it again
+----------------------------------------------------------------
+GSTEP is a Q24 gain step per render block, so generating it needs the block
+duration. dx7_core.c sets DX_LG_N 5; fmlab.c redefines it to 6 just above the
+tables. Generated against 32 samples instead of 64, every time came out exactly
+twice what the screen said -- and nothing caught it. The graph was right, the
+cells were right, the knob felt right, and all four audio checks passed because
+every one of them was a ratio. It was found only by instrumenting the ramp and
+comparing it against a wall clock.
+
+Two lessons worth keeping: a table generated from a #define should name the
+#define in the comment above it (this one now does), and a suite of purely
+relative measurements cannot tell you that an absolute scale is wrong.
+
+Watch this number again after:
+  - NV rising (the per-sample cost is per voice, so it scales with voices, not
+    with notes)
+  - DX_LG_N changing from 6 again -- it would silently rescale every time in
+    GSTEP, and the firmware would look and feel entirely correct
+  - anything else per-sample joining app_audio: this is the first, and the 3 %
+    is the price of the first one. A filter would be the second.
+
+
+The LFO page, its picture, and A M SENS under a tap
+---------------------------------------------------
+No change to the audio path: the LFO was always running, and the picture reads
+dxv[].lfo from the UI loop, never the ISR. Image 118868 B (+1352 over the
+global envelope's build), almost all of it draw_lfo_plot and its two helpers.
+RAM unchanged at 31064 B.
+
+Two engine facts the tests had to learn the hard way, kept here because they
+are not in the code's own comments at the point where they bite:
+
+  - DX_AMS_PT[0] is 198789, not 0 (dx7_tables.h, applied in dx7_core.c's AM
+    path). Any operator with A M SENS above zero loses a constant ~11.5 % of
+    level even at AMP MOD 0, because the table lookup lands on that entry
+    rather than on unity. Faithful to Dexed; tests/lfocheck.py pins it at
+    0.80..0.95 of the reference note so that it cannot drift unnoticed.
+  - p_step() gives a click of 5 only to 0..99 bytes. A M SENS (max 3), WAVE
+    (max 5) and every list move 1 per click, so a script that turns them must
+    count in ones.
+
+And one measurement fact: 10 ms RMS windows hear the partials beating (+-8 %)
+as much as an ~8 Hz LFO, and 120 ms windows hide the LFO completely. 10 ms
+windows averaged three at a time separate a modulated note from a steady one
+by about 70x. Any future check on a slow modulation should start there.
+
+
+The filter
+----------
+The second per-sample thing in app_audio, as the global envelope's entry said it
+would be: one state-variable filter on the finished mono sum, after the DC
+blocker and before the spectrum's tap.
+
+  image   118868 B -> 122536 B   (+3668)
+  RAM     31064 B  -> 31128 B    (+64)
+  cpu     29 % / PK 33 %  ->  30 % / PK 36 %   with the filter and the global
+          envelope both on
+
+2026-10-15, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+One point, because it runs once per sample on the sum rather than once per
+voice: five int64 multiplies and a clamp, the same whether one note sounds or
+eight. TYPE OFF skips it entirely and zeroes the two integrators, so an
+instrument with the filter off reads what it read before.
+
+The coefficients need a division, so they are worked out in the main loop by
+flt_sync() only when one of the three bytes moves, and handed to the ISR in a
+double buffer flipped by a volatile index -- the pbuf idea again. The division
+is 2^54 / d, and RULES.md forbids 64-bit division, so udiv64_32 is a 64-step
+shift-subtract by hand. It runs once per click; nothing in the ISR divides.
+
+The +3668 is mostly the five tables (tan(pi f / fs) and 1/Q in Q28, the Hz
+labels, log2 tan in Q12 for the plot, and a 17-entry exp2), draw_flt_plot and
+the response arithmetic. The +64 of RAM is the coefficient double buffer and
+the two integrators.
+
+A trap, recorded because it hung the host build: sp_log2_q8 finds the top bit
+with `while (x >> (p + 1u))`, which never ends for an x with bit 31 set --
+x >> 32 is undefined in C and is x on x86. lg64 reduces below 2^31 before
+calling it for that reason. Anything else that borrows sp_log2_q8 must too.
+
+Watch this number again after:
+  - the filter moving inside the voice (it would then cost eight times this)
+  - CUT or RESO gaining modulation that recomputes the coefficients often:
+    flt_sync is cheap per call but not per sample
+
+
+Operator waves
+--------------
+Eight shapes per operator, TX81Z-style, in bits 4-6 of packed byte 11. SINE
+keeps Dexed's own inner loop, untouched; any other wave takes a second loop
+that calls dx_wave() per sample, a switch on the wave and one table read.
+
+  image   122536 B -> 123568 B   (+1032, with the FX tap moving to the spectrum)
+  RAM     31128 B  -> 31204 B    (+76: six wave bytes per voice, and the
+                                  six-byte longer edit buffers)
+  cpu     30 % / PK 36 %   all sines, filter on: unchanged, as the 15 suites'
+                           WAVs being bit-identical said it would be
+          40 % / PK 50 %   non-sine operators sounding, filter on
+
+2026-10-15, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+The cost is per operator that is not a sine, per voice, so a patch using one
+pays a fraction of what a patch using six does. The 40/50 was with several.
+Headroom is still there; if it gets tight, the obvious saving is to give each
+wave its own loop rather than switching per sample, or to fold the shapes
+into lookup tables the size of DX_SINTAB.
+
+The FX tap now runs the spectrum's FFT from the diagram screen as well, so the
+filter's curve is always drawn over the sound. That is the same cost the
+spectrum screen always had, and it measured 30 / 36 with the filter on.
+
+Watch this number again after:
+  - patches that use non-sine waves on all six operators across eight voices
+  - any wave that needs more than a table read and a shift
+
+
+The waveform screen
+-------------------
+HOME's third screen: the spectrum's tap drawn as amplitude against time,
+triggered on the note. No new buffer: the ring is copied into sp_re, which the
+FFT is not using while this shows.
+
+  image   123568 B -> 124508 B   (+940)
+  RAM     31204 B  -> 31204 B
+  cpu     30 % / PK 37 %   with the waveform showing, filter on
+
+2026-10-15, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+The ISR side is the spectrum's: one store per sample into the ring while the
+screen shows. The main loop copies 1024 samples, finds the trigger, and draws
+240 columns about 16 times a second -- less than the FFT does, so it reads
+the same as the spectrum.
+
+
+Effects, and the filter on the spectrum
+---------------------------------------
+Chorus, phaser, delay and reverb on the finished sound, after the filter.
+Each is skipped entirely at MIX 0. Their delay lines are in the pool: 1 KB
+chorus, 64 K samples of delay, 8 K of pre-delay, and the reverb's four lines
+and four diffusers in Q8 int32 -- about 185 KB, with 81 KB of pool to spare.
+
+  image   124508 B -> 129344 B   (+4836)
+  RAM     31204 B  -> 31524 B    (+320)
+  pool    73472 B  -> 262760 B   of 344064
+  cpu     44 % / PK 50 %   all four effects on, filter on, spectrum showing
+
+2026-10-16, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+The reverb is most of it: per sample, four diffuser allpasses, four lines
+each with a damping one-pole, a 4x4 Hadamard and four int64 gain multiplies.
+If it gets tight, the diffusers can go to two, or the reverb can run at half
+rate with its lines halved.
+
+Watch this number again after:
+  - anything else added to the ISR while the effects are on
+  - a longer reverb (more lines) or a stereo phaser
+
+
+Arpeggiator, looper, step view
+------------------------------
+One clock of sixteenths in the ISR, the arpeggiator on its own swung clock
+beside it, the looper's 64 notes walked once a step, and a click mixed in
+after the effects. The step view is all main loop.
+
+  image   129344 B -> 136484 B   (+7140)
+  RAM     31524 B  -> 32692 B    (+1168)
+  cpu     40 % / PK 50 %   ARP/SEQ split build, effects on
+  cpu     37 % / PK 47 %   with ARP page 2 and the step view
+
+2026-10-18, FM-1 hardware, FM-1_970, measured by the user on the device.
+
+The clock costs nothing that shows: the readings moved down, not up, which
+is the difference in what was sounding when they were taken.
+
+HOME's FEEDBK knob, SEL's free ratio, PIT and the pitch envelope's switch,
+F#5 as a note on plain HOME. The pitch envelope's switch is one compare a
+sample; the rest is main loop.
+
+  image   136484 B -> 139404 B   (+2920)
+  cpu     41 % / PK 47 %   with the pitch envelope page
+
+2026-10-18, FM-1 hardware, FM-1_970, measured by the user on the device.

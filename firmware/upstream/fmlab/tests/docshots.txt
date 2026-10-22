@@ -1,0 +1,55 @@
+# FM Lab -- the screenshots in docs/, taken from the firmware itself so they cannot drift from it.
+#
+#   tests/run_host.sh tests/docshots.txt     then   python3 tools/docshots.py
+#
+# Shots, in order: the spectrum (docs/spectrum.png), the diagram (screen.png), the scope, the
+# envelope, a solo, the save prompt. tools/docshots.py copies them into docs/ under those names.
+
+# BRASS as it comes, on HOME's second screen: the spectrum of a held C4.
+0 enc 6 5
+200 btn 8
+500 keys 0x80
+1300 shot
+1500 keys 0
+1700 btn 8
+1800 btn 8
+
+# Now algorithm 16 (one carrier, three branches), so the diagram has something to show.
+2000 enc 1 -6
+
+# HOME, a note held: every box part filled with how loud that operator is right now.
+2400 keys 0x80
+2800 shot
+
+# HOME twice more: the scope, the same note.
+3000 btn 8
+3100 btn 8
+3600 shot
+3800 keys 0
+4000 btn 8
+
+# ENV held: the ENVELOPE page, OP3, past ADSR and segment 1 to rate 2 and level 2, a note on its way.
+4300 btn 4 600
+5100 keys 0x20
+5200 keys 0
+5400 enc 0 2
+5600 keys 0x80
+6300 shot
+6500 keys 0
+
+# A tap of EDIT, OP2, and a hold of SEL: OP2 soloed, a modulator, so nothing reaches the output.
+6900 btn 8
+7100 btn 6
+7300 keys 0x08
+7400 keys 0
+7600 btn 3 600
+8500 shot
+8700 btn 3 600
+
+# SAVE from plain HOME, once the voice line has stopped saying ALL OPS ON, the cursor on letter four.
+11000 btn 8
+11300 btn 9
+11500 enc 0 3
+11800 shot
+12000 btn 8
+12300 end

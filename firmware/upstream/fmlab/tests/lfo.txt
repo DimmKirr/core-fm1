@@ -1,0 +1,114 @@
+# FM Lab -- the LFO: one page of things there is one of, one knob of the thing there are six of.
+#
+#   build/host/fmlab build/host/lfo tests/lfo.txt
+#
+# A depth on its own does nothing. AMP MOD is one number for the whole voice and A M SENS is one
+# per operator, and the sound only moves when both are up -- which is the single most common way
+# of concluding that a DX7's LFO is broken. The same note is played three times to prove it: with
+# the depth up and nobody listening, with both up, and with the sensitivity up and no depth. Only
+# the middle one may move.
+#
+# The split is the point of the layout, so the layout is checked as hard as the sound. Every row
+# of the LFO page belongs to the whole voice, so the black keys go on playing on both of its
+# banks. A tap of LFO on HOME gives the one number that does not -- this operator's A M SENS --
+# so there the black keys point instead, and the banner says which operator it is pointing at.
+# GLOBAL swaps that one knob for the LFO itself and puts its picture where the diagram was, and
+# any OP key brings you back. Pointing is read out of the audio, because a key that points makes
+# no sound at all.
+#
+# Algorithm 16 has a single carrier and it is OP1, so what the LFO does to OP1 it does to the
+# whole sound rather than to a sixth of it.
+0 btn 8
+200 enc 1 -99
+300 enc 1 15
+
+# ---- the page, which a hold still gets you: a picture of the LFO over three cells at a time --
+# SPEED DELAY WAVE, then P MOD A MOD PMSENS, then K SYNC
+500 btn 5 600
+1400 shot
+
+# a middling speed and no delay; then, on 2/3, no pitch mod to confuse the issue and the amplitude
+# depth at the top
+1600 enc 2 -99
+1700 enc 2 10
+1800 enc 3 -99
+1900 btn 5
+2000 enc 2 -99
+2100 enc 3 20
+2200 shot
+
+# ---- the first note, played before any black key has been touched so that nothing is decaying
+# into it: the depth is at 99 and every sensitivity is still 0.
+2300 keys 0x1
+3500 keys 0
+
+# Nothing on this page is one operator's, so the black keys are still keys. OP1's has to sound.
+3700 keys 0x2
+4300 keys 0
+4500 shot
+
+# a tap of the button whose page this is walks to 3/3: KEY SYNC on its own
+4700 btn 5
+4900 shot
+
+# ..where the black keys are still keys too
+5100 keys 0x8
+5700 keys 0
+
+# and round to 1/3, where the picture has to follow the wave it is drawing
+5800 btn 5
+6000 shot
+6100 enc 4 3
+6300 shot
+6500 enc 4 -3
+6700 shot
+
+# ---- HOME, a tap: one knob, and it is this operator's share of the LFO
+6900 btn 8
+7100 btn 5
+7900 shot
+
+# which is what makes the black keys point here
+8100 keys 0x8
+8160 keys 0
+8300 shot
+8500 keys 0x2
+8560 keys 0
+8700 shot
+
+# the carrier starts listening. A click of this one is worth one, not five: only the 0..99 bytes
+# get the coarse step, and A M SENS has four values.
+8900 enc 2 3
+9100 shot
+
+# ---- the second note: both of them up
+9500 keys 0x1
+10700 keys 0
+
+# ---- GLOBAL hands over the four the page leads with, and the same picture
+10900 keys 0x20000
+10960 keys 0
+11700 shot
+11900 enc 5 -20
+12100 shot
+
+# ..and where there is no operator for a second tap of LFO to step, so it steps the wave instead
+12300 btn 5
+12500 shot
+
+# ---- the third note: the sensitivity is up and the depth is not
+12900 keys 0x1
+14100 keys 0
+
+# an OP key brings you back off it, which is the only way back
+14300 keys 0x2
+14360 keys 0
+15100 shot
+
+# ---- and the byte that one knob wrote is the operator's own, which OPERATOR 3/4 says in its own
+# words: A M SENS RT SCL BRK PT L DEP, so the first bar has to be full.
+15300 btn 6 600
+16200 btn 6 600
+17100 btn 6 600
+18000 shot
+18500 end

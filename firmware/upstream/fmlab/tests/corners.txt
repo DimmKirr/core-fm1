@@ -1,0 +1,39 @@
+# FM Lab -- the two corners: the battery, and which of HOME's screens you are on.
+#
+#   build/host/fmlab build/host/corners tests/corners.txt
+#
+# Sixteen pixels across the top that nothing else wanted. The battery is three bars because three
+# is all the precision there is: the divider and the ADC reference are both undocumented, so the
+# thresholds are measurements, and this script drives the raw counts across every one of them.
+#
+# The pips are the other end. They are a HOME thing -- the other pages already say 1/4 in their
+# titles -- and the case worth checking is the one a signature cache gets wrong: a page change
+# clears the whole screen, so the corners have to come back by themselves.
+
+# A full battery, on HOME's first screen.
+200 shot
+
+# HOME again: the second pip, and nothing else up there moves; and again, the third.
+400 btn 8
+600 shot
+650 btn 8
+750 shot
+
+# Off to a page. The pips go, the battery stays, and both of those are after a full-screen clear.
+800 btn 6 600
+1700 shot
+
+# Down through every threshold. 591 and up is three bars, 561 two, 531 one, and under that the
+# outline turns red with nothing left in it.
+1900 batt 570
+2000 shot
+2200 batt 540
+2300 shot
+2500 batt 500
+2600 shot
+
+# And back to HOME, where the pips have to return.
+2800 batt 800
+3000 btn 8
+3200 shot
+3500 end

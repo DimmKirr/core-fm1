@@ -1,0 +1,42 @@
+# FM Lab -- the four effects, heard.
+#
+#   build/host/fmlab build/host/effects tests/effects.txt
+#
+# INIT VOICE is one sine, held at full level for as long as the key is: the plainest thing there is
+# to hear an effect on. A tap of FX puts the four MIXes on the four knobs; each effect is brought
+# in on its own, played, and taken out again, and every claim is measured in the WAV.
+200 enc 6 20
+
+# dry: what everything is measured against, and the same on both sides
+400 keys 0x80
+1400 keys 0
+
+# CHORUS, all the way in: the two sides part
+1800 btn 2
+2100 enc 2 20
+2400 keys 0x80
+3400 keys 0
+3600 enc 2 -20
+
+# PHASER, all the way in: the note swells and dips as the notches sweep through it
+3900 enc 3 20
+4200 keys 0x80
+7200 keys 0
+7400 enc 3 -20
+
+# DELAY, half in, at its 325 ms: a short note, and the same note again 325 ms later
+7700 enc 4 10
+8000 keys 0x80
+8100 keys 0
+9400 enc 4 -10
+
+# REVERB, half in: about as loud as the dry note, and a tail that dies away
+9700 enc 5 10
+10000 keys 0x80
+11000 keys 0
+13500 enc 5 -10
+
+# all four at MIX 0: the dry note again, untouched
+13800 keys 0x80
+14800 keys 0
+15200 end

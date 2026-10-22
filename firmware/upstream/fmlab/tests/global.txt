@@ -1,0 +1,94 @@
+# The global envelope: one ADSR over the whole voice, reached two ways.
+#
+# A tap of ENV focuses the knobs on an operator without leaving HOME; the A#4 black key, which the
+# panel prints GLOBAL under, swaps that operator for the envelope over all six. A hold of ENV opens
+# the ENVELOPE page, where the same key does the same thing -- and there it replaces the whole page,
+# graph and all, because the global envelope has four numbers and no raw segments underneath.
+#
+# Knob clicks are worth five here, as they are for every other 0..99 byte, so the numbers below are
+# a fifth of the values they land on.
+
+# ---- the same chord twice, before and after: the first one is the sound as it has always been,
+# because an envelope that goes straight to full and stays there is skipped outright. RELEASE sits
+# at OFF, which is where it starts: this envelope never holds a voice open, only cuts one short.
+200 keys 0x1041
+1400 keys 0
+
+# ---- the ENVELOPE page, held open
+1800 btn 4 600
+2400 shot                  # the operator envelope, as it always was
+
+# the GLOBAL key: the page becomes the global envelope's four -- switched out, which is where it
+# starts, so a tap of ENV puts it in
+2600 keys 0x20000
+2660 keys 0
+2690 shot
+2700 btn 4
+2800 shot
+
+# release the other way round: down past 1 ms is the same OFF as up past 2 s, so that getting back
+# to the setting that leaves the operators alone is one turn whichever way you were already going
+2850 enc 5 -20
+2880 shot
+2920 enc 5 20              # and back the way it came, for the shots that follow
+
+# attack up to 50, which is 45 ms, so there is a slope to see and a time to read
+3000 enc 2 10
+3200 shot
+
+# sustain down to 49, so the decay has somewhere to go
+3400 enc 4 -10
+3600 shot
+
+# an OP key takes it back to that operator, with the page it had
+3800 keys 0x8
+3860 keys 0
+4000 shot
+
+# ---- and the same from HOME, with ENV tapped rather than held
+4200 btn 8
+4400 btn 4
+4600 shot                  # ENV OP2, the diagram still there
+
+4800 keys 0x20000
+4860 keys 0
+5000 shot                  # ENV GLOBAL, the envelope in the diagram's room
+
+# attack the rest of the way up, to 80, which is 424 ms -- slow enough to hear arriving
+5100 enc 2 6
+
+# ---- the second chord, now under that attack and a decay to 49
+5200 keys 0x1041
+6400 keys 0
+
+# ---- a third chord, with RELEASE switched off its OFF. The operators are held in sustain
+# underneath the fade rather than being let go, so the knob lengthens the note instead of only
+# being able to cut it short -- which is the whole reason it is allowed to hold the engine open.
+7200 enc 2 -16             # attack back to 0, so the chord is there at once
+7300 enc 4 10              # sustain back to 99, so the fade runs its whole length
+7400 enc 5 -2              # release down to 89, which is 852 ms
+7500 shot                  # ATK 0, DEC 45MS, SUS 99, REL 852MS
+7600 keys 0x1041
+8200 keys 0                # the fade starts here
+
+# ---- a second tap of ENV, here on the global envelope, switches it out: the knobs keep their
+# places, the picture goes grey, and the chord is the patch's own again, release and all
+9500 btn 4
+9700 shot
+9800 keys 0x1041
+10400 keys 0
+
+# ..and a third puts it back, the shape it was
+11400 btn 4
+11600 shot
+11800 keys 0x1041
+12400 keys 0
+
+# ---- the same switch on the ENVELOPE page, while it shows the global envelope
+13400 btn 4 600
+14000 shot
+14200 btn 4
+14400 shot
+14600 btn 4
+14800 shot
+15000 end

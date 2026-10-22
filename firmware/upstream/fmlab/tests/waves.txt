@@ -1,0 +1,70 @@
+# FM Lab -- operator waves: the eight shapes WAVE gives an operator, heard, drawn and saved.
+#
+#   build/host/fmlab build/host/waves tests/waves.txt
+#
+# INIT VOICE is one operator, OP1, on its own as the carrier: whatever shape it is given is what
+# comes out, so each wave is played on middle C and its harmonics measured -- SINE has none, SQUARE
+# only the odd ones, SAW all of them, HALF SINE a strong second, ABS SINE nothing at the note itself.
+#
+# The screens: a tap of EDIT draws the selected operator's wave in its box, and LEVEL shrinks it; on
+# HOME, a box that is not a sine wears a small mark of its shape. And the wave is saved with the
+# voice: leave the slot, come back, and it is still a saw.
+
+# the first user slot, INIT VOICE
+200 enc 6 20
+400 shot
+
+# ---- a tap of EDIT: WAVE is the fourth knob, and OP1's box draws a sine
+600 btn 6
+900 shot
+1000 keys 0x80
+2200 keys 0
+
+# HALF SINE
+2400 enc 5 1
+2600 shot
+2700 keys 0x80
+3900 keys 0
+
+# ABS SINE
+4100 enc 5 1
+4300 shot
+4400 keys 0x80
+5600 keys 0
+
+# SQUARE, three further on
+5800 enc 5 4
+6000 shot
+6100 keys 0x80
+7300 keys 0
+
+# SAW
+7500 enc 5 1
+7700 shot
+7800 keys 0x80
+9000 keys 0
+
+# LEVEL down shrinks the drawing, and back up
+9200 enc 2 -60
+9400 shot
+9500 enc 2 60
+
+# WAVE is a ring: one past SAW is SINE, and one back from SINE is SAW
+9550 enc 5 1
+9600 shot
+9620 enc 5 -1
+9650 shot
+
+# ---- plain HOME: the bar, and the saw's mark on it
+9700 btn 8
+10000 shot
+
+# ---- save it where it is, leave the slot and come back: the mark and the sound are still a saw
+10200 btn 9
+10300 btn 9
+10600 enc 6 -1
+10800 enc 6 1
+11000 shot
+11200 keys 0x80
+12400 keys 0
+12600 end
