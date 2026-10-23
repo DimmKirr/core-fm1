@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     The web firmware builder: the builder of `make builder` (tools/builder) in the browser, its Python rules run by Pyodide.
+     docs/BUILDER-WEB.md. A thin page: the builder is the module builder.js (mountBuilder), ui.js mounts it here. Served as webapp/builder/ by web/make_site.py (data/ from tools/export_builder_web.py), which
+     puts in the shared style (web/style/optimist.css, docs/WEB-STYLE.md) and header. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Optimist builder</title>
+<meta name="description" content="Pick the features of an Optimist firmware for the M-VAVE FM-1 and see what fits.">
+<link rel="icon" href="../../icon.svg" type="image/svg+xml">
+<link rel="icon" href="../../favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png">
+<link rel="manifest" href="../../manifest.webmanifest">
+<style>/*OPTIMIST-CSS*/</style>
+<style>
+  :root { --page-w: 1240px; }
+  .o-page { padding-top: var(--sp-4); }
+</style>
+</head>
+<body class="o-ui">
+<!--OPTIMIST-HEADER-->
+<main class="o-page">
+  <h1 class="o-h1">Firmware builder for the M-VAVE FM-1</h1>
+  <p class="o-lead">Pick what goes into your firmware: the same items, rules and size estimate as <code>make builder</code>. What does not fit is shown, with by how much; you decide what to leave out.</p>
+  <div id="app"></div>
+</main>
+<script type="module" src="ui.js"></script>
+</body>
+</html>

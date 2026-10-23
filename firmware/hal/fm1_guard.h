@@ -1,0 +1,144 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* FM-1 hardware guards. Every violation raises the CPU exception (vector 1) and
+ * ends in the fault report of fm1_irq.h, so install that first.
+ *
+ *   EMU stack limit   sp outside [_ustack_lo, _sstack_top] -> EMU_MSG bit 3.
+ *                     One window for both stacks: which of EMU_SSP/EMU_USP
+ *                     the core applies to our supervisor-mode main loop is
+ *                     not known, so both get the same range.
+ *   write limits      CPU0 writes into the two 256-byte stack guard bands and
+ *                     into 0x01C7FD50..0x01C7FFFF (boot info, mailbox, vectors)
+ *                     -> DBG_MSG bit 13. The top window is armed separately
+ *                     with fm1_guard_lock_top() once every vector is
+ *                     attached; fm1_guard_unlock_top() reopens it.
+ *   bus-invalid       fetch/read/write of unmapped space (NULL page, XIP
+ *                     writes) -> DBG_MSG bits 4, 5, 16..21.
+ *   PC limit          instruction fetch outside [0x02000120, _etext] and the RAM
+ *                     code window [_rt_start, end of .ram_hot / .ram_hot2]
+ *                     -> DBG_MSG bit 12.
+ */
+#pragma once
+#include <stdint.h>
+#include "fm1_irq.h"
+
+#define FM1_X2(off) (*(volatile uint32_t *)(0x1EEE000u + (off)))
+#define FM1_WR_LIMIT_H(n) FM1_X2(0x280u + 4u * (n))
+#define FM1_WR_LIMIT_L(n) FM1_X2(0x2C0u + 4u * (n))
+#define FM1_C0_WR_LIMIT_EN FM1_X2(0x348u)
+#define FM1_C1_WR_LIMIT_EN FM1_X2(0x34Cu)                  /* (corex2 C1_WR_LIMIT_EN, the AC79 SDK's asm/csfr.h) */
+#define FM1_C1_WR_LIMIT_ERR_NUM FM1_X2(0x364u)             /* (which window a CPU1 write hit) */
+#define FM1_PC_LIMIT0_H FM1_X2(0x380u)
+#define FM1_PC_LIMIT0_L FM1_X2(0x384u)
+#define FM1_PC_LIMIT1_H FM1_X2(0x388u)
+#define FM1_PC_LIMIT1_L FM1_X2(0x38Cu)
+#define FM1_EMU_SSP_H (*(volatile uint32_t *)0x1EEF0D8u)
+#define FM1_EMU_SSP_L (*(volatile uint32_t *)0x1EEF0DCu)
+#define FM1_EMU_USP_H (*(volatile uint32_t *)0x1EEF0E0u)
+#define FM1_EMU_USP_L (*(volatile uint32_t *)0x1EEF0E4u)
+
+extern char _guard0[], _ustack_lo[], _guard1[], _sstack_lo[], _sstack_top[], _etext[];
+extern uint32_t _rt_start[], _rt_end[], _rh_end[], _rh2_start[], _rh2_end[];
+
+enum { FM1_GUARD_STACK = 1, FM1_GUARD_WRITE = 2, FM1_GUARD_BUS = 4, FM1_GUARD_PC = 8 };
+
+static void fm1__dbg_unlock(void)
+{
+    if (!(FM1_DBG_WR_EN & 1u))
+        FM1_DBG_WR_EN = 0xE7u;
+}
+
+static void fm1__dbg_lock(void)
+{
+    if (FM1_DBG_WR_EN & 1u)
+        FM1_DBG_WR_EN = 0xE7u;
+}
+
+static void fm1_guard_enable(uint32_t which)
+{
+    fm1__dbg_unlock();
+    FM1_DBG_MSG_CLR = 0xFFFFFFFFu;
+    if (which & FM1_GUARD_STACK) {
+        FM1_EMU_CON &= ~(1u << 3);
+        FM1_EMU_SSP_L = (uint32_t)(uintptr_t)_ustack_lo;
+        FM1_EMU_SSP_H = (uint32_t)(uintptr_t)_sstack_top;
+        FM1_EMU_USP_L = (uint32_t)(uintptr_t)_ustack_lo;
+        FM1_EMU_USP_H = (uint32_t)(uintptr_t)_sstack_top;
+        FM1_EMU_CON |= 1u << 3;
+    }
+    if (which & FM1_GUARD_WRITE) {
+        FM1_WR_LIMIT_L(0) = (uint32_t)(uintptr_t)_guard0;
+        FM1_WR_LIMIT_H(0) = (uint32_t)(uintptr_t)_ustack_lo - 1u;
+        FM1_WR_LIMIT_L(1) = (uint32_t)(uintptr_t)_guard1;
+        FM1_WR_LIMIT_H(1) = (uint32_t)(uintptr_t)_sstack_lo - 1u;
+        FM1_C0_WR_LIMIT_EN |= 3u;
+    }
+    if (which & FM1_GUARD_BUS)
+        FM1_DBG_EN |= (0x3Fu << 16) | (0x3u << 4);
+    if (which & FM1_GUARD_PC) {
+        FM1_PC_LIMIT0_L = 0x02000120u;
+        FM1_PC_LIMIT0_H = (uint32_t)(uintptr_t)_etext;
+        {   /* RAM code: .ram_text, then .ram_hot right after it, and .ram_hot2 at the start of RAM (one
+             * window over both, crt0's STATUS words between them); with none, repeat the XIP window */
+            volatile uint32_t rs = (uint32_t)(uintptr_t)_rt_start, re = (uint32_t)(uintptr_t)_rh_end;
+            volatile uint32_t r2s = (uint32_t)(uintptr_t)_rh2_start, r2e = (uint32_t)(uintptr_t)_rh2_end;
+            if (r2e > r2s)
+                re = r2e;
+            FM1_PC_LIMIT1_L = re > rs ? rs : 0x02000120u;
+            FM1_PC_LIMIT1_H = re > rs ? re - 1u : (uint32_t)(uintptr_t)_etext;
+        }
+    }
+    fm1__dbg_lock();
+}
+
+/* the PC limits wide open (X0X's fm1_guard_pc_open: a CPU1 started late goes through the chip's ROM, which they
+ * refuse); fm1_guard_enable(FM1_GUARD_PC) sets them back */
+static void fm1_guard_pc_open(void)
+{
+    fm1__dbg_unlock();
+    FM1_PC_LIMIT0_L = 0u;
+    FM1_PC_LIMIT0_H = 0xFFFFFFFFu;
+    FM1_PC_LIMIT1_L = 0u;
+    FM1_PC_LIMIT1_H = 0xFFFFFFFFu;
+    fm1__dbg_lock();
+}
+
+/* CPU1's write limits (the second-core test image, 2026-10-15: CPU1 computed wrong addresses on the FM-1 and CPU0 then
+ * crashed through a corrupted vector / stack): CPU1 may not write CPU0's RAM code (window 3, .ram_text .. .ram_hot2) nor
+ * CPU0's stacks, guard bands, .noinit and the top of RAM with the vectors (window 4, _guard0 .. 0x01C7FFFF). A write
+ * there raises DBG_MSG bit 11 (c1_wr_limit_err_r, the SDK's name): the exception holds CPU1 (hal/fm1_dual.h
+ * fm1_dual_exc_c) and CPU0 goes on; C1_WR_LIMIT_ERR_NUM says which window */
+static void fm1_guard_c1_writes(void)
+{
+    volatile uint32_t lo = (uint32_t)(uintptr_t)_rt_start, hi = (uint32_t)(uintptr_t)_rh2_end;
+    if ((uint32_t)(uintptr_t)_rh_end > hi)
+        hi = (uint32_t)(uintptr_t)_rh_end;
+    fm1__dbg_unlock();
+    FM1_DBG_MSG_CLR = 0xFFFFFFFFu;
+    FM1_WR_LIMIT_L(3) = lo;
+    FM1_WR_LIMIT_H(3) = hi - 1u;
+    FM1_WR_LIMIT_L(4) = (uint32_t)(uintptr_t)_guard0;
+    FM1_WR_LIMIT_H(4) = 0x01C7FFFFu;
+    FM1_C1_WR_LIMIT_EN |= (1u << 3) | (1u << 4);
+    fm1__dbg_lock();
+}
+
+/* write-protect 0x01C7FD50..0x01C7FFFF (boot info, mailbox, vectors):
+ * call after the last fm1_irq_attach */
+static void fm1_guard_lock_top(void)
+{
+    fm1__dbg_unlock();
+    FM1_DBG_MSG_CLR = 0xFFFFFFFFu;
+    FM1_WR_LIMIT_L(2) = 0x01C7FD50u;
+    FM1_WR_LIMIT_H(2) = 0x01C7FFFFu;
+    FM1_C0_WR_LIMIT_EN |= 4u;
+    fm1__dbg_lock();
+}
+
+/* reopen the reserved top of RAM (mailbox write before a UBOOT reset) */
+static void fm1_guard_unlock_top(void)
+{
+    fm1__dbg_unlock();
+    FM1_C0_WR_LIMIT_EN &= ~4u;
+    fm1__dbg_lock();
+}

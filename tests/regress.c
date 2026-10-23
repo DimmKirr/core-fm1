@@ -1,0 +1,1435 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Regression suite of the FELUCCA DSP on the Mac (same sources as the firmware, through hostsim.c).
+ *   build/host/regress [GOLDEN_FILE CPU_FILE]      (run_tests.sh builds and runs it)
+ *
+ * 1. golden renders: every engine x factory preset, the GM drum kit, the voice modes (POLY / MONO /
+ *    LEGATO / UNISON) of three engines, the FX sends, a 4-track sequencer mix, and the SLICER (slicer.c:
+ *    GATE / STUT on the phrase, and on the 4-track mix with the transport). Each render plays
+ *    a fixed phrase (notes, an overlap, a chord, note-offs, the release tail) and is reduced to a
+ *    64-bit FNV-1a hash of its output samples, compared with GOLDEN_FILE (tests/golden.txt).
+ *    Every render runs in its own fork()ed child of a process that never touched the DSP state, so
+ *    all state starts as at boot: the noise / RAND / unison-phase / arp seeds (libc.c rng_state,
+ *    eng_formant.c formant_nz, voice.c's unison seed), the FX buffers, the limiter.
+ * 2. health checks on every render: no sample beyond 16 bits, none near full scale, DC offset, the
+ *    peak level, every voice free after the release, silence at the end. Fails with the numbers.
+ * 3. CPU budget: per engine x preset (8 notes held; VOICE: its 4) and a few mixes, the instructions
+ *    per sample counted by the kernel (proc_pid_rusage ri_instructions: the same on every run within
+ *    ~1 %, unlike wall time), compared with CPU_FILE (tests/cpu_baseline.txt) at +-25 %; ns per
+ *    sample printed for information. A count over the budget fails, one far under it only warns.
+ * 4. voices: the shared budget of 8 across 3 parts, stolen voices fade (no step), MONO / LEGATO /
+ *    UNISON keep their note under pressure, the VOICE engine's 4-voice cap, release frees voices, and
+ *    no hanging note after the note-offs on any routing (USB channels 1..3, 10, others while the
+ *    selected track changes, the keys while the selected track changes, with ARP and the voice modes).
+ * env: GOLDEN_UPDATE=1 rewrites GOLDEN_FILE, BUDGET_UPDATE=1 rewrites CPU_FILE (on purpose: review the
+ * diff), VERBOSE=1 prints every render's numbers, JOBS=n children at once (default 8). */
+#define main hostsim_main
+#include "hostsim.c"
+#undef main
+/* the engine numbers below are UIDs (firmware/src/core/registry.h: ANALOG 0, DIGITAL 1, PHASE 2, LOFI 3, SAMPLE 4,
+ * VOICE 5, ...): ES() is the slot of a UID this build has; a render or check that needs an engine the build
+ * leaves out is not run (its golden reads "gone"; tools/builder/verify.py) */
+#define ES(u) eng_slot_built(u)
+#define EB(u) eng_built(u)
+#ifdef __APPLE__
+#include <libproc.h>
+#include <sys/resource.h>
+#endif
+
+/* ------------------------------------------------------------- limits --- */
+#define LIM_NEAR 30000            /* |sample| at or above: "near full scale" (the limiter holds ~18000) */
+#define LIM_DC 400                /* |mean| of the sounding part, 16-bit units (1.2 %; the master blocks DC) */
+#define LIM_PEAK_MIN 250          /* quieter than this (-42 dBFS): something is missing */
+#define LIM_TAIL 6                /* AC peak of the last 0.25 s, after the voices are free and the FX rang out */
+#define LIM_TAIL_DC 2             /* its constant part: the master DC blocker settles to 0 (error feedback; it
+                                   * used to leave up to +-31), what is left is the midpoint of the AC tail */
+#define FREE_CAP_S 12             /* the voices must be free this long after the last note-off */
+#ifndef TAIL_S
+#define TAIL_S 3                  /* FX tail rendered after the voices are free */
+#endif
+#define CPU_TOL 0.25              /* +-25 %, and at least CPU_SLACK instructions (light presets) */
+#define CPU_SLACK 20
+
+/* ------------------------------------------------------------ results --- */
+typedef struct {
+    uint64_t hash;
+    uint32_t frames, over, near, vmax, ok;     /* ok: a scenario's own checks passed */
+    int32_t peak, tail_peak, tail_dc, tmin, tmax;
+    double dc, free_s;                         /* free_s: s from the last note-off until all voices free, -1 never */
+    double ipc, ns;                            /* CPU: instructions and ns per sample */
+    char msg[512];
+} res_t;
+
+static res_t R;
+static uint32_t fpos, rel_at, dc_end, tail_from;
+static int64_t dcs[2];
+
+static int parts_free(void)
+{
+    uint32_t p, i;
+    for (p = 0; p < NPART; p++)
+        for (i = 0; i < NVOICE; i++)
+            if (trk[p].v[i].active)
+                return 0;
+    for (i = 0; i < NDRUM; i++)
+        if (drums.v[i].active)
+            return 0;
+    return 1;
+}
+
+static uint32_t sounding(void)                 /* part voices sounding (not the ones fading for another part) */
+{
+    uint32_t p, i, n = 0;
+    for (p = 0; p < NPART; p++)
+        for (i = 0; i < NVOICE; i++)
+            n += trk[p].v[i].active && trk[p].v[i].stage != 4u;
+    return n;
+}
+
+/* one block of the mix into the hash and the numbers */
+static int32_t last_out[2 * CTL];
+static void blk(void)
+{
+    int32_t *o = last_out;
+    uint32_t i, k;
+    mix_block(o, CTL);
+    for (i = 0; i < 2u * CTL; i++) {
+        int32_t x = o[i], a = x < 0 ? -x : x;
+        uint32_t u = (uint32_t)x;
+        for (k = 0; k < 4u; k++) {
+            R.hash ^= (u >> (8u * k)) & 0xFFu;
+            R.hash *= 0x100000001B3ull;
+        }
+        if (a > R.peak)
+            R.peak = a;
+        R.over += a > 32767;
+        R.near += a >= LIM_NEAR;
+        if (fpos < dc_end)
+            dcs[i & 1u] += x;
+        if (tail_from && fpos >= tail_from) {
+            R.tmin = x < R.tmin ? x : R.tmin;
+            R.tmax = x > R.tmax ? x : R.tmax;
+        }
+    }
+    k = busy_now();
+    if (k > R.vmax)
+        R.vmax = k;
+    fpos += CTL;
+}
+
+static uint32_t at(double s) { return (uint32_t)(s * FS) / CTL * CTL; }
+static void run_to(uint32_t f) { while (fpos < f) blk(); }
+
+/* after the last note-off (rel_at): until the voices are free, then the FX tail */
+static void finish(void)
+{
+    uint32_t cap = rel_at + FREE_CAP_S * FS;
+    dc_end = dc_end ? dc_end : fpos;
+    while (!parts_free() && fpos < cap)
+        blk();
+    R.free_s = parts_free() ? (double)(fpos - rel_at) / FS : -1;
+    tail_from = fpos + TAIL_S * FS - FS / 4u;
+    R.tmin = 0x7FFFFFFF;
+    R.tmax = -0x7FFFFFFF;
+    run_to(fpos + TAIL_S * FS);
+    R.tail_peak = (R.tmax - R.tmin + 1) / 2;
+    R.tail_dc = (R.tmax + R.tmin) / 2;
+    R.frames = fpos;
+    R.dc = (double)(llabs(dcs[0]) > llabs(dcs[1]) ? dcs[0] : dcs[1]) / (double)(dc_end ? dc_end : 1);
+}
+
+/* --------------------------------------------------------- the phrase --- */
+/* notes (with an overlap: legato / steal), a 5-note chord, note-offs, the tail. Through input_on /
+ * input_off (the keys' and MIDI's way in: a preset's ARP plays). */
+static void phrase(track_t *t, uint32_t base)
+{
+    static const uint8_t CH[5] = {0, 7, 12, 16, 19};
+    uint32_t i;
+    input_on(t, base, 100);
+    run_to(at(0.30));
+    input_off(t, base);
+    run_to(at(0.35));
+    input_on(t, base + 4u, 80);
+    run_to(at(0.60));
+    input_on(t, base + 7u, 120);               /* overlaps: MONO / LEGATO hand over, POLY two voices */
+    run_to(at(0.70));
+    input_off(t, base + 4u);
+    run_to(at(0.95));
+    input_off(t, base + 7u);
+    run_to(at(1.00));
+    for (i = 0; i < 5u; i++)
+        input_on(t, base - 12u + CH[i], 90 + 5 * i);
+    run_to(at(1.80));
+    for (i = 0; i < 5u; i++)
+        input_off(t, base - 12u + CH[i]);
+    rel_at = fpos;
+    dc_end = fpos + FS / 2u;
+    finish();
+}
+
+/* ------------------------------------------------------------- jobs --- */
+enum { J_PRESET, J_MODE, J_SENDS, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER };
+typedef struct {
+    char name[64];
+    uint8_t kind, e, pi, arg, cpu_notes;
+    uint8_t fm6v;                              /* J_CPU: part 1's FM6 VOICE after its preset (a pack voice), 0 none */
+    const uint8_t (*parts)[3];                 /* J_CPU mixes */
+    int (*check)(char *msg, uint32_t n);       /* J_CHECK */
+    res_t r;
+    int crashed;
+} job_t;
+
+static void job_preset(const job_t *j)
+{
+    track_t *t = &trk[0];
+    host_tracks_init();
+    host_preset(t, j->e, j->pi);
+    phrase(t, 60);
+}
+
+static void job_mode(const job_t *j)            /* arg: the voice mode, ARP off, glide on for MONO / LEGATO */
+{
+    track_t *t = &trk[0];
+    host_tracks_init();
+    host_preset(t, j->e, j->pi);
+    t->p[P_VOICE] = j->arg;
+    t->p[P_AMODE] = 0;
+    t->p[P_GLIDE] = j->arg == V_MONO || j->arg == V_LEGATO ? 30 : 0;
+    t->p[P_DETUNE] = 40;
+    phrase(t, 60);
+}
+
+static void job_sends(const job_t *j)           /* arg: 0 dry, 1 chorus, 2 delay, 3 reverb, 4 all, 5 DIST */
+{
+    static const int16_t S[6][4] = {{0, 0, 0, 0}, {0, 110, 0, 0}, {0, 0, 110, 0}, {0, 0, 0, 110},
+                                    {40, 80, 80, 80}, {110, 0, 0, 30}};
+    track_t *t = &trk[0];
+    uint32_t i;
+    host_tracks_init();
+    host_preset(t, j->e, j->pi);
+    t->p[P_AMODE] = 0;
+    for (i = 0; i < 4u; i++)
+        t->p[P_DIST + i] = S[j->arg][i];
+    phrase(t, 60);
+}
+
+static void job_drums(const job_t *j)           /* every GM note through the drum track, a choke, a roll */
+{
+    uint32_t n, k = 0;
+    (void)j;
+    host_tracks_init();
+    for (n = 35; n <= 81u; n++, k++) {
+        input_on(TDRUM, n, 60u + (n * 7u) % 60u);
+        run_to(at(0.06 * (k + 1)));
+        input_off(TDRUM, n);
+    }
+    input_on(TDRUM, 46, 100);                  /* open hat, choked by the closed one */
+    run_to(fpos + FS / 10u);
+    input_on(TDRUM, 42, 100);
+    for (k = 0; k < 12u; k++) {                /* a snare roll: more hits than voices */
+        input_on(TDRUM, 38, 40u + 6u * k);
+        run_to(fpos + FS / 40u / CTL * CTL);
+    }
+    rel_at = fpos;
+    dc_end = fpos;
+    finish();
+}
+
+/* the SLICER on the phrase (its clock free-running, no transport): arg 0 GATE (ANALOG ACID,
+ * pattern 6, 1/16), 1 STUT (DIGITAL PAD, pattern 7, 1/32, DEPTH 100 %) */
+static void job_slicer(const job_t *j)
+{
+    static const int16_t S[2][4] = {{SL_GATE, 6, 1, 120}, {SL_STUT, 7, 2, 127}};
+    track_t *t = &trk[0];
+    uint32_t i;
+    host_tracks_init();
+    host_preset(t, j->e, j->pi);
+    t->p[P_AMODE] = 0;
+    for (i = 0; i < 4u; i++)
+        t->p[P_SLCR + i] = S[j->arg][i];
+    phrase(t, 60);
+}
+
+/* the 4-track mix: T1 ANALOG ACID, T2 DIGITAL pad (tied chords), T3 LOFI lead (12 steps against 16),
+ * T4 drums; 120 BPM, 4 bars (the hostsim TRACKS demo without the recording), stop, the tail.
+ * arg 1: with the SLICER (GATE on the pad, STUT on the acid line and the drums, SWING 20 %) */
+static void job_song(const job_t *j)
+{
+    static const uint8_t ACID[16] = {45, 45, 57, 45, 0, 48, 45, 55, 45, 0, 57, 52, 45, 48, 0, 50};
+    static const uint8_t ACIDF[16] = {1, 0, 2, 0, 0, 0, 1, 2, 0, 0, 1, 0, 0, 2, 0, 1};
+    static const uint8_t AM[4] = {57, 60, 64, 67}, FMI[4] = {53, 57, 60, 64};
+    static const uint8_t LEAD[12] = {76, 0, 0, 79, 0, 0, 81, 0, 79, 0, 76, 0};
+    track_t *t1 = &trk[0], *t2 = &trk[1], *t3 = &trk[2], *td = TDRUM;
+    uint32_t i;
+    (void)j;
+    host_tracks_init();
+    song.g[G_BPM] = 120;
+    host_preset(t1, ES(0), 4);
+    host_preset(t2, ES(1), 5);
+    host_preset(t3, ES(3), 0);
+    for (i = 0; i < 16u; i++) {
+        uint8_t n = ACID[i];
+        put_step(t1, i, n ? 1u : 0u, &n, n ? ST_NOTE : ST_REST, ACIDF[i]);
+    }
+    t2->p[P_SLEN] = 32;
+    t2->p[P_SGATE] = 120;
+    for (i = 0; i < 32u; i++)
+        put_step(t2, i, i % 16u == 0u ? 4u : 0u, i < 16u ? AM : FMI, i % 16u == 0u ? ST_NOTE : i % 16u < 14u ? ST_TIE : ST_REST, 0);
+    t3->p[P_SLEN] = 12;
+    for (i = 0; i < 12u; i++) {
+        uint8_t n = LEAD[i];
+        put_step(t3, i, n ? 1u : 0u, &n, n ? ST_NOTE : ST_REST, i == 0u ? SF_ACCENT : 0u);
+    }
+    for (i = 0; i < 16u; i++) {
+        uint8_t n[4];
+        uint32_t k = 0;
+        if (i % 4u == 0u)
+            n[k++] = 36;
+        if (i == 4u || i == 12u)
+            n[k++] = 38;
+        if (i % 2u == 0u)
+            n[k++] = i == 14u ? 46 : 42;
+        put_step(td, i, k, n, k ? ST_NOTE : ST_REST, i % 4u == 0u ? SF_ACCENT : 0u);
+    }
+    if (j->arg) {
+        static const int16_t S[4][4] = {{SL_STUT, 9, 1, 127}, {SL_GATE, 1, 1, 127}, {0, 1, 1, 127},
+                                        {SL_STUT, 12, 2, 110}};
+        for (i = 0; i < NTRK; i++) {
+            uint32_t k;
+            for (k = 0; k < 4u; k++)
+                trk[i].p[P_SLCR + k] = S[i][k];
+        }
+        song.g[G_SWING] = 20;
+    }
+    transport_req = 1;
+    run_to(8u * FS);
+    transport_req = 2;
+    blk();
+    rel_at = fpos;
+    dc_end = fpos;
+    finish();
+}
+
+/* CPU: parts[k] = {engine, preset, notes} (POLY, SUS 127, no ARP; SLICE: MODE LOOP), drums on 16ths if parts[3][0];
+ * 0.5 s to settle, then 1 s counted. The drums: parts[3] = {how, kit + 1 (0: the power-on kit), note}: how 1 kick /
+ * snare / hat 16ths, 2 a full groove (DRUM_GROOVE), 3 one sound (note) four times a second */
+static uint64_t instr_now(void)
+{
+#ifdef __APPLE__
+    struct rusage_info_v4 ri;
+    if (!proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ri))
+        return ri.ri_instructions;
+#endif
+    return 0;
+}
+/* a groove at 120 BPM, a step a 16th: kick, snare, clap, closed / open / pedal hat, toms, rim, crash and ride */
+static const uint8_t DRUM_GROOVE[16][5] = {
+    {36, 42, 49, 0}, {42, 0}, {42, 37, 0}, {36, 42, 0}, {38, 39, 42, 0}, {42, 0}, {46, 0}, {42, 37, 0},
+    {36, 42, 51, 0}, {42, 0}, {36, 42, 0}, {44, 0}, {38, 39, 42, 0}, {43, 0}, {48, 46, 0}, {38, 0}};
+#if DRUM_X0X
+/* the X0X channels (drum_x0x.c: 0..10 the 909's voices, 11..23 the 808's lanes): a GM note that plays channel ch on
+ * X0X kit kit as it is (no variant), 0 = none. The CPU guard's model (cpuguard.c) costs each sounding channel */
+static uint32_t x0x_ch_note(uint32_t kit, uint32_t ch)
+{
+    uint32_t n, c;
+    for (n = 35u; n <= 81u; n++) {
+        c = x0x_code(kit, lane_of_note(n), n);
+        if (c == XN_NONE || c >> 5)
+            continue;
+        if (DRUM_UID_XMACH(kit) == DRUM_UID_X909 ? (c & 31u) == ch :
+#if FELUCCA_DRUM_X808
+            X0X_CH808 + X8_LANE[c & 15u] == ch
+#else
+            0
+#endif
+        )
+            return n;
+    }
+    return 0;
+}
+#endif
+static void cpu_drums(const uint8_t *d, uint32_t k)
+{
+    uint32_t pos = k * CTL, i;
+#if DRUM_X0X
+    if (d[0] == 4u) {          /* X0X channel d[2] (0xFF: all of the kit's) kept sounding: hit again once it ends */
+        static uint8_t note[X0X_NCH], kit;
+        if (kit != d[1]) {     /* (the notes: once, in the 0.5 s before the count) */
+            kit = d[1];
+            for (i = 0; i < X0X_NCH; i++)
+                note[i] = (uint8_t)x0x_ch_note(d[1] - 1u, i);
+        }
+        for (i = d[2] == 0xFFu ? 0u : d[2]; i < (d[2] == 0xFFu ? X0X_NCH : d[2] + 1u); i++)
+            if (note[i] && !((x0x_sounding() >> i) & 1u))
+                drum_on(note[i], 100u);
+        return;
+    }
+#endif
+    if (d[0] == 1u && pos % (FS / 8u) < CTL)
+        drum_on(pos % (FS / 2u) < CTL ? 36u : (pos / (FS / 8u)) % 4u == 2u ? 38u : 42u, 100u);
+    if (d[0] == 2u && pos % (FS / 8u) < CTL)
+        for (i = 0; i < 5u && DRUM_GROOVE[(pos / (FS / 8u)) % 16u][i]; i++)
+            drum_on(DRUM_GROOVE[(pos / (FS / 8u)) % 16u][i], i ? 90u : 110u);
+    if (d[0] == 3u && pos % (FS / 4u) < CTL)
+        drum_on(d[2], 100u);
+}
+static void job_cpu(const job_t *j)
+{
+    static const uint8_t NOTES[8] = {48, 52, 55, 59, 60, 64, 67, 71};
+    const uint8_t (*parts)[3] = j->parts;
+    uint32_t p, i, k, nb = FS / CTL, drums_on = parts[NPART][0];
+    uint64_t i0, t0;
+    host_tracks_init();
+    if (parts[NPART][1])
+        TDRUM->p[P_E0] = (int16_t)(parts[NPART][1] - 1u);   /* (a drum job: its kit) */
+    for (p = 0; p < NPART; p++) {
+        host_preset(&trk[p], parts[p][0], parts[p][1]);
+        if (p == 0u && j->fm6v)
+            trk[0].p[P_E0] = (int16_t)j->fm6v;          /* (FM6: a pack voice, the sounds the packs hold) */
+        trk[p].p[P_VOICE] = V_POLY;
+        trk[p].p[P_SUS] = 127;
+        trk[p].p[P_AMODE] = 0;
+#if FELUCCA_SLICE
+        if (ENGINES[parts[p][0]] == &ENG_SLICE)
+            trk[p].p[P_E4] = SLC_LOOP;                  /* SLICE: its slices end by themselves; loop them */
+#endif
+        for (i = 0; i < parts[p][2]; i++)
+            trk_note_on(&trk[p], NOTES[i] + 12u * p, 100);
+    }
+    ins_defaults();            /* (every track's insert slots: S1 DIST, S2 FILTER, as a new project's) */
+#if FELUCCA_MASTER_COMP
+    if (j->arg && j->arg <= 8u) {   /* the COMP insert (fx_slots.c) in part 1's S2: arg 1 at 0, 2 at 127 (the CPU guard's
+                                * model: tools/builder/cpu_costs.py, cpu/fx/comp_on less cpu/fx/comp_off) */
+        if (j->arg <= 2u)
+            ins_load(0, 1, FXT_COMP);
+        trk[0].p[P_TCOMP] = j->arg == 2u ? 127 : 0;
+        if (j->arg == 5u)      /* the drum bus's inserts (fx.c dbus_run) over the drums: arg 3 none, 4 DIST 127, 5 COMP 127
+                                * in S2 (cpu_costs.py: cpu/fx/dbus_dist, dbus_comp less cpu/fx/dbus_off) */
+            ins_load(TRK_DRUM, 1, FXT_COMP);
+        TDRUM->p[P_DIST] = j->arg == 4u ? 127 : 0;
+        TDRUM->p[P_TCOMP] = j->arg == 5u ? 127 : 0;
+        /* a drum sound's inserts (fx.c dins_post), one snare a beat: arg 6 none, 7 DIST 127, 8 COMP 127 (always heard:
+         * D7; cpu_costs.py: cpu/fx/dvoice_dist, dvoice_comp less cpu/fx/dvoice_off) */
+        memset(dins_amt[0], j->arg == 7u ? 127 : 0, sizeof dins_amt[0]);
+        memset(dins_amt[1], j->arg == 8u ? 127 : 0, sizeof dins_amt[1]);
+    }
+#endif
+    if (j->arg >= 9u) {        /* the track insert slots (fx.c ins_part, dbus_ins; cpu_costs.py): 9 part 1's at 0, 10 its
+                                * S1 DIST 127, 11 its S2 FILTER low-pass; 12 the drum bus's FILTER low-pass over the
+                                * groove (less cpu/fx/dbus_off); 13 the worst case: every part S1 DIST 127, S2 COMP 127,
+                                * the drum bus S1 DIST 127, S2 FILTER low-pass (with cpu/mix/3parts_full_drums' parts) */
+        uint32_t k;
+        trk[0].p[P_DIST] = j->arg == 10u ? 127 : 0;
+#if TFLT_ON
+        trk[0].p[P_TFLT] = j->arg == 11u ? -40 : 0;
+        TDRUM->p[P_TFLT] = j->arg == 12u || j->arg == 13u ? -40 : 0;
+#endif
+        for (k = 0; j->arg == 13u && k < NPART; k++) {
+#if FELUCCA_MASTER_COMP
+            ins_load(k, 1, FXT_COMP);
+            trk[k].p[P_TCOMP] = 127;
+#endif
+            trk[k].p[P_DIST] = 127;
+        }
+        TDRUM->p[P_DIST] = j->arg == 13u ? 127 : 0;
+    }
+    if (j->arg == 15u) {       /* LFO 2 on part 1 (voice.c lfo2_tick): arg 14 off (DEST OFF), 15 on PIT at 6 Hz, the pitch
+                                * moving every voice's increment each block (its dearest destination) */
+        trk[0].p[P_L2DA] = LT_PIT;
+        trk[0].p[P_L2AA] = 80;
+        trk[0].p[P_L2RATE] = 90;
+    }
+    if (j->arg == 19u || j->arg == 60u) {   /* LFO DEST on part 1's REV send and its S1 insert's amount (DIST by default): moved
+                                * each block (19), or the same REV and DIST held (60: cpu/lfo/fx less cpu/lfo/fx_off) */
+        trk[0].p[P_L1DA] = LT_REV, trk[0].p[P_L1AA] = j->arg == 19u ? 80 : 0, trk[0].p[P_L1DB] = LT_INS1;
+        trk[0].p[P_L1AB] = j->arg == 19u ? 80 : 0;
+        trk[0].p[P_REV] = 40, trk[0].p[P_DIST] = 40, trk[0].p[P_LRATE] = 90;
+    }
+    if (j->arg >= 16u && j->arg <= 18u) {   /* LFO DEST's slots on part 1 (voice.c lfo1_voices, lfo_over): 16 none, 17 on the
+                                * voices (PIT 40, FLT 80: every voice's increment and cutoff each block), 18 on values (PAN 100,
+                                * E2 100: moved around the mix each block, lfo_over) */
+        trk[0].p[P_L1DA] = (int16_t)(j->arg == 17u ? LT_PIT : j->arg == 18u ? LT_PAN : LT_OFF);
+        trk[0].p[P_L1AA] = (int16_t)(j->arg == 16u ? 0 : 40);
+        trk[0].p[P_L1DB] = (int16_t)(j->arg == 17u ? LT_FLT : j->arg == 18u ? LT_E2 : LT_OFF);
+        trk[0].p[P_L1AB] = (int16_t)(j->arg == 16u ? 0 : 80);
+        trk[0].p[P_LRATE] = 90;
+    }
+    if (j->arg >= 61u && j->arg <= 63u) {   /* fx-rework (cpu_costs.py): 61 part 1's S1 DUST 127 (less cpu/fx/part_off), 62 the
+                                * drum bus's S1 DUST 127 over the groove (less cpu/fx/dbus_off), 63 part 1's S2 DYN at 127 with
+                                * its CEIL at -1 dB (less cpu/fx/comp_on: its limiter) */
+        trk[0].p[P_DIST] = TDRUM->p[P_DIST] = 0;
+#if FELUCCA_FX_DUST
+        if (j->arg <= 62u) {
+            uint32_t k = j->arg == 61u ? 0u : TRK_DRUM;
+            ins_load(k, 0, FXT_DUST);
+            trk[k].p[P_TDUST] = 127;
+        }
+#endif
+#if FELUCCA_MASTER_COMP
+        if (j->arg == 63u) {
+            ins_load(0, 1, FXT_COMP);
+            trk[0].p[P_TCOMP] = 127;
+            INS_CSET(0)[4] = 4;
+        }
+#endif
+    }
+#if DINS
+    if (j->arg >= 64u && j->arg <= 69u) {   /* a drum sound's slot S1 (fx.c dins_post), one snare a beat (cpu/fx/dvoice_off's):
+                                * 64 FILT low-pass, 65 DUST, 66 FOLD, 67 FUZZ, 68 PHSR, 69 FRMT at 127 */
+        static const uint8_t T[6] = {FXT_FILT, FXT_DUST, FXT_FOLD, FXT_FUZZ, FXT_PHSR, FXT_FRMT};
+        uint32_t l;
+        for (l = 0; l < DRUM_LANES; l++) {
+            const uint8_t s[INS_N] = {T[j->arg - 64u], FXT_NONE};
+            lin_put(l, s);
+            dins_amt[0][l] = (uint8_t)(T[j->arg - 64u] == FXT_FILT ? (uint8_t)(int8_t)-40 : 127u);
+            dins_amt[1][l] = 0;
+        }
+    }
+#endif
+#if INS_FX
+    if (j->arg >= 20u && j->arg < 20u + 2u * (FXT_NEWN - FXT_NEW0)) {   /* the further inserts (insfx.c; cpu_costs.py): 20 + i
+                                * part 1's S1 type FXT_NEW0 + i at 127 (less cpu/fx/part_off), 29 + i the drum bus's over
+                                * the groove (less cpu/fx/dbus_off) */
+        uint32_t ty = FXT_NEW0 + (j->arg - 20u) % (FXT_NEWN - FXT_NEW0), k = j->arg < 20u + FXT_NEWN - FXT_NEW0 ? 0u : TRK_DRUM;
+        trk[0].p[P_DIST] = TDRUM->p[P_DIST] = 0;
+        ins_load(k, 0, ty);
+        fxi_poll();                                     /* (CHRS ECHO: the instance, as the main loop hands it out) */
+        trk[k].p[FXT_AMT[ty]] = 127;
+#if FELUCCA_INS_GATER
+        if (ty == FXT_GATE)                             /* (its dearest: OFF16 at 1/32, SHAPE 127, the gain moving every
+                                                         * sample from the first; a short run never leaves an open step) */
+            trk[k].p[P_TGPAT] = 5, trk[k].p[P_TGRATE] = 2, trk[k].p[P_TGSHP] = 127;
+#endif
+    }
+#endif
+#if INS_SH
+    if (j->arg >= 100u && j->arg < 100u + 2u * (FXT_SHN - FXT_SH0)) {   /* the shapers (insfx.c, 2026-10-18; cpu_costs.py): 100
+                                * + i part 1's S1 type FXT_SH0 + i at 127, 107 + i the drum bus's over the groove */
+        uint32_t ty = FXT_SH0 + (j->arg - 100u) % (FXT_SHN - FXT_SH0), k = j->arg < 100u + FXT_SHN - FXT_SH0 ? 0u : TRK_DRUM;
+        trk[0].p[P_DIST] = TDRUM->p[P_DIST] = 0;
+        ins_load(k, 0, ty);
+        trk[k].p[FXT_AMT[ty]] = 127;
+    }
+#if DINS
+    if (j->arg >= 114u && j->arg < 120u) {   /* a drum sound's S1 holding a shaper (as 64 .. 69): SFLD WRAP RECT HARM RING SLEW */
+        static const uint8_t T[6] = {FXT_SFLD, FXT_WRAP, FXT_RECT, FXT_HARM, FXT_RING, FXT_SLEW};
+        uint32_t l;
+        for (l = 0; l < DRUM_LANES; l++) {
+            const uint8_t s[INS_N] = {T[j->arg - 114u], FXT_NONE};
+            lin_put(l, s);
+            dins_amt[0][l] = 127u;
+            dins_amt[1][l] = 0;
+        }
+    }
+#endif
+#endif
+    for (k = 0; k < nb / 2u + nb; k++) {
+        if (k == nb / 2u) {
+            i0 = instr_now();
+            t0 = now_ns();
+        }
+        if (drums_on)
+            cpu_drums(parts[NPART], k);
+        mix_block(last_out, CTL);
+    }
+    R.ns = (double)(now_ns() - t0) / (nb * CTL);
+    R.ipc = i0 ? (double)(instr_now() - i0) / (nb * CTL) : 0;
+}
+
+static int run_job_body(job_t *j)
+{
+    memset(&R, 0, sizeof R);
+    switch (j->kind) {
+    case J_PRESET:
+        job_preset(j);
+        break;
+    case J_MODE:
+        job_mode(j);
+        break;
+    case J_SENDS:
+        job_sends(j);
+        break;
+    case J_DRUMS:
+        job_drums(j);
+        break;
+    case J_SONG:
+        job_song(j);
+        break;
+    case J_SLICER:
+        job_slicer(j);
+        break;
+    case J_CPU:
+        job_cpu(j);
+        break;
+    case J_CHECK:
+        R.ok = (uint32_t)j->check(R.msg, sizeof R.msg);
+        break;
+    }
+    return 0;
+}
+
+/* run jobs [0, n) in children, up to nj at once; results come back through pipes */
+static void run_jobs(job_t *jobs, uint32_t n, uint32_t nj)
+{
+    uint32_t i, k;
+    for (i = 0; i < n; i += nj) {
+        int fd[64];
+        pid_t pid[64];
+        uint32_t m = n - i < nj ? n - i : nj;
+        for (k = 0; k < m; k++) {
+            int p[2];
+            if (pipe(p)) {
+                perror("pipe");
+                exit(2);
+            }
+            fflush(stdout);
+            if (!(pid[k] = fork())) {
+                close(p[0]);
+                run_job_body(&jobs[i + k]);
+                if (write(p[1], &R, sizeof R) != sizeof R)
+                    _exit(1);
+                _exit(0);
+            }
+            close(p[1]);
+            fd[k] = p[0];
+        }
+        for (k = 0; k < m; k++) {
+            size_t got = 0;
+            ssize_t r;
+            int st = 0;
+            while (got < sizeof(res_t) && (r = read(fd[k], (char *)&jobs[i + k].r + got, sizeof(res_t) - got)) > 0)
+                got += (size_t)r;
+            close(fd[k]);
+            waitpid(pid[k], &st, 0);
+            jobs[i + k].crashed = got != sizeof(res_t) || !WIFEXITED(st) || WEXITSTATUS(st);
+        }
+    }
+}
+
+/* ------------------------------------------------- voice / routing checks --- */
+static uint32_t lcg = 12345u;
+static uint32_t rnd(uint32_t n)
+{
+    lcg = lcg * 1103515245u + 12345u;
+    return (lcg >> 8) % n;
+}
+static int held_gates(char *who, size_t wn)
+{
+    uint32_t p, i, n = 0;
+    who[0] = 0;
+    for (p = 0; p < NPART; p++)
+        if (trk[p].nheld) {                        /* a key the ARP still thinks is down: it plays on */
+            if (!n)
+                snprintf(who, wn, "part %u ARP still holds %u notes (first %u)", p + 1u, trk[p].nheld, trk[p].held[0]);
+            n++;
+        }
+    for (p = 0; p < NPART; p++)
+        for (i = 0; i < NVOICE; i++)
+            if (trk[p].v[i].active && trk[p].v[i].gate) {
+                if (!n)
+                    snprintf(who, wn, "part %u voice %u note %u", p + 1u, i, trk[p].v[i].note);
+                n++;
+            }
+    return (int)n;
+}
+static void midi_pkt(uint32_t st, uint32_t d1, uint32_t d2)   /* as usb.c: the queue holds MQ packets */
+{
+    if (mi_w - mi_r >= MQ)
+        blk();
+    midi_in_q[mi_w++ % MQ] = (st >> 4) | st << 8 | d1 << 16 | d2 << 24;
+}
+
+/* the shared budget: 3 POLY parts (ANALOG, DIGITAL, VOICE) play random notes on and off for 6 s, up to
+ * 8 held each; after every block: at most 8 part voices sounding, none still fading after KILL_BLOCKS
+ * (a stolen voice fades out), the VOICE part at most 4; then all off: every voice free */
+static int chk_budget(char *msg, uint32_t n)
+{
+    static const uint8_t E[3] = {0, 1, 5};
+    uint8_t held[NPART][128] = {{0}};
+    uint32_t p, k, worst = 0, vworst = 0, fading = 0, kills0 = voice_kills;
+    host_tracks_init();
+    for (p = 0; p < NPART; p++) {
+        host_preset(&trk[p], ES(E[p]), 1);
+        trk[p].p[P_VOICE] = V_POLY;
+        trk[p].p[P_AMODE] = 0;
+        trk[p].p[P_SUS] = 100;
+    }
+    for (k = 0; k < 6u * FS / CTL; k++) {
+        uint32_t i, a = 0, va = 0;
+        if (k % 4u == 0u) {
+            uint32_t note = 36u + rnd(48);
+            p = rnd(NPART);
+            if (held[p][note]) {
+                trk_note_off(&trk[p], note);
+                held[p][note] = 0;
+            } else {
+                trk_note_on(&trk[p], note, 60u + rnd(60));
+                held[p][note] = 1;
+            }
+        }
+        blk();
+        for (p = 0; p < NPART; p++)
+            for (i = 0; i < NVOICE; i++) {
+                static uint8_t fade_blocks[NPART][NVOICE];
+                uint32_t f4 = trk[p].v[i].active && trk[p].v[i].stage == 4u;
+                a += trk[p].v[i].active && !f4;          /* sounding (a stolen voice fades out over KILL_BLOCKS) */
+                va += p == 2u && trk[p].v[i].active && !f4;
+                fade_blocks[p][i] = (uint8_t)(f4 ? fade_blocks[p][i] + 1u : 0u);
+                fading += fade_blocks[p][i] >= KILL_BLOCKS;
+            }
+        worst = a > worst ? a : worst;
+        vworst = va > vworst ? va : vworst;
+    }
+    for (p = 0; p < NPART; p++)
+        for (k = 0; k < 128u; k++)
+            if (held[p][k])
+                trk_note_off(&trk[p], k);
+    rel_at = fpos;
+    finish();
+    snprintf(msg, n, "3 POLY parts, random notes: at most %u voices active (budget %u), VOICE part at most %u (cap 4), "
+             "%u voices taken, %u still fading after their KILL_BLOCKS, all free %.2f s after the note-offs",
+             worst, NVOICE, vworst, voice_kills - kills0, fading, R.free_s);
+    return worst <= NVOICE && vworst <= 4u && !fading && R.free_s >= 0 && voice_kills > kills0;
+}
+
+/* a stolen voice fades: plain sines (filter open, no sends) on 3 parts; part 1 holds 7 notes, part 2 one,
+ * then parts 2 and 3 take voices in turn. The largest sample step in the 2 blocks of each take must stay
+ * within 1.5 x the largest one in the 0.25 s before it (a hard cut is several times larger) */
+static int chk_steal_fade(char *msg, uint32_t n)
+{
+    static const uint8_t N1[7] = {48, 52, 55, 59, 62, 65, 69};
+    const uint32_t frames = 4u * FS;
+    int32_t *L = calloc(frames + CTL, sizeof *L);
+    uint32_t f, i, p, k, ev[8], nev = 0, bad = 0;
+    double worst = 0;
+    int32_t wat = 0, wcalm = 0;
+    host_tracks_init();
+    for (p = 0; p < NPART; p++)
+        xfade_sine(&trk[p]);
+    for (f = 0; f < frames; f += CTL) {
+        uint32_t ms = f * 1000u / FS, k0 = voice_kills;
+        if (f == 0)
+            for (i = 0; i < 7u; i++)
+                trk_note_on(&trk[0], N1[i], 90);
+        if (f == at(0.5))
+            trk_note_on(&trk[1], 74, 90);
+        if (ms >= 1000u && f % (FS / 2u) < CTL && ms < 3500u)
+            trk_note_on(&trk[ms / 500u % 2u ? 1u : 2u], 76u + ms / 250u, 90);
+        blk();
+        if (voice_kills != k0 && nev < 8u)
+            ev[nev++] = f;
+        for (i = 0; i < CTL; i++)
+            L[f + i] = last_out[2 * i];
+    }
+    for (k = 0; k < nev; k++) {
+        int32_t calm = 1, a = 0;
+        for (i = ev[k] - FS / 4u; i < ev[k] - 2u * CTL; i++)
+            calm = abs(L[i] - L[i - 1]) > calm ? abs(L[i] - L[i - 1]) : calm;
+        for (i = ev[k]; i < ev[k] + 2u * CTL; i++)
+            a = abs(L[i] - L[i - 1]) > a ? abs(L[i] - L[i - 1]) : a;
+        if ((double)a / calm > worst) {
+            worst = (double)a / calm;
+            wat = a;
+            wcalm = calm;
+        }
+        bad += a * 2 > calm * 3;
+    }
+    free(L);
+    snprintf(msg, n, "%u takes; largest sample step at a take %d vs %d before it (%.2f x, limit 1.50 x)", nev, wat,
+             wcalm, worst);
+    return nev >= 4u && !bad;
+}
+
+/* MONO / LEGATO / UNISON keep their note: part 1 holds note 40 in mode m while parts 2 and 3 (POLY)
+ * flood the budget with new notes for 2 s; part 1's voice 0 must sound note 40, gate on, every block */
+static int chk_keep(char *msg, uint32_t n, uint32_t mode)
+{
+    static const char *const MN[4] = {"POLY", "MONO", "LEGATO", "UNISON"};
+    uint32_t k, lost = 0, kills0 = voice_kills;
+    host_tracks_init();
+    host_preset(&trk[0], ES(0), 0);
+    trk[0].p[P_VOICE] = (int16_t)mode;
+    trk[0].p[P_AMODE] = 0;
+    trk[0].p[P_SUS] = 100;
+    for (k = 1; k < NPART; k++) {
+        host_preset(&trk[k], ES(1), 1);
+        trk[k].p[P_VOICE] = V_POLY;
+        trk[k].p[P_AMODE] = 0;
+        trk[k].p[P_SUS] = 100;
+    }
+    trk_note_on(&trk[0], 40, 100);
+    for (k = 0; k < 2u * FS / CTL; k++) {
+        if (k % 3u == 0u)
+            trk_note_on(&trk[1u + k / 3u % 2u], 50u + k / 3u % 40u, 100);
+        blk();
+        {
+            const voice_t *v = &trk[0].v[0];
+            lost += !(v->active && v->gate && v->note == 40u && v->stage != 4u);
+        }
+    }
+    snprintf(msg, n, "%s part held its note through %u voices taken from the others: lost in %u blocks",
+             MN[mode], voice_kills - kills0, lost);
+    return !lost && voice_kills > kills0;
+}
+static int chk_keep_mono(char *m, uint32_t n) { return chk_keep(m, n, V_MONO); }
+static int chk_keep_legato(char *m, uint32_t n) { return chk_keep(m, n, V_LEGATO); }
+static int chk_keep_unison(char *m, uint32_t n) { return chk_keep(m, n, V_UNISON); }
+
+/* the VOICE engine's cap: 8 keys in POLY and in UNISON (alone: the budget does not limit it) */
+static int chk_voice_cap(char *msg, uint32_t n)
+{
+    uint32_t mode, k, i, most[2] = {0, 0};
+    for (mode = 0; mode < 2u; mode++) {
+        track_t *t = &trk[0];
+        host_tracks_init();
+        host_preset(t, ES(5), 0);
+        t->p[P_VOICE] = mode ? V_UNISON : V_POLY;
+        t->p[P_AMODE] = 0;
+        for (k = 0; k < 8u; k++)
+            trk_note_on(t, 60u + 2u * k, 100);
+        for (k = 0; k < FS / 2u / CTL; k++) {
+            uint32_t a = 0;
+            blk();
+            for (i = 0; i < NVOICE; i++)
+                a += t->v[i].active;
+            most[mode] = a > most[mode] ? a : most[mode];
+        }
+        for (k = 0; k < 8u; k++)
+            trk_note_off(t, 60u + 2u * k);
+        for (k = 0; k < 4u * FS / CTL && !parts_free(); k++)
+            blk();
+        if (!parts_free())
+            most[mode] = 99;
+    }
+    snprintf(msg, n, "VOICE engine, 8 keys: at most %u voices in POLY, %u in UNISON (cap 4); freed after release",
+             most[0], most[1]);
+    return most[0] == 4u && most[1] == 4u;
+}
+
+/* no hanging notes: 6 s of random MIDI note-ons / offs on channels 1, 2, 3 (the parts), 10 (drums), 5 and
+ * 16 (the selected track), and keys, while the selected track changes; the parts in random voice modes,
+ * some with ARP, SUS 127 (a hanging note keeps sounding). A channel's note-off goes to the same channel
+ * as its note-on. Then every held note off: no gate may stay on, no ARP may still hold a key, every voice
+ * must be free (also the same note held on two "selected track" channels across a selection change). */
+static int chk_hang(char *msg, uint32_t n)
+{
+    static const uint8_t CHS[6] = {0, 1, 2, 9, 4, 15};
+    uint8_t on[6][128] = {{0}};
+    uint32_t keys = 0, k, c, ev = 0, round;
+    char who[96] = "";
+    int bad = 0;
+    for (round = 0; round < 3u && !bad; round++) {
+        host_tracks_init();
+        for (k = 0; k < NPART; k++) {
+            host_preset(&trk[k], rnd(NENGINES), rnd(4));
+            trk[k].p[P_VOICE] = (int16_t)rnd(4);
+            trk[k].p[P_AMODE] = rnd(3) == 0 ? (int16_t)(1 + rnd(4)) : 0;
+            trk[k].p[P_AHOLD] = 0;
+            trk[k].p[P_SUS] = 127;
+        }
+        for (k = 0; k < 6u * FS / CTL; k++) {
+            uint32_t r = rnd(16);
+            if (r < 6u) {                          /* MIDI */
+                uint32_t ci = rnd(6), note = 36u + rnd(36);
+                if (on[ci][note]) {
+                    midi_pkt(rnd(2) ? 0x80u | CHS[ci] : 0x90u | CHS[ci], note, 0);
+                    on[ci][note] = 0;
+                } else {
+                    midi_pkt(0x90u | CHS[ci], note, 1u + rnd(127));
+                    on[ci][note] = 1;
+                }
+                ev++;
+            } else if (r < 9u) {                   /* a key down or up */
+                keys ^= 1u << rnd(27);
+                fm1_in.notes = keys;
+                ev++;
+            } else if (r == 9u) {
+                song.sel = (uint8_t)rnd(NTRK);     /* another track selected */
+            }
+            blk();
+        }
+        fm1_in.notes = keys = 0;                   /* everything off */
+        for (c = 0; c < 6u; c++)
+            for (k = 0; k < 128u; k++)
+                if (on[c][k]) {
+                    midi_pkt(0x80u | CHS[c], k, 64);
+                    on[c][k] = 0;
+                }
+        run_to(fpos + FS / 2u);                    /* (an ARP note-off: within its gate) */
+        if (held_gates(who, sizeof who))
+            bad = 1;
+        rel_at = fpos;
+        {
+            uint32_t cap = fpos + FREE_CAP_S * FS;
+            while (!parts_free() && fpos < cap)
+                blk();
+            for (c = 0; c < NPART * NVOICE && !parts_free() && !bad; c++) {
+                const voice_t *v = &trk[c / NVOICE].v[c % NVOICE];
+                if (v->active) {
+                    bad = 2;
+                    snprintf(who, sizeof who, "part %u voice %u note %u still active %d s after the note-offs (gate %u "
+                             "stage %u)", c / NVOICE + 1u, c % NVOICE, v->note, FREE_CAP_S, v->gate, v->stage);
+                }
+            }
+            if (!parts_free() && !bad) {
+                bad = 2;
+                snprintf(who, sizeof who, "a drum voice still active %d s after the note-offs", FREE_CAP_S);
+            }
+        }
+    }
+    snprintf(msg, n, "%u random MIDI / key events on ch 1-3, 10, 5, 16 and the keys, track selection changing, "
+             "3 rounds: %s", ev, bad ? who : "no gate left on, every voice free");
+    return !bad;
+}
+
+/* ------------------------------------------------------------ files --- */
+typedef struct { char name[64]; char val[64]; } kv_t;
+static uint32_t load_kv(const char *path, kv_t *kv, uint32_t max)
+{
+    FILE *f = fopen(path, "r");
+    char line[256];
+    uint32_t n = 0;
+    if (!f)
+        return 0;
+    while (fgets(line, sizeof line, f) && n < max) {
+        if (line[0] == '#' || line[0] == '\n')
+            continue;
+        if (sscanf(line, "%63s %63s", kv[n].name, kv[n].val) == 2)
+            n++;
+    }
+    fclose(f);
+    return n;
+}
+static const char *kv_get(const kv_t *kv, uint32_t n, const char *name)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        if (!strcmp(kv[i].name, name))
+            return kv[i].val;
+    return 0;
+}
+
+static void slug(char *d, const char *s, size_t n)
+{
+    size_t i = 0;
+    for (; *s && i + 1 < n; s++)
+        d[i++] = (*s == ' ' || *s == '/') ? '_' : *s;
+    d[i] = 0;
+}
+
+/* ------------------------------------------------------------- main --- */
+#define MAXJ 512
+static job_t J[MAXJ];
+static uint32_t nj;
+static job_t *add(uint32_t kind, const char *name)
+{
+    job_t *j = &J[nj++];
+    memset(j, 0, sizeof *j);
+    j->kind = (uint8_t)kind;
+    snprintf(j->name, sizeof j->name, "%s", name);
+    return j;
+}
+
+int main(int argc, char **argv)
+{
+    const char *gpath = argc > 1 ? argv[1] : "tests/golden.txt";
+    const char *cpath = argc > 2 ? argv[2] : "tests/cpu_baseline.txt";
+    int gupd = getenv("GOLDEN_UPDATE") != 0, cupd = getenv("BUDGET_UPDATE") != 0, verbose = getenv("VERBOSE") != 0;
+    uint32_t jobs_at_once = getenv("JOBS") ? (uint32_t)atoi(getenv("JOBS")) : 8u;
+    static const char *const MN[4] = {"POLY", "MONO", "LEGATO", "UNISON"};
+    static const char *const SN[6] = {"dry", "chorus", "delay", "reverb", "all", "dist"};
+    static const uint8_t MODE_E[3][2] = {{0, 0}, {1, 1}, {5, 0}};   /* engine, preset */
+    static const uint8_t SEND_E[2][2] = {{0, 7}, {1, 0}};   /* ANALOG TRAP PLUCK, DIGITAL RHODES */
+    static uint8_t cpu_parts[MAXJ][NPART + 1][3];
+    static kv_t gold[MAXJ], cpu[MAXJ];
+    uint32_t ng, nc, e, pi, i, g0, g1, c0, c1, k0, cidle = 0, ncpu = 0;
+    uint32_t g_changed = 0, g_new = 0, g_gone = 0, h_fail = 0, c_fail = 0, c_warn = 0, k_fail = 0, crash = 0;
+    double heavy[NENGINES] = {0}, heavy_ns[NENGINES] = {0}, idle_now, idle_base;
+    uint32_t heavy_p[NENGINES] = {0};
+    uint64_t t_start = now_ns();
+    char name[64], s[64];
+    if (jobs_at_once < 1u || jobs_at_once > 64u)
+        jobs_at_once = 8;
+
+#if FELUCCA_ENG_PHYS || FELUCCA_ENG_ACID
+#define ENG_SKIP(e) eng_free(e)      /* (engines.c: a number kept free holds a stand-in, no engine of its own) */
+#else
+#define ENG_SKIP(e) 0
+#endif
+    /* 1 + 2: the golden renders */
+    g0 = nj;
+    for (e = 0; e < NENGINES; e++)
+        for (pi = 0; !ENG_SKIP(e) && pi < ENGINES[e]->npresets; pi++) {
+            job_t *j;
+            if (!preset_playable(ENGINES[e], pi))      /* (its sample set is left out of this build) */
+                continue;
+            slug(s, ENGINES[e]->presets[pi].name, sizeof s);
+            snprintf(name, sizeof name, "preset/%s/%02u_%s", ENGINES[e]->name, pi, s);
+            j = add(J_PRESET, name);
+            j->e = (uint8_t)e;
+            j->pi = (uint8_t)pi;
+        }
+    if (DRUM_SMASK & 1)                               /* (the drum track's kit 0: ACOUSTIC, the PERC set) */
+        add(J_DRUMS, "drums/gm_kit");
+    for (i = 0; i < 3u; i++)
+        for (k0 = 0; k0 < 4u && EB(MODE_E[i][0]); k0++) {
+            job_t *j;
+            snprintf(name, sizeof name, "mode/%s/%s", ENGINES[ES(MODE_E[i][0])]->name, MN[k0]);
+            j = add(J_MODE, name);
+            j->e = (uint8_t)ES(MODE_E[i][0]);
+            j->pi = MODE_E[i][1];
+            j->arg = (uint8_t)k0;
+        }
+    for (i = 0; i < 2u; i++)
+        for (k0 = 0; k0 < 6u && EB(SEND_E[i][0]); k0++) {
+            job_t *j;
+            snprintf(name, sizeof name, "sends/%s/%s", ENGINES[ES(SEND_E[i][0])]->name, SN[k0]);
+            j = add(J_SENDS, name);
+            j->e = (uint8_t)ES(SEND_E[i][0]);
+            j->pi = SEND_E[i][1];
+            j->arg = (uint8_t)k0;
+        }
+    if (EB(0) && EB(1) && EB(3) && (DRUM_SMASK & 1))
+        add(J_SONG, "song/4track_mix");
+    if (EB(0)) {   /* the SLICER */
+        job_t *j = add(J_SLICER, "slicer/gate/ANALOG_DARK_STR");
+        j->e = (uint8_t)ES(0), j->pi = 10, j->arg = 0;
+    }
+    if (EB(1)) {
+        job_t *j = add(J_SLICER, "slicer/stut/DIGITAL_RHODES");
+        j->e = (uint8_t)ES(1), j->pi = 0, j->arg = 1;
+    }
+    if (EB(0) && EB(1) && EB(3) && (DRUM_SMASK & 1))
+        add(J_SONG, "slicer/song_gate_stut")->arg = 1;
+    g1 = nj;
+    {   /* determinism: the first preset render once more */
+        job_t *j = add(J_PRESET, "repeat");
+        *j = J[g0];
+        snprintf(j->name, sizeof j->name, "repeat");
+    }
+
+    /* 4: the voice checks */
+    k0 = nj;
+    if (EB(0) && EB(1) && EB(5))
+        add(J_CHECK, "voices: budget of 8 across 3 parts")->check = chk_budget;
+    if (EB(0))                                        /* (hostsim.c xfade_sine: ANALOG) */
+    add(J_CHECK, "voices: a stolen voice fades")->check = chk_steal_fade;
+    if (EB(0) && EB(1)) {
+        add(J_CHECK, "voices: MONO keeps its note")->check = chk_keep_mono;
+        add(J_CHECK, "voices: LEGATO keeps its note")->check = chk_keep_legato;
+        add(J_CHECK, "voices: UNISON keeps its note")->check = chk_keep_unison;
+    }
+    if (EB(5))
+        add(J_CHECK, "voices: VOICE engine cap")->check = chk_voice_cap;
+    add(J_CHECK, "routing: no hanging notes")->check = chk_hang;
+    run_jobs(J, nj, jobs_at_once);
+
+    /* 3: CPU, one child at a time (the ns are for information; the instruction counts do not care) */
+    c0 = nj;
+    for (e = 0; e < NENGINES; e++)
+        for (pi = 0; !ENG_SKIP(e) && pi < ENGINES[e]->npresets; pi++) {
+            job_t *j;
+            slug(s, ENGINES[e]->presets[pi].name, sizeof s);
+            snprintf(name, sizeof name, "cpu/%s/%02u_%s", ENGINES[e]->name, pi, s);
+            j = add(J_CPU, name);
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][0][0] = (uint8_t)e;
+            cpu_parts[ncpu][0][1] = (uint8_t)pi;
+            cpu_parts[ncpu][0][2] = 8;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = (uint8_t)e;
+            j->pi = (uint8_t)pi;
+        }
+#if FELUCCA_ENG_FM6 && FM6_NPACKS
+    /* FM6's sounds are its pack voices (its presets are INIT VOICE and two starts from it, one operator: f0f74c5f): each
+     * pack voice with 8 notes held, cpu/FM6/pkNN_<name>; the CPU guard's FM6 cost is the median over cpu/FM6/*
+     * (tools/builder/cpu_costs.py), so the packs' six-operator voices set it, not INIT VOICE (2026-10-18) */
+    for (e = 0; e < NENGINES && ENGINES[e] != &ENG_FM6; e++)
+        ;
+    for (i = 1; e < NENGINES && i < FM6_NVOICE; i++) {
+        job_t *j;
+        slug(s, N_FM6V[i], sizeof s);
+        for (size_t n = strlen(s); n && s[n - 1u] == '_'; n--)
+            s[n - 1u] = 0;                              /* (the names are padded to 10 with blanks) */
+        snprintf(name, sizeof name, "cpu/FM6/pk%02u_%s", i, s);
+        j = add(J_CPU, name);
+        memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+        cpu_parts[ncpu][0][0] = (uint8_t)e;
+        cpu_parts[ncpu][0][2] = 8;
+        j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+        j->e = (uint8_t)e;
+        j->fm6v = (uint8_t)i;
+    }
+#endif
+    {   /* the drum kits: a full groove, and one sound at a time, on the synthesised 909 / 808 and the X0X kits
+         * built (kit UIDs, registry.h) */
+        static const uint8_t KIT[4] = {DRUM_SAMPLED + 1u, DRUM_SAMPLED, DRUM_UID_X909, DRUM_UID_X808};
+        static const char *const KN[4] = {"synth909", "synth808", "x0x909", "x0x808"};
+        static const uint8_t SN[9] = {36, 38, 39, 42, 46, 43, 37, 49, 51};
+        static const char *const SNN[9] = {"kick", "snare", "clap", "hat", "open_hat", "tom", "rim", "crash", "ride"};
+        uint32_t sd;
+        for (i = 0; i < 4u; i++) {
+            if (!drum_kit_built(KIT[i]))
+                continue;
+            for (sd = 0; sd < 10u; sd++) {
+                job_t *j;
+                if (sd)
+                    snprintf(name, sizeof name, "cpu/drums/%s/%s", KN[i], SNN[sd - 1u]);
+                else
+                    snprintf(name, sizeof name, "cpu/drums/%s/groove", KN[i]);
+                j = add(J_CPU, name);
+                memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+                cpu_parts[ncpu][NPART][0] = sd ? 3 : 2;
+                cpu_parts[ncpu][NPART][1] = (uint8_t)(KIT[i] + 1u);
+                cpu_parts[ncpu][NPART][2] = sd ? SN[sd - 1u] : 0;
+                j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+                j->e = 0xFF;
+            }
+        }
+    }
+#if DRUM_X0X
+    {   /* the X0X channels, each kept sounding (hit again as it ends), then all of a kit's: the CPU guard's model
+         * (tools/builder/cpu_costs.py: a channel's cost, and what the channels of one machine share) */
+        uint32_t ch, m;
+        for (ch = 0; ch < X0X_NCH + 2u; ch++) {
+            uint32_t kit = ch < X0X_NCH ? (ch < X0X_CH808 ? DRUM_UID_X909 : DRUM_UID_X808) :
+                                          ch == X0X_NCH ? DRUM_UID_X909 : DRUM_UID_X808;
+            job_t *j;
+            if (!drum_kit_built(kit) || (ch < X0X_NCH && !x0x_ch_note(kit, ch)))
+                continue;
+            m = ch < X0X_NCH ? ch : 0xFFu;
+            if (m == 0xFFu)
+                snprintf(name, sizeof name, "cpu/x0x/%s_all", kit == DRUM_UID_X909 ? "909" : "808");
+            else
+                snprintf(name, sizeof name, "cpu/x0x/ch%02u", ch);
+            j = add(J_CPU, name);
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][NPART][0] = 4;
+            cpu_parts[ncpu][NPART][1] = (uint8_t)(kit + 1u);
+            cpu_parts[ncpu][NPART][2] = (uint8_t)m;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+        }
+    }
+#endif
+    {   /* mixes: idle (subtracted from the presets' counts), idle + drums, DIGITAL + PHASE + VOICE asking
+         * 8 + 8 + 4 (the budget keeps 8) + drums */
+        job_t *j;
+        cidle = nj;                                    /* (the idle mix: subtracted below) */
+        j = add(J_CPU, "cpu/mix/idle");
+        memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+        j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+        j->e = 0xFF;
+        j = add(J_CPU, "cpu/mix/idle_drums");
+        memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+        cpu_parts[ncpu][NPART][0] = 1;
+        j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+        j->e = 0xFF;
+        if (EB(1) && EB(2) && EB(5)) {
+            j = add(J_CPU, "cpu/mix/3parts_full_drums");
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][0][0] = (uint8_t)ES(1), cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+            cpu_parts[ncpu][1][0] = (uint8_t)ES(2), cpu_parts[ncpu][1][1] = 0, cpu_parts[ncpu][1][2] = 8;
+            cpu_parts[ncpu][2][0] = (uint8_t)ES(5), cpu_parts[ncpu][2][1] = 0, cpu_parts[ncpu][2][2] = 4;
+            cpu_parts[ncpu][NPART][0] = 1;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+        }
+#if FELUCCA_MASTER_COMP
+        for (i = 1; EB(1) && i <= 2u; i++) {          /* a part's COMP insert: DIGITAL's first preset, 8 notes, COMP in
+                                                       * a slot at 0 (idle: one compare a block) and at 127 */
+            j = add(J_CPU, i == 1u ? "cpu/fx/comp_off" : "cpu/fx/comp_on");
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][0][0] = (uint8_t)ES(1), cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = (uint8_t)i;
+        }
+        for (i = 16; EB(1) && i <= 20u; i++) {        /* LFO DEST's slots: none, on the voices, on values, on REV + S1, off */
+            j = add(J_CPU, i == 16u ? "cpu/lfo/none" : i == 17u ? "cpu/lfo/voices" : i == 18u ? "cpu/lfo/values" :
+                           i == 19u ? "cpu/lfo/fx" : "cpu/lfo/fx_off");
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][0][0] = (uint8_t)ES(1), cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = (uint8_t)(i == 20u ? 60u : i);
+        }
+        for (i = 14; EB(1) && i <= 15u; i++) {        /* LFO 2 on a part: DIGITAL's first preset, 8 notes, off / on */
+            j = add(J_CPU, i == 14u ? "cpu/lfo2/off" : "cpu/lfo2/on");
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][0][0] = (uint8_t)ES(1), cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = (uint8_t)i;
+        }
+        for (i = 3; i <= 5u; i++) {                   /* the drum bus's inserts: the groove, nothing / DIST / COMP at 127 */
+            j = add(J_CPU, i == 3u ? "cpu/fx/dbus_off" : i == 4u ? "cpu/fx/dbus_dist" : "cpu/fx/dbus_comp");
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][NPART][0] = 2;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = (uint8_t)i;
+        }
+        for (i = 6; i <= 8u; i++) {                   /* a drum sound's inserts: one snare a beat, none / DIST / COMP */
+            j = add(J_CPU, i == 6u ? "cpu/fx/dvoice_off" : i == 7u ? "cpu/fx/dvoice_dist" : "cpu/fx/dvoice_comp");
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][NPART][0] = 3, cpu_parts[ncpu][NPART][2] = 38;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = (uint8_t)i;
+        }
+#endif
+        for (i = 9; EB(1) && i <= 11u; i++) {         /* a part's insert slots: DIGITAL's first preset, 8 notes, both at
+                                                       * 0 / S1 DIST 127 / S2 FILTER low-pass */
+            if (i == 10u ? !FELUCCA_FX_DIST : i == 11u ? !TFLT_ON : 0)
+                continue;
+            j = add(J_CPU, i == 9u ? "cpu/fx/part_off" : i == 10u ? "cpu/fx/part_dist" : "cpu/fx/part_filt");
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][0][0] = (uint8_t)ES(1), cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = (uint8_t)i;
+        }
+        if (TFLT_ON) {                                /* the drum bus's FILTER: the groove (cpu/fx/dbus_off's) */
+            j = add(J_CPU, "cpu/fx/dbus_filt");
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][NPART][0] = 2;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = 12;
+        }
+        for (i = 61; i <= 69u; i++) {                 /* fx-rework: DUST on a part / the drum bus, a part's DYN CEIL, a drum
+                                                       * sound's further slot types (the jobs' setup: above) */
+            static const char *const NM[9] = {"cpu/fx/part_dust", "cpu/fx/dbus_dust", "cpu/fx/part_lim", "cpu/fx/dvoice_filt",
+                                              "cpu/fx/dvoice_dust", "cpu/fx/dvoice_fold", "cpu/fx/dvoice_fuzz",
+                                              "cpu/fx/dvoice_phsr", "cpu/fx/dvoice_frmt"};
+            static const uint8_t TY[9] = {FXT_DUST, FXT_DUST, FXT_COMP, FXT_FILT, FXT_DUST, FXT_FOLD, FXT_FUZZ, FXT_PHSR, FXT_FRMT};
+            if (!(FXT_BUILT >> TY[i - 61u] & 1u) || ((i == 61u || i == 63u) && !EB(1)) || (i >= 64u && !DINS))
+                continue;
+            j = add(J_CPU, NM[i - 61u]);
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            if (i == 62u)
+                cpu_parts[ncpu][NPART][0] = 2;
+            else if (i >= 64u)
+                cpu_parts[ncpu][NPART][0] = 3, cpu_parts[ncpu][NPART][2] = 38;
+            else
+                cpu_parts[ncpu][0][0] = (uint8_t)ES(1), cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = (uint8_t)i;
+        }
+#if INS_FX
+        for (i = 0; i < 2u * (FXT_NEWN - FXT_NEW0); i++) {   /* the further inserts (insfx.c), each built: a part's (DIGITAL's
+                                                       * first preset, 8 notes, S1 at 127), the drum bus's (the groove) */
+            static const char *const NM[2][FXT_NEWN - FXT_NEW0] = {
+                {"cpu/fx/part_fold", "cpu/fx/part_fuzz", "cpu/fx/part_phsr", "cpu/fx/part_flng", "cpu/fx/part_frmt", "cpu/fx/part_wide",
+                 "cpu/fx/part_chrs", "cpu/fx/part_echo", "cpu/fx/part_gate"},
+                {"cpu/fx/dbus_fold", "cpu/fx/dbus_fuzz", "cpu/fx/dbus_phsr", "cpu/fx/dbus_flng", "cpu/fx/dbus_frmt", "cpu/fx/dbus_wide",
+                 "cpu/fx/dbus_chrs", "cpu/fx/dbus_echo", "cpu/fx/dbus_gate"}};
+            uint32_t ty = FXT_NEW0 + i % (FXT_NEWN - FXT_NEW0), bus = i >= FXT_NEWN - FXT_NEW0;
+            if (FXT_AMT[ty] == 0xFFu || (!bus && !EB(1)))
+                continue;
+            j = add(J_CPU, NM[bus][i % (FXT_NEWN - FXT_NEW0)]);
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            if (bus)
+                cpu_parts[ncpu][NPART][0] = 2;
+            else
+                cpu_parts[ncpu][0][0] = (uint8_t)ES(1), cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = (uint8_t)(20u + i);
+        }
+#endif
+#if INS_SH
+        for (i = 0; i < 2u * (FXT_SHN - FXT_SH0) + 6u; i++) {   /* the shapers (2026-10-18), each built: a part's, the drum
+                                                       * bus's (as the further inserts above), a drum sound's (as 64 .. 69) */
+            static const char *const NM[2u * (FXT_SHN - FXT_SH0) + 6u] = {
+                "cpu/fx/part_sfld", "cpu/fx/part_wrap", "cpu/fx/part_rect", "cpu/fx/part_harm", "cpu/fx/part_ring",
+                "cpu/fx/part_subo", "cpu/fx/part_slew", "cpu/fx/dbus_sfld", "cpu/fx/dbus_wrap", "cpu/fx/dbus_rect",
+                "cpu/fx/dbus_harm", "cpu/fx/dbus_ring", "cpu/fx/dbus_subo", "cpu/fx/dbus_slew", "cpu/fx/dvoice_sfld",
+                "cpu/fx/dvoice_wrap", "cpu/fx/dvoice_rect", "cpu/fx/dvoice_harm", "cpu/fx/dvoice_ring", "cpu/fx/dvoice_slew"};
+            static const uint8_t DV[6] = {FXT_SFLD, FXT_WRAP, FXT_RECT, FXT_HARM, FXT_RING, FXT_SLEW};
+            uint32_t n7 = FXT_SHN - FXT_SH0, dv = i >= 2u * n7, bus = !dv && i >= n7;
+            uint32_t ty = dv ? DV[i - 2u * n7] : FXT_SH0 + i % n7;
+            if (FXT_AMT[ty] == 0xFFu || (!bus && !dv && !EB(1)) || (dv && !DINS))
+                continue;
+            j = add(J_CPU, NM[i]);
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            if (dv)
+                cpu_parts[ncpu][NPART][0] = 3, cpu_parts[ncpu][NPART][2] = 38;
+            else if (bus)
+                cpu_parts[ncpu][NPART][0] = 2;
+            else
+                cpu_parts[ncpu][0][0] = (uint8_t)ES(1), cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = (uint8_t)(dv ? 114u + (i - 2u * n7) : 100u + i);
+        }
+#endif
+        if (EB(1) && EB(2) && EB(5)) {                /* the worst case: 2 heavy inserts on each of the 4 tracks */
+            j = add(J_CPU, "cpu/fx/ins_worst");
+            memset(cpu_parts[ncpu], 0, sizeof cpu_parts[ncpu]);
+            cpu_parts[ncpu][0][0] = (uint8_t)ES(1), cpu_parts[ncpu][0][1] = 0, cpu_parts[ncpu][0][2] = 8;
+            cpu_parts[ncpu][1][0] = (uint8_t)ES(2), cpu_parts[ncpu][1][1] = 0, cpu_parts[ncpu][1][2] = 8;
+            cpu_parts[ncpu][2][0] = (uint8_t)ES(5), cpu_parts[ncpu][2][1] = 0, cpu_parts[ncpu][2][2] = 4;
+            cpu_parts[ncpu][NPART][0] = 1;
+            j->parts = (const uint8_t (*)[3])cpu_parts[ncpu++];
+            j->e = 0xFF;
+            j->arg = 13;
+        }
+    }
+    c1 = nj;
+    run_jobs(J + c0, c1 - c0, 1);
+
+    /* ---- report: goldens and health ---- */
+    ng = load_kv(gpath, gold, MAXJ);
+    for (i = g0; i < g1; i++) {
+        job_t *j = &J[i];
+        const res_t *r = &j->r;
+        const char *want = kv_get(gold, ng, j->name);
+        char hs[24], why[256] = "";
+        snprintf(hs, sizeof hs, "%016llx", (unsigned long long)r->hash);
+        if (j->crashed) {
+            printf("regress: CRASH  %s\n", j->name);
+            crash++;
+            continue;
+        }
+        if (!want)
+            g_new++;
+        else if (strcmp(want, hs)) {
+            if (!gupd)
+                printf("regress: GOLDEN CHANGED  %s  (%s -> %s)\n", j->name, want, hs);
+            g_changed++;
+        }
+        if (r->over)
+            snprintf(why + strlen(why), sizeof why - strlen(why), " %u samples beyond 16 bits;", r->over);
+        if (r->near)
+            snprintf(why + strlen(why), sizeof why - strlen(why), " %u samples >= %d;", r->near, LIM_NEAR);
+        if (fabs(r->dc) > LIM_DC)
+            snprintf(why + strlen(why), sizeof why - strlen(why), " DC %.1f (limit %d);", r->dc, LIM_DC);
+        if (r->peak < LIM_PEAK_MIN)
+            snprintf(why + strlen(why), sizeof why - strlen(why), " peak %d (min %d);", r->peak, LIM_PEAK_MIN);
+        if (r->free_s < 0)
+            snprintf(why + strlen(why), sizeof why - strlen(why), " voices not free %d s after the note-offs;", FREE_CAP_S);
+        if (abs(r->tail_dc) > LIM_TAIL_DC)
+            snprintf(why + strlen(why), sizeof why - strlen(why), " DC %d left at the end (limit %d);", r->tail_dc,
+                     LIM_TAIL_DC);
+        if (r->tail_peak > LIM_TAIL)
+            snprintf(why + strlen(why), sizeof why - strlen(why), " not silent at the end: peak %d (limit %d);",
+                     r->tail_peak, LIM_TAIL);
+        if (r->vmax > NVOICE)
+            snprintf(why + strlen(why), sizeof why - strlen(why), " %u voices (budget %u);", r->vmax, NVOICE);
+        if (why[0]) {
+            printf("regress: HEALTH FAIL  %s:%s\n", j->name, why);
+            h_fail++;
+        }
+        if (verbose)
+            printf("  %-44s %s  %5.1f s  peak %5d  dc %6.1f  free %5.2f s  tail %3d dc %3d  voices %u\n", j->name,
+                   hs, (double)r->frames / FS, r->peak, r->dc, r->free_s, r->tail_peak, r->tail_dc, r->vmax);
+    }
+    for (i = 0; i < ng; i++) {                      /* in the file, not rendered any more */
+        uint32_t k, found = 0;
+        for (k = g0; k < g1 && !found; k++)
+            found = !strcmp(J[k].name, gold[i].name);
+        if (!found) {
+            if (!gupd)
+                printf("regress: GOLDEN GONE  %s (no such render now)\n", gold[i].name);
+            g_gone++;
+        }
+    }
+    if (J[g1].r.hash != J[g0].r.hash || J[g1].crashed) {
+        printf("regress: NOT DETERMINISTIC  %s rendered twice: %016llx, %016llx\n", J[g0].name,
+               (unsigned long long)J[g0].r.hash, (unsigned long long)J[g1].r.hash);
+        h_fail++;
+    }
+    if (gupd) {
+        FILE *f = fopen(gpath, "w");
+        if (!f) {
+            perror(gpath);
+            return 2;
+        }
+        fprintf(f, "# FELUCCA golden renders (tests/regress.c): name, FNV-1a 64 of the output samples.\n"
+                   "# Rewritten by GOLDEN_UPDATE=1 tests/run_tests.sh -- only for an intended change of the sound.\n");
+        for (i = g0; i < g1; i++)
+            fprintf(f, "%s %016llx\n", J[i].name, (unsigned long long)J[i].r.hash);
+        fclose(f);
+        printf("regress: golden file %s rewritten (%u renders; %u had changed, %u new, %u gone)\n", gpath, g1 - g0,
+               g_changed, g_new, g_gone);
+    } else if (g_new) {
+        printf("regress: %u renders not in %s (new: GOLDEN_UPDATE=1 adds them)\n", g_new, gpath);
+    }
+
+    /* ---- voices ---- */
+    for (i = k0; i < c0; i++) {
+        int ok = !J[i].crashed && J[i].r.ok;
+        printf("regress: %s: %s %s\n", J[i].name, J[i].crashed ? "crashed" : J[i].r.msg, ok ? "ok" : "FAIL");
+        k_fail += !ok;
+    }
+
+    /* ---- CPU ---- */
+    /* a preset's own cost: its count less the idle mix's (the mix alone is half of a light preset's),
+     * so +25 % means 25 % more engine work; the mixes as they are */
+    nc = load_kv(cpath, cpu, MAXJ);
+    idle_now = J[cidle].r.ipc;
+    idle_base = kv_get(cpu, nc, J[cidle].name) ? atof(kv_get(cpu, nc, J[cidle].name)) : 0;
+    for (i = c0; i < c1; i++) {
+        const job_t *j = &J[i];
+        const char *want = kv_get(cpu, nc, j->name);
+        int own = j->e < NENGINES && idle_base > 0;
+        double b = want ? atof(want) - (own ? idle_base : 0) : 0, ipc = j->r.ipc - (own ? idle_now : 0);
+        if (j->crashed) {
+            printf("regress: CRASH  %s\n", j->name);
+            crash++;
+            continue;
+        }
+        if (j->e < NENGINES && !j->fm6v && j->r.ipc > heavy[j->e]) {   /* (the heaviest preset: its name below) */
+            heavy[j->e] = j->r.ipc;
+            heavy_ns[j->e] = j->r.ns;
+            heavy_p[j->e] = j->pi;
+        }
+        if (!j->r.ipc || cupd)
+            continue;
+        if (!want)
+            printf("regress: CPU %s: %.0f instructions / sample, no baseline (BUDGET_UPDATE=1 adds it)\n", j->name, ipc);
+        else if (ipc > b * (1 + CPU_TOL) && ipc > b + CPU_SLACK) {
+            printf("regress: CPU OVER BUDGET  %s: %.0f instructions / sample%s, baseline %.0f (+%.0f %%, limit +%.0f %%)\n",
+                   j->name, ipc, own ? " over the idle mix" : "", b, (ipc / b - 1) * 100, CPU_TOL * 100);
+            c_fail++;
+        } else if (ipc < b * (1 - CPU_TOL) && ipc < b - CPU_SLACK) {
+            printf("regress: CPU note  %s: %.0f instructions / sample, baseline %.0f (%.0f %%): faster? "
+                   "BUDGET_UPDATE=1 to keep it\n", j->name, ipc, b, (ipc / b - 1) * 100);
+            c_warn++;
+        }
+    }
+    if (!J[c0].r.ipc)
+        printf("regress: CPU: no instruction counter on this host (proc_pid_rusage); the budget is not checked\n");
+    else if (cupd) {
+        FILE *f = fopen(cpath, "w");
+        if (!f) {
+            perror(cpath);
+            return 2;
+        }
+        fprintf(f, "# FELUCCA host CPU baseline (tests/regress.c): instructions per 44.1 kHz sample, cc -O2 on\n"
+                   "# the Mac (kernel-counted, ~1 %% run to run). The check allows +%.0f %%. Rewritten by BUDGET_UPDATE=1.\n",
+                CPU_TOL * 100);
+        for (i = c0; i < c1; i++)
+            fprintf(f, "%s %.0f\n", J[i].name, J[i].r.ipc);
+        fclose(f);
+        printf("regress: CPU baseline %s rewritten (%u entries)\n", cpath, c1 - c0);
+    }
+    printf("regress: CPU, one part with 8 notes held (VOICE 4), heaviest preset per engine (instructions / ns per sample):\n");
+    for (e = 0; e < NENGINES; e++)
+        if (!ENG_SKIP(e))
+        printf("regress:   %-8s %-14s %6.0f instr  %6.1f ns\n", ENGINES[e]->name, ENGINES[e]->presets[heavy_p[e]].name,
+               heavy[e], heavy_ns[e]);
+    for (i = c1 - 3u; i < c1; i++)
+        printf("regress:   %-23s %6.0f instr  %6.1f ns\n", J[i].name + 8, J[i].r.ipc, J[i].r.ns);
+
+    printf("regress: %u golden renders (%u changed, %u gone), %u health failures, %u voice / routing checks failed, "
+           "%u CPU entries over budget (%u notes), %u crashes; %.1f s\n", g1 - g0, gupd ? 0 : g_changed,
+           gupd ? 0 : g_gone, h_fail, k_fail, cupd ? 0 : c_fail, c_warn, crash, (double)(now_ns() - t_start) / 1e9);
+    if (!gupd && (g_changed || g_gone))
+        printf("regress: the sound changed. If that is intended: GOLDEN_UPDATE=1 sh tests/run_tests.sh, "
+               "then review and commit tests/golden.txt\n");
+    return (!gupd && (g_changed || g_gone)) || h_fail || k_fail || (!cupd && c_fail) || crash;
+}

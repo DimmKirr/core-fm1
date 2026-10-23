@@ -1,0 +1,227 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* The automation store (seq/auto.h, auto.c: motion, locks, nudges, fills, chance; FELUCCA_AUTO) with the projects:
+ * a store per project buffer, outside project_t (project_t is full: FUNB fills a flash sector's payload), named by the
+ * project's sum (psum): a project changed without it (a build without the store, an older save) plays none. Included
+ * by project.c. It replaces motion_proj.c and stepx_proj.c (phase 3): one store holds what their two held.
+ *
+ *   a buffer's store  proj_capture copies the working store (auto_w) into the store of the buffer it captured into;
+ *                     proj_apply takes it from the store of the buffer it applies (none, or another project's:
+ *                     cleared). The buffers: the four slots (FELUCCA_SECTIONS 4), proj_tmp (a section saved / loaded),
+ *                     the stage (the song's next part), the autosave, the song's backup of the loop. Bound at
+ *                     power-on (persist_boot), never taken at run time.
+ *
+ * In flash a store has one form: the extras record (stepx_log.c) holds the whole store (auto.h AUTO_ENC_TAG); the
+ * four-slot builds (no log) keep its hold events in the MOTN record beside the project (motion_flash.c). The old forms
+ * an older Optimist wrote are read and converted: the MOTN record and a section's SEC_MOT chunk (motion, at most 64
+ * hold events), the extras record's SLOOP 2.4 step-extras form (24 locks a track, the nudges, the fills). Read: the
+ * motion form first, then the extras record (the old form adds the step-only events, the new form is the store).
+ * A pattern record carries its track's list itself (pat.c). */
+#define AUTO_AUX 4u
+#if !SEC_LOGGED
+static auto_store_t auto_slot[4] __attribute__((section(".pool")));
+#endif
+static auto_store_t auto_aux[AUTO_AUX] __attribute__((section(".pool")));
+static const project_t *auto_aux_p[AUTO_AUX];
+
+/* the store of a project buffer; mk: take a free one for a buffer that has none (0: none) */
+static auto_store_t *auto_for(const project_t *p, int mk)
+{
+    uint32_t i;
+#if !SEC_LOGGED
+    if (p >= proj_slot && p < proj_slot + 4)
+        return &auto_slot[p - proj_slot];
+#endif
+    for (i = 0; i < AUTO_AUX; i++)
+        if (auto_aux_p[i] == p)
+            return &auto_aux[i];
+    if (mk)
+        for (i = 0; i < AUTO_AUX; i++)
+            if (!auto_aux_p[i]) {
+                auto_aux_p[i] = p;
+                return &auto_aux[i];
+            }
+    return 0;
+}
+static void auto_store_clear(auto_store_t *m)
+{
+    uint32_t k;
+    m->on = 0;
+    for (k = 0; k < NTRK; k++)
+        m->l[k].n = 0;
+}
+/* the store of buffer p as p's own, emptied (a record is read into it next); 0 none */
+static auto_store_t *auto_fresh(const project_t *p)
+{
+    auto_store_t *m = auto_for(p, 1);
+    if (m) {
+        auto_store_clear(m);
+        m->psum = p->sum;
+    }
+    return m;
+}
+/* p's store, when it is p's (0: none) */
+static const auto_store_t *auto_of(const project_t *p)
+{
+    const auto_store_t *m = auto_for(p, 0);
+    return m && m->psum == p->sum ? m : 0;
+}
+
+#if FELUCCA_MOTION || FELUCCA_PLOCK
+/* proj_capture: track k's patch under the automation (auto.c auto_patch), by parameter id (v[P_COUNT]). project.c
+ * stores it as it stores any track's values (pj_from_p, pj_x): a stored track holds fewer values than P_COUNT */
+static void motion_base_params(int16_t *v, uint32_t k)
+{
+    uint32_t id;
+    for (id = 0; id < P_COUNT; id++)
+        v[id] = auto_patch(&trk[k], id);
+}
+#endif
+#if FELUCCA_MOTION
+#if FELUCCA_ANALOG2
+/* a motion store recorded with format 10's parameter numbers (its project converted by proj_va_fix; dst: where each
+ * part's AMT2 went): P_E0 .. moved up by the four amounts that replaced DST2; an AMT2 that went to another
+ * destination takes its motion along */
+#define MOTION_VA_E0 (P_E0 - 3u)                       /* format 10's P_E0 (DST2 its last value before) */
+static void motion_from_va(motion_store_t *m, const int8_t *dst)
+{
+    uint32_t i;
+    for (i = 0; i < m->count && i < MOTION_MAX; i++) {
+        motion_ev_t *e = &m->ev[i];
+        uint32_t k = e->place >> 6;
+        if (e->param >= MOTION_VA_E0)
+            e->param = (uint8_t)(e->param + 3u);
+        else if (e->param == P_A2FENV && k < NPART && dst[k] > A2E_CUT && dst[k] <= A2E_SDTN)
+            e->param = (uint8_t)(P_A2EPIT + dst[k] - 1);
+    }
+}
+#endif
+#endif
+
+/* the working store empty: at power-on (persist_boot; a host test: before it sets any) */
+static void auto_init(void)
+{
+    auto_store_clear(&auto_w);
+    auto_w.psum = 0;
+    auto_touch_all();
+}
+/* proj_capture, after the sum: the working store into the buffer's */
+static void auto_capture_store(const project_t *p)
+{
+    auto_store_t *m = auto_for(p, 1);
+    if (!m)
+        return;
+    *m = auto_w;
+    m->psum = p->sum;
+}
+/* proj_apply (a load, a song section; the ISR or interrupts off): the buffer's store, if it is this project's */
+static void auto_apply_store(const project_t *p)
+{
+    const auto_store_t *m = auto_of(p);
+#if FELUCCA_MOTION || FELUCCA_PLOCK
+    uint32_t k, w;
+    for (k = 0; k < NTRK; k++) {
+        for (w = 0; w < MOTION_WORDS; w++)
+            motion_active[k][w] = 0;                  /* (the project's values replace the tracks' now) */
+#if FELUCCA_PLOCK
+        lk_n[k] = 0;                                  /* (no lock in force: it would put an old value back) */
+#endif
+    }
+#endif
+#if FELUCCA_MOTION
+    motion_full = 0;
+#endif
+    if (m)
+        auto_w = *m;
+    else
+        auto_store_clear(&auto_w);
+    auto_w.psum = 0;
+    auto_touch_all();
+}
+/* proj_capture, after auto_capture_store: the working steps' own note ends (seq/ngate.h) added to the buffer's store,
+ * as events (a list full: the rest not kept) */
+static void ngate_capture(const project_t *p)
+{
+    auto_store_t *m = auto_for(p, 0);
+    uint32_t k;
+    if (!m || m->psum != p->sum)
+        return;
+    for (k = 0; k < NTRK; k++)
+        (void)ngate_unfold(&m->l[k], trk[k].step, k);
+}
+/* track k's list and steps in the stage / a buffer's store s (pat.c): the own ends as events, as ngate_capture */
+static void ngate_capture_trk(auto_store_t *s, uint32_t k)
+{
+    if (s)
+        (void)ngate_unfold(&s->l[k % NTRK], trk[k % NTRK].step, k % NTRK);
+}
+/* proj_apply / pat_take, the steps and the lists applied: the own-end events into the working steps, out of the lists */
+static void ngate_apply_trk(uint32_t k)
+{
+    (void)ngate_fold(trk[k % NTRK].step, AUTO_L(k), k % NTRK);
+}
+static void ngate_apply(void)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        ngate_apply_trk(k);
+}
+/* a hash of the working store, the steps' own ends and the ACCENT lane (the autosave saves when the project, its
+ * automation, a note's own end or an accent changed: a project_t has neither) */
+static uint32_t auto_hash(void)
+{
+    uint32_t k, i, h = proj_hash(&auto_w.on, sizeof auto_w - __builtin_offsetof(auto_store_t, on));
+    for (k = 0; k < NPART; k++)
+        for (i = 0; i < NSTEP; i++)
+            h = (h ^ proj_hash(trk[k].step[i].ngate, sizeof trk[k].step[i].ngate)) * 16777619u;
+    for (i = 0; i < NSTEP; i++)                         /* (the drum track's ACCENT lane: not in a project_t either) */
+        h = (h ^ TDRUM->dstep[i].acc) * 16777619u;
+    return h;
+}
+
+/* m has hold events or a PLAY bit (a motion form to write) */
+static int auto_has_motion(const auto_store_t *m)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        if (auto_count(&m->l[k], AUTO_HOLDS))
+            return 1;
+    return m->on != 0;
+}
+/* ---- the stored forms. The hold events as the old motion form (the first 64; 1: all of them) */
+static int auto_motion_of(const auto_store_t *m, motion_store_t *o)
+{
+    o->psum = m->psum;
+    return auto_to_motion(o, m->l, m->on);
+}
+/* the extras record's bytes of store m -> o (AUTO_ENC_MAX), their length; 0 nothing (no event, no PLAY bit). Always
+ * the new form (auto.h AUTO_ENC_TAG: the whole store): SLOOP 2.4's step extras and motion's old forms are only read
+ * (ax_decode, the MOTN record, a section's SEC_MOT chunk: an older Optimist's projects load), never written */
+#define AX_ENC_MAX AUTO_ENC_MAX
+static uint32_t ax_encode(const auto_store_t *m, uint8_t *o)
+{
+    uint32_t k, any = m->on;
+    for (k = 0; k < NTRK; k++)
+        any |= m->l[k].n;
+    return any ? auto_enc_store(m->l, m->on, o) : 0u;
+}
+/* n bytes of an extras record -> m: the old form's step extras added to its lists (the motion form read before), the
+ * new form the whole store; 0 refused (the old form: nothing added; the new form: m emptied) */
+static int ax_decode(auto_store_t *m, const uint8_t *a, uint32_t n)
+{
+    const uint8_t *e = a + n;
+    uint32_t k;
+    stepx_t x;
+    if (auto_is_store(a, n))
+        return auto_dec_store(m->l, &m->on, a, n);
+    for (k = 0; k < NTRK; k++) {                      /* (checked whole first: a bad record adds nothing) */
+        if (!stepx_decode_trk(&x, &a, e))
+            return 0;
+    }
+    if (a != e)
+        return 0;
+    for (k = 0, a = e - n; k < NTRK; k++) {
+        (void)stepx_decode_trk(&x, &a, e);
+        (void)auto_from_stepx(&m->l[k], &x);
+    }
+    return 1;
+}

@@ -1,0 +1,209 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Native tone collections (FELUCCA_NATIVE_BANKS): after Melodee 0.12 (Kerem Kilic, github.com/keremimo/melodee,
+ * native_presets.c, cz_patch.h at v0.12), GPL-3.0-only; written for SLOOP's stores. */
+/* The FM6 or CZ track's PRESETS list ends with its engine's own collection: tones that set only the engine's values
+ * (EDIT: VOICE / TONE to the slot, the others to their defaults), so the track keeps its FX, mix and pattern.
+ *   FM6  the voice packs this build has (K01.. keys, B bass, M bells, P pads, 8 the 80s: eng_fm6.c FM6_PACK, 16 each),
+ *        then R01..R32, the DX7 bank received over USB MIDI (eng_fm6.c fm6_pick: RAM, until power-off; a voice named
+ *        INIT VOICE is left out); loading R.. puts that voice into the track's voice buffer, as a single-voice dump does
+ *   CZ   U01..U26: OBJ_CZBANK (storage.c, A/B below the snapshot area): u32 used, then 26 Casio CZ-1 tones of 144 B
+ *        (128 synthesis bytes, the 16-byte name; Casio's MIDI layout, as Melodee keeps them), read in place (czb_xip)
+ * Melodee has 128 CZ slots; Optimist's flash has one object's 26. A track refers to its slot (TONE): a slot written again
+ * changes the tracks playing it. Favorites: core/favorites.c, not for these collections. Not ported: CZ STORE on the
+ * device (the editor stores CZ tones). The FM6 user bank U01..U32 of Melodee 0.12 was dropped 2026-10-18. */
+enum { NB_NONE, NB_FM6, NB_CZ };
+
+static uint32_t nb_kind(const track_t *t)
+{
+    const engine_t *e = ENGINES[t->eng_req % NENGINES];
+    if (is_drum(t))
+        return NB_NONE;
+    if (FELUCCA_FM6_LIST && ENG_IS(e, FM6))
+        return NB_FM6;
+#if CZ_NUSER
+    if (e == &ENG_CZ)
+        return NB_CZ;
+#endif
+    return NB_NONE;
+}
+#if FELUCCA_FM6_LIST
+#define NB_FM6_RX (FELUCCA_FM6_SYSEX ? 32u : 0u)          /* the received bank's slots, after the packs' */
+#else
+#define NB_FM6_RX 0u
+#define FM6_NPKV 0u
+#endif
+static uint32_t nb_slots(uint32_t kind) { return kind == NB_FM6 ? FM6_NPKV + NB_FM6_RX : kind == NB_CZ ? CZ_NUSER : 0u; }
+#if CZ_NUSER
+#define NB_CZ_BASE CZT_N                                  /* TONE of U01: after the built-in tones */
+#else
+#define NB_CZ_BASE 0u
+#endif
+static uint32_t nb_base(uint32_t kind) { return kind == NB_FM6 ? 1u : NB_CZ_BASE; }   /* (FM6: VOICE 0 is INIT VOICE) */
+
+/* slot k's stored bytes and where its name is in them, 0: empty */
+static const uint8_t *nb_raw(uint32_t kind, uint32_t k, uint32_t *name_at)
+{
+#if FELUCCA_FM6_LIST
+    if (kind == NB_FM6) {
+        *name_at = 118u;
+        if (k < FM6_NPKV)
+            return 0;                                   /* (a pack voice: compressed, eng_fm6.c; nb_used and nb_name know it) */
+#if FELUCCA_FM6_SYSEX
+        if (fm6_pick_ok && k - FM6_NPKV < 32u && memcmp(fm6_pick + (k - FM6_NPKV) * 128u + 118, "INIT VOICE", 10))
+            return fm6_pick + (k - FM6_NPKV) * 128u;
+#endif
+        return 0;
+    }
+#endif
+    *name_at = 128u;
+#if CZ_NUSER
+    return czb_tone(CZT_N + k);
+#else
+    return 0;
+#endif
+}
+static int nb_used(uint32_t kind, uint32_t k)
+{
+    uint32_t o;
+#if FELUCCA_FM6_LIST
+    if (kind == NB_FM6 && k < FM6_NPKV)
+        return 1;                                       /* (a pack voice: always there; nb_raw would decode it) */
+#endif
+    return k < nb_slots(kind) && nb_raw(kind, k, &o);
+}
+
+static void nb_name(uint32_t kind, uint32_t k, char *nm)  /* 12 characters at most, trailing blanks cut */
+{
+    uint32_t o = 0, i, n = 0;
+    const uint8_t *b = nb_raw(kind, k, &o);
+#if FELUCCA_FM6_LIST
+    if (kind == NB_FM6 && k < FM6_NPKV)
+        b = (const uint8_t *)fm6_pack_name(k), o = 0;   /* (its name stored apart, uncompressed: from 0) */
+#endif
+    for (i = 0; b && i < 12u && i < (kind == NB_FM6 ? 10u : 16u); i++) {
+        nm[i] = (char)(b[o + i] >= 32u && b[o + i] <= 126u ? b[o + i] : ' ');
+        if (nm[i] != ' ')
+            n = i + 1u;
+    }
+    nm[n] = 0;
+}
+
+/* the selected track's collection as the PRESETS list shows it, its used slots in order: their count; *rank the
+ * place of the one the track plays (VOICE / TONE), else the count. n < count: *at the n-th one's slot */
+static uint32_t nb_list(uint32_t *rank, uint32_t n, uint32_t *at)
+{
+    uint32_t kind = nb_kind(TSEL), v = (uint32_t)TSEL->p[P_E0] - nb_base(kind), k, c = 0;
+    *rank = ~0u;
+    for (k = 0; k < nb_slots(kind); k++)
+        if (nb_used(kind, k)) {
+            if (k == v)
+                *rank = c;
+            if (c++ == n)
+                *at = k;
+        }
+    if (*rank > c)
+        *rank = c;
+    return c;
+}
+static void nb_row(uint32_t k, char *tag, char *nm)       /* "K07" / "R07" (FM6), "Z07" (CZ, Melodee's letter), its name */
+{
+    uint32_t kind = nb_kind(TSEL);
+#if FELUCCA_FM6_LIST
+    static const char PKLET[] = {FIF(FELUCCA_FM6_PK_KEYS)('K',) FIF(FELUCCA_FM6_PK_BASS)('B',) FIF(FELUCCA_FM6_PK_BELLS)('M',)
+                                 FIF(FELUCCA_FM6_PK_PADS)('P',) FIF(FELUCCA_FM6_PK_80S)('8',) 'R'};
+    if (kind == NB_FM6) {                               /* a pack's letter and the voice's place in it; R: the received bank */
+        up_slot_label(tag, k < FM6_NPKV ? k % 16u : k - FM6_NPKV);
+        tag[0] = PKLET[k < FM6_NPKV ? k / 16u : FM6_NPACKS];
+        nb_name(kind, k, nm);
+        return;
+    }
+#endif
+    up_slot_label(tag, k);
+    tag[0] = 'Z';
+    nb_name(kind, k, nm);
+}
+
+/* slot k into the selected track: the engine's values only (FM6: its buffer loaded afresh) */
+static void nb_load(uint32_t k)
+{
+    track_t *t = TSEL;
+    const engine_t *e = ENGINES[t->eng_req % NENGINES];
+    uint32_t kind = nb_kind(t), i;
+    if (!nb_used(kind, k))
+        return;
+    sound_change(t);                                    /* (SLOOP 2.6: what sounds fades out with the old sound) */
+    fm1_irq_off();
+    for (i = 0; i < 8u; i++)
+        t->p[P_E0 + i] = e->edit[i].def;
+    t->p[P_E0] = (int16_t)(nb_base(kind) + k);
+    t->user = 0;
+#if FELUCCA_FM6_LIST
+    if (kind == NB_FM6) {
+        if (k < FM6_NPKV) {
+            fm6_cur[song.sel % NPART] = 0;              /* the pack's voice afresh */
+        } else {                                        /* a voice of the received bank: into the buffer, VOICE INIT */
+            uint32_t o;
+            fm6_unpack(fm6_ed[song.sel % NPART], nb_raw(kind, k, &o));
+            t->p[P_E0] = 0;
+            fm6_cur[song.sel % NPART] = 1;
+            fm6_pt[song.sel % NPART].panic = 1;
+        }
+    }
+#endif
+    panic_req |= (uint8_t)(1u << song.sel);
+    fm1_irq_on();
+    sync_reload = 1;
+    ui.force = 1;
+}
+
+#if CZ_NUSER
+/* ------------------------------------------------------------ the CZ store --- */
+#define CZB_LEN (4u + CZ_NUSER * 144u)
+#if FELUCCA_FLASH
+_Static_assert(CZB_LEN <= ST_PAYLOAD_MAX, "the CZ collection: one storage object");
+#endif
+_Static_assert(0xD8000u - (SN_SECTORS + 2u) * 0x1000u >= 0xC8000u, "the CZ collection: inside USR3");
+#define CZB_XIP(off) (smp_user_xip(2) + ((off) - (SMP_USER_BASE + 2u * SMP_USER_SIZE)))   /* (the host's slot image too) */
+
+static void czb_find(void)                                /* boot, after a save: the current copy's payload */
+{
+    const uint8_t *b = 0;
+#if FELUCCA_FLASH
+    st_hdr_t h;
+    int c = flash_ok ? st_current(OBJ_CZBANK, &h) : -1;
+    if (c >= 0 && h.len == CZB_LEN)
+        b = CZB_XIP(st_sector(OBJ_CZBANK, (uint32_t)c) + ST_PAYLOAD_OFF);
+#endif
+    czb_xip = b;
+    memset(cz_key, 0, sizeof cz_key);                     /* (the parts on a slot take it again: eng_cz.c cz_block) */
+}
+
+/* slot k <- raw (144 B), 0 = erase it. -> 0 saved, 1 no such slot, 2 the flash said no. The bytes are not checked
+ * (the editor checks them, Melodee's cz_patch_valid): the playback masks every field it indexes with */
+static int czb_put(uint32_t k, const uint8_t *raw)
+{
+    int rc = 2;
+    if (k >= CZ_NUSER)
+        return 1;
+#if FELUCCA_FLASH
+    {
+        const uint8_t *b = czb_xip;
+        uint32_t *used = (uint32_t *)(void *)st_buf;      /* (the payload, built in st_buf: st_save takes it there) */
+        if (b)
+            memcpy(st_buf, b, CZB_LEN);
+        else
+            *used = 0;                                    /* (the empty slots' bytes are never read) */
+        *used = raw ? *used | 1u << k : *used & ~(1u << k);
+        if (raw)
+            memcpy(st_buf + 4u + k * 144u, raw, 144);
+        czb_xip = 0;                                      /* (meanwhile the parts on a slot play INIT) */
+        rc = flash_ok && !st_save(OBJ_CZBANK, st_buf, CZB_LEN) ? 0 : 2;
+        fm1_irq_off();
+        fl_inval(st_sector(OBJ_CZBANK, 0), 2u * ST_SECTOR);
+        fm1_irq_on();
+        czb_find();
+    }
+#endif
+    return rc;
+}
+#endif
