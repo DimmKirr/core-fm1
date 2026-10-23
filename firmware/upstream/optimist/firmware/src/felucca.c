@@ -1,0 +1,316 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* SLOOP (based on FELUCCA): one compilation unit (the HAL is header-only). Order matters. */
+#include <stdint.h>
+#ifndef FELUCCA_DUAL
+#define FELUCCA_DUAL 0           /* The second core (dual.c, docs/DUAL-CORE.md): 0 off, 1 stage 1
+                                  * (CPU1 counts, nothing else), 2 CPU1 renders parts 2 and 3 */
+#endif
+#ifndef FELUCCA_BENCH
+#define FELUCCA_BENCH 0          /* emulator measurement scenarios (bench.c), 0 = none */
+#endif
+#if FELUCCA_DUAL
+static void dual_flash_enter(void);
+static void dual_flash_leave(void);
+#define FM1_FLASH_ENTER() dual_flash_enter()
+#define FM1_FLASH_LEAVE() dual_flash_leave()
+#endif
+#include "fm1_time.h"
+#include "fm1_clock.h"
+#include "fm1_sys.h"
+#include "fm1_irq.h"
+#include "fm1_guard.h"
+#include "fm1_cache.h"               /* EXPERIMENTAL cache RAM (FELUCCA_CACHE_RAM): 7 data-cache ways as 28 KiB of RAM */
+#include "core/backports.h"          /* (before the HAL: FELUCCA_LIGHTS, hal/fm1_input.h) */
+#include "fm1_input.h"
+#include "fm1_timer.h"
+#include "fm1_audio.h"
+#include "fm1_adc.h"
+#include "fm1_lcd_hw.h"
+#include "felucca_tables.h"
+#if FELUCCA_DUAL
+#ifndef FELUCCA_DUAL_IDLE
+#define FELUCCA_DUAL_IDLE 0      /* 1: CPU1 asleep between jobs (2 only; system/dual.c). 0 since 2026-10-15: the wake never
+                                  * reached CPU1 on the FM-1 (A); the spin in RAM is the one that ran there (B9a, BLUETOOTH OFF) */
+#endif
+#ifndef FELUCCA_DUALCFG
+#define FELUCCA_DUALCFG 0        /* 1: the switchable test image (OPTIMIST_DUALCFG; the console's dualcfg, system/dual.c) */
+#endif
+#if FELUCCA_DUAL >= 2 && FELUCCA_DUAL_IDLE && !FELUCCA_DUALCFG
+#define FM1_DUAL_NO_SPIN 1       /* (hal/fm1_dual.h: no RAM spin loop, CPU1 sleeps) */
+#endif
+#include "fm1_dual.h"
+#endif
+
+#ifndef FELUCCA_USB_AUDIO
+#define FELUCCA_USB_AUDIO 1      /* EXPERIMENTAL USB audio (from Melodee): UAC1 + MIDI; replaces CDC */
+#endif
+
+#include "system/libc.c"
+#include "display/lcd.c"
+#include "display/gfx.c"
+#include "core/core.h"
+#include "engines/engines.c"
+#include "drums/drums.c"
+#include "core/params.c"
+#include "core/voice.c"
+#include "fx/slicer/slicer.c"          /* per-track SLICER insert, used by fx.c */
+#if FELUCCA_MACROS
+#include "core/macro.c"           /* GLO > MACRO: the performance macros, used by fx.c and seq.c */
+#endif
+#include "fx/fx.c"
+#if FELUCCA_BENCH
+#include "system/bench.c"           /* fixed scenarios for measurements (emulator) */
+#endif
+#include "system/supply.c"          /* the FM-1's own supply start-up (FELUCCA_STOCK_SUPPLY) */
+#include "system/dual.c"            /* the second core (FELUCCA_DUAL) */
+#ifndef FELUCCA_OTA
+#define FELUCCA_OTA 1            /* M-UPGRADE update entry and USB rescue; needs FELUCCA_FLASH (not a builder item:
+                                  * a build without it cannot be updated but through UBOOT) */
+#endif
+#ifndef FELUCCA_EDITOR
+#define FELUCCA_EDITOR 1         /* the web editor's SysEx (editor.c); needs FELUCCA_OTA's SysEx plumbing */
+#endif
+#ifndef FELUCCA_OTA_DRYRUN
+#define FELUCCA_OTA_DRYRUN 0     /* 1 = stage, ask "success", then undo: no record, no reset */
+#endif
+#ifndef FELUCCA_ID
+#define FELUCCA_ID "FM-1_700"    /* package identity (build.py: the .fwsc marker string; Optimist 700, releases 720-769) */
+#endif
+#ifndef FELUCCA_UNDO_HISTORY
+#define FELUCCA_UNDO_HISTORY 1   /* undo / redo: a history of many levels in the memory left over (undo.c,
+                                  * app.ld _undo_*; FELUCCA_UNDO_CAP caps it); 0 = the single level */
+#endif
+#ifndef FELUCCA_CDC
+#define FELUCCA_CDC (!FELUCCA_USB_AUDIO) /* USB CDC-ACM serial console */
+#endif
+#if FELUCCA_USB_AUDIO && FELUCCA_CDC
+#error "USB audio uses the CDC endpoints; build with FELUCCA_CDC=0"
+#endif
+#include "io/usb/usb.c"
+#ifndef FELUCCA_UART
+#define FELUCCA_UART 1           /* TRS MIDI IN on UART1 (notes, clock); 0 = none (SYNC TRS then hears nothing) */
+#endif
+#if FELUCCA_UART
+#include "io/midi/midi_uart.c"
+#endif
+#ifndef FELUCCA_BLE
+#define FELUCCA_BLE 0            /* BLE MIDI, route C: our own stack (ble/, docs/BLE-STACK.md) and its WL82
+                                  * baseband driver (ble/ble_hw_wl82.c, hal/fm1_ble.h): host- and emulator-tested, and
+                                  * run on an FM-1 with macOS (Audio MIDI Setup) */
+#endif
+#ifndef FELUCCA_BLE_DIAG
+#define FELUCCA_BLE_DIAG 0       /* with BLE: the console's blell and the counters and rings behind it (ble/ble_diag.h) */
+#endif
+#ifndef FELUCCA_BLE_BOND
+#define FELUCCA_BLE_BOND 0       /* with BLE: SMP Just Works bonding and LL encryption (ble/ble_smp.c, ble_cfg.h) */
+#endif
+#ifndef FELUCCA_BLE_CENTRAL
+#define FELUCCA_BLE_CENTRAL 0    /* with BLE: the scanner for DEVICES' nearby rows (ble/ble_scan.c, io/midi/ble_devices.c) */
+#endif
+#ifndef FELUCCA_BT_INQ_PROBE
+#define FELUCCA_BT_INQ_PROBE 0   /* EXPERIMENTAL: the Bluetooth Classic inquiry probe (bt/bt_inq.c, docs/BT-CLASSIC-HW-FACTS.md
+                                  * §14): console btclk / btinq; needs the CDC console, no BLE */
+#endif
+#if FELUCCA_BT_INQ_PROBE && (!FELUCCA_CDC || FELUCCA_BLE)
+#error "BT_INQ_PROBE needs the CDC console (USB_MODE 1) and no BLE"
+#endif
+#if FELUCCA_BLE
+#include "io/midi/midi_ble.c"        /* the stack (ble/ble_stack.c) and its MIDI in / out */
+#endif
+#define FELUCCA_ARRANGER 1
+#include "seq/arranger.c"
+#include "seq/seq.c"
+#if FELUCCA_CPU_GUARD
+#include "system/cpuguard.c"        /* the predictive CPU guard (audio.c calls it every half) */
+#endif
+#include "core/audio.c"
+#include "ui/meters.c"          /* the level meters: the tracks' peaks and the output, main loop */
+#include "ui/panel.c"
+#ifndef FELUCCA_KNOB_ACCEL
+#define FELUCCA_KNOB_ACCEL 1     /* knobs: more steps a detent when turned fast (knob_accel.h, from X0X); 0 = one */
+#endif
+#include "ui/knob_accel.h"
+#include "core/model.c"             /* the model operations both UIs and the core call (apply_preset_to, BANK...) */
+#include "drums/dsnd_desc.c"        /* the drum lanes' SOUND page values and the kit list (both UIs, ed_dsrc.c) */
+#ifndef FELUCCA_UI
+#define FELUCCA_UI 0             /* the user interface, chosen at build time: 0 SLOOP's (ui/sloop: pages and held
+                                  * layers), 1 the Optimist UI (ui/optimist: rows and cards, docs/UI-OPTIMIST-DESIGN.md) */
+#endif
+#if FELUCCA_UI == 1
+#include "ui/optimist/optimist.c"     /* the Optimist UI: its files, in order */
+#else
+#include "ui/sloop/ui.c"
+#include "ui/sloop/ui_drums.c"          /* the drum track's SOUND pages, the kit list with the user kits */
+#include "ui/sloop/ui_colors.c"         /* the colour language: engine, drum-kind, status colours (tools/colors.json) */
+#include "ui/sloop/ui_song.c"
+#include "ui/sloop/ui_studio.c"
+#include "ui/sloop/ui_tempo.c"          /* the TEMPO page: PLAY held (BPM, swing, sync, nudge) */
+#include "ui/sloop/ui_fm6.c"          /* the FM6 operator editor: ENV held on an FM6 track */
+#include "ui/sloop/icons.c"           /* parameter icons (FELUCCA_ICONS), used by ui_draw.c */
+#if FELUCCA_MISSING_WARN
+#include "storage/miss.c"            /* "MISSING: PHYS T2": what a load uses and this build lacks; TOOLS > MISS */
+#endif
+#include "ui/sloop/ui_draw.c"
+#if FELUCCA_VIS
+#include "ui/sloop/ui_vis.c"          /* the full-screen visualiser, 12 styles (SLOOP 2.4; FELUCCA_VIS) */
+#endif
+#include "ui/sloop/ui_overview.c"       /* VIEW ALL: a page family at once (GLO > SYSTEM VIEW) */
+#if FELUCCA_DRUM_STEP
+#include "ui/sloop/ui_drumstep.c"     /* the drum track's SEQ layer as a TR step sequencer (FELUCCA_DRUM_STEP) */
+#endif
+#include "ui/sloop/ui_layers.c"       /* hold a function button: what the keys and knobs do (TE style) */
+#include "ui/sloop/ui_menu.c"
+#if FELUCCA_MACROS
+#include "ui/sloop/macro_ui.c"        /* GLO > MACRO's knobs: motion recording (macro.c) */
+#endif
+#include "ui/sloop/ui_input.c"
+#endif
+#ifndef FELUCCA_FLASH
+#define FELUCCA_FLASH 1          /* flash driver + storage.c */
+#endif
+#if FELUCCA_OTA && !FELUCCA_FLASH
+#error "FELUCCA_OTA needs FELUCCA_FLASH"
+#endif
+#if FELUCCA_FLASH
+#include "fm1_flash.h"
+static uint8_t flash_ok;                 /* JEDEC id matched at boot (persist_boot) */
+static int st_read(uint32_t off, void *dst, uint32_t n)   /* 256-byte IRQ-off windows: audio keeps up */
+{
+    uint8_t *d = dst;
+    while (n) {
+        uint32_t k = n > 256u ? 256u : n, f;
+        int rc;
+        fm1_flash_reading = FM1_FLOP_READ;       /* (a read: CPU1 not parked for it, as stock parks it for writes only) */
+        f = irq_save();
+        rc = FL_FAR(fl_read_ram)(off, d, k);
+        irq_restore(f);
+        fm1_flash_reading = 0;
+        if (rc)
+            return rc;
+        off += k;
+        d += k;
+        n -= k;
+    }
+    return 0;
+}
+/* a sector erase in windows of FLS_SLICE_US (hal/fm1_flash_slice.h: suspended between them, the audio interrupt on), so
+ * the audio keeps playing. Only a window that holds the rest of the erase (a part that does not suspend) silences the
+ * audio inside it (silenced before it, the audio interrupt could render a fresh half that the DMA then loops for the
+ * whole erase: a buzz) */
+static int fl_erase4k_quiet(uint32_t off, uint32_t *took)
+{
+    return fl_erase4k_sliced(off, took, abuf, sizeof abuf / sizeof abuf[0]);
+}
+static int st_erase(uint32_t off)
+{
+    uint32_t took;
+    if (!FL_STORE_OK(off, 0x1000u))
+        return -8;
+    return fl_erase4k_quiet(off, &took);
+}
+static int st_prog(uint32_t off, const void *src, uint32_t n)
+{
+    if (!FL_STORE_OK(off, n))
+        return -8;
+    return fl_write(off, src, n);
+}
+#include "storage/storage.c"
+#endif
+#include "storage/upreset.c"          /* user presets (RAM mirror; flash with FELUCCA_FLASH) */
+#include "storage/project.c"
+#if FELUCCA_DRUM_KITS
+#if !FELUCCA_FLASH
+#error "FELUCCA_DRUM_KITS needs FELUCCA_FLASH (the kit bank is in the data flash)"
+#endif
+#include "drums/drum_kits.c"         /* user drum kits: the bank of 16 (ui_drums.c, ed_drums.c) */
+#endif
+#include "engines/fm6/fm6_sysex.c"         /* DX7 SysEx into FM6 (eng_fm6.c) */
+#if FELUCCA_NB_LIST
+#include "storage/nbank.c"             /* the FM6 / CZ native collections in PRESETS, the CZ store (after Melodee 0.12) */
+#endif
+#if FELUCCA_OTA
+static uint8_t recovery_active;
+#define OTA_IDENTITY (recovery_active ? "FM-1_000" : FELUCCA_ID)
+#if FELUCCA_FLASH
+_Static_assert(sizeof st_buf >= 0x800u, "ota.c OTA_STAGE_MEM: the session's 2 KiB in st_buf");
+#define OTA_STAGE_MEM st_buf                 /* (ota.c ota_stage: st_buf is scratch, idle during a session) */
+#endif
+/* the editor's reply buffer (editor.c), defined here: ota.c decodes the host's messages into it. A reply is built and
+ * sent inside one ed_handle call, a message decoded and read inside one ota_service call or a session (which runs
+ * alone and ends in a reset); none of them calls another */
+#include "io/editor/ed_out.h"
+#define ED_OUT_HERE 1
+static uint8_t ed_out[ED_OUT_N] __attribute__((aligned(4))) IN_POOL;
+#define OTA_DEC_MEM ed_out
+#include "system/ota.c"
+static void recovery_poll(void);
+static uint32_t ota_now_ms(void) { return fm1_ms; }
+static void ota_idle(void)
+{
+    fm1_wdt_feed();
+    if (recovery_active) recovery_poll();
+}
+static int ota_in_area(uint32_t off, uint32_t n) { return FL_IN(off, n, OTA_AREA, OTA_AREA + OTA_AREA_LEN); }
+static int ota_erase(uint32_t off)
+{
+    uint32_t took;
+    if (!ota_in_area(off, 0x1000u) || (off & 0xFFFu))
+        return -8;
+    return fl_erase4k_quiet(off, &took);
+}
+static int ota_prog(uint32_t off, const void *p, uint32_t n)
+{
+    if (!ota_in_area(off, n))
+        return -8;
+    return fl_write(off, p, n);
+}
+static int ota_fread(uint32_t off, void *p, uint32_t n) { return st_read(off, p, n); }
+static void ota_show(uint32_t step, int32_t code)
+{
+    static const char *const STEP[] = {"", "PACKAGE", "CHECK HEAD", "LOADER", "CONFIRM", "FLASHING"};
+    char b[24];
+    if (recovery_active) return;             /* keep polled USB alive during OTA */
+    lcd_fill(0, 0, 240, 240, C_BLACK);
+    draw_text_box(0, 92, 240, &FONT_S, "UPDATE", C_WHITE, 1);
+    if (step < 9u) {
+        draw_text_box(0, 124, 240, &FONT_S, STEP[step < 6u ? step : 0], C_HI, 1);
+        return;
+    }
+    if (code == 1)
+        str_cpy(b, "DRY RUN OK", sizeof b);
+    else {
+        uint32_t k = 0, v = (uint32_t)-code;
+        str_cpy(b, "FAILED  -", sizeof b);
+        while (b[k])
+            k++;
+        if (v >= 10u)
+            b[k++] = (char)('0' + v / 10u);
+        b[k++] = (char)('0' + v % 10u);
+        b[k] = 0;
+    }
+    draw_text_box(0, 124, 240, &FONT_S, b, C_HI, 1);
+    fm1_delay_ms(1500);
+}
+static void ota_commit(const uint8_t *parm)
+{
+    bootguard_clear(&bootguard);                        /* intentional update reset */
+    usb_detach();
+    fm1_delay_ms(30);
+    fm1_enter_update(parm);                             /* record into RAM, core reset (fm1_sys.h) */
+}
+#endif
+#if FELUCCA_OTA && FELUCCA_EDITOR
+#include "io/editor/editor.c"          /* web editor SysEx (needs the OTA SysEx plumbing) */
+#endif
+#if FELUCCA_CDC
+#include "io/console.c"
+#endif
+#if FELUCCA_OTA
+#include "system/recovery.c"        /* early, polled USB updater; no synth or settings */
+#endif
+#include "ui/splash.c"          /* the Optimist boot screen: the dinghy logo drawn from its geometry, the version (always built) */
+#if FELUCCA_SIMD_PROBE
+#include "system/simd_probe.c"      /* EXPERIMENTAL: the boot test of the packed 16-bit forms (hal/fm1_simd.h) */
+#endif
+#include "system/main.c"

@@ -1,0 +1,277 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* FELUCCA_SL24_SAFE (backports24.h): Optimist started on flash SLOOP 2.4 (isod89/sloop-fm1 v2.4, 8d3823f) wrote.
+ * Included by project.c (FELUCCA_FLASH) after the slots' code, before persist_boot.
+ *
+ * Without it (measured, tests/sl24_safety_test.c): the first start's sec_migrate erased all four of 2.4's project
+ * slots (a FUN5 of 3840 B is no project of ours: "empty", then its sectors erased as old objects); the second autosave
+ * wrote over 2.4's autosave; the first drum record saved erased 2.4's FM6 bank (object 8 at 0xE5000); a user kit
+ * save erased the tail of a long 2.4 USR3 sample (0xDA000), an FM6 user preset (UP_FM6) the head of USR4 (0xE7000).
+ *
+ * Now: at each start (sl24_boot_scan, before the log starts) every project slot and the autosave whose current copy
+ * is a valid object Optimist cannot read is kept (storage.c st_keep: never erased; the log works around it, the
+ * autosave writes its other copy) and shown as not ours: PROJECT and the editor say 2.4 (a FUN5 of 3840 B with its
+ * sum: SLOOP 2.4's) or OTHER, never EMPTY. Its stale copy (2.4's previous save of that slot) is not kept: 2.4 itself
+ * writes over it next. A user sample longer than ours (2.4's USR3, USR4) keeps its sectors (st_keep_sample). */
+
+static uint8_t pj_alien[5];                            /* the old slots 0..3, the autosave (4): PJ_SL24 / PJ_ALIEN / 0 */
+#if FELUCCA_FLASH
+/* the newest valid copy of obj that is a SLOOP 2.4 project (its payload in st_buf, *h its header), -1 none */
+static int sl24_find(uint32_t obj, st_hdr_t *h)
+{
+    st_hdr_t hd[2];
+    int ok[2], first, c;
+    ok[0] = st_head(obj, 0, &hd[0]) == 0;
+    ok[1] = st_head(obj, 1, &hd[1]) == 0;
+    first = ok[1] && (!ok[0] || hd[1].seq > hd[0].seq);
+    for (c = 0; c < 2; c++) {
+        int k = first ^ c;
+        if (ok[k] && st_body(obj, (uint32_t)k, &hd[k]) == 0 && sl24_any(st_buf, (int)hd[k].len)) {
+            *h = hd[k];
+            return k;
+        }
+    }
+    return -1;
+}
+#endif
+
+#if FELUCCA_FLASH
+static void sl24_boot_scan(void)
+{
+    uint32_t i;
+    st_keep_n = 0;
+#ifdef SMP_USR3_END
+    st_keep_sample(0, SMP_USER_BASE + 2u * SMP_USER_SIZE, SMP_USR3_END);   /* (2.3 / 2.4: USR3 to 0xDBFFF) */
+#endif
+    st_keep_sample(1, 0xE7000u, 0xE7000u);             /* 2.4's USR4 (0xE7000..0xFAFFF; nothing of ours writes there now) */
+    for (i = 0; i < 5u; i++) {
+        uint32_t obj = i < 4u ? OBJ_PROJECT0 + i : OBJ_AUTOSAVE;
+        st_hdr_t h;
+        int cur = st_current(obj, &h);                 /* (its payload in st_buf) */
+        pj_alien[i] = 0;
+        if (cur < 0 || proj_import(&proj_tmp.cur, st_buf, (int)h.len))
+            continue;
+        pj_alien[i] = (uint8_t)(sl24_any(st_buf, (int)h.len) ? PJ_SL24 : PJ_ALIEN);
+        st_keep(st_sector(obj, (uint32_t)cur));
+    }
+    {   /* the autosave: a 2.4 copy that is not the current one (Optimist wrote its other copy since) is kept too, and
+         * offered (PROJECT > A24); it stays until 2.4 writes it */
+        st_hdr_t h;
+        int c = sl24_find(OBJ_AUTOSAVE, &h);
+        if (c >= 0)
+            st_keep(st_sector(OBJ_AUTOSAVE, (uint32_t)c));
+    }
+}
+#endif
+
+/* SLOOP 2.5 / 2.6's settings object (isod89/sloop-fm1 v2.5 fa9ce57, v2.6 d30d655: project.c settings_write, storage.c
+ * st_save2 / st_save3): their persist_t (88 B: magic .. the lights word, the same as 2.4's and the start of ours), then
+ * their SYN1..SYN4 drum kits (drum_synth.c dsu_bank_t, 1464 B: "DSU1", version 1, 4 kits), then in 2.6 a MIDI part
+ * (0, 32, 36 or 40 B: MIDI LEARN, the channels, BEND). Read as ours before (a record of 1552 B and more: the kits'
+ * bytes taken as BRIGHT, the settings word and the BLE fields), and the first settings save wrote over the kits. Now
+ * told apart by the kits' header past the 88 bytes (none of our records is that long: our BRIGHT word sits there) */
+#define SL25_PERSIST 88u                               /* their persist_t */
+#define SL25_DSU_MAGIC 0x31555344u                     /* "DSU1" */
+#define SL25_DSU_LEN 1464u                             /* dsu_bank_t: magic, version 1, 4 kits of 364 B */
+static int sl25_set_is(const uint8_t *b, uint32_t n)
+{
+    uint32_t m, v;
+    if (n < SL25_PERSIST + SL25_DSU_LEN)
+        return 0;
+    memcpy(&m, b + SL25_PERSIST, 4), memcpy(&v, b + SL25_PERSIST + 4u, 4);
+    return m == SL25_DSU_MAGIC && v == (1u | 4u << 16);
+}
+#if FELUCCA_FLASH
+/* at start, before the settings are read: each copy of the settings object that holds SLOOP 2.5 / 2.6's record is
+ * marked (storage.c st_set_sl: never ours), the newest one kept (st_set_cur: never erased, ours written below it) */
+static void sl25_set_scan(void)
+{
+    uint32_t c;
+    st_set_sl = 0, st_set_cur = 0, st_set_seq = 0;
+    for (c = 0; c < 2u; c++) {
+        st_hdr_t h;
+        if (st_head(OBJ_SETTINGS, c, &h) || st_body(OBJ_SETTINGS, c, &h) || !sl25_set_is(st_buf, h.len))
+            continue;
+        if (!st_set_sl || h.seq > st_set_seq)
+            st_set_cur = (uint8_t)c, st_set_seq = h.seq;
+        st_set_sl |= (uint8_t)(1u << c);
+    }
+}
+/* no settings record of ours: SLOOP 2.5 / 2.6's first 88 bytes (at most max) -> p, as 2.4's record (project.c
+ * persist_boot reads its lights word); -> their length, or -1 none */
+static int sl25_set_load(void *p, uint32_t max)
+{
+    st_hdr_t h;
+    uint32_t n = max < SL25_PERSIST ? max : SL25_PERSIST;
+    if (!st_set_sl || st_head(OBJ_SETTINGS, st_set_cur, &h) || st_body(OBJ_SETTINGS, st_set_cur, &h))
+        return -1;
+    memcpy(p, st_buf, n);
+    return (int)n;
+}
+#endif
+
+/* PROJECT, the editor: a slot's state; an empty section A..D over a kept project of another firmware: that one's */
+static int project_used(uint32_t slot);
+static uint32_t project_state(uint32_t s)
+{
+    s %= FELUCCA_SECTIONS;
+    if (project_used(s))
+        return PJ_USED;
+    return s < 4u && pj_alien[s] ? pj_alien[s] : PJ_EMPTY;
+}
+
+/* the settings record's last word: our VIEW (0 / 1); SLOOP 2.3 / 2.4 write their lights word there (panel.c
+ * lights_word: LIGHTS, KEYS, NOTES, the REC screen, USB AUDIO, SYNC; 2.4: MIDI OUT SEQ bit 14, IN CLOCK 15, USB SERIAL
+ * 16, the visualiser 17-20). A word past 1 is theirs: VIEW reads ALL (as before) and the word is written back as read
+ * while VIEW stays ALL (we read it as ALL again; 2.3 / 2.4 find their settings) */
+static uint32_t persist_view_in(uint32_t w, uint32_t *kept)
+{
+    *kept = w > 1u ? w : 0u;
+    return w > 1u ? 1u : w;
+}
+static uint32_t persist_view_out(uint32_t view, uint32_t kept) { return view == 1u && kept ? kept : view; }
+/* their lights word <-> our settings word (project.c bp23_word). The same bits but two: NOTES (bit 8) is "the notes
+ * light their keys" in 2.3 and 2.4 (panel.c lights_notes), "NOTES OFF" here (lights.c lights_notes_off): inverted;
+ * SYNC is 2.3 / 2.4's at 12..13 (INT USB TRS), ours at 11..12 (G_SYNC xor SYNC_AUTO; their 11 is USB AUDIO). Kept as
+ * they are: LIGHTS KEYS (0..7), the REC screen (9, 10), MIDI OUT SEQ, IN CLOCK, USB SERIAL (14..16), and with
+ * FELUCCA_VIS the visualiser's style (17..20, settings_word.c: 2.4's bits) */
+#define SL_SAME (0x1C6FFu | (FELUCCA_VIS ? 15u << 17 : 0u))
+static uint32_t sl_word_in(uint32_t w)                 /* theirs -> ours (a record 2.3 / 2.4 wrote: persist_boot) */
+{
+    uint32_t s = ((w >> 12) & 3u) % 3u;
+    return (w & SL_SAME) | (~w & 0x100u) | ((s ^ SYNC_AUTO) & 3u) << 11;
+}
+/* ours now -> theirs, over the word as read (kept): what we have no setting for (USB AUDIO, the visualiser; SYNC
+ * AUTO, which they have not) stays theirs */
+static uint32_t sl_word_out(uint32_t ours, uint32_t kept)
+{
+    uint32_t s = ((ours >> 11) & 3u) ^ SYNC_AUTO, w = (kept & ~(SL_SAME | 0x100u)) | (ours & SL_SAME) | (~ours & 0x100u);
+    return s <= SYNC_TRS ? (w & ~(3u << 12)) | s << 12 : w;
+}
+
+#if (FELUCCA_SL24_IMPORT || FELUCCA_SL24_EXPORT) && FELUCCA_FLASH
+/* SLOOP 2.4's FM6 patch bank (its fm6_bank.c: storage object 8, "FM6B", 27 packed records) where 2.4 left it, at our
+ * drum records' 0xE5000 / 0xE6000 (kept there: storage.c st_off_limits). Read only, straight from flash (no RAM
+ * copy, st_buf untouched: an import holds the project there): the current valid copy (header, payload CRC, layout),
+ * -> its payload's flash offset, 0 none */
+static uint32_t sl24_bank_at(void)
+{
+    uint32_t c, best = 0, seq = 0, i, crc, w[4];
+    uint8_t ch[128];
+    for (c = 0; c < 2u; c++) {
+        uint32_t off = ST_DLANES_SECTOR + c * ST_SECTOR;
+        st_hdr_t h;
+        if (st_read(off, &h, sizeof h) || h.magic != ST_MAGIC || h.type != SL24_BANK_OBJ || h.len != SL24_BANK_LEN ||
+            h.hcrc != st_crc32(&h, sizeof h - 4u) || (best && h.seq <= seq))
+            continue;
+        for (i = 0, crc = 0xFFFFFFFFu; i < SL24_BANK_LEN; i += sizeof ch) {
+            uint32_t n = SL24_BANK_LEN - i < sizeof ch ? SL24_BANK_LEN - i : (uint32_t)sizeof ch;
+            if (st_read(off + ST_PAYLOAD_OFF + i, ch, n))
+                break;
+            crc = st_crc_upd(crc, ch, n);
+        }
+        if (i < SL24_BANK_LEN || ~crc != h.crc || st_read(off + ST_PAYLOAD_OFF, w, sizeof w) || w[0] != SL24_BANK_MAGIC ||
+            w[1] != (1u | SL24_BANK_N << 16) || (w[2] >> SL24_BANK_N))
+            continue;
+        best = off + ST_PAYLOAD_OFF, seq = h.seq;
+    }
+    return best;
+}
+#endif
+
+/* LOAD of an empty slot: another firmware's project kept there is said so, nothing is loaded */
+#if FELUCCA_SL24_IMPORT && FELUCCA_FLASH
+/* FELUCCA_SL24_IMPORT: n bytes at b, a SLOOP 2.4 / 2.5 project (sl24_is; not in proj_tmp), or a 2.6 one (sl26_is: made
+ * a 2.5 one first, in place: b holds SL24_SIZE bytes) -> the working project
+ * (sl24_import.c), its step extras with it as step-only events of the automation store (FELUCCA_AUTO; a lock's value
+ * past a signed byte clamped, said so; else dropped, said so), its USR kit as lanes. (An FM6 part's PTCH B1..B27, 2.4's
+ * FM6 patch bank, is no longer imported: that part starts from INIT VOICE, 2026-10-18; F1..F8 are.) Nothing is written: SAVE puts the import in a section. -> 1 imported */
+static int sl24_import_buf(uint8_t *b, uint32_t n)
+{
+#if SEC_LOGGED
+    dlrec_t *d = &sec_tmp_dl;                          /* (2.4 has no drum record: the kit as it is, or its USR lanes) */
+#else
+    static dlrec_t dd;
+    dlrec_t *d = &dd;
+#endif
+    stepx_t *x = 0;
+    uint32_t lost, k, r = 0, ft = 0, ln, ld;
+    if (sl26_is(b, (int)n)) {                          /* (2.6: as 2.5's, its parts' filter TYPE aside) */
+        ft = sl26_to_sl24(b);
+        n = SL24_SIZE;
+    }
+#if FELUCCA_AUTO
+    x = sl24_xs;
+#endif
+    lost = !x && sl24_has_extras(b);
+    if (!proj_from_sl24(&proj_tmp.cur, b, (int)n, x))
+        return 0;
+    for (k = 0, ld = 0; k < NPART; k++) {             /* (a part with three or four LFO depths: two kept, params.c lfo1_load) */
+        int16_t sl[4];
+        int32_t sp;
+        ld += lfo1_load(&proj_tmp.cur.t[k].p[P_LEG_PIT], sl, &sp);
+    }
+    if (ft)
+        sl26_ftype_in(&proj_tmp.cur, ft);
+    ln = (uint32_t)sl24_usr_lanes(b, d);               /* (its USR kit: the lanes' record; d cleared first) */
+    ln |= (uint32_t)sl25_drdly_in(b, d);               /* (2.5's drums' delay send: the lanes' DLY) */
+    if (ln) {
+        proj_tmp.cur.dl_hash = dlrec_hash(d);
+        proj_tmp.cur.sum = proj_sum(&proj_tmp.cur);
+    }
+#if FELUCCA_AUTO
+    {                                                  /* (after the lanes: the store follows the final sum) */
+        auto_store_t *m = auto_fresh(&proj_tmp.cur);
+        if (m)
+            r = sl24_auto_in(m, sl24_xs);
+    }
+#endif
+    project_apply(&proj_tmp.cur, d);
+    ui_message(lost ? "2.4 IMPORTED, NO LOCKS" : r ? "2.4 IMPORTED, LOCK CLAMPED" : ld ? "2.4 IMPORTED, LFO CUT" :
+               "2.4 IMPORTED: SAVE IT");
+    return 1;
+}
+/* the 2.4 project kept in storage object obj (an old slot, the autosave) -> the working project (sl24_import_buf);
+ * the original stays where 2.4 left it. -> 1 imported */
+static int sl24_import_obj(uint32_t obj)
+{
+    st_hdr_t h;
+    if (sl24_find(obj, &h) < 0)                        /* (its payload in st_buf) */
+        return 0;
+    return sl24_import_buf(st_buf, h.len);
+}
+static int8_t sl24_armed = -1;                         /* the slot a first LOAD armed */
+static uint32_t sl24_armed_ms;
+#endif
+/* LOAD of an empty slot: another firmware's project kept there is said so; a SLOOP 2.4 one: LOAD again within 4 s
+ * imports it (offered, never automatic) */
+static void sl24_load(uint32_t slot)
+{
+    uint32_t st = project_state(slot);
+#if FELUCCA_SL24_IMPORT && FELUCCA_FLASH
+    if (st == PJ_SL24) {
+        if (sl24_armed == (int8_t)slot && fm1_ms - sl24_armed_ms < 4000u) {
+            sl24_armed = -1;
+            if (sl24_import_obj(OBJ_PROJECT0 + slot))
+                return;
+        } else {
+            sl24_armed = (int8_t)slot;
+            sl24_armed_ms = fm1_ms;
+            ui_message("SLOOP: LOAD = IMPORT");
+            return;
+        }
+    }
+#endif
+    ui_message(st == PJ_SL24 ? "SLOOP PROJECT" : st == PJ_ALIEN ? "NOT OURS: KEPT" : "EMPTY SLOT");
+}
+
+/* PROJECT > A24 (twice): SLOOP 2.4's autosave -> the working project, as a slot's (sl24_import_obj) */
+static void sl24_auto_import(void)
+{
+#if FELUCCA_SL24_IMPORT && FELUCCA_FLASH
+    if (song.playing || transport_req) { ui_message("STOP BEFORE LOAD"); return; }
+    if (!sl24_import_obj(OBJ_AUTOSAVE))
+        ui_message("EMPTY SLOT");
+#else
+    ui_message("EMPTY SLOT");
+#endif
+}

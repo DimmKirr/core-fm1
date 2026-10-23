@@ -1,0 +1,886 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* tests/ui_optimist_test.c, the page organisation (the user's decisions, 2026-10-12; docs/UI-OPTIMIST-DESIGN.md
+ * section 17): D1 GLO and SELECT walk one cycle, GLOBAL then SYSTEM, SHIFT held on the mixer does nothing; D2 SYSTEM's first row CLOCK +
+ * LOAD; D6 SAVE on the mixer is PROJECT; D7 EDIT's first row is SOUND; D8 the SCENES layer says "Select: song"; P25 a
+ * dark family button does nothing; P28 CALIBRATE > PANEL asks first. Included after ui_optimist_glo.h (glo_find). */
+static void pages_nav_tests(void)
+{
+    cell_t c, c2;
+    char nm[12];
+    reset_ui();
+    song.sel = 0;
+    /* D1 (revised again, section 20: "it should switch between the two"): GLO toggles GLOBAL and SYSTEM, each keeping its
+     * line; SELECT pages within the screen (pages of 4 lines) and stops at its ends, never crossing to the other */
+    {
+        uint32_t pg = gl_npg(0), ps = gl_npg(1), p1 = gl_pfirst(0, 1), ng, i = 0;
+        char p[12];
+        ng = SCREENS[SCR_GLOBAL].rows();
+        ui.row[SCR_GLOBAL] = 0;
+        ui.row[SCR_SYSTEM] = 0;
+        tap(B_GLO);
+        check(ui.scr == SCR_GLOBAL && ui.row[SCR_GLOBAL] == 0u, "D1: GLO tapped on the mixer: GLOBAL");
+        turn(EN_SELECT, 1);
+        check(ui.scr == SCR_GLOBAL && ui.row[SCR_GLOBAL] == p1, "D1: SELECT: GLOBAL's next page (its first line)");
+        tap(B_GLO);
+        tf.t = 0;                                       /* (a track-name flash still running: the track's colour, not the badge) */
+        frames(2);
+        head_pos(SCR_SYSTEM, 0, p);
+        check(ui.scr == SCR_SYSTEM && ui.row[SCR_SYSTEM] == 0u && led_lvl(B_GLO) == 2 && px_in(2, 3, 4, 19, C_HI),
+              "D1: GLO on GLOBAL: SYSTEM (CPU), the GLO LED full, the badge SYSTEM");
+        check(!strncmp(p, " 1/", 3), "D1: the n/N counts SYSTEM's own pages (1/n)");
+        turn(EN_SELECT, 100);
+        check(ui.scr == SCR_SYSTEM && ui.row[SCR_SYSTEM] == gl_pfirst(1, ps - 1u), "D1: SELECT right: stops at SYSTEM's last page (no wrap, no GLOBAL)");
+        tap(B_GLO);
+        check(ui.scr == SCR_GLOBAL && ui.row[SCR_GLOBAL] == p1 && led_lvl(B_GLO) == 2, "D1: GLO on SYSTEM: GLOBAL, on the line it was left on");
+        turn(EN_SELECT, -3);
+        check(ui.scr == SCR_GLOBAL && ui.row[SCR_GLOBAL] == 0u, "D1: SELECT left: stops on GLOBAL's first page (no wrap)");
+        turn(EN_SELECT, 100);
+        check(ui.scr == SCR_GLOBAL && ui.row[SCR_GLOBAL] == gl_pfirst(0, pg - 1u), "D1: SELECT right: stops at GLOBAL's last page (no SYSTEM)");
+        tap(B_GLO);
+        check(ui.scr == SCR_SYSTEM && ui.row[SCR_SYSTEM] == gl_pfirst(1, ps - 1u), "D1: GLO: SYSTEM again, on its line");
+        tap(B_ENV);
+        tap(B_GLO);
+        check(ui.scr == SCR_GLOBAL, "D1: GLO from another screen: GLOBAL");
+        check(glo_find(SCR_GLOBAL, "SYSTEM") == ng, "D1: GLOBAL has no SYSTEM line (GLO reaches SYSTEM)");
+#if FELUCCA_BLE
+        op_enter(SCR_SYSTEM);
+        line_named(SCR_SYSTEM, "DEVICES");
+        frame();
+        tap(B_SAVE);
+        i = (uint32_t)dev_listing();
+        tap(B_GLO);
+        check(i && !dev_listing() && ui.scr == SCR_GLOBAL, "D1: GLO on the BLE devices list (SYSTEM): GLOBAL, the list closed");
+        tap(B_HOME);
+#endif
+    }
+    reset_ui();
+    press(B_OCTDN);
+    frames(HOLD_FRAMES);
+    release(B_OCTDN);
+    frames(2);
+    check(ui.scr == SCR_HOME, "D1: SHIFT held alone on the mixer: nothing (no SYSTEM, no SCOPE)");
+    tap(B_HOME);
+    check(ui.scr == SCR_SCOPE, "D9: HOME tapped on the mixer: SCOPE, as before");
+    tap(B_HOME);
+#if FELUCCA_SYS_DEBUG                                   /* (D2: the debug INFO page; SYS_DEBUG off: ui_optimist_sysdbg.h) */
+    /* D2 (2026-10-14: SYSTEM's first page is INFO, read-outs: the clock, each core's load, the memory) */
+    SCREENS[SCR_SYSTEM].name(0, nm);
+    info_mode = OVL_NOW;                                /* (the CPU line's measure: NOW, INFO's KNOB 2) */
+    sys_info_cell(0, &c);
+    sys_info_cell(1, &c2);
+    check(!strcmp(nm, "INFO") && c.kind == CK_RO && !strcmp(c.label, "CLOCK") && !strcmp(c.unit, "MHz") &&
+          c2.kind == CK_RO && !strcmp(c2.label, DUAL_LOAD ? "CPU0" : "LOAD") && !strcmp(c2.unit, "%"),
+          "D2: SYSTEM's first page INFO: CLOCK (MHz) and the load (%), read-outs");
+#if DUAL_LOAD
+    {   /* CPU1's load (dual_load.h), the reason when the core is down; a read-out */
+        uint32_t q = dual_c1_q8;
+        dual_c1_q8 = 128u;
+        memset(&c2, 0, sizeof c2);
+        sys_info_cell(2, &c2);
+        check(c2.kind == CK_RO && !strcmp(c2.label, "2ND CORE ON") && !strcmp(c2.val, "50") && !strcmp(c2.unit, "%"),
+              "DUAL: INFO's third line: 2ND CORE ON, 50 %, a read-out");
+        dual_c1_q8 = DUAL_C1_OFF;
+        memset(&c2, 0, sizeof c2);
+        sys_info_cell(2, &c2);
+        check(c2.kind == CK_RO && !strcmp(c2.label, "2ND CORE OFF") && !strcmp(c2.val, "NO REASON"),
+              "DUAL: CPU1 down, no reason: 2ND CORE OFF");
+        dual_c1_q8 = q;
+    }
+#else
+    memset(&c2, 0, sizeof c2);
+    sys_info_cell(2, &c2);
+    check(!strcmp(c2.label, "2ND CORE") && !strcmp(c2.val, "NOT IN BUILD"), "D2: a single-core build: INFO's third line says NOT IN BUILD");
+#endif
+#endif
+    /* D6 */
+    reset_ui();
+    turn(EN_K2, 1);
+    turn(EN_K2, -1);
+    tap(B_SAVE);
+    check(ui.scr == SCR_PROJECT, "D6: SAVE on the mixer after a knob turn: PROJECT");
+    reset_ui();
+    turn(EN_ALGO, -1);
+    turn(EN_K1, 1);
+    turn(EN_K1, -1);
+    tap(B_SAVE);
+    check(ui.scr == SCR_PROJECT, "D6: SAVE on the mixer's MASTER after a knob turn: PROJECT");
+    reset_ui();
+    tap(B_SAVE);
+    check(ui.scr == SCR_PROJECT, "D6: SAVE on the mixer, nothing turned: PROJECT");
+    /* D7 */
+    reset_ui();
+    tap(B_EDIT);
+    frames(2);
+    (void)c, (void)c2;
+    check(ui.scr == SCR_SOUND && ui.row[SCR_SOUND] == SND_MAIN_ROW && !snd_page(0) && snd_page(SND_MAIN_ROW) == &main_pg &&
+              led_lvl(B_EDIT) == 2, "D7: EDIT tapped: on MAIN, the SOUND row before it (2026-10-18), EDIT full");
+    tap(B_EDIT);
+    check(snd_page(ui.row[SCR_SOUND]) && snd_page(ui.row[SCR_SOUND])->fam == FAM_EDIT, "D7: EDIT again: the edit pages");
+    tap(B_ENV);
+    check(snd_fam == SND_FM6 || snd_page(0) != 0, "D7: the other families have no SOUND row");
+    /* D8 (2026-10-16: SAVE is no layer; the scenes are the LFO layer's black 10, SONG is SAVE held on PROJECT) */
+    reset_ui();
+    press(B_SAVE);
+    frames(HOLD_FRAMES);
+    check(lay.shown == LY_PLAY, "D8: SAVE held: no layer, no map");
+    release(B_SAVE);
+#if FELUCCA_PATTERNS
+    reset_ui();
+    press(B_LFO);
+    frames(HOLD_FRAMES);
+    key(key_of_lane(9));
+    frames(2);
+    check(lay.shown == LY_PAT && lay.pmod == 10u && !strncmp(lay_sub, "Scenes", 6) && text_w(&FONT_S, lay_sub) <= 232,
+          "D8: LFO held, black 10: the scenes, the line under them says so (and it fits)");
+    key(key_of_lane(9));
+    release(B_LFO);
+#endif
+    reset_ui();
+    /* P25 */
+    song.sel = TRK_DRUM;
+    frames(2);
+    {
+        uint32_t lfo = led_lvl(B_LFO);
+        tap(B_LFO);
+        check(lfo == 0u && ui.scr == SCR_HOME, "P25: the drum track's LFO (dark): tapped, nothing");
+    }
+    song.sel = 0;
+    reset_ui();
+    /* P28 */
+    op_enter(SCR_SYSTEM);
+    line_named(SCR_SYSTEM, "PANEL");                    /* (Calibrate's PANEL line: YES on it) */
+    frame();
+    tap(B_SAVE);
+    check(op_armed() && !strcmp(ui.arm_verb, "CALIBRATE?") && !strcmp(ui.arm_arg, "PANEL") && modal_fits(),
+          "P28: CALIBRATE > PANEL asks first (CALIBRATE? PANEL)");
+    tap(B_HOME);
+    check(!op_armed() && ui.scr == SCR_SYSTEM, "P28: HOME: cancelled, nothing taught, still SYSTEM");
+    {
+        const panel_t keep = panel;
+        tap(B_SAVE);
+        tap(B_SAVE);                                    /* (confirmed: the teach, no input: it times out, fm1_wdt_feed) */
+        check(!memcmp(&keep, &panel, sizeof panel) && !strcmp(ui.msg, "SETUP CANCELLED"),
+              "P28: confirmed: the teach runs; no input for 30 s cancels it, the panel kept");
+    }
+    reset_ui();
+}
+
+/* D3: the master FX is MASTER, DELAY REVERB SLOTS TONE COMP LIMIT MACRO (REV TYPE and INS COMP where built); its GLOBAL
+ * and DRUMS pages gone, every value they held still reachable: BPM SWING CLICK on GLOBAL, TUNE on LIMIT, the drum
+ * level on the mixer's DR row */
+static int pg_has_g(uint32_t scr, uint32_t g)            /* a cell of screen scr holds song.g[g] */
+{
+    uint32_t r, k, n;
+    cell_t c;
+    ui.scr = (uint8_t)scr;
+    n = SCREENS[scr].rows();
+    for (r = 0; r < n; r++)
+        for (k = 0; k < 4u; k++) {
+            SCREENS[scr].cell(r, k, &c);
+            if (c.vp == &song.g[g])
+                return 1;
+        }
+    return 0;
+}
+/* a PAGES entry by title (and scope), the page the master FX row was built from */
+static const page_t *pm_old_page(const char *title, uint32_t scope)
+{
+    uint32_t i;
+    for (i = 0; i < NPAGES; i++)
+        if (!strcmp(PAGES[i].title, title) && PAGES[i].scope == scope && !(scope == SC_FXSLOT && PAGES[i].id[0] >= FX_NSLOT && PAGES[i].id[0] < FXS_ID_INS))
+            return &PAGES[i];
+    return 0;
+}
+/* the master FX screen's order (the user, 2026-10-14: "inserts, then send returns, then fx slots, then macro"), each
+ * moved page's cards as PAGES has them */
+static void pages_master_order_tests(void)
+{
+    static const struct { const char *name, *old; uint8_t scope; } W[] = {
+        {"INSERTS", "MST INS", SC_FXSLOT}, {"INS DYN 1", "COMP", SC_GLOBAL}, {"INS DYN 2", "LIMIT", SC_GLOBAL},
+        {"DUCK", "MASTER", SC_GLOBAL},
+        {"RETURNS", 0, 0}, {"RET REV", "REV/CHO", SC_GLOBAL}, {"RET DELAY", "DLY", SC_GLOBAL}, {"RET DLY F", "DLY F", SC_GLOBAL},
+        {"SLOTS", "SLOTS", SC_FXSLOT},
+#if FELUCCA_MACROS
+        {"MACRO", "MACRO", SC_MACRO},
+#endif
+    };
+    static const uint8_t RET[3] = {G_RRET, G_DRET, G_CRET}, LIM[4] = {G_CGAIN, G_CCEIL, G_CGR, 0};
+    uint32_t r, n, i = 0, k, ok = 1, order = 1, cards = 1, grp = 0, last_grp = 0;
+    char nm[12];
+    mst_defaults();                                     /* (FILT DYN: earlier tests turn the master's TYPE cards) */
+    fxs_set(FXS_DEF);                                   /* (the returns REV DLY CHO: the default) */
+    reset_ui();
+    turn(EN_ALGO, -1);
+    tap(B_FX);
+    n = SCR->rows();
+    for (r = 0; r < n; r++) {
+        SCR->name(r, nm);
+        if (!strcmp(nm, "RET TYPE"))
+            continue;                                   /* (REV_MULTI builds only: after RET REV) */
+        if (i >= sizeof W / sizeof W[0] || strcmp(nm, W[i].name)) {
+            printf("  master page %u is '%s', not in order\n", r, nm);
+            order = 0;
+            break;
+        }
+        grp = !strncmp(nm, "INS", 3) || !strcmp(nm, "DUCK") ? 1u : !strcmp(nm, "RETURNS") || !strncmp(nm, "RET ", 4) ? 2u : !strcmp(nm, "SLOTS") ? 3u : 4u;
+        order &= grp >= last_grp;
+        last_grp = grp;
+        for (k = 0; k < 4u; k++) {
+            cell_t c, o;
+            SCR->cell(r, k, &c);
+            if (!W[i].old) {                            /* RETURNS: the three return levels (the mixer's), then REVERB's TYPE
+                                                         * (REV_MULTI builds: its one card, batch D) or nothing */
+                int ok4 = k < 3u ? c.vp == &song.g[RET[k]] : REV_MULTI ? c.label && !strcmp(c.label, "TYPE") : c.kind == CK_NONE;
+                cards &= ok4;
+                if (!ok4)
+                    printf("  %s card %u: not the return\n", nm, k);
+            } else if (!strcmp(W[i].old, "LIMIT")) {    /* LIMIT: GAIN CEIL GR (TUNE: GLOBAL's Tempo since fx-rework) */
+                if (k < 2u && c.vp != &song.g[LIM[k]])
+                    printf("  %s card %u: not LIMIT's\n", nm, k), cards = 0;
+            } else {                                    /* (a value the build lacks: its frame last, fxs_at; batch D) */
+                uint32_t j;
+                cell_clear(&o);
+                if (fxs_at(r, k, &j))
+                    page_cell(pm_old_page(W[i].old, W[i].scope), j, &o);
+                if (!(c.vp == o.vp && c.kind == o.kind && ((!c.label && !o.label) || (c.label && o.label && !strcmp(c.label, o.label)))))
+                    printf("  %s card %u differs from PAGES' %s\n", nm, k, W[i].old), cards = 0;
+            }
+        }
+        i++;
+    }
+    ok = order && r == n;
+    check(ok, "MASTER's pages come in the order inserts (INSERTS, INS DYN 1 2, DUCK), returns (RETURNS, RET REV, RET DELAY, RET DLY F), SLOTS, MACRO");
+    check(cards, "... each moved page's four cards are the ones PAGES gives it; INS DYN 2 GAIN CEIL (GR a read-out), RETURNS has REV DLY CHO RET (the one order)");
+    reset_ui();
+}
+static void pages_master_tests(void)
+{
+    static const char *const WANT[] = {"INSERTS", "INS DYN 1", "INS DYN 2", "DUCK", "RETURNS", "RET REV", "RET DELAY", "RET DLY F", "SLOTS",
+#if FELUCCA_MACROS
+                                       "MACRO",
+#endif
+    };
+    uint32_t r, n, i = 0, ok = 1, row = 0;
+    char nm[12], h[40];
+    cell_t c;
+    int16_t tune = song.g[G_TUNE];
+    mst_defaults();                                     /* (FILT DYN: earlier tests turn the master's TYPE cards) */
+    fxs_set(FXS_DEF);                                   /* (the returns REV DLY CHO: the default) */
+    reset_ui();
+    turn(EN_ALGO, -1);
+    tap(B_FX);
+    n = SCR->rows();
+    for (r = 0; r < n; r++) {
+        SCR->name(r, nm);
+        if (!strcmp(nm, "RET TYPE"))
+            continue;                                   /* (REV_MULTI: its own page) */
+        ok &= i < sizeof WANT / sizeof WANT[0] && !strcmp(nm, WANT[i]);
+        i++;
+    }
+    check(ui.scr == SCR_FX && ok && i == sizeof WANT / sizeof WANT[0],
+          FELUCCA_MACROS ? "D3: MASTER's 10 pages: INSERTS INS DYN 1 2 DUCK, RETURNS RET REV RET DELAY RET DLY F, SLOTS, MACRO" : "D3: MASTER's pages: INSERTS INS DYN 1 2 DUCK, RETURNS RET REV RET DELAY RET DLY F, SLOTS");
+    pages_master_order_tests();
+    head_title(SCR_FX, 0, h, sizeof h);
+    check(!strcmp(SCR_NAME[SCR_FX], "MASTER") && !strcmp(h, "Insert"), "D3: the screen is MASTER (its badge), the title \"Insert\"");
+    check(!pg_has_g(SCR_FX, G_BPM) && !pg_has_g(SCR_FX, G_SWING) && !pg_has_g(SCR_FX, G_CLOCK) && !pg_has_g(SCR_FX, G_DRLVL),
+          "D3: no GLOBAL or DRUMS page: BPM SWING CLICK and the drum level are not on MASTER");
+    check(pg_has_g(SCR_GLOBAL, G_BPM) && pg_has_g(SCR_GLOBAL, G_SWING) && pg_has_g(SCR_GLOBAL, G_CLOCK),
+          "D3: BPM, SWING and CLICK are on GLOBAL (TEMPO, REC)");
+    check(!pg_has_g(SCR_FX, G_TUNE) && pg_has_g(SCR_GLOBAL, G_TUNE), "D3: TUNE is on GLOBAL (Tempo's fourth line; fx-rework: not on the master)");
+    ui.scr = SCR_GLOBAL;
+    row = line_named(SCR_GLOBAL, "TUNE");
+    turn(EN_K1 + gl_kn(SCR_GLOBAL, row), 3);
+    check(song.g[G_TUNE] == tune + 3, "D3: GLOBAL, TUNE's knob turns it");
+    song.g[G_TUNE] = tune;
+    reset_ui();
+    song.sel = TRK_DRUM;
+    frames(2);
+    check(pg_has_g(SCR_HOME, G_DRLVL) || (ui.scr = SCR_HOME, mix_find("VOLUME") && (mix_cell(mx_row(), ui.hot, &c), c.vp == &song.g[G_DRLVL])),
+          "D3: the drum level is on the mixer's DR row (VOLUME)");
+    mx.set = 0;
+    song.sel = 0;
+    reset_ui();
+}
+
+/* D10: the keys full / dim / dark in every mode, as the FM6 layer's test (ui_optimist_test.c fm6_tests) */
+static uint32_t key_led(uint32_t k)                     /* 2 full, 1 dim, 0 dark: key k's LED */
+{
+    uint8_t q = led_pos[14u + k];
+    if (q == 0xFF)
+        return 9;
+    return (fm1_led[q >> 3] >> (q & 7u)) & 1u ? 2u : (fm1_led_dim[q >> 3] >> (q & 7u)) & 1u ? 1u : 0u;
+}
+static int keys_are(uint32_t full, uint32_t dim, const char *what)   /* every key: full, dim or dark as asked */
+{
+    uint32_t k, ok = 1;
+    for (k = 0; k < 27u; k++) {
+        uint32_t want = (full >> k) & 1u ? 2u : (dim >> k) & 1u ? 1u : 0u, lv = key_led(k);
+        if (lv != want) {
+            printf("  %s: key %u is %u, wants %u\n", what, k, lv, want);
+            ok = 0;
+        }
+    }
+    check(ok, what);
+    return (int)ok;
+}
+static uint32_t kw(uint32_t i) { return 1u << white_key(i); }   /* white key i (0..15) */
+static uint32_t kws(uint32_t a, uint32_t b)             /* white keys a..b */
+{
+    uint32_t m = 0;
+    for (; a <= b; a++)
+        m |= kw(a);
+    return m;
+}
+static void hold_layer(uint32_t b) { press(b); frames(HOLD_FRAMES); }
+static void let_go(uint32_t b) { release(b); frames(2); reset_ui(); }
+/* the pages with no track context (GLOBAL, SYSTEM, PROJECT): the keys play nothing, send nothing, light nothing, pick
+ * no lane; PROJECT's slot rows keep the slot pick; the layers and a key held over a page change stay sound */
+static int key_dead(uint32_t k) { return kb_kind[k] == KS_UI || kb_kind[k] == KS_NONE; }
+static void keys_global_tests(void)
+{
+    uint32_t pass, r, tools = 0, sel0;
+    for (pass = 0; pass < 2u; pass++) {
+        song.sel = pass ? TRK_DRUM : 0;
+        reset_ui();
+        frames(2);
+        tap(B_GLO);
+        frames(2);
+        check(ui.scr == SCR_GLOBAL, "keys, no-track pages: GLO: GLOBAL");
+        kdown(WK(3));
+        check(key_dead(WK(3)) && kb_kind[WK(3)] != KS_NOTE && kb_kind[WK(3)] != KS_DRUM, "GLOBAL: a white key plays nothing");
+        keys_are(0, 0, "GLOBAL: the keys are dark");
+        kup(WK(3));
+        kdown(1);
+        check(kb_kind[1] != KS_NOTE && kb_kind[1] != KS_DRUM, "GLOBAL: a black key plays nothing");
+        kup(1);
+        sel0 = lane_selected();
+        press(B_OCTDN);
+        frames(HOLD_FRAMES);
+        kdown(WK(5));
+        check(lane_selected() == sel0 && kb_kind[WK(5)] != KS_NOTE && kb_kind[WK(5)] != KS_DRUM, "GLOBAL: SHIFT + a key: no lane pick, no sound");
+        keys_are(0, 0, "GLOBAL: SHIFT held: the keys stay dark");
+        kup(WK(5));
+        release(B_OCTDN);
+        tap(B_GLO);
+        frames(2);
+        check(ui.scr == SCR_SYSTEM, "keys, no-track pages: GLO again: SYSTEM");
+        kdown(WK(2));
+        check(kb_kind[WK(2)] != KS_NOTE && kb_kind[WK(2)] != KS_DRUM, "SYSTEM: a key plays nothing");
+        keys_are(0, 0, "SYSTEM: the keys are dark");
+        kup(WK(2));
+        reset_ui();
+        op_enter(SCR_PROJECT);
+        for (r = 0; r < NPRJ; r++)
+            if (prj_kind(r) == PR_TOOLS)
+                tools = r;
+        ui.row[SCR_PROJECT] = (uint8_t)tools;
+        frames(2);
+        kdown(WK(2));
+        check(kb_kind[WK(2)] != KS_NOTE && kb_kind[WK(2)] != KS_DRUM, "PROJECT, TOOLS row: a key plays nothing");
+        keys_are(0, 0, "PROJECT, TOOLS row: dark");
+        kup(WK(2));
+        ui.row[SCR_PROJECT] = 0;
+        ui.force = 1;
+        frames(2);
+        kdown(WK(2));
+        frames(2);
+        check(kb_kind[WK(2)] != KS_NOTE && kb_kind[WK(2)] != KS_DRUM && song.g[G_SLOT] == 3, "PROJECT, slot row: the key still picks slot 3");
+        kup(WK(2));
+        press(B_OCTDN);
+        frames(HOLD_FRAMES);
+        sel0 = lane_selected();
+        kdown(WK(1));
+        check(lane_selected() == sel0 && song.g[G_SLOT] == 3, "PROJECT, SHIFT held + a key: no lane pick, no slot");
+        kup(WK(1));
+        release(B_OCTDN);
+        reset_ui();
+        /* MASTER FX, SCOPE, SONG (not its PATTERNS row), TEMPO: the same */
+        {
+            static const uint8_t SCRS[3] = {SCR_FX, SCR_SCOPE, SCR_SONG};
+            uint32_t i;
+            for (i = 0; i < 3u; i++) {
+                reset_ui();
+                op_enter(SCRS[i]);
+                ui.row[SCRS[i]] = 0;
+                frames(2);
+                if (SCRS[i] == SCR_SONG && song_on_pat_row())
+                    continue;
+                sel0 = lane_selected();
+                kdown(WK(3));
+                check(ui.scr == SCRS[i] && kb_kind[WK(3)] != KS_NOTE && kb_kind[WK(3)] != KS_DRUM, "MASTER FX / SCOPE / SONG: a key plays nothing");
+                keys_are(0, 0, "MASTER FX / SCOPE / SONG: the keys are dark");
+                kup(WK(3));
+                kdown(1);
+                check(kb_kind[1] != KS_NOTE && kb_kind[1] != KS_DRUM, "MASTER FX / SCOPE / SONG: a black key plays nothing");
+                kup(1);
+                press(B_OCTDN);
+                frames(HOLD_FRAMES);
+                kdown(WK(5));
+                check(lane_selected() == sel0 && kb_kind[WK(5)] != KS_NOTE && kb_kind[WK(5)] != KS_DRUM, "MASTER FX / SCOPE / SONG: SHIFT + a key: no lane pick");
+                kup(WK(5));
+                release(B_OCTDN);
+            }
+            reset_ui();
+            press(B_PLAY);
+            frames(HOLD_FRAMES);
+            kdown(WK(2));
+            check(ui.scr == SCR_TEMPO && kb_kind[WK(2)] != KS_NOTE && kb_kind[WK(2)] != KS_DRUM, "TEMPO (PLAY held): a key plays nothing (it taps the tempo)");
+            kup(WK(2));
+            release(B_PLAY);
+            reset_ui();
+        }
+        /* a layer from a no-track page: LFO held on GLOBAL shows the patterns, the key is the layer's */
+        tap(B_GLO);
+        frames(2);
+#if FELUCCA_PATTERNS
+        hold_layer(B_LFO);
+        kdown(WK(1));
+        check(kb_kind[WK(1)] == KS_UI && lay.shown == LY_PAT, "GLOBAL, LFO held + a key: a pattern (the layer's key)");
+        kup(WK(1));
+        let_go(B_LFO);
+#endif
+        hold_layer(B_FX);
+        kdown(WK(2));
+        check(kb_kind[WK(2)] == KS_FX, "GLOBAL, FX held + a key: the punch-in");
+        kup(WK(2));
+        let_go(B_FX);
+        /* a key held over a page change: its note-off, and a UI key's release leaves no step held */
+        reset_ui();
+        kdown(WK(4));
+        check(kb_kind[WK(4)] == KS_NOTE || (is_drum(TSEL) && kb_kind[WK(4)] == KS_UI), "the mixer: a key plays (the drum track: a step)");
+        tap(B_GLO);
+        frames(2);
+        kup(WK(4));
+        check(kb_kind[WK(4)] == KS_NONE, "a key down on the mixer, GLOBAL shown, released: note off");
+        kdown(WK(4));
+        tap(B_SEQ);
+        frames(2);
+        kup(WK(4));
+        check(kb_kind[WK(4)] == KS_NONE && st.held == 0u, "a key down on GLOBAL, STEP shown, released: no step held");
+        reset_ui();
+    }
+}
+static uint32_t lane_keys_mask(void)                    /* the lanes' black keys (2026-10-16) */
+{
+    uint32_t l, m = 0;
+    for (l = 0; l < DRUM_LANES; l++)
+        m |= 1u << key_of_lane(l);
+    return m;
+}
+static void lanes_lit(const char *what)                 /* the drum track: the lanes' keys lit, the selected one full */
+{
+    uint32_t f = 0, d = 0, lk = (lane_keys_mask() | (ACC_UI ? 1u << DACC_KEY : 0u));
+    keys_lit(&f, &d);
+    check(((f | d) & lk) == lk && ((f >> key_of_lane(lane_selected())) & 1u), what);
+}
+static void pages_keys_tests(void)
+{
+    uint32_t k, root = 0;
+    int16_t fxoff[4];
+    reset_ui();
+    song.sel = 0;
+    frames(2);
+    keys_are(0, 0, "D10: the mixer, a synth track: the keys only play, all dark");
+    song.sel = TRK_DRUM;
+    frames(2);
+    lanes_lit("D10: the mixer, the drum track: the lanes' black keys lit, the selected one full (the white keys its steps)");
+    press(B_OCTDN);
+    frames(HOLD_FRAMES);
+    keys_are(0, kws(0, 3) | (lane_keys_mask() | (ACC_UI ? 1u << DACC_KEY : 0u)),
+             "D10: the mixer, SHIFT held: the sequencer mutes, the lanes' keys, the 4 track keys and the last upper key (ACCENT) dim, none muted");
+    release(B_OCTDN);
+    tap(B_EDIT);
+    frames(2);
+    lanes_lit("D10: the drum track's SOUND: the lanes' black keys (and the last upper key, ACCENT) lit, the selected one full");
+    reset_ui();
+    song.sel = TRK_DRUM;
+    op_enter(SCR_STEP);
+    lane_select(4);
+    memset(TDRUM->dstep, 0, sizeof TDRUM->dstep);
+    dstep_set(&TDRUM->dstep[2], 4, LV_NORM, 0);
+    dstep_set(&TDRUM->dstep[3], 7, LV_NORM, 0);
+    frames(2);
+    lanes_lit("STEP, the drum track: the lanes' black keys (and the last upper key) lit, the selected one full, as elsewhere");
+    op_enter(SCR_STEP);
+    frames(2);
+    press(B_SEQ);
+    frames(HOLD_FRAMES);
+    {
+        uint32_t f = 0, d = 0, len = trk_len(TDRUM), w, edim = 0;
+        keys_lit(&f, &d);
+        for (w = 0; w < 16u && w < len; w++)
+            edim |= (w == 2u || w == 3u) ? 0u : kw(w);
+        check((f & kws(0, 15)) == (kw(2) | kw(3)) && (d & kws(0, 15)) == edim, "STEP, the drum track, SEQ held: the steps with any lane set full (the selected lane's or not), the empty ones dim");
+    }
+    release(B_SEQ);
+    reset_ui();
+    song.sel = 0;
+    frames(2);
+    hold_layer(B_FX);
+    keys_are(0, kws(0, 15), "D10: FX layer: the 16 effects dim");
+    punch.req = 3;
+    frames(2);
+    keys_are(kw(3), kws(0, 15), "D10: FX layer: the latched effect full");
+    punch.req = -1;
+#if FELUCCA_LIGHTS
+    {   /* LIGHTS / KEYS ALL: the backlight off while a mode lights its keys */
+        uint8_t kl = lights_keys, ll = lights_lvl, q = led_pos[14u];
+        uint32_t on_lay, on_mix;
+        lights_keys = 3;
+        lights_lvl = LIGHTS_LOW;
+        frames(2);
+        on_lay = (fm1_led_bg[q >> 3] >> (q & 7u)) & 1u;
+        let_go(B_FX);
+        frames(2);
+        on_mix = (fm1_led_bg[q >> 3] >> (q & 7u)) & 1u;
+        check(!on_lay && on_mix, "D10: the KEYS backlight is off while a layer lights its keys, on again on the mixer");
+        lights_keys = kl;
+        lights_lvl = ll;
+    }
+#else
+    let_go(B_FX);
+#endif
+    for (k = 0; k < 4u; k++)
+        fxoff[k] = trk[k].p[P_FXOFF], trk[k].p[P_FXOFF] = 0;
+    smute_set_trk(1, 1);
+    hold_layer(B_GLO);
+#if FELUCCA_FILLS
+    keys_are(kw(1), kws(0, 3) | kw(8) | kw(9) | kw(15) | 1u << 1 | 1u << 3 | 1u << 5 | 1u << 8,
+             "D10: GLO layer: mute fill bar tap and the black 1-4 dim, T2 muted full (no solo)");
+    trk[0].p[P_FXOFF] = 1;
+    frames(2);
+    check(key_led(1) == 2u && key_led(3) == 1u, "D10: GLO layer: T1's FX off, its black key full");
+#else
+    keys_are(kw(1), kws(0, 3) | kws(8, 11) | kw(15), "D10: GLO layer: mute FX tap dim, T2 muted full (no solo)");
+    trk[0].p[P_FXOFF] = 1;
+    frames(2);
+    check(key_led(white_key(8)) == 2u, "D10: GLO layer: T1's FX off, its key full");
+#endif
+    for (k = 0; k < 4u; k++)
+        trk[k].p[P_FXOFF] = fxoff[k];
+    smute_set_trk(1, 0);
+    let_go(B_GLO);
+    hold_layer(B_SCL);
+    for (k = 0; k < 27u; k++)
+        root |= (uint32_t)((53u + k) % 12u == (uint32_t)trk[0].p[P_ROOT] % 12u) << k;
+    keys_are(root, (1u << 27) - 1u, "D10: SCL layer: every key dim, the song's root full");
+    let_go(B_SCL);
+#if FELUCCA_PATTERNS
+    live_sec = 0;
+    hold_layer(B_LFO);
+    key(key_of_lane(9));                                /* (black 10: the scenes) */
+    {
+        uint32_t f, d;
+        frames(2);
+        keys_lit(&f, &d);
+        check((f & kws(0, 15)) == (arrangement_clock.running ? 0u : kw(0)) && ((f | d) & kws(0, 15)) == kws(0, LAY_NSCN - 1u),
+              "D10: LFO layer, black 10: the scenes dim, the playing one full");
+    }
+    key(key_of_lane(9));
+    let_go(B_LFO);
+    live_sec = -1;
+#endif
+    hold_layer(B_EDIT);
+    keys_are(0, 0, "D10: EDIT layer (ERASE): a play surface, dark");
+    let_go(B_EDIT);
+    hold_layer(B_ARP);
+    keys_are(0, 0, "D10: ARP layer (REPEAT): a play surface, dark");
+    let_go(B_ARP);
+#if FELUCCA_PATTERNS
+    hold_layer(B_LFO);
+    {
+        uint32_t blk = 0, kk;
+        for (kk = 0; kk < 27u; kk++)
+            blk |= (uint32_t)(pat_black(kk) >= 1u && pat_black(kk) <= 10u) << kk;
+        check(key_led(1) == 2u && key_led(3) == 1u && key_led(0) >= 1u && key_led(25) == 0u && (blk & 1u << 22),
+              "D10: LFO layer: the patterns and the 10 black keys dim, the selected track's key full");
+    }
+    let_go(B_LFO);
+#endif
+    press(B_PLAY);
+    frames(HOLD_FRAMES + 30u);
+    keys_are(0, kws(0, 15), "D10: TEMPO (PLAY held): the white keys tap, dim");
+    release(B_PLAY);
+    frames(2);
+    transport_req = 0;
+    song.playing = 0;
+    reset_ui();
+    {   /* STEP: set steps full, empty steps inside LEN dim, past LEN dark */
+        track_t keep = *TSEL;
+        track_defaults_steps(TSEL);
+        TSEL->p[P_SLEN] = 8;
+        tap(B_SEQ);
+        frames(2);
+        keys_are(0, kws(0, 7), "D10: STEP: an empty pattern of 8: steps 1-8 dim, 9-16 dark");
+        *TSEL = keep;
+        tap(B_HOME);
+    }
+    reset_ui();
+    op_enter(SCR_PROJECT);                              /* SAVE AS: PROJECT > USER, SAVE: asks, then NAME */
+    {
+        uint32_t pr;
+        for (pr = 0; pr < NPRJ && prj_kind(pr) != PR_USER; pr++)
+            ;
+        ui.row[SCR_PROJECT] = (uint8_t)pr;
+    }
+    ui.user_slot = 2;
+    turn(EN_K2, 1);
+    tap(B_SAVE);
+    tap(B_SAVE);
+    frames(2);
+    {
+        uint32_t d = 0, kk;
+        for (kk = 0; kk < 27u; kk++)
+            d |= (uint32_t)(punch_key(kk) >= 0 || nm_black(kk) != NMK_NONE) << kk;
+        keys_are(0, d, "D10: NAME: every key with a job dim");
+        key(white_key(2));
+        keys_are(kw(2), d, "D10: NAME: the key cycling its letters full");
+    }
+    name_close();
+    reset_ui();
+}
+
+/* D11: the headers as drawn: cut, then cased (no lower-case start); full names. The audit's #2 (style guide 1) replaced
+ * D11's "a continuation's digit never next to n/N": the title is the row's name verbatim, "Edit 1 2/7", its n/N in grey */
+static void head_now(char *t)                           /* the header's title now, as draw_head makes it */
+{
+    head_t h;
+    head_make(&h);
+    str_cpy(t, h.t, 32);
+}
+static int hd_badge_is(const char *b)                  /* the header's badge now is b (the audit's #11) */
+{
+    head_t h;
+    head_make(&h);
+    return h.badge && !strcmp(h.eng, b);
+}
+static uint32_t head_bad;
+static void head_ok(const char *where)                  /* the header now: a badge, a capital first, the n/N whole (GLOBAL,
+                                                         * SYSTEM too: the page's name and n/N, 2026-10-14) */
+{
+    char t[32];
+    uint32_t i, n;
+    head_t h;
+    head_make(&h);
+    head_now(t);
+    n = str_len(t);
+    if (!h.badge || !h.eng[0] || !n) {
+        printf("  header %s: no badge or no title '%s' '%s'\n", where, h.eng, t);
+        head_bad++;
+        return;
+    }
+    if (!n)
+        return;
+    for (i = 0; t[i] && t[i] != '/'; i++)
+        ;
+    if (!(t[0] >= 'A' && t[0] <= 'Z') || (t[i] && !(i >= 2u && t[i - 1u] >= '0' && t[i - 1u] <= '9'))) {   /* (a capital
+                                                         * first; an n/N whole: "Edit 1 2/7", the row's name verbatim, #2) */
+        printf("  header %s: '%s'\n", where, t);
+        head_bad++;
+    }
+    if (ui.scr == SCR_SOUND && lay.shown == LY_PLAY) {   /* #2: the title is the cursor row's name as the list shows it */
+        char raw[12], nm[16];
+        snd_title_row(ui.row[SCR_SOUND], raw);
+        nm_title(raw, nm, sizeof nm);
+        if (strncmp(t, nm, strlen(nm)) || (t[strlen(nm)] && t[strlen(nm)] != ' ')) {
+            printf("  header %s: '%s' is not the row's '%s'\n", where, t, nm);
+            head_bad++;
+        }
+    }
+    if (getenv("HEADS"))
+        printf("  head %-10s '%s'\n", where, t);
+}
+static void heads_of(uint32_t scr, const char *where)   /* every row of screen scr */
+{
+    uint32_t r, n;
+    ui.scr = (uint8_t)scr;
+    n = SCREENS[scr].rows();
+    for (r = 0; r < n; r++) {
+        ui.row[scr] = (uint8_t)r;
+        head_ok(where);
+    }
+    ui.row[scr] = 0;
+}
+static void heads_fam(uint32_t b, const char *where)    /* a family's rows, by its button */
+{
+    uint32_t r, n;
+    go_home();
+    frame();
+    tap(b);
+    if (ui.scr != SCR_SOUND)
+        return;
+    n = SCR->rows();
+    for (r = 0; r < n; r++) {
+        ui.row[SCR_SOUND] = (uint8_t)r;
+        head_ok(where);
+    }
+}
+static int head_is(const char *want)
+{
+    char t[32];
+    head_now(t);
+    return !strcmp(t, want);
+}
+static void pages_head_tests(void)
+{
+    static const uint8_t FAMB[] = {B_ENV, B_LFO, B_FX, B_EDIT, B_ARP, B_SCL};
+    uint32_t i, tr;
+    reset_ui();
+    head_bad = 0;
+    for (tr = 0; tr < NTRK; tr++) {
+        song.sel = (uint8_t)tr;
+        for (i = 0; i < sizeof FAMB; i++)
+            heads_fam(FAMB[i], "SOUND");
+    }
+    song.sel = 0;
+    heads_of(SCR_GLOBAL, "GLOBAL");
+    heads_of(SCR_SYSTEM, "SYSTEM");
+    heads_of(SCR_PROJECT, "PROJECT");
+    heads_of(SCR_FX, "MASTER");
+    heads_of(SCR_SONG, "SONG");
+    heads_of(SCR_SCOPE, "SCOPE");
+    ui.scr = SCR_HOME;
+    ui.row[SCR_HOME] = MXR_MASTER;
+    head_ok("mixer M");
+    reset_ui();
+    check(head_bad == 0u, "D11: every header of SOUND (every track, family), GLOBAL, SYSTEM, PROJECT, MASTER, SONG, SCOPE: "
+                          "a capital first, no digit before n/N");
+    {   /* GLOBAL and SYSTEM: the badge, the page's name and n/N (2026-10-14: the title is back in the top bar; section 31) */
+        char t[32];
+        op_enter(SCR_GLOBAL);
+        ui.row[SCR_GLOBAL] = 0;
+        head_now(t);
+        check(!strncmp(t, "Tempo 1/", 8) && hd_badge_is("GLOBAL"), "D11: GLOBAL's header: the badge GLOBAL, \"Tempo 1/N\"");
+#if FELUCCA_REC_MODES
+        line_named(SCR_GLOBAL, "QUANT");
+        head_now(t);
+        check(!strncmp(t, "Rec 2 ", 6) && hd_badge_is("GLOBAL"), "D11: GLOBAL's QUANT line (REC 2): the badge GLOBAL, \"Rec 2 n/N\"");
+#endif
+        line_named(SCR_SYSTEM, "KNOB COLORS");          /* (COLOR, which this read, is gone: 2026-10-18) */
+        head_now(t);
+        check(t[0] && strstr(t, "aud") && hd_badge_is("SYSTEM"), "D11: SYSTEM's KNOB COLORS line: the badge SYSTEM, the joined page's short title (\"Scr & aud n/N\")");
+    }
+    reset_ui();
+    turn(EN_ALGO, -1);
+    tap(B_FX);
+    {
+        char t[32];
+        head_now(t);
+        check(!strncmp(t, "Insert 1/", 9) && hd_badge_is("MASTER"), "D11: MASTER's first page: the badge MASTER, \"Insert 1/N\" (never the screen's word again)");
+    }
+    ui.row[SCR_FX] = (uint8_t)glo_find(SCR_FX, "INS DYN 1");
+    {
+        char t[32];
+        head_now(t);
+        check(!strncmp(t, "Ins dyn 1 ", 10), "D11: MASTER INS DYN 1: \"Ins dyn 1 n/N\"");
+    }
+    reset_ui();
+    tap(B_EDIT);
+    {
+        char t[32], want[16];
+        head_now(t);
+        check(!strncmp(t, "Main 2/", 7), "#2: EDIT opens on MAIN: \"Main 2/N\" (the SOUND row is 1/N)");
+        turn(EN_SELECT, 1);
+        head_now(t);
+        check(!strncmp(t, "Edit 1 3/", 9), "#2: EDIT 1: \"Edit 1 3/N\", the row's name verbatim (was \"Edit 2/N\" on the row Edit 1)");
+    }
+    reset_ui();
+}
+
+/* SELECT is the page of the four knobs, ALGORITHM the track or the lane (the user, 2026-10-12: "in step seq: select should
+ * always select the page for the 4 knobs, and algo always the track/drum sub track"), on every page but the mixer */
+static void pages_select_tests(void)
+{
+    uint32_t i, ok = 1;
+    cell_t c;
+    reset_ui();
+    song.sel = TRK_DRUM;
+    ui.lane = 1;
+    lane_select(3);
+    frame();
+    tap(B_SEQ);
+    for (i = 0; i < 6u; i++) {
+        turn(EN_SELECT, i & 1u ? -1 : 1);
+        ok &= lane_selected() == 3u && ui.lane == 1u;
+    }
+    check(ok && SCR->rows() == STP_PAT + 1u + STP_TL, "rule: SELECT on the drum STEP pages PATTERN / LANE, never ui.lane or the lane");
+    ui.row[SCR_STEP] = (uint8_t)STP_PAT;
+    turn(EN_ALGO, 1);
+    check(lane_selected() == 4u && ui.lane == 1u && ui.row[SCR_STEP] == STP_PAT, "rule: ALGORITHM on the drum STEP: the next lane");
+    turn(EN_ALGO, -5);
+    check(lane_selected() == 4u && ui.lane == 0u, "rule: ALGORITHM back past the first lane: DR itself (ui.lane 0)");
+    tap(B_HOME);
+    ui.lane = 1;
+    lane_select(3);
+    tap(B_EDIT);                                        /* the drum SOUND row: KIT, LANE (a read-out) */
+    SCR->cell(0, 1, &c);
+    turn(EN_K2, 2);
+    check(lane_selected() == 3u, "rule: the drum SOUND row has no LANE card (gone); KNOB 2 leaves the lane");
+    ok = 1;
+    for (i = 0; i < 5u; i++) {
+        turn(EN_SELECT, 1);
+        ok &= lane_selected() == 3u;
+    }
+    check(ok, "rule: SELECT on the drum SOUND pages: the pages, never the lane");
+    song.sel = 0;
+    lane_select(0);
+    ui.lane = 0;
+    reset_ui();
+}
+
+/* a drum key played selects its lane on every page where the keys play (the user, 2026-10-12: "when i play a note for
+ * the drums on the keyboard it should switch to that instrument in all the relevant pages"); DR itself included */
+static void pages_hit_tests(void)
+{
+    uint32_t snare = 1u, kick = 0u;
+    reset_ui();
+    song.sel = TRK_DRUM;
+    ui.lane = 0;
+    lane_select(kick);
+    frames(30);                                         /* (no knob in the last 300 ms) */
+    ui.row[SCR_HOME] = MXR_DR;
+    frame();
+    key(key_of_lane(snare));
+    check(lane_selected() == snare && ui.lane == 1u && mx_row() == MXR_LANE0 + snare,
+          "drum key: on the mixer with DR itself selected, the key's lane selected, the cursor on its row");
+    tap(B_EDIT);
+    tap(B_EDIT);
+    key(key_of_lane(kick));
+    check(ui.scr == SCR_SOUND && lane_selected() == kick && ui.lane == 1u, "drum key: on the drum SOUND pages, the lane follows");
+    tap(B_FX);
+    key(key_of_lane(snare));
+    check(lane_selected() == snare, "drum key: on the drum FX page too");
+    {   /* (the knobs' last detents are 32-bit ticks that wrap every 179 s: a knob turned some wraps ago can look 5 ms old, which
+         * made this test fail on the simulated clock's alignment alone; every knob last turned 10 s ago) */
+        uint32_t k;
+        for (k = 0; k < NE; k++)
+            ui.enc_t[k] = fm1_ticks() - 10u * 1000u * 1000u * 24u;
+    }
+    ui.hot = 0;
+    turn(EN_K1, 1);
+    turn(EN_K1, -1);
+    key(key_of_lane(kick));
+    check(lane_selected() == snare, "drum key: a knob turned in the last 300 ms: the lane stays (the cards do not move)");
+    frames(30);
+    key(key_of_lane(kick));
+    check(lane_selected() == kick, "... later: the lane follows again");
+    tap(B_HOME);
+    press(B_FX);
+    frames(HOLD_FRAMES);
+    key(key_of_lane(snare));
+    release(B_FX);
+    frames(2);
+    check(lane_selected() == kick, "drum key: the FX layer held, the key is an effect: no lane change");
+    reset_ui();
+    song.sel = TRK_DRUM;
+    tap(B_SEQ);
+    frames(30);
+    key(key_of_lane(snare));
+    check(lane_selected() == snare, "drum key: STEP, a lane's black key picks it (the white keys are the steps)");
+    tap(B_HOME);
+    song.sel = 0;
+    lane_select(0);
+    ui.lane = 0;
+    track_defaults_steps(&trk[TRK_DRUM]);
+    reset_ui();
+}

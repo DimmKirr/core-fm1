@@ -1,0 +1,10 @@
+# CZ engine golden renders (tests/cz_test.c): preset, FNV-1a 64 of the output (4-note chord,
+# 2 s held, 4 s release, dry). Rewritten by GOLDEN_UPDATE=1 -- only for an intended change.
+00_CZ_INIT 9cf4982aa5085655
+01_PD_BASS d012ea5016568427
+02_RESO_SWEEP 6738d2549ac8ba1d
+03_GLASS_BELL a86b54440c9e5b71
+04_WIRE_BRASS 3c9cb2e232f59865
+05_SOFT_PAD 31abe138be5e1df1
+06_NOISE_BREATH 420f7e1db63bc3f7
+07_PULSE_KEYS 4089f8628b207ebb

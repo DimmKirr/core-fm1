@@ -1,0 +1,537 @@
+# Building Optimist
+
+The build makes three files in `build/`:
+
+| File | What |
+| --- | --- |
+| `felucca.bin` | the firmware app |
+| `loader/ota.bin` | the update loader |
+| `felucca.fwsc` | the installable package (app + loader) |
+
+## Quick start (macOS, Linux, Windows)
+
+One Python entry point does everything; it needs Python 3.9 or newer and no `sh` or `make`
+(on Windows type `py` instead of `python` if that is how Python is installed):
+
+```
+python tools/optimist.py setup      # check and fetch what the build needs; says what to install by hand
+python tools/optimist.py builder    # the menu: pick features, build (build/optimist-<version>-*.fwsc)
+python tools/optimist.py emu        # pick a firmware (build/ or firmwares/) and run it in the emulator
+```
+
+| Command | What |
+| --- | --- |
+| `setup [--check] [--yes] [--no-emu]` | check the prerequisites; fetch the builder's venv (Textual, Pillow), the three SDK files and the toolchain (Linux x86-64) or its Docker image (elsewhere); `--check` fetches nothing, `--yes` does not ask |
+| `builder [--profile P \| --config F]` | the interactive builder menu (docs/BUILDER.md) |
+| `build [--profile P \| --config F \| --defaults] [--set KEY=V] [--release X.Y] [--measure] [--summary F]` | build without the menu: `build/optimist-<version>-dev-<commit>.fwsc` and its `-ui.zip` |
+| `package [... the same ...] [--out DIR] [--summary F]` | build, then copy `optimist-<version>-<profile>.fwsc` and its `-ui.zip` to `DIR` (default `firmwares/`) |
+| `flash [PACKAGE.fwsc \| --no-build] [--profile P \| --config F] [--port NAME] [--yes]` | install a build on an FM-1 over USB-MIDI (`make flash [PKG=file]`): with no package it builds the chosen profile first (the stage lines `==> [3/5] app` are the progress), so it never flashes a stale file; `--no-build` flashes the newest `build/optimist-*.fwsc` as it is instead; shows the running FM-1's identity and the package's, how to recover, and asks (`--yes` does not); refuses without a build, a package that is not an Optimist one (stock, SLOOP, Felucca: `tools/fm1_install.py` does those), or an FM-1 it cannot find; never passes `--force`. It runs `tools/fm1_install.py`, the web installer's update. Needs mido and python-rtmidi, which `setup` puts in the builder venv (`tools/requirements-flash.txt`; a failed install there only turns `flash` off) |
+| `costs [measure_costs.py args]` | measure the builder's costs that `tools/builder/costs.json` lacks (new items); run after merging a batch, `make costs` (docs/BUILDER.md) |
+| `config ...` | the builder without the menu (`--list`, `--budget`, `--fit`, `--write`; the profiles CI builds: `--profiles`, `--publish`, `--unpublish`, `--share`, `--delete`, docs/BUILDER.md; `tools/builder/configure.py --help`) |
+| `emu [FIRMWARE] [--cpu MHZ] [--bg] [--list] [--update] [--rebuild]` | run a firmware in the emulator (`emu --help`) |
+| `cpu [SECONDS] [--port P] [--csv F] [--label T]` | the audio load of a real FM-1 over USB (a build with the CDC console; pyserial): `cpu_pct` min / mean / max, the worst audio half against the 85 % shed level, the voices shed (`tools/fm1_cpu.py`, from isod89/sloop-fm1 PR #45) |
+| `test [--python] [--no-build]` | the host tests (below) |
+| `toolchain` | which toolchain, SDK files and Python a build would use |
+
+`build`, `package` and `test` also take `--in-docker`: the whole command then runs inside the
+toolchain image, as on a Linux host. Exit status: 0 done, 1 failed, 2 usage or configuration error.
+`--summary FILE` writes the result as JSON (ok, files, sizes, the configuration's hash).
+
+The same profile and configuration give the same `.fwsc` bytes whichever way the toolchain runs
+(natively, in the image, with a mounted copy, `--in-docker`): see "Reproducibility" below.
+
+On macOS and Linux the older commands still work and call `tools/optimist.py`: `make builder`,
+`make build`, `make package PROFILE=drum-machine`, `make emu FW=optimist` (96 MHz; `CPU=own`: the firmware's own clock; `FRESH=1`: without the flash saved in earlier runs), `make emu-update`, `make web` (the local installer and web editor: builds the site from `build/felucca.fwsc`, serves it on 127.0.0.1:8766 (`PORT=` for another), prints the installer and editor URLs and opens the editor; needs a build first, and Chrome or Edge for Web MIDI; `python3 tools/optimist.py web --help`),
+`make test`, `make setup`, `make profiles`, `make publish PROFILE=name` (`make help` lists them), `tools/menuconfig`, `tools/emu.sh`, `./build.sh`.
+
+Put downloaded firmware (stock, Felucca, X0X... `.fwsc`) in `firmwares/` (git-ignored).
+Builds are named after the version in `VERSION`: `build/optimist-0.1-dev-<commit>.fwsc` (`-modified` when the
+tree has uncommitted changes), `optimist-0.1.fwsc` for `--release 0.1`, and `package` writes
+`firmwares/optimist-<version>-<profile>.fwsc`. (`build/felucca.fwsc` is the same package under its internal
+name.) Nothing here makes a hidden folder in the tree: the venv is `tools/builder/venv`, the emulator
+`emulator/`.
+
+## Prerequisites
+
+| Host | Toolchain | You install | `setup` fetches |
+| --- | --- | --- | --- |
+| Linux x86-64 | natively | Python 3 with `venv` (Debian/Ubuntu: `apt install python3-venv`) | the toolchain into `~/.jieli`, the SDK files, the venv |
+| Linux arm64 | Docker image | Docker Engine (your user in the `docker` group) and amd64 emulation (`binfmt`/QEMU) | the image, the SDK files, the venv |
+| macOS | Docker image | Docker Desktop or Rancher Desktop, started (Rosetta on Apple silicon) | the image, the SDK files, the venv |
+| Windows | Docker image or WSL | Docker Desktop (WSL 2 backend), or a WSL distribution | the image (Docker), the SDK files, the venv |
+
+Run so far: macOS arm64 with Rancher Desktop, and Linux x86-64 (in a `python:3.12-bookworm` amd64 container,
+the steps CI takes). Linux arm64 and Windows (below) have not been run.
+
+For the emulator: git and Rust (`cargo`, from rustup.rs); on Linux also the GUI and audio
+libraries (below). For the C host tests: `sh` and a C compiler (macOS: `xcode-select --install`;
+Debian: `apt install build-essential`). Node.js is optional (the web page tests).
+
+The pieces, should you want to set them up by hand:
+
+- **The JieLi Linux toolchain** (clang 4.0.1 and GNU binutils 2.26.51 for pi32v2), Linux x86-64
+  binaries, from JieLi's server. `setup` takes the pinned version `20250324.1` and checks its SHA-256
+  (`tools/toolchain.py`); `tools/get_toolchain.sh` takes whatever JieLi's link serves now.
+- **The JieLi AC79 SDK files** (Apache-2.0). The package uses three files of the SDK
+  (`cpu/wl82/tools/uboot.boot`, `cfg_tool.bin`, `cfg/eq_cfg_hw.bin`) of `AC79NN_SDK_V1.2.1_2023-12-13`;
+  they are not part of this tree. `setup` (or `tools/get_sdk_files.sh`) fetches only them into
+  `sdk/` in this repo (git-ignored; `AC79_SDK` elsewhere; an existing `~/fw-AC79_AIoT_SDK` is still found) and checks their SHA-256.
+- **Python packages**: `tools/requirements.txt` (Textual for the menu, Pillow for the generated font and
+  icons), in `tools/builder/venv` (`BUILDER_VENV` elsewhere).
+- **BLE build** (builder item `BLE`): nothing extra. The radio's start-up tables, captured from the
+  stock V15 firmware, are in the tree (`firmware/hal/ble_rf_tables_v15.h`) and the build uses them. Optionally, your
+  own copy of V15 (`FM-1.fwsc`, SHA-256 `db1642b2…`, the one `tools/fm1_rescue.py` checks) as `FM1_STOCK_FWSC=/path/to/FM-1.fwsc`
+  (or `firmwares/FM-1.fwsc`) and the emulator's `diagnose` (`FM1_BLE_DIAGNOSE`, or `FM1_EMU` default
+  `~/GitHub/fm1-emulator-ble`, branch `feat/ble-engine`) make `tools/ble_rf_capture.py` capture them again (about 30 s,
+  kept in the git-ignored `config/ble/`) with the same content. Nothing is downloaded. Details: `docs/BLE-STACK.md` §12.
+
+## How the toolchain runs
+
+`tools/toolchain.py` picks the first that works (`python tools/optimist.py toolchain` says which):
+
+1. `JIELI_BACKEND=native|image|docker|wsl` forces one.
+2. `JIELI_TOOLCHAIN=<dir>`: that copy, natively on Linux x86-64, else mounted into a `linux/amd64`
+   `debian:bookworm-slim` container (`JIELI_DOCKER_IMAGE`; `JIELI_DOCKER=1` uses the container on Linux too).
+3. Linux x86-64: `~/.jieli/toolchain`, natively.
+4. The toolchain image `optimist-toolchain:20250324.1` (`JIELI_TOOLCHAIN_IMAGE`), when Docker runs and the
+   image is there.
+5. `~/.jieli/toolchain-docker` or `~/.jieli/toolchain` mounted into a container.
+6. Windows: a WSL distribution that has the toolchain (below).
+
+Each tool runs in its own short-lived container. A tool that fails in a container because the mount
+lags (Rancher Desktop on macOS sometimes shows a folder made a moment before as missing) or crashes
+under emulation runs again, up to four times; the builder also retries a whole build that failed
+that way.
+
+**Stale files in the container (macOS).** The container reaches the tree through the VM's file
+share, and the share caches what it has seen. Rancher Desktop's reverse-sshfs mount keeps a file's
+attributes for 20 s (sshfs `cache_timeout`), and the VM's kernel keeps them about 1 s more. When the
+host rewrites a file within that time, the container still sees the old size. The compiler then
+reads the new text cut to the old length (`felucca_samples.h` ends before `SMP_DATA` is closed:
+"expected '}'") or padded with NUL bytes ("null character ignored"). Nothing tells it, and a
+same-size change could compile silently wrong. It happens to every file the host writes and a tool
+reads soon after: the generated headers, `build/felucca_size.ll`, and a source you saved just
+before the build.
+
+Measured on Rancher Desktop 1.24 (Docker engine 29.5.3, vz, reverse-sshfs, sshfs 3.7.6),
+2026-10-09. The test header grows or shrinks by one byte on each round, and a container reads it
+straight after:
+
+- `stat` shows the old size in 290 of 300 rounds after a rename, and 289 of 300 after an in-place
+  write.
+- The compiler (`clang -fsyntax-only -Werror`) fails with "null character ignored":
+  - in a running container: 34 of 300 rounds after a rename, 28 of 300 after an in-place write;
+  - in a fresh `docker run` for each round, as the build does it: 15 of 100 after a rename, 10 of
+    100 after an in-place write.
+- Fsync of the file and its folder does not help. Neither does waiting 0.5, 1.2 or 2.5 s.
+- A same-size rewrite showed no stale content (0 of 600 rounds).
+
+Reading the file in the container first (open, then a forced `stat`) left 3 of 400 rounds stale.
+With `sync_view` (below), 0 of 2,000 rounds were stale, 1,100 of them compiles. To measure it on
+your machine, run `python3 tools/mount_stress.py "$PWD" --probe cc` (add `--fix` to use `sync_view`).
+
+The fix is in `tools/toolchain.py` `sync_view`. Before the tools read anything the host has just
+written, `tools/build.py` runs one container that does a `touch` on each such file, setting the
+file's own modification time (to whole seconds). A change made through the mount drops the cached
+attributes in sshfs and in the VM's kernel. The same container then prints the size and SHA-256 of
+each file as it sees them. If any differs from the host's, the build stops with "the container sees
+stale files" and names the files. With the `touch` taken out, that check caught 28 of 30 stale
+rounds.
+
+The files are every file in `build/gen`, `build/felucca_size.ll` (and `app_measure.ld`), and
+everything under `firmware/` and `build/gen` that the host changed (mtime or ctime) in the last
+`VIEW_WINDOW` = 120 s. A file changed longer ago is past any cache. That makes three containers per
+build, about 0.25 s each: about 0.7 s on an 11 s build (measured). It is skipped natively, on WSL,
+and with `--in-docker`, where the build's own writes go through the mount. Side effect: the
+modification time of a file it touches loses its fraction of a second (sftp sets whole seconds),
+and the content stays as it is.
+
+### The Docker image
+
+`tools/docker/Dockerfile` (Debian bookworm, `linux/amd64`): the toolchain, the three SDK files, Python
+with Pillow (pinned) and gcc for the host tests. `setup` builds it when the host cannot run the
+toolchain itself; by hand:
+
+```
+docker build --platform linux/amd64 -t optimist-toolchain:20250324.1 tools/docker
+```
+
+The toolchain is downloaded from JieLi's server while the image builds, on your machine, and its
+SHA-256 is checked. **Never push this image to a registry** (next section). A toolchain you
+downloaded yourself works without the image: `JIELI_TOOLCHAIN=<dir>` mounts it.
+
+Some Docker setups (Rancher Desktop, for one) cannot read symbolic links inside a mounted folder,
+and `pi32v2/bin/clang` is a link to `common/bin/clang` (`stat ...: operation not permitted`). The
+image has no such problem; for a mounted copy, resolve the links:
+
+```
+mkdir -p ~/.jieli/toolchain-docker
+cp -RL ~/.jieli/toolchain/common ~/.jieli/toolchain/pi32v2 ~/.jieli/toolchain-docker/
+```
+
+### The toolchain's licence
+
+What was found (2026-10-06), and what it means here:
+
+- The archive (`jieli-linux-toolchains-20250324.1.tar.xz`) holds no licence, copyright notice or terms
+  of use: its only document, `README.md`, is installation notes (in Chinese: the directories, `ulimit -n`).
+- JieLi's documentation that links it ("工具链（Linux版）", doc.zh-jieli.com, Tools, other_info and
+  dev_tools/dev_env) gives only the download link and "© Copyright 2010-2022, 杰理科技股份有限公司";
+  no licence, no redistribution or CI terms.
+- The binaries are modified free software: `ld` and `ar` say "GNU Binutils 2.26.51.20160621 ... the GNU
+  General Public License version 3", `clang` says "LLVM 4.0.1". JieLi publishes no source for its pi32v2
+  changes with the archive.
+
+So nothing grants us the right to pass the toolchain on: the GPL parts could be passed on only
+with their corresponding source, which we do not have, and JieLi's own parts carry no licence at all.
+This repository never contains it, the Docker image is built locally and never pushed, and CI
+downloads it from JieLi's public server on each runner (kept only in the runner's cache), as any user
+does. Nothing found forbids that use either; if JieLi publishes terms, they decide.
+
+The AC79 SDK is Apache-2.0 (its repository's licence); its three files are fetched, not stored here.
+
+## Windows
+
+`tools/optimist.py` is written to run on Windows (pathlib paths, no shell, `.gitattributes` keeps
+scripts LF), but **nothing has been run on Windows yet**. Two ways to build:
+
+**Docker Desktop** (WSL 2 backend), started. Then, in PowerShell or cmd, in the source folder:
+
+```
+py tools\optimist.py setup          # the venv, the SDK files, builds the toolchain image
+py tools\optimist.py builder
+py tools\optimist.py test --in-docker   # the C host tests need sh and a C compiler: in the image
+```
+
+**WSL** (Ubuntu, with `python3-venv`): put the toolchain inside the distribution once, then set up
+the Windows side, from the source folder:
+
+```
+wsl -- BUILDER_VENV=~/optimist-venv python3 tools/optimist.py setup --yes --no-emu   # in WSL: downloads the toolchain
+py tools\optimist.py setup                                 # on Windows: the venv, the SDK files; finds WSL's toolchain
+py tools\optimist.py builder                               # each tool runs through wsl.exe
+```
+
+(`BUILDER_VENV` keeps WSL's Linux venv out of the Windows one in `tools\builder\venv`.)
+
+`JIELI_WSL_DISTRO` names the distribution (default: WSL's default one) and `JIELI_WSL_TOOLCHAIN` the
+toolchain's path inside it (default `$HOME/.jieli/toolchain`). Or work inside WSL entirely: there it is
+Linux, and everything above works as on Linux.
+
+For the installer and the editor, make the local site as in "Installing" below. `tools/toolchain.py` also finds SDK files in `build/deps/ac79`.
+
+Untested on Windows (written for it, never run): `setup` (venv under `Scripts\`, the SDK download),
+the `image` and `docker` backends from a Windows path (`C:\...:/work` mounts), the `wsl` backend
+(`wsl --cd`, `wslpath`), `--in-docker`, `builder` (Textual in Windows Terminal), `emu` (cloning, `cargo build`
+of `fm1-ui.exe`, starting it; `--bg` with a detached process), `test --python`, and CRLF checkouts.
+
+## Releases and the hosted site
+
+- `.github/workflows/release.yml`, on a `v*` tag (it must match `VERSION`): builds every profile of `config/profiles/`
+  (`python tools/optimist.py package --profile P --out dist`, as `build.yml` does, same cached toolchain) and drafts a
+  GitHub release with `optimist-<version>-<profile>.fwsc`, `...-ui.zip` and `SHA256SUMS.txt`. Publish the draft by hand
+  after reading it.
+- `.github/workflows/pages.yml`, on a `v*` tag or by hand: builds the profile of each flavour in `web/flavours.json` (today Synth, the default profile), runs
+  `web/make_site.py --flavours web/flavours.json <version> site` and deploys `site/` with GitHub Pages. The site is static; it holds one
+  firmware (`firmware/optimist-<version>.fwsc`, fetched by the installer page by a relative URL and checked against the
+  SHA-256 in the page), the installer and the editor. All its URLs are relative, so it works under `/<repository>/`.
+- Neither has run (a tag and a repository where Actions and Pages are on are needed; Pages on a private repository
+  needs a plan that allows it). Their YAML is checked with `actionlint`.
+
+## Emulator
+
+`python tools/optimist.py emu` clones the emulator on first use into `emulator/fm1-emulator`
+(git-ignored) from our public fork `github.com/w0ts/fm1-emulator` (`feat/upstream-merge`: Simon
+Johansson's emulator plus our work), builds `fm1-ui` with `cargo build --release --features gui`, and
+starts it on the firmware you pick. Each later run fetches the branch and rebuilds when it moved (offline:
+it says so and uses the build it has; `EMU_OFFLINE=1` skips the fetch). `EMU_REPO=https://github.com/simonjohansson/fm1-emulator.git`
+uses upstream (branch `main`; `EMU_BRANCH` another), `EMU_DIR=<rust-emulator dir>` an existing
+checkout. `--cpu MHZ` sets the emulated clock (default 96: correct sound, faster than real time for our
+firmware; `--cpu own`: the firmware's own clock, which stock and Baud Girl may want), `--bg` starts it in
+the background (log in `emulator/logs/`).
+
+What the firmware writes to flash (the autosave, projects, presets, kits, settings) is kept between runs,
+as on the device after a power cycle: in `emulator/state/<family>.nor` and `<family>.index`, the family
+being the package name up to its version (`optimist-0.1-dev-b4586d9.fwsc`: `optimist`, so a new build
+starts with the last one's data; `sloop-2.3.fwsc`: `sloop`). The emulator saves it a second after the
+last flash write, on closing, on Ctrl+C and before its Restart button; a saved sector that overlaps the
+new package's code is dropped (new code, old data, like an update). `--fresh` (`make emu FRESH=1`)
+starts from the package alone and replaces the state; the emulator's Flash menu has *Reset flash state*.
+An emulator without flash states (upstream's, an older `EMU_DIR`) keeps nothing and gets no state options.
+
+Linux needs, to build it, `pkg-config` and the ALSA headers (Debian/Ubuntu:
+`apt install pkg-config libasound2-dev`; `setup` checks them), and to run it a desktop with X11 or
+Wayland, xkbcommon and OpenGL. Measured in `rust:1-bookworm` (linux/arm64, 2026-10-06): without
+`libasound2-dev` the build stops at `alsa-sys` ("failed to run custom build command"); with it,
+`cargo check` and `cargo build --release --features gui --bin fm1-ui` pass. The binary links only
+`libasound.so.2` (and libc); at run time it opens `libX11.so.6`, `libX11-xcb.so.1`, `libxcb.so.1`,
+`libXcursor.so.1`, `libXi.so.6`, `libxkbcommon.so.0`, `libxkbcommon-x11.so.0`, `libwayland-client.so.0`,
+`libwayland-egl.so.1`, `libEGL.so.1`, `libGL.so.1` (Debian: libx11-6 libx11-xcb1 libxcb1 libxcursor1 libxi6
+libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libwayland-egl1 libegl1 libgl1, which a desktop has).
+It has not been started on Linux here (no display). On macOS it builds and runs with Rust alone;
+Windows is untested.
+
+## Worktrees
+
+In a linked `git worktree` of this repository, `make`, `tools/optimist.py` and `tests/run_tests.sh` use what
+the **main checkout** has fetched and installed, and put what is missing there (once), so a new worktree
+fetches and builds nothing again:
+
+| shared (the main checkout's) | per worktree |
+|---|---|
+| `sdk/` (the AC79 SDK files), `tools/builder/venv`, `emulator/fm1-emulator` (clone and cargo build), `build/hiphop-src` (sample downloads) | `build/` (outputs, generated headers, test outputs), `emulator/state` and `emulator/logs`, `firmwares/` |
+
+The toolchain (`~/.jieli`) and the Docker image are per user, not per checkout, so they were always shared.
+The main checkout is the parent of `git rev-parse --git-common-dir`. A tool that uses a shared resource says so
+on one line (`sdk: using the main checkout's (~/GitHub/optimist/sdk)`). The explicit settings come first and
+are never replaced: `AC79_SDK`, `BUILDER_VENV`, `EMU_DIR`, `EMU_REPO`, `EMU_BRANCH`. Several worktrees may run at
+once: an install into a shared folder holds `optimist-install.lock` in it (a visible file; the others wait
+and find the work done); using it takes no lock. A worktree that has its own `sdk/` or venv and a main
+checkout without one keeps using its own. The builds are the same: `make build` in a worktree and in the main
+checkout give the same `.fwsc`.
+
+**Profiles.** The builder in a worktree also uses the **main checkout's** `config/`: it lists, loads and
+**saves** `config/profiles/*.config` and `config/my-profiles/` there (also `publish`, `share`, `delete`), and the
+menu's `config/last-used.txt` and default `config/user.config`. A default saved in the builder is therefore the
+one every worktree builds. (The tracked profile files change in the main checkout's working tree: commit them
+there.) A branch that changes a profile on purpose sets `OPTIMIST_LOCAL_PROFILES=1` (for example
+`OPTIMIST_LOCAL_PROFILES=1 make build PROFILE=drum-machine`) to use the worktree's own `config/` and commit it.
+Without it, a profile edited in the worktree is ignored. `build/builder.config` (the configuration of the last
+build) stays per worktree. The main checkout without `config/profiles` leaves the worktree on its own.
+
+## Reproducibility
+
+The build is reproducible across hosts: nothing in the `.fwsc` depends on the host, the date or the
+path. Checked on 2026-10-06 (commit c14c7ba, clean `build/` each time), SHA-256 of `build/felucca.fwsc`:
+
+| Build | Where | user-default | drum-machine `--release 0.1` |
+| --- | --- | --- | --- |
+| macOS 27 arm64, Python 3.14, Pillow 12.2.0 | `image` backend (each tool in the image) | `88b925fb...ad915f` | `49bd7720...2de631` |
+| the same | `docker` backend (`~/.jieli/toolchain-docker` mounted) | `88b925fb...ad915f` | |
+| the same | `--in-docker` (the whole build in the image) | `88b925fb...ad915f` | |
+| Linux x86-64 (`python:3.12-bookworm`, amd64 container on that Mac), Pillow 12.3.0 | native, after `setup --yes` | `88b925fb...ad915f` | `49bd7720...2de631` |
+| the same, Pillow 10.4.0 | native | `88b925fb...ad915f` | |
+
+The four profiles packaged on the Mac (`image`) and natively on Linux also match byte for byte.
+The package names differ only by `-modified` (uncommitted changes) and the commit; the bytes do not.
+
+## CI
+
+`.github/workflows/build.yml` (GitHub Actions, `ubuntu-latest`): on a push to `optimist`, a pull
+request or by hand, it packages the four profiles (an artifact each: `.fwsc`, `-ui.zip`, the JSON
+summary) and runs the host tests. The toolchain and the SDK files are fetched by `setup` on the
+runner and cached there, never stored in the repository or the artifacts.
+
+## Build (the scripts)
+
+`./build.sh` (macOS, Linux) and `python tools/build.py` build every registry default (the measurement
+configuration) or `--config FILE`; `tools/optimist.py build` is the usual way. `JIELI_TOOLCHAIN` and
+`AC79_SDK` override the locations, as above (the SDK files default to `sdk/` in the repo).
+
+`--release 0.1` makes a release build (it must match `VERSION`): the package identity becomes
+`FM-1_721` and the version string `0.1 BETA`; the package is `build/optimist-0.1.fwsc`.
+
+### Package identity
+
+The identity is the name a package and the running firmware give themselves in the update
+protocol (handshake cmd 0x11), and the string the `.fwsc` marker bytes carry. **Optimist is
+`FM-1_700`** for development builds and `FM-1_7(X+2)Y` for `--release X.Y`: 0.1 is `FM-1_721`, 1.0
+`FM-1_730`, up to 4.9 `FM-1_769` (`build.py release_product`). Its update loader answers `ota-FM-1_700`.
+`optimist flash` takes only these identities.
+
+Why this form, and why 7XX:
+
+- The installers split the identity at `_`: the model before it must be `FM-1`, as the device
+  reports it (`fm1ota.js`, `fm1_install.py`), and `fm1_install.py` wants digits after it. The
+  stock updater reports itself the same way (`FM-1_015`, its loader `ota-FM-1_015`).
+- The `.fwsc` marker holds at most 20 characters (`fm1pkg_make.py`).
+- The stock firmware's step 1 refuses only the identity it is already running (Baud Girl's
+  hardware finding, via Lunar's notes); package content is not authenticated. `FM-1_0XX`
+  (M-VAVE, up to V15 `FM-1_015`) and Baud Girl's `FM-1_020`..`FM-1_09X` install from V15, and so
+  do Felucca, SLOOP and X0X at `FM-1_9XX`. 7XX sits between them, so any comparison the
+  stock updater might make (different, or greater than its own) treats it as it treats those.
+- Numbers in use elsewhere: M-VAVE `0XX`, Baud Girl `020`-`09X`, Lunar Modulator's proposal `5XX`,
+  Felucca / SLOOP / X0X `9XX` (all of them `FM-1_900` for development builds). 7XX was free when
+  Optimist took it; since then (thefirmwarehub.com, 2026-10-14) Fart Machine One took `FM-1_701`,
+  Skiff `FM-1_711`, others `FM-1_710`, `FM-1_777` and seven digits (`FM-1_7010007` FuMi-1,
+  `FM-1_7010100` AMB-1), so the releases moved to the block 720-769, clear of all of them.
+- The update loader is Felucca's, with the same protocol: the installers resume a device left in
+  update mode when its loader is `ota-FM-1_7XX` or `ota-FM-1_9XX` (SLOOP / Felucca), and refuse
+  any other loader (`foreign`). The web installer, `fm1_install.py` and `make_site.py` accept both
+  ranges, so SLOOP / Felucca packages and devices keep working with them.
+- The USB product string is what the editor and the installers look for in port names: they
+  accept `felucca` and `optimist` (and `FM-1`), so the device can be renamed without breaking
+  them.
+
+Not verified on hardware: that the stock V15 updater installs a `FM-1_7XX` package, and that
+M-VAVE's own updater app goes back to V15 from one. The same holds for every `9XX` package
+(Felucca, SLOOP); nothing found suggests a numeric window.
+
+The sources in `firmware/src/` are in folders by domain (`core/`, `seq/`, `storage/`, `engines/<engine>/`, `fx/`,
+`drums/`, `display/`, `ui/`, `io/`, `system/`; the file-by-file table is docs/SOURCE-LAYOUT.md). `firmware/src/felucca.c`
+is still the one translation unit that includes them all.
+
+Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`):
+
+| Flag | Default | |
+| --- | --- | --- |
+| `FELUCCA_FLASH` | 1 | settings, presets and projects in flash |
+| `FELUCCA_OTA` | 1 | update entry (needs `FELUCCA_FLASH`) |
+| `FELUCCA_USB_AUDIO` | 1 | EXPERIMENTAL USB audio (from Melodee): 4 track inputs (resampled to the host's clock, after X0X) + stereo playback, UAC1, 44.1 kHz 16/24 bit, next to MIDI; replaces the serial console |
+| `FELUCCA_CDC` | 0 (1 without USB audio) | USB serial console; with `FELUCCA_USB_AUDIO=1` a build error (shared endpoints) |
+| `FELUCCA_UART` | 1 | TRS MIDI IN: notes and the MIDI clock (not tested on hardware) |
+| `FELUCCA_ASM` | 1 | the hot loops in pi32v2 asm (`firmware/hal/fm1_dsp_asm.h`): FM6's operators (its one synthesis, MODERN) and voice output, ANALOG 2's saw / sine / swarm saws, low-pass filters, drive and output stage; 0 = the C reference (bit-identical output) |
+| `FELUCCA_ASM_CHECK` | 0 | verification build: every asm loop also runs the C on a copy; `fm6_asm_check` and `a2_asm_check` count calls and differing blocks, ANALOG 2 also self-tests its kernels at the edges once (not for release) |
+| `FELUCCA_FM6_KEYS` | 1 | the FM6 operator editor on the black keys (ENV held); 0 = without it (voices edited by SysEx only), ~5.7 KB less flash |
+| `FELUCCA_UNDO_HISTORY` | 1 | undo / redo with many levels (`firmware/src/seq/undo.c`): a history of the steps each change touched, in a ring the linker sizes from the memory nothing else uses (`app.ld` `_undo_*`: the pool after `.pool` up to its last 8 KiB, then main RAM after `.bss`; build.py prints its size and refuses < 1 KiB); ~1.9 KB of flash. 0 = the single level of SLOOP 2.x |
+| `FELUCCA_UNDO_CAP` | 0 | the undo history's ring at most this many bytes (0 = all the memory left over) |
+| `FELUCCA_DUAL` | 0 (the builder's DUAL item: 2) | second core, on by default through the builder (`docs/DUAL-CORE.md`, hardware-verified): 1 = CPU1 starts and counts, 2 = CPU1 renders parts 2 and 3 (`DUAL_PARTS`); `FELUCCA_DUAL_IDLE` (1) lets CPU1 sleep between jobs, 0 spins in RAM (through `tools/optimist.py build`: `OPTIMIST_DUAL_IDLE=0`, the builder strips `FELUCCA_*`); `FELUCCA_BENCH` 1..3 = the emulator load scenarios |
+| `FELUCCA_DLY_LEN` | 65536 | the delay line in samples, a power of two (2 bytes each, in the pool): 65536 = 1.49 s (a 1/4 note down to 40 BPM); 32768 = 0.74 s (1/4 down to 81 BPM) and 64 KiB more pool. Longer delay times are cut to the line |
+| `FELUCCA_SAMPLES_SKIP` | (empty) | built-in sample sets left out, comma-separated set names (PIANO, BASS, VIBES, HORNS, STRGS, FLUTE, SCRCH; not PERC): a reduced build that fits the flash slot. The sets after a skipped one, and USR1..3, move down a number (projects that name a set see another one), and the skipped set's presets fall back to the first SAMPLE preset. Not for release builds: `docs/MEMORY-BUDGET.md` |
+| `FELUCCA_KNOB_ACCEL` | 1 | knobs turned fast step 2 / 3 / 5 / 8 a detent (16 on the tempo; at most 3 on ranges under 100), never on lists or ranges of 24 or less (`knob_accel.h`, from X0X); 0 = one step a detent |
+| `FELUCCA_LCD_BAUD` | 1 | LCD SPI clock = 60 MHz / (value + 1): 1 = 30 MHz (X0X runs 30 and 60 on an FM-1); 4 = the old 12 MHz, if a panel shows garbage |
+| `FELUCCA_LCD_DIRTY` | 1 | the graph strips (page and overview) send only the rectangle that changed (`lcd_dirty.c`, from X0X): shorter transfers, less tearing (the panel's tearing-effect line reaches no GPIO); ~0.8 KB flash, ~0.65 KB RAM; 0 = the whole strip |
+| `FELUCCA_SIMD` | 0 | EXPERIMENTAL: `sine_i` and ANALOG 2's swarm saws (two copies a pass) with the packed 16-bit instructions (`firmware/hal/fm1_simd.h`); WRONG on the real FM-1 (2026-10-12: a SIMD=1 build crackles, the same build without it is clean), so the builder no longer offers it (registry.py RETIRED) |
+| `FELUCCA_SIMD_CHECK` | 0 | verification build: every SIMD `sine_i` also runs the C; `simd_check` counts calls and differences (not for release) |
+| `FELUCCA_SIMD_PROBE` | 0 | EXPERIMENTAL hardware probe: tests the SIMD forms at boot, shows PASS / FAIL, uses the SIMD `sine_i` only after a PASS (implies `FELUCCA_SIMD`; `FELUCCA_SIMD_PROBE_TEST=1`: emulator test of the trap report) |
+
+Backported features (defaults in `firmware/src/core/backports.h`; source, licence and measured cost of each in
+`tools/backports.json`; what they do: OPTIMIST.md, "Optional features"):
+
+| Flag | Default | |
+| --- | --- | --- |
+| `FELUCCA_CHANCE` | 0 | per-step chance on the synth tracks (SEQ > STEP 2), after Felucca 1.0; +832 B flash |
+| `FELUCCA_KEYLIT` | 1 | the keys light the notes the selected synth track plays, after Felucca 1.0.1 and renebohne; +224 B flash |
+| `FELUCCA_QNT_SEQ` | 0 | SCL > QNT SEQ: the sequenced notes snap to the scale as they play, after Felucca 1.0.1; +288 B flash |
+| `FELUCCA_SPRING` | 0 | FX > REVERB > TYPE: ROOM or a spring reverb, after Felucca 1.0; +1.8 KB flash, +2.0 KB RAM (both reverb loops run from main RAM, 944 B of RAMTEXT freed) |
+| `FELUCCA_BASSPLUS` | 0 | MENU > LOWCUT: OFF / LOWCUT / BASS+ (the small speaker's bass as harmonics), after Felucca 1.0; +244 B flash, +288 B RAM |
+| `FELUCCA_BRIGHT` | 0 | MENU > BRIGHT 1..8, the backlight by PWM, after X0X. On X0X a low level froze a real FM-1 and the saved level froze it again at every boot (X0X issue #2, c6f2bf6); here the screen always boots at full and never goes below 4/16; +304 B flash |
+| `FELUCCA_MOTION` | 0 | knob moves recorded per step (SEQ > MOTION), after Felucca 1.0; stored beside each project in its flash sector (no format change); +3.3 KB flash, +0.5 KB RAM, +1.7 KB pool |
+| `FELUCCA_ENG_PHYS` | 0 | the PHYS engine (engine 11), after Felucca 1.0 (DaisySP / Rings parts MIT); +9.6 KB flash, +38.7 KB pool: with `FELUCCA_DLY_LEN=32768` only |
+| `FELUCCA_ENG_ACID` | 0 | The ACID engine (engine 12), X0X's TB-303 voice and TB-3PO generator; float DSP in its own unit (`firmware/src/engines/acid/`, X0X's FPU flags); +14.7 KB flash, +1.7 KB RAM: reduced builds only |
+| `FELUCCA_ENG_NOISE` | 0 | the NOISE engine (engine 15), `eng_noise.c` of hugelton/Felucca-Engines (Leo Kuroshita, Hügelton Instruments; **MIT**, the file keeps its header): ANLG / DUST / LFSR / META sources, white to brown colour, a low-pass to band-pass filter with key tracking, drift and crush; 4 presets, 8 EDIT values; +3.0 KB flash, no RAM (measured: two builds of user-default) |
+| `FELUCCA_ENG_CZ` | 0 | the CZ engine (engine 13), from Melodee 0.11 (Kerem Kilic; native playback after the MAME uPD933 model, BSD-3-Clause): two lines with 8-step DCO / DCW / DCA envelopes, 8 tones of our own (no Casio factory tones), 8 EDIT values; +6.9 KB flash, +3.1 KB RAM (everything-that-fits: +7.3 KB, +3.2 KB, +32 B RAM code); on in everything-that-fits |
+| `FELUCCA_ENG_JUNO` | 0 | the JUNO engine (engine 14), the Juno-106 voice of fm-106 (PatttF; a port of Ultramaster KR-106, GPL-3.0): DCO, 4-pole OTA ladder, VCA curve, 4-position HPF; 6 voices; 8 patches of our own (no Roland factory patches), 8 EDIT values |
+| `FELUCCA_REC_MODES` | 0 | SLOOP 2.3: the REC screen's dials (mode free / tempo, length, start note / count-in 4-3-2-1); +1.2 KB flash, +156 B RAMTEXT |
+| `FELUCCA_LIGHTS` | 0 | SLOOP 2.3: MENU LIGHTS / KEYS / NOTES (NOTES = KEYLIT at run time); +1.6 KB flash, +152 B RAMTEXT |
+| `FELUCCA_GLIDE` | 0 | X0X 0.10.1: the mixer gains glide over ~10 ms (no zipper); +1.4 KB flash, +240 B RAM, +840 B RAMTEXT |
+| `FELUCCA_SL24_SAFE` | 1 | Started on flash SLOOP 2.4 (8d3823f) wrote: nothing Optimist cannot read is erased or written over (the project slots and autosave, 2.4's FM6 bank at 0xE5000, a USR3 / USR4 sample longer than ours); 2.4's slots show as SLOOP 2.4; 2.4's settings word and user presets read right (tests/sl24_safety_test.c); +708 B flash, +96 B RAM |
+| `FELUCCA_SL24_XSTEP` | 0 | SLOOP 2.4's step extras (stepx.h: nudge, 24 locks a track, fill conditions, 2.4's layout) kept with every project: a store per project buffer, a section log record of their own (ids 88..104) beside each section and the autosave (tests/stepx_store_test.c); +1.6 KB flash, +864 B RAM, +4.2 KB pool |
+
+FM6 against Dexed, sample by sample: `DEXED_SRC=<dexed checkout>/Source sh tests/fm6_parity.sh` (also run by
+`tests/run_tests.sh` when `DEXED_SRC` is set).
+
+## Samples
+
+The CC0 instrument samples that the SAMPLE engine uses are in `assets/samples-cc0/`
+(Versilian Studios, see `ATTRIBUTION.txt` there). `tools/fetch_cc0.py` downloads them
+again from the source repositories. Without that folder the build still works and the
+SAMPLE engine has only the generated drum kit.
+
+## Tests
+
+```
+python tools/optimist.py test             # the two builds below, then tests/run_tests.sh
+python tools/optimist.py test --in-docker # the same in the toolchain image (Linux; also from Windows)
+python tools/optimist.py test --python    # the Python tests only (any host, no build, no C compiler)
+```
+
+Runs the host tests (flash storage, user presets, MIDI parser, update entry, update
+loader, a DSP render, the 4-track mix, project formats, the SLICER, the regression suite,
+the command-line installer, the builder and `optimist.py`) and, with Node.js, the web page tests.
+The C host tests compile against their own headers, `build/gen-host`, which `tests/run_tests.sh`
+regenerates on each run with every sample set (`tools/build.py --host-headers`), never the profile's
+`build/gen`: the regression goldens hold whichever profile was built. The target checks read
+`build/` as the last builds left it: the installer, update and rescue tests need a package that
+fits and its app (`felucca.fwsc`, `felucca.bin`, `loader/ota.bin`), the target-cost check
+`felucca.dis` and `build/gen/felucca_config.h`. `test` builds `user-default`, then a measurement
+build of the default configuration (every item; it does not fit the slot) so the target cost covers
+every render loop (`--no-build`: test the `build/` there is, for example after
+`make build PROFILE=...`). The C tests need `sh` and a C compiler.
+
+The regression suite (`tests/regress.c`) renders every engine and preset and compares a
+hash of each render with `tests/golden.txt`; it also checks levels, voices and the CPU
+cost (`tests/cpu_baseline.txt`, `tests/target_budget.txt`). After an intended change of
+the sound, `GOLDEN_UPDATE=1 sh tests/run_tests.sh` rewrites the hashes; `BUDGET_UPDATE=1`
+does the same for the cost files.
+
+`tests/run_tests.sh` runs its tests in parallel: each test with its compile is a unit, `JOBS` of them at once
+(default: three quarters of the CPUs; `JOBS=1`: one at a time). A unit's output is buffered
+(`build/host/jobs/N.out`) and printed whole, in the script's order, so the log reads as a serial run's; the
+verdicts are the same either way. The slowest tests (the BLE emulator runs, the builder, the web pages) start
+first and print in their place. `GOLDEN_UPDATE` and `BUDGET_UPDATE` run one at a time. No host test is timed by
+the wall clock (the CPU budgets count instructions, the same within 0.3 % under load; the ns lines are for
+information), so the other units do not change a result. On a 16-core Mac: about 3 minutes, 19 one at a time.
+
+### The emulator checks
+
+```
+make emu-check                            # every check on build/felucca.fwsc (the last build)
+make emu-check ONLY=fx,persist            # some of them (python3 tests/emu/run.py --list)
+make emu-check PKG=../other/build/felucca.fwsc   # another build (its ELF beside it)
+python tools/optimist.py emu-check [FIRMWARE] [--only C] [--mhz N] [--jobs N]   # the same without make
+```
+
+Opt-in, not part of `test` or CI: they need Rust (`cargo`) and the emulator (the one `make emu` uses, or
+`EMU_DIR`, `FM1_EMU`, `EMU_REPO` naming a local checkout). `tests/emu/drv` is a small driver on the emulator's
+library, built once into `build/emu-drv/`; `tests/emu/session.py` keeps it running, so a check plays the panel
+(keys, knobs, held layers), records the audio, reads the firmware's own state through the ELF's symbols and
+reads or seeds the serial NOR. The checks play SLOOP's UI (`FELUCCA_UI 0`, user-default); a build of the
+Optimist UI runs `boot`, `upfm6` (without its preset save) and `timing` only.
+
+| check | what | |
+|---|---|---|
+| `boot` | a clean boot: no crash record, the boot guard cleared after 30 s, 172.3 audio halves a second, no late half, the screen, a note | 10 |
+| `patterns` | pattern launches at the end, the bar and now, two tracks, a live scene, the song chain (played once, the loop back after), CLEAR; every step played against its pattern, the audio onsets against the hits | 33 |
+| `fx` | COMP in a slot heard (transparent at 0, ordered), the FX bypass, a slot swap, COMP in no slot, the drum bus's COMP and a sound's COMP insert; a snapshot and the autosave over a power cycle bring all of it back, the same samples | 31 |
+| `persist` | patterns, scenes (with their FX), the song chain and the working copy over a power cycle; PROJECT > SAVE / LOAD; the song played from the flash | 19 |
+| `scenefx` | F1: a scene stored from the SAVE layer (stopped, and playing) keeps its FX, in the log at its own id; over a power cycle | 9 |
+| `upfm6` | UP_FM6's voices moved off the SDK VM to 0x95000 (a seeded old copy at 0xE7000), a preset save to copy B, a power cycle; 0xE7000..0xE9FFF byte-identical to the seed throughout | 10 |
+| `timing` | `tests/emu_boot_check.py` at 48, 96 and 192 MHz | 3 |
+
+The last column: the PASS lines on user-default (2026-10-10). Each check works in `build/emu-check/<check>/`
+(its copy of the package, its flash state, the WAVs, the screens); the checks run at once, each in a process of its own with its own emulator and
+state (`--jobs N`; `--jobs 1`: one after the other), `timing` alone after them, each one's lines printed whole in
+the list's order: about 2.5 minutes for the 115 checks (7.5 one at a time). A capture
+of a held note starts on an audio half boundary, so the same setting gives the same samples and the checks
+compare them exactly (the synthesized drum sounds have noise of their own: `fx` uses sound 6, a sample). Exit 1
+on any FAIL. `scenefx` fails on the builds before ac354af (the FX record at id 88, none at 105) and `upfm6` on
+those before 716bf52 (OBJ_UPFM6 at 0xE7000 / 0xE8000, the SDK VM written).
+
+### The gate
+
+`make gate` (`python tools/optimist.py gate`; `tools/gate.py --help`) is what the integrator runs before a push
+(docs/INTEGRATION.md): the builder costs check, every published profile built, `CONFIG=file` and
+`SET="KEY=V ..."` builds if given, the host tests, then user-default built again last so `build/` holds its
+package and ELF (`EMU=1`: then `make emu-check` on it). Each step logs to `build/gate/`; every step runs even
+after a failed one. About 5 minutes (the host tests most of it; 20 with `JOBS=1`).
+
+## Install
+
+The web installer (Chrome or Edge) is on the project's GitHub Pages site once that is enabled (see
+"Releases and the hosted site" below), or make it locally, as below. The
+`.fwsc` of each release is on the GitHub releases page.
+
+From the build tooling: `make flash` (`python3 tools/optimist.py flash [PACKAGE.fwsc]`; it builds first when no package is
+named), or `f` in the builder menu (it builds first when the menu has no current build of the configuration shown; a
+progress bar follows the build and the flash). It shows the identity of the FM-1 and of the package, asks, then runs `fm1_install.py` (below) on it. Its mido and
+python-rtmidi come from the builder venv (`make setup`). Back up first and know the way back: OPTIMIST.md, "Rescue, going back".
+
+From the command line with `fm1_install.py` directly (needs `pip3 install mido python-rtmidi`; for stock, SLOOP or other Felucca packages too):
+
+```
+python3 tools/fm1_install.py build/felucca.fwsc
+python3 tools/fm1_install.py --info          # identity of the connected FM-1
+```
+
+Or, to install your own build from the web installer, make a local copy of the site and open it from `localhost`
+(Web MIDI needs a secure context):
+
+```
+python3 web/make_site.py build/felucca.fwsc dev /tmp/felucca-site
+cd /tmp/felucca-site && python3 -m http.server 8000
+# open http://localhost:8000/webapp/installer/
+```
+
+Installing firmware is at your own risk. If an install fails and the FM-1 no longer
+starts, recovery needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter).

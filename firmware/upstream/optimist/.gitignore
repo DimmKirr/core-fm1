@@ -1,0 +1,13 @@
+build/
+.DS_Store
+__pycache__/
+tools/builder/venv/
+/emulator/
+/sdk/
+/firmwares/
+/config/my-profiles/
+/config/last-used.txt
+.idea/
+/config/user.config
+/.claude/
+/config/ble/
