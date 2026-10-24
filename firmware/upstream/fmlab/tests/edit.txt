@@ -1,0 +1,117 @@
+# FM Lab -- RATIO, and the two bytes underneath it.
+#
+#   build/host/fmlab build/host/edit tests/edit.txt
+#
+# Everything here is read off the bar under each value, which is the parameter's amount drawn as a
+# width in pixels. That makes a screenshot into a number, so the claims can be arithmetic rather
+# than "the screen changed": the ratio walks its list one entry at a time, stops at both ends,
+# means a frequency in FIXED, and -- the claim that matters -- is nothing but the COARSE and FINE
+# bytes, which sit on the very next bank so they can be read directly.
+#
+# OPERATOR bank 1 is LEVEL, RATIO, DETUNE, WAVE, so RATIO is KNOB2 = enc 3. Bank 2 is MODE, COARSE,
+# FINE, VEL SENS: MODE is KNOB1 = enc 2 there.
+0 btn 8
+200 btn 6 600
+
+# The voice loaded at startup puts OP1 wherever it puts it, which need not be on the list. One
+# click up snaps to the entry above; from there every click is one entry.
+1100 shot
+1300 enc 3 1
+1500 shot
+1700 enc 3 1
+1900 shot
+2100 enc 3 1
+2300 shot
+
+# and back down over the same ground, which has to retrace exactly
+2500 enc 3 -1
+2700 shot
+2900 enc 3 -1
+3100 shot
+
+# both ends of the list hold
+3300 enc 3 -99
+3500 shot
+3700 enc 3 -1
+3900 shot
+4100 enc 3 99
+4300 shot
+4500 enc 3 1
+4700 shot
+
+# FIXED makes the same two bytes a frequency, and the row follows: four decades in four hundred
+# steps, so the bar moves by a quarter of its length per decade instead of by one entry. MODE is
+# the first knob of the next bank, so a tap goes there and three more come round to RATIO again.
+4800 btn 6
+4900 enc 2 1
+5000 btn 6
+5100 btn 6
+5200 btn 6
+5400 shot
+5500 enc 3 50
+5700 shot
+5800 btn 6
+5900 enc 2 -1
+6000 btn 6
+6100 btn 6
+6200 btn 6
+
+# The claim that matters: RATIO is nothing but the COARSE and FINE bytes, which are the next bank
+# along. Drive RATIO to the bottom of its list -- x0.50 is coarse 0 and fine 0 -- and read them.
+# Walking on round the four banks proves they are four and that the fifth press comes back.
+6900 enc 3 -99
+7100 shot
+7300 btn 6 600
+8200 shot
+8400 btn 6 600
+9300 shot
+9500 btn 6 600
+10400 shot
+10600 btn 6 600
+11500 shot
+
+# and the top of the list is coarse 31, fine 0 -- a full bar and an empty one
+11700 enc 3 99
+11900 shot
+12100 btn 6 600
+13000 shot
+
+# A tap of EDIT while already on OPERATOR is the next bank, the same as another hold. It used to
+# drop to HOME with the knobs focused instead, which is the one thing the button cannot sensibly
+# mean from here -- you are on its page, so asking for focus would be asking to leave it.
+13200 btn 6
+14000 shot
+
+# the same bank reached the long way, to compare against
+14200 btn 8
+15000 btn 6 600
+15900 btn 6 600
+16800 btn 6 600
+17700 shot
+
+# SEL held, RATIO stops walking the list and walks every ratio the two bytes can make, in order --
+# a hundredth a click around x1. From x1.00 one click down is x0.99 (coarse 0, which is a half,
+# times 1.99), then three up is x1.02 (coarse 1, fine 2). Let go, and the next plain click goes
+# back onto the list at the entry above, x1.41. Read off the COARSE and FINE bank each time.
+17900 btn 8
+18100 btn 6 600
+19000 enc 3 -99
+19100 enc 3 2
+19200 btn 3 400
+19300 enc 3 -1
+19800 btn 6
+20000 shot
+20200 btn 6
+20300 btn 6
+20400 btn 6
+20600 btn 3 600
+20700 enc 3 3
+21400 btn 6
+21600 shot
+21800 btn 6
+21900 btn 6
+22000 btn 6
+22200 enc 3 1
+22400 btn 6
+22600 shot
+22800 end

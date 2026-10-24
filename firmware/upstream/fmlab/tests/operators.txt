@@ -1,0 +1,91 @@
+# FM Lab -- the operator switches (SEL) and the A/B compare (F#5).
+#
+#   build/host/fmlab build/host/operators tests/operators.txt
+#
+# Algorithm 16 is forced first, because it has exactly one carrier (OP1) with the other five
+# stacked behind it -- which makes every claim below checkable in the WAV as well as on screen:
+# switch OP1 off and the voice must go silent, solo any of the others and it must go silent too.
+# The ALGORITHM knob is relative, so it is wound hard against its bottom stop and then up 15.
+#
+# The chord is struck fresh for each step rather than held throughout, so that what is measured
+# is the switch and not the voice's own decay.
+#
+# The A/B step at the end doubles as the check that the OPERATOR page edits the operator it names:
+# it drops the LEVEL of the operator the header calls OP1, and under algorithm 16 that is the
+# carrier, so the sound has to get quieter rather than merely change colour.
+200 enc 1 -99
+300 enc 1 15
+
+# nothing switched off: the reference
+1000 keys 0x4880
+1300 shot
+1600 keys 0
+
+# a tap of SEL: OP1 off. It is the only carrier, so this is silence, and the output bus goes red.
+# SEL switches the operator the knobs are on, so EDIT first: plain HOME has none.
+1650 btn 6
+1700 btn 3
+1800 keys 0x4880
+2100 shot
+2400 keys 0
+
+# and on again
+2500 btn 3
+2600 keys 0x4880
+2900 shot
+3200 keys 0
+
+# OP2, picked by its key, still under EDIT; then SEL held: OP2 soloed, on the release. A modulator
+# is never heard, only felt, so this is silent too.
+3350 keys 0x8
+3400 keys 0
+3500 btn 3 500
+4100 keys 0x4880
+4400 shot
+4700 keys 0
+
+# held again: all six back on
+4800 btn 3 500
+5400 keys 0x4880
+5700 shot
+6000 keys 0
+
+# A/B, still under EDIT's tap -- plain HOME plays the key: F#5 held copies this side onto the other, then a tap switches to it. Nothing should change.
+6100 keys 0x2000000
+6700 keys 0
+6800 keys 0x2000000
+6850 keys 0
+6900 keys 0x4880
+7200 shot
+7500 keys 0
+
+# now change one thing on B: OP1's level down 20 -- the OPERATOR page, OP1's key, four clicks
+7600 btn 6 600
+8100 keys 0x2
+8150 keys 0
+8250 enc 2 -4
+8300 keys 0x4880
+8600 shot
+8900 keys 0
+
+# back to A: the same voice, without the change
+9000 keys 0x2000000
+9050 keys 0
+9100 keys 0x4880
+9400 shot
+9700 keys 0
+
+# and over to B once more
+9800 keys 0x2000000
+9850 keys 0
+9900 keys 0x4880
+10200 shot
+10500 keys 0
+
+# plain HOME: F#5 is a note there, and it leaves the side alone -- the chord is still B's
+10600 btn 8
+11000 keys 0x2000000
+11300 keys 0
+11400 keys 0x4880
+11700 keys 0
+12000 end

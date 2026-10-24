@@ -1,0 +1,131 @@
+# FM Lab -- the arpeggiator and the sequencer, heard.
+#
+#   build/host/fmlab build/host/play tests/play.txt
+#
+# INIT VOICE is one sine, so every note's pitch can be read straight off the WAV. At the default 120
+# BPM a step is a sixteenth, 125 ms, and an arpeggiated note is 60 % of one, leaving a gap.
+# SEQ puts TEMPO, BARS, DIV and CLICK on the knobs; ARP puts TEMPO, PATTERN, OCTAVE and LATCH there.
+200 enc 6 20
+400 btn 11
+600 shot
+700 btn 10
+800 shot
+
+# ARP again, on its own screen: on. C E G held: C E G C E G ..., one a step, starting with the keys
+900 btn 10
+1000 keys 0x4880
+2500 keys 0
+
+# OCTAVE 2: C E G and the same an octave up
+2700 enc 4 1
+2800 keys 0x4880
+3800 keys 0
+
+# DOWN, still two octaves: from the top
+4000 enc 3 1
+4100 keys 0x4880
+4850 keys 0
+
+# back to UP and one octave, and LATCH on: C E played and let go keeps going; G on its own
+# replaces it; ARP turns it all off
+5000 enc 3 -1
+5050 enc 4 -1
+5100 enc 5 1
+5900 keys 0x880
+6000 keys 0
+7000 keys 0x4000
+7100 keys 0
+7600 btn 10
+7700 enc 5 -1
+
+# SEQ, and REC from stopped: a bar of clicks from about 8150, then one bar recorded from the
+# downbeat (about 10150) -- C, G a beat later, E two beats in, each a little off the grid
+8000 btn 11
+8100 btn 13
+10160 keys 0x80
+10400 keys 0
+10660 keys 0x4000
+10900 keys 0
+11140 keys 0x800
+11400 keys 0
+
+# it loops from 12150. REC while it plays: over it, for one time round -- a high C on the
+# second beat's second eighth
+14300 btn 13
+14900 keys 0x80000
+15000 keys 0
+
+# past the end of that time round: a low G, heard but not recorded
+17775 keys 0x4
+17800 keys 0
+18300 btn 12
+
+# CLICK on, and PLAY: the quarters ticked under the phrase
+18500 enc 5 1
+18600 btn 12
+20200 btn 12
+
+# REC held: the phrase is gone, and PLAY has nothing to play
+20400 btn 13 600
+21300 btn 12
+21500 shot
+
+# ARP's second page, by SELECT: GATE 30 %, RATE 1/8. C E G held: one every 250 ms, each 75 ms long
+22000 btn 10
+22100 enc 0 1
+22200 shot
+22300 enc 2 -6
+22350 enc 3 -2
+22400 btn 10
+22500 keys 0x4880
+23400 keys 0
+
+# SWING 75 %: the pairs 375 + 125 ms
+23600 enc 4 25
+23800 keys 0x4880
+25000 keys 0
+
+# straight again, back to the first page, PATTERN AS PLAYED: G, then C, then E -- played in that order
+25100 enc 4 -25
+25150 enc 0 -1
+25200 enc 3 4
+25300 keys 0x4000
+25320 keys 0x4080
+25340 keys 0x4880
+26700 keys 0
+26800 btn 10
+26900 btn 11
+26950 enc 5 -1
+
+# CLICK off again; the step view: SEQ held. C on step 1, G on step 5, E on step 9 made four steps
+# long; back on step 5, landed on stopped, G is heard -- then its key takes it off and A goes on
+27000 btn 11 600
+27700 shot
+27800 keys 0x80
+27900 keys 0
+28000 enc 0 4
+28100 keys 0x4000
+28200 keys 0
+28300 enc 0 4
+28400 keys 0x800
+28500 keys 0
+28600 enc 2 3
+28700 enc 0 -4
+28800 keys 0x4000
+28820 keys 0
+28840 keys 0x10000
+28880 keys 0
+29000 shot
+
+# PLAY: it loops what the grid shows; the playhead under it; A taken off while it plays
+29200 btn 12
+30060 shot
+30500 keys 0x10000
+30600 keys 0
+34000 btn 12
+34200 shot
+
+# K3 is BARS here: two, and the grid a second row
+34300 enc 4 1
+34400 shot
+34500 end

@@ -1,0 +1,72 @@
+# FM Lab -- a tap and a hold are two different buttons.
+#
+#   build/host/fmlab build/host/focus tests/focus.txt
+#
+# EDIT and ENV answer to how long you hold them. Held, they open their page, as they always did.
+# Tapped, they stay on HOME and swing the four knobs round onto one operator -- level, ratio and
+# detune for EDIT, attack, decay, sustain and release for ENV.
+#
+# The hard part to test is that a tap really did nothing but repoint the knobs. So the knobs are
+# driven to known numbers while focused, and then the page is opened -- the long way, deliberately
+# -- and the bars read there. A bar is the parameter's amount in pixels, so the claims come out as
+# arithmetic rather than "the screen changed".
+#
+# `btn 6 600` holds EDIT for 600 ms, which is past the threshold. `btn 6` on its own is a tap.
+40 shot
+60 btn 8
+100 shot
+
+# A tap of EDIT. The diagram is still there -- this is HOME -- but the knobs and the legend are not.
+300 btn 6
+500 shot
+
+# KNOB1 is now OP1's level, and nothing else's. Drive it to a number we can check for: 50, which
+# is ten clicks, because a click of a 0..99 parameter is worth five.
+700 enc 2 -99
+800 enc 2 10
+
+# The sixth black key is OP6. While focused it points at an operator instead of sounding, so this
+# must send no MIDI at all -- and must move the knobs onto OP6.
+1000 keys 0x2000
+1100 keys 0
+
+# A white key, though, is still a key: F3 has to play.
+1300 keys 0x1
+1500 keys 0
+
+# OP6's level to the floor, which is a different number from OP1's and proves they are separate.
+1700 enc 2 -99
+1900 shot
+
+# Now hold EDIT. That is the page, on the operator the black key picked.
+2100 btn 6 600
+3000 shot
+
+# The first black key points back at OP1, whose level we left at 50.
+3200 keys 0x2
+3300 keys 0
+3500 shot
+
+# A tap of ENV from the page comes back to HOME with the envelope under the knobs instead.
+3700 btn 4
+3900 shot
+
+# KNOB1 is ATTACK. Eight clicks is 40 of it, which is rate 1 of 59 underneath.
+4100 enc 2 -99
+4200 enc 2 8
+
+# Held, ENV opens on the ADSR bank: the attack cell has to read 40.
+4400 btn 4 600
+5300 shot
+
+# and again walks on to the raw bank, where rate 1 has to read 59 -- the same number, backwards.
+5500 btn 4 600
+6400 shot
+
+# HOME, a tap of EDIT, and HOME again: the cross-operator knobs have to come back.
+6600 btn 8
+6800 btn 6
+7000 shot
+7200 btn 8
+7400 shot
+7800 end

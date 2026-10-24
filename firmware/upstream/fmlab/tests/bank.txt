@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The bank and .syx import, end to end: a bank arrives, a voice arrives, a voice is saved into a
+# slot, a damaged bank is refused, and the host asks for both back. tests/syxcheck.py then reads the
+# WAV and the files the run left behind and checks that what came out is what went in.
+#
+#   tests/run_host.sh tests/bank.txt     (it runs tests/mksyx.py first to make the .syx files)
+#
+# Timings matter: the chords are struck fresh each time so that two windows can be compared sample
+# for sample, which is the only way to prove that saving and reloading a voice loses nothing.
+
+# 1. a 32-voice bank arrives over USB-MIDI and is written to flash
+300 syx build/host/bank.syx
+600 shot
+
+# 2. the voice knob runs past the 20 factory voices into slot 1, TEST 01: a sine at x1
+800 enc 6 20
+1000 shot
+1000 keys 0x4880
+1900 keys 0
+
+# 3. a single voice arrives: it lands in the editor, as a DX7 does, marked as an edit
+2100 syx build/host/voice.syx
+2400 shot
+2500 keys 0x4880
+3400 keys 0
+
+# 4. save it: press, wind to slot 5, press again
+3600 btn 9
+3700 shot
+3800 enc 6 4
+3900 shot
+4000 btn 9
+4300 shot
+
+# 5. leave the slot and come back to it: the name is now the voice that was saved
+4500 enc 6 -1
+4700 enc 6 1
+4900 shot
+5000 keys 0x4880
+5900 keys 0
+
+# 6. a bank with one bit wrong in its checksum: refused, and the bank is untouched
+6000 syx build/host/bad.syx
+6300 shot
+6400 enc 6 -4
+6600 shot
+6700 keys 0x4880
+7600 keys 0
+
+# 7. save it again, this time with a name of its own: SELECT walks the letters, ALGORITHM sets one
+7800 btn 9
+7900 enc 6 15
+8000 enc 1 -18
+8100 enc 0 6
+8200 enc 1 1
+8300 shot
+8400 btn 9
+
+# 8. the same again, but backed out of partway: the letters typed are forgotten, and the sound that
+# does get written later carries the name it already had
+8700 btn 9
+8800 enc 6 1
+8900 enc 1 5
+9000 btn 8
+9100 shot
+9200 btn 9
+9300 enc 6 1
+9400 btn 9
+9600 shot
+
+# 9. the host asks for the bank and for the edit buffer back
+9800 syx build/host/req.syx
+10100 shot
+
+10400 end

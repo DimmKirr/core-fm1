@@ -1,0 +1,10 @@
+# The JieLi toolchain, the assembler and the shell scripts all run on Linux (WSL on Windows):
+# LF in the tree, always. Without this, a clone on Windows turns every file CRLF and `sh` dies on
+# "set: Illegal option -".
+* text=auto eol=lf
+*.png binary
+*.ppm binary
+*.wav binary
+*.bin binary
+*.fwsc binary
+*.boot binary
