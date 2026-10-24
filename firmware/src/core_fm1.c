@@ -543,6 +543,23 @@ static struct ble_scan_tab ble_scan_tab;
 #endif
 #endif
 
+#ifdef CONFIG_SYS_MENU_BLE
+static uint8_t cfm1_ble_prev_on;
+static uint8_t cfm1_ble_prev_disc;
+
+static void cfm1_ble_sync(void)
+{
+    uint8_t want = sys_settings.ble_on && sys_settings.ble_discoverable;
+    if (want != cfm1_ble_prev_disc || sys_settings.ble_on != cfm1_ble_prev_on) {
+        cfm1_ble_prev_on = sys_settings.ble_on;
+        cfm1_ble_prev_disc = want;
+        ble_enable(want);
+    }
+}
+#else
+static void cfm1_ble_sync(void) {}
+#endif
+
 #endif /* CONFIG_BLE */
 
 /* --- audio subsystem --- */
@@ -791,6 +808,25 @@ static void fm1_main(void)
     cfm1_log("settings: loaded");
 #endif
 
+#ifdef CONFIG_BLE
+    {
+        uint8_t addr[6];
+        uint8_t addr_random = ble_hw_addr(addr);
+        ble_init(addr, addr_random);
+#ifdef CONFIG_SYS_MENU_BLE
+        uint8_t adv = sys_settings.ble_on && sys_settings.ble_discoverable;
+        cfm1_ble_prev_on = sys_settings.ble_on;
+        cfm1_ble_prev_disc = adv;
+        if (adv)
+            ble_enable(1);
+        cfm1_log(adv ? "ble: advertising" : "ble: off");
+#else
+        ble_enable(1);
+        cfm1_log("ble: advertising");
+#endif
+    }
+#endif
+
 #ifdef CONFIG_USB_HOST
     otg_init();
     cfm1_log("OTG: device mode (boot)");
@@ -936,6 +972,9 @@ static void fm1_main(void)
 #endif
 #ifdef CONFIG_SYS_MENU
         sys_settings_flush();
+#endif
+#ifdef CONFIG_BLE
+        cfm1_ble_sync();
 #endif
 #if defined(CONFIG_UI_FELUCCA)
         fsh_draw();
