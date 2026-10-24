@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Melodee update loader (device side). Runs from RAM, started by the SPL from
+/* Core FM1 update loader (device side). Runs from RAM, started by the SPL from
  * an update record, with interrupts off: USB is polled from the main loop.
- * It is a USB-MIDI device "Melodee Update" (1209:0002) that answers the
+ * It is a USB-MIDI device "Core FM1 Update" (1209:0002) that answers the
  * M-UPGRADE update protocol as "ota-FM-1_900" (hosts look for "ota-"), and
  * writes the app area only (ldr_core.c). The UBOOT soft key works here too.
  * Single compilation unit. */
@@ -13,7 +13,7 @@
 #define MELODEE_OTA 1
 #define MELODEE_OTA_DRYRUN 0
 #define MELODEE_USB_PID 0x0002
-#define MELODEE_ID "ota-FM-1_900"
+#define CFM1_LOADER_ID "ota-FM-1_900"
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
 #include "fm1_time.h"
 #include "fm1_sys.h"
@@ -21,7 +21,7 @@
 #define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x93000u) || FL_IN(off, n, 0x93000u, 0xFC000u))
 #include "fm1_flash.h"
 #include "../src/libc.c"
-#include "../src/usb.c"
+#include "../src/midi/usb.c"
 
 static uint32_t ldr_ms(void)   /* monotonic ms; survives the TIMER4 wrap (178.9 s) */
 {
@@ -54,7 +54,7 @@ static int ota_prog(uint32_t off, const void *p, uint32_t n) { (void)off; (void)
 static int ota_fread(uint32_t off, void *p, uint32_t n) { return fl_read_ram(off, p, n); }
 static void ota_show(uint32_t step, int32_t code) { (void)step; (void)code; }
 static void ota_commit(const uint8_t *parm) { (void)parm; }
-#include "../src/ota.c"
+#include "../src/boot/ota.c"
 
 /* ---- ldr_core.c hooks: interrupts are off for the whole loader ---- */
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { return fl_read_ram(off, p, n); }
