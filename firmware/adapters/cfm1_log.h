@@ -6,8 +6,13 @@
 #define CFM1_LOG_H
 #include <stdint.h>
 
+#ifdef CONFIG_DEBUG_LOG
+#define CFM1_LOG_LINES    256
+#define CFM1_LOG_LINE_LEN 48
+#else
 #define CFM1_LOG_LINES    32
 #define CFM1_LOG_LINE_LEN 40
+#endif
 
 static char     cfm1_log_buf[CFM1_LOG_LINES][CFM1_LOG_LINE_LEN];
 static uint32_t cfm1_log_ts[CFM1_LOG_LINES];

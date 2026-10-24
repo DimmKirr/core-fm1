@@ -357,8 +357,13 @@ def main():
     print(f"package: {a.fwsc.name}")
     flash_image = fwsc_extract_flash(a.fwsc)
     print(f"flash image: {len(flash_image)} bytes ({len(flash_image)//1024} KiB)")
+    own_fwsc = Path(__file__).resolve().parent.parent / 'build' / 'core-fm1.fwsc'
     if len(flash_image) < APP_END:
-        sys.exit(f"flash image too small ({len(flash_image)} < {APP_END})")
+        if a.fwsc.resolve() == own_fwsc.resolve():
+            sys.exit(f"flash image too small ({len(flash_image)} < {APP_END})")
+        pad = APP_END - len(flash_image)
+        print(f"flash image padded with {pad} bytes (0xFF) to fill app partition")
+        flash_image += b'\xff' * pad
 
     dev = find_device(a.timeout)
     if dev is None:

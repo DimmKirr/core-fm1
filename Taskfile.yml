@@ -174,6 +174,16 @@ tasks:
         fi
       - uv run --group unbrick python "{{.UNBRICKER_DIR}}/fm1_unbrick.py" restore '{{.STOCK_FWSC}}' {{.CLI_ARGS}}
 
+  logs:
+    desc: Dump debug log from FM-1 over USB MIDI SysEx
+    cmds:
+      - uv run --group flash python tools/fm1_log_dump.py {{.CLI_ARGS}}
+
+  settings:reset:
+    desc: Reset FM-1 settings to defaults (erases saved settings, device reboots)
+    cmds:
+      - uv run --group flash python tools/fm1_settings_reset.py {{.CLI_ARGS}}
+
   config:
     desc: Run menuconfig (ncurses) to configure the build
     cmds:

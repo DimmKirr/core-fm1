@@ -32,6 +32,9 @@ typedef struct {
     uint8_t ble_on;         /* 0 = OFF, 1 = ON */
     uint8_t ble_discoverable; /* 0 = OFF, 1 = ON (advertising) */
 #endif
+#ifdef CONFIG_BLE
+    uint8_t ble_addr[7];    /* [0..5] = saved random static address, [6] = 0xA5 if valid */
+#endif
     uint8_t _end;           /* always present so struct is never empty */
 } sys_settings_t;
 

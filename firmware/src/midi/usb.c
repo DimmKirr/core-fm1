@@ -560,6 +560,84 @@ static const uint8_t HS_QUERY[] = {0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x4
 #define CFM1_PACKAGE_ID "FM-1_900"
 #endif
 
+static void sx_push_pkt(uint32_t pkt)
+{
+    if (mo_w - mo_r < MQ) {
+        midi_out_q[mo_w % MQ] = pkt;
+        RING_PUBLISH();
+        mo_w++;
+    }
+}
+
+#ifdef CONFIG_DEBUG_LOG
+/* F0 7D 46 4C 01 F7 -> dump the entire log ring as SysEx.
+ * Reply: F0 7D 46 4C 01 <line0\n line1\n ...> F7
+ * All log bytes are ASCII < 0x80, safe for SysEx. 0x0A separates lines. */
+static volatile uint8_t log_dump_req;
+
+static void log_dump_reply(void)
+{
+    uint32_t i, n;
+    uint8_t hdr[] = {0xF0, 0x7D, 0x46, 0x4C, 0x7E};
+    uint8_t triple[3];
+    uint32_t tc = 0;
+
+    for (i = 0; i < sizeof hdr; i++) {
+        triple[tc++] = hdr[i];
+        if (tc == 3u) {
+            sx_push_pkt(4u | ((uint32_t)triple[0] << 8u) | ((uint32_t)triple[1] << 16u) | ((uint32_t)triple[2] << 24u));
+            tc = 0;
+        }
+    }
+
+    n = cfm1_log_count < CFM1_LOG_LINES ? cfm1_log_count : CFM1_LOG_LINES;
+    for (i = 0; i < n; i++) {
+        const char *line = cfm1_log_line(i);
+        uint32_t ts = cfm1_log_time(i);
+        /* emit timestamp as "MMSSmmm " (7 chars + space) */
+        char tbuf[9];
+        tbuf[0] = '0' + (char)((ts / 600000u) % 10u);
+        tbuf[1] = '0' + (char)((ts / 60000u) % 10u);
+        tbuf[2] = '0' + (char)((ts / 10000u) % 6u);
+        tbuf[3] = '0' + (char)((ts / 1000u) % 10u);
+        tbuf[4] = '0' + (char)((ts / 100u) % 10u);
+        tbuf[5] = '0' + (char)((ts / 10u) % 10u);
+        tbuf[6] = '0' + (char)(ts % 10u);
+        tbuf[7] = ' ';
+        tbuf[8] = 0;
+
+        const char *parts[3] = { tbuf, line, "\n" };
+        uint32_t pi;
+        for (pi = 0; pi < 3u; pi++) {
+            const char *s = parts[pi];
+            uint32_t si = 0;
+            while (s[si]) {
+                uint8_t ch = (uint8_t)s[si++];
+                if (ch >= 0x80u) ch = '?';
+                triple[tc++] = ch;
+                if (tc == 3u) {
+                    sx_push_pkt(4u | ((uint32_t)triple[0] << 8u) | ((uint32_t)triple[1] << 16u) | ((uint32_t)triple[2] << 24u));
+                    tc = 0;
+                }
+            }
+        }
+    }
+
+    /* close: flush remaining + F7 */
+    triple[tc++] = 0xF7;
+    if (tc == 1u)
+        sx_push_pkt(5u | ((uint32_t)triple[0] << 8u));
+    else if (tc == 2u)
+        sx_push_pkt(6u | ((uint32_t)triple[0] << 8u) | ((uint32_t)triple[1] << 16u));
+    else
+        sx_push_pkt(7u | ((uint32_t)triple[0] << 8u) | ((uint32_t)triple[1] << 16u) | ((uint32_t)triple[2] << 24u));
+}
+#endif /* CONFIG_DEBUG_LOG */
+
+#ifdef CONFIG_SYS_MENU
+static volatile uint8_t settings_reset_req;
+#endif
+
 static void hs_reply_identity(void)
 {
     static const char ID[] = CFM1_PACKAGE_ID;
@@ -609,11 +687,7 @@ static void hs_reply_identity(void)
         b1 = k > 1u ? wire[wi + 1u] : 0u;
         b2 = k > 2u ? wire[wi + 2u] : 0u;
         pkt = cin | ((uint32_t)b0 << 8u) | ((uint32_t)b1 << 16u) | ((uint32_t)b2 << 24u);
-        if (mo_w - mo_r < MQ) {
-            midi_out_q[mo_w % MQ] = pkt;
-            RING_PUBLISH();
-            mo_w++;
-        }
+        sx_push_pkt(pkt);
         wi += k;
     }
 }
@@ -671,6 +745,18 @@ static void sysex_byte(uint8_t b)
             ok = usb.sysex[i] == UBOOT_KEY[i];
         if (ok)
             usb.uboot_req = 1;
+#ifdef CONFIG_DEBUG_LOG
+        else if (usb.sx_len == 6u &&
+                 usb.sysex[1] == 0x7Du && usb.sysex[2] == 0x46u &&
+                 usb.sysex[3] == 0x4Cu && usb.sysex[4] == 0x7Eu)
+            log_dump_req = 1;
+#endif
+#ifdef CONFIG_SYS_MENU
+        else if (usb.sx_len == 6u &&
+                 usb.sysex[1] == 0x7Du && usb.sysex[2] == 0x46u &&
+                 usb.sysex[3] == 0x4Cu && usb.sysex[4] == 0x7Fu)
+            settings_reset_req = 1;
+#endif
         else if (usb.sx_len == sizeof HS_QUERY) {
             uint32_t hm = 1u;
             for (i = 0; hm && i < sizeof HS_QUERY; i++)

@@ -494,13 +494,23 @@ static void ble_app_midi_pop(void) {}
 static void ble_app_midi_in(uint32_t pkt, uint16_t ts, uint16_t last_ts) {
     (void)pkt; (void)ts; (void)last_ts;
 }
-static void ble_app_state(void) {}
+static void ble_app_state(void) {
+    int conn = ble_connected();
+    int midi = ble_midi_ready();
+    cfm1_log(conn ? "ble: CONNECTED" : "ble: DISCONNECTED");
+    cfm1_log_int("ble: midi_ready=", midi);
+}
 #if BLE_SMP_LEGACY
 static void ble_app_bond(const uint8_t rand[8], uint16_t ediv, const uint8_t ltk[16]) {
-    (void)rand; (void)ediv; (void)ltk;
+    (void)rand; (void)ltk;
+    cfm1_log("ble: BOND received");
+    cfm1_log_int("ble: bond ediv=", (int32_t)ediv);
 }
 static void ble_app_peer_id(const uint8_t irk[16], const uint8_t addr[6], uint8_t addr_rand) {
-    (void)irk; (void)addr; (void)addr_rand;
+    (void)irk;
+    cfm1_log("ble: peer identity");
+    cfm1_log_hex("ble: peer ", addr, 6);
+    cfm1_log_int("ble: peer rnd=", addr_rand);
 }
 #if BLE_CENTRAL
 static void ble_app_central_keys(const struct ble_keys *k) { (void)k; }
@@ -537,23 +547,107 @@ static struct ble_scan_tab ble_scan_tab;
 #include "../upstream/optimist/firmware/src/ble/ble_hw_stub.c"
 #else
 #define BLE_HW_WL82 1
+#include "../upstream/optimist/firmware/src/ble/ble_vm.c"
 #include "../upstream/optimist/firmware/src/ble/ble_hw_wl82.c"
-#if BLE_CENTRAL
-#include "../upstream/optimist/firmware/src/ble/ble_hw_wl82_central.c"
 #endif
+
+/* RF trim reader and radio startup (only with real baseband) */
+#if BLE_HW_WL82
+static struct ble_rf_trims cfm1_ble_trims;
+static struct ble_vm_info  cfm1_ble_vm_info;
+static uint8_t cfm1_ble_rf_src;
+static uint8_t cfm1_ble_up;
+
+static int cfm1_ble_vm_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n)
+{
+    (void)ctx;
+#ifdef CONFIG_FLASH
+    if (!cfm1_flash_ok)
+        return -1;
+    while (n) {
+        uint32_t k = n > 256u ? 256u : n;
+        uint32_t f = irq_save();
+        int rc = FL_FAR(fl_read_ram)(off, dst, k);
+        irq_restore(f);
+        if (rc) return rc;
+        off += k; dst += k; n -= k;
+    }
+    return 0;
+#else
+    (void)off; (void)dst; (void)n;
+    return -1;
 #endif
+}
+
+static int cfm1_ble_radio_start(void)
+{
+    struct ble_rf_trims vm;
+    int complete, save;
+
+    cfm1_log("ble: scanning VM trims...");
+    complete = ble_vm_scan(cfm1_ble_vm_rd, 0, &cfm1_ble_vm_info, &vm, 0, 0);
+    cfm1_log_int("ble: vm complete=", complete);
+    cfm1_log_int("ble: vm area=", (int32_t)cfm1_ble_vm_info.area);
+    cfm1_log_int("ble: vm nrec=", (int32_t)cfm1_ble_vm_info.nrec);
+    cfm1_log_int("ble: vm have=", cfm1_ble_vm_info.have);
+    cfm1_log_int("ble: vm ok187=", cfm1_ble_vm_info.ok187);
+    if (cfm1_ble_vm_info.read_err)
+        cfm1_log("ble: vm read error!");
+
+    {
+        uint8_t copy[BLE_RF_COPY_SIZE];
+        uint32_t i;
+        for (i = 0; i < BLE_RF_COPY_SIZE; i++)
+            copy[i] = 0;
+        cfm1_ble_rf_src = (uint8_t)ble_rf_choose(complete, &vm,
+            cfm1_ble_vm_info.area, copy, &cfm1_ble_trims, &save);
+    }
+
+    cfm1_log_int("ble: rf_src=", cfm1_ble_rf_src);
+    if (cfm1_ble_rf_src == BLE_RF_NONE) {
+        cfm1_log("ble: NO TRIMS - radio OFF");
+        return 0;
+    }
+    cfm1_log("ble: attaching IRQs");
+    ble_hw_wl82_attach();
+    cfm1_log("ble: starting radio...");
+    cfm1_log_hex("ble: x106 ", cfm1_ble_trims.x106, 2);
+    cfm1_log_hex("ble: x107 ", cfm1_ble_trims.x107, 7);
+    ble_hw_wl82_start(&cfm1_ble_trims);
+    cfm1_ble_up = 1;
+    cfm1_log("ble: radio started OK");
+    return 1;
+}
+#endif /* BLE_HW_WL82 */
 
 #ifdef CONFIG_SYS_MENU_BLE
 static uint8_t cfm1_ble_prev_on;
 static uint8_t cfm1_ble_prev_disc;
+static uint32_t cfm1_ble_sync_fires;
+static uint32_t cfm1_ble_hb_ms;
 
 static void cfm1_ble_sync(void)
 {
     uint8_t want = sys_settings.ble_on && sys_settings.ble_discoverable;
     if (want != cfm1_ble_prev_disc || sys_settings.ble_on != cfm1_ble_prev_on) {
+        cfm1_ble_sync_fires++;
+        cfm1_log_int("ble:sync #", (int32_t)cfm1_ble_sync_fires);
+        cfm1_log_int("ble: on=", sys_settings.ble_on);
+        cfm1_log_int("ble: prev_on=", cfm1_ble_prev_on);
+        cfm1_log_int("ble: disc=", sys_settings.ble_discoverable);
+        cfm1_log_int("ble: want=", want);
+        cfm1_log_int("ble: prev_disc=", cfm1_ble_prev_disc);
+        cfm1_log_hex("ble: raw ", (const uint8_t *)&sys_settings, sizeof sys_settings);
         cfm1_ble_prev_on = sys_settings.ble_on;
         cfm1_ble_prev_disc = want;
+        cfm1_log(want ? "ble: enabling adv" : "ble: disabling adv");
         ble_enable(want);
+    }
+    if (cfm1_log_ms - cfm1_ble_hb_ms > 5000u) {
+        cfm1_ble_hb_ms = cfm1_log_ms;
+        cfm1_log_int("ble:hb conn=", ble_connected());
+        cfm1_log_int("ble:hb midi=", ble_midi_ready());
+        cfm1_log_int("ble:hb fires=", (int32_t)cfm1_ble_sync_fires);
     }
 }
 #else
@@ -806,22 +900,102 @@ static void fm1_main(void)
 #ifdef CONFIG_SYS_MENU
     sys_settings_init();
     cfm1_log("settings: loaded");
+    cfm1_log_hex("settings: raw ", (const uint8_t *)&sys_settings, sizeof sys_settings);
+    cfm1_log_int("settings: size=", (int32_t)sizeof sys_settings);
+#ifdef CONFIG_SYS_MENU_USB_MODE
+    cfm1_log_int("settings: usb_mode=", sys_settings.usb_mode);
+#endif
+#ifdef CONFIG_SYS_MENU_MIDI_CH
+    cfm1_log_int("settings: midi_ch=", sys_settings.midi_ch);
+#endif
+#ifdef CONFIG_SYS_MENU_BLE
+    cfm1_log_int("settings: ble_on=", sys_settings.ble_on);
+    cfm1_log_int("settings: ble_disc=", sys_settings.ble_discoverable);
+#endif
 #endif
 
 #ifdef CONFIG_BLE
     {
         uint8_t addr[6];
         uint8_t addr_random = ble_hw_addr(addr);
+        if (addr_random && sys_settings.ble_addr[6] == 0xA5u &&
+            (sys_settings.ble_addr[5] >> 6) == 3u) {
+            uint32_t ai;
+            for (ai = 0; ai < 6u; ai++)
+                addr[ai] = sys_settings.ble_addr[ai];
+            cfm1_log("ble: addr from flash");
+        } else if (addr_random) {
+            uint32_t ai;
+            for (ai = 0; ai < 6u; ai++)
+                sys_settings.ble_addr[ai] = addr[ai];
+            sys_settings.ble_addr[6] = 0xA5u;
+            sys_settings_dirty = 1;
+            cfm1_log("ble: addr NEW, saving");
+        }
         ble_init(addr, addr_random);
+        cfm1_log(addr_random ? "ble: addr random" : "ble: addr public");
+        cfm1_log_hex("ble: mac ", addr, 6);
+        {
+            const uint8_t *np;
+            uint8_t nl = ble_gap_name(&np);
+            char nbuf[CFM1_LOG_LINE_LEN];
+            uint32_t ni = 0;
+            const char *pfx = "ble: name=";
+            while (*pfx && ni < CFM1_LOG_LINE_LEN - 1)
+                nbuf[ni++] = *pfx++;
+            for (uint32_t k = 0; k < nl && ni < CFM1_LOG_LINE_LEN - 1; k++)
+                nbuf[ni++] = (char)np[k];
+            nbuf[ni] = 0;
+            cfm1_log(nbuf);
+        }
+        cfm1_log("ble: svc BLE-MIDI");
+#ifdef CFM1_BLE_FT
+        cfm1_log("ble: svc FileTransfer");
+#endif
+#if BLE_CENTRAL
+        cfm1_log("ble: role central+periph");
+#else
+        cfm1_log("ble: role peripheral");
+#endif
+#if BLE_LL_ENC
+        cfm1_log("ble: encryption ON");
+#else
+        cfm1_log("ble: encryption OFF");
+#endif
+#ifdef CFM1_BLE_HID
+        cfm1_log("ble: HID gamepad ON");
+#endif
+#if BLE_HW_WL82
+        {
+            int radio_ok = cfm1_ble_radio_start();
+            if (!radio_ok)
+                cfm1_log("ble: radio FAILED");
+        }
+#endif
 #ifdef CONFIG_SYS_MENU_BLE
         uint8_t adv = sys_settings.ble_on && sys_settings.ble_discoverable;
         cfm1_ble_prev_on = sys_settings.ble_on;
         cfm1_ble_prev_disc = adv;
-        if (adv)
+        cfm1_log_int("ble: setting on=", sys_settings.ble_on);
+        cfm1_log_int("ble: setting disc=", sys_settings.ble_discoverable);
+        if (adv) {
             ble_enable(1);
+#if BLE_HW_WL82
+            if (cfm1_ble_up) {
+                cfm1_log("ble: unmasking IRQs");
+                fm1_ble_irqs_hold(0);
+            }
+#endif
+        }
         cfm1_log(adv ? "ble: advertising" : "ble: off");
 #else
         ble_enable(1);
+#if BLE_HW_WL82
+        if (cfm1_ble_up) {
+            cfm1_log("ble: unmasking IRQs");
+            fm1_ble_irqs_hold(0);
+        }
+#endif
         cfm1_log("ble: advertising");
 #endif
     }
@@ -963,6 +1137,24 @@ static void fm1_main(void)
 #endif
 #ifdef CONFIG_EDITOR
         editor_poll();
+#endif
+#if defined(CONFIG_DEBUG_LOG) && defined(CONFIG_USB)
+        if (log_dump_req) {
+            log_dump_req = 0;
+            log_dump_reply();
+        }
+#endif
+#if defined(CONFIG_SYS_MENU) && defined(CONFIG_USB)
+        if (settings_reset_req) {
+            settings_reset_req = 0;
+            cfm1_log("settings: RESET requested");
+            sys_settings_defaults();
+            sys_settings_dirty = 1;
+            sys_settings_flush();
+            cfm1_log("settings: defaults written, rebooting");
+            fm1_delay_ms(200);
+            fm1_reboot();
+        }
 #endif
 #ifdef CONFIG_CONSOLE
         console_poll();

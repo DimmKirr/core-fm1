@@ -1,0 +1,185 @@
+CONFIG_FIRMWARE_NAME="felucca-noise"
+CONFIG_FIRMWARE_VERSION="v0.0.0"
+
+#
+# Engines
+#
+CONFIG_ENGINES=y
+
+#
+# Multi-lineage (require full audio core)
+#
+# CONFIG_ENGINE_FM6 is not set
+# CONFIG_ENGINE_DRUM is not set
+
+#
+# Melodee
+#
+# CONFIG_ENGINE_PROPHET is not set
+# CONFIG_ENGINE_CZ1 is not set
+# CONFIG_ENGINE_SID is not set
+
+#
+# Felucca (MIT)
+#
+# CONFIG_ENGINE_ANALOG is not set
+# CONFIG_ENGINE_DIGITAL is not set
+# CONFIG_ENGINE_PHASE is not set
+# CONFIG_ENGINE_SAMPLE is not set
+# CONFIG_ENGINE_GRANULAR is not set
+# CONFIG_ENGINE_LOFI is not set
+# CONFIG_ENGINE_TRIO is not set
+# CONFIG_ENGINE_TONEWHEEL is not set
+# CONFIG_ENGINE_FORMANT is not set
+# CONFIG_ENGINE_PHYSICAL is not set
+CONFIG_ENGINE_NOISE=y
+
+#
+# Development
+#
+# CONFIG_ENGINE_STUB is not set
+# end of Engines
+
+#
+# Effects
+#
+# CONFIG_EFFECTS_FELUCCA is not set
+# CONFIG_EFFECTS_SLOOP is not set
+CONFIG_EFFECTS_MELODEE=y
+# CONFIG_MODULATION is not set
+# end of Effects
+
+#
+# Sequencer
+#
+# CONFIG_SEQ_FELUCCA is not set
+# CONFIG_SEQ_SLOOP is not set
+CONFIG_SEQ_MELODEE=y
+# end of Sequencer
+
+#
+# Scales
+#
+# CONFIG_SCALES_FELUCCA is not set
+CONFIG_SCALES_MELODEE=y
+# end of Scales
+
+#
+# System
+#
+
+#
+# HAL
+#
+
+#
+# Always included: fm1_adc.h, fm1_cc.h, fm1_gpio.h, fm1_xip.h, fm1_time.h
+#
+# CONFIG_HAL_SYS_FELUCCA is not set
+# CONFIG_HAL_SYS_SLOOP is not set
+CONFIG_HAL_SYS_MELODEE=y
+# CONFIG_HAL_IRQ_FELUCCA is not set
+# CONFIG_HAL_IRQ_SLOOP is not set
+CONFIG_HAL_IRQ_MELODEE=y
+# CONFIG_HAL_LCD_FELUCCA is not set
+CONFIG_HAL_LCD_MELODEE=y
+# CONFIG_HAL_INPUT_FELUCCA is not set
+# CONFIG_HAL_INPUT_SLOOP is not set
+CONFIG_HAL_INPUT_MELODEE=y
+# CONFIG_HAL_GUARD_FELUCCA is not set
+# CONFIG_HAL_GUARD_SLOOP is not set
+CONFIG_HAL_GUARD_MELODEE=y
+# CONFIG_HAL_FLASH_FELUCCA is not set
+# CONFIG_HAL_FLASH_SLOOP is not set
+CONFIG_HAL_FLASH_MELODEE=y
+# CONFIG_HAL_UART_FELUCCA is not set
+CONFIG_HAL_UART_MELODEE=y
+# CONFIG_HAL_USB_FELUCCA is not set
+CONFIG_HAL_USB_MELODEE=y
+# CONFIG_HAL_TIMER_FELUCCA is not set
+CONFIG_HAL_TIMER_MELODEE=y
+# CONFIG_HAL_MULTICORE_FELUCCA is not set
+# CONFIG_HAL_MULTICORE_SLOOP is not set
+CONFIG_HAL_MULTICORE_MELODEE=y
+CONFIG_HAL_MELODEE_CACHE=y
+CONFIG_HAL_MELODEE_CLOCK=y
+CONFIG_HAL_MELODEE_POWER=y
+# end of HAL
+
+#
+# Boot
+#
+# CONFIG_BOOT_FELUCCA is not set
+# CONFIG_BOOT_SLOOP is not set
+CONFIG_BOOT_MELODEE=y
+# end of Boot
+
+#
+# Audio Core
+#
+CONFIG_AUDIO=y
+# CONFIG_DUAL_CORE is not set
+# CONFIG_AUDIO_CORE_FELUCCA is not set
+# CONFIG_AUDIO_CORE_SLOOP is not set
+CONFIG_AUDIO_CORE_MELODEE=y
+# CONFIG_AUDIO_24BIT is not set
+# end of Audio Core
+
+#
+# MIDI
+#
+# CONFIG_MIDI_UART is not set
+CONFIG_USB=y
+# CONFIG_MIDI_FELUCCA is not set
+# CONFIG_MIDI_SLOOP is not set
+CONFIG_MIDI_MELODEE=y
+# CONFIG_USB_AUDIO is not set
+# end of MIDI
+
+#
+# UI
+#
+CONFIG_INPUT=y
+CONFIG_UI_FELUCCA=y
+# CONFIG_UI_SLOOP is not set
+# CONFIG_UI_MELODEE is not set
+# CONFIG_UI_CORE is not set
+CONFIG_CONTROLS_FELUCCA=y
+# CONFIG_CONTROLS_MELODEE is not set
+# CONFIG_CONTROLS_SLOOP is not set
+CONFIG_SPLASH_LOGO=y
+# CONFIG_SPLASH_NONE is not set
+CONFIG_GEN_FELUCCA_UI=y
+# end of UI
+
+#
+# Storage
+#
+# CONFIG_FLASH is not set
+# end of Storage
+
+#
+# USB Disk
+#
+CONFIG_USB_HOST=y
+CONFIG_UDISK=y
+# end of USB Disk
+
+#
+# BLE
+#
+CONFIG_BLE=y
+CONFIG_BLE_MIDI=y
+# CONFIG_BLE_CENTRAL is not set
+# CONFIG_BLE_BOND is not set
+# CONFIG_BLE_DIAG is not set
+CONFIG_BLE_STUB=y
+# end of BLE
+
+#
+# Debug
+#
+CONFIG_DEBUG=y
+CONFIG_DEBUG_LOG=y
+# end of Debug
+# end of System

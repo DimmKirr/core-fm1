@@ -93,8 +93,16 @@ static void fdbg_draw(void)
         fui_fmt_val(scr, (int16_t)(cfm1_log_scroll + 1));
         fui_draw_card(1, "FROM", scr, "", T_MID, -1, ICON_GENERIC);
     }
-    fui_draw_card(2, "BUF", "32", "", T_DIM, -1, ICON_GENERIC);
-    fui_draw_card(3, "LEN", "40", "", T_DIM, -1, ICON_GENERIC);
+    {
+        char buf[8];
+        fui_fmt_val(buf, (int16_t)CFM1_LOG_LINES);
+        fui_draw_card(2, "BUF", buf, "", T_DIM, -1, ICON_GENERIC);
+    }
+    {
+        char len[8];
+        fui_fmt_val(len, (int16_t)CFM1_LOG_LINE_LEN);
+        fui_draw_card(3, "LEN", len, "", T_DIM, -1, ICON_GENERIC);
+    }
 
     fdbg_draw_lines();
 
@@ -128,16 +136,24 @@ static void fdbg_enter(void)
         cfm1_log_scroll = 0;
 }
 
+static int fdbg_at_bottom(void)
+{
+    if (cfm1_log_count <= DBG_VISIBLE)
+        return 1;
+    return cfm1_log_scroll >= cfm1_log_count - DBG_VISIBLE;
+}
+
 static void fdbg_status(void)
 {
     if (cfm1_log_count != fdbg_last_count) {
-        uint32_t added = cfm1_log_count - fdbg_last_count;
+        int was_bottom = fdbg_at_bottom();
         fdbg_last_count = cfm1_log_count;
-        if (cfm1_log_count > DBG_VISIBLE)
-            cfm1_log_scroll = cfm1_log_count - DBG_VISIBLE;
-        else
-            cfm1_log_scroll = 0;
-        (void)added;
+        if (was_bottom) {
+            if (cfm1_log_count > DBG_VISIBLE)
+                cfm1_log_scroll = cfm1_log_count - DBG_VISIBLE;
+            else
+                cfm1_log_scroll = 0;
+        }
         fsh_dirty = 1;
     }
 }
