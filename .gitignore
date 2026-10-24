@@ -11,6 +11,22 @@ tests/results/
 .pytest_cache/
 .task/remote/
 
+# IDE / OS
+.DS_Store
+.idea/
+
+# Local config
+.devcell/
+devcell.toml
+.product/
+
+# Generated artifacts
+logs/
+/core
+*.rpt
+*.erc
+skidl_*
+
 # Binary assets
 *.wav
 *.mp3
