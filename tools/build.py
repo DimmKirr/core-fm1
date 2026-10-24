@@ -305,7 +305,10 @@ def build(dry_run=False):
     enabled = set(re.findall(r'^#define CONFIG_(\w+) 1$', config_h.read_text(), re.M))
 
     if 'GEN_FELUCCA_UI' in enabled:
-        gen_felucca_ui()
+        if not (GEN / 'ui_fonts.h').exists():
+            gen_felucca_ui()
+        else:
+            print('gen_felucca_ui: headers exist, skipping (delete build/gen/ui_fonts.h to regenerate)')
     if 'ENGINES' in enabled:
         gen_engine_tables()
     pending = enabled & {'MIDI_UART', 'DUAL_CORE'}
