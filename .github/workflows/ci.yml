@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -12,6 +10,10 @@ on:
         description: Package the tested firmware and corresponding source for release
         type: boolean
         default: false
+      firmware_version:
+        description: Version string baked into the firmware (e.g. v1.0.0)
+        type: string
+        default: ''
     outputs:
       firmware_artifact_id:
         description: Artifact containing the tested firmware release files
@@ -80,6 +82,7 @@ jobs:
           JIELI_TOOLCHAIN: ${{ steps.toolchain.outputs.toolchain-path }}
           AC79_SDK: ${{ steps.toolchain.outputs.sdk-path }}
           FM1_WEB_DIR: ${{ steps.emulator.outputs.web-path }}
+          FIRMWARE_VERSION: ${{ inputs.firmware_version }}
         run: mise exec -- task --yes test:e2e -- --junitxml=tests/results/e2e.xml
 
       - name: Save E2E screenshots and logs
@@ -141,9 +144,9 @@ jobs:
             exit 0
           fi
 
-          tag=ci-screenshots
+          tag=ci-screenshot
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          notes="$RUNNER_TEMP/ci-screenshots.md"
+          notes="$RUNNER_TEMP/ci-screenshot.md"
           {
             echo '# CI screenshots'
             echo
@@ -153,8 +156,10 @@ jobs:
           } > "$notes"
 
           assets=()
+          idx=0
           for screenshot in "${screenshots[@]}"; do
-            asset_name="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(basename "$screenshot")"
+            idx=$((idx + 1))
+            asset_name="screenshot-${idx}.png"
             assets+=("$screenshot#$asset_name")
             {
               echo "![${asset_name}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag/$asset_name)"
@@ -163,9 +168,13 @@ jobs:
           done
 
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            old_assets=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+            for old in $old_assets; do
+              gh release delete-asset "$tag" "$old" --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+            done
+            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --notes-file "$notes" --prerelease --latest=false
+              --notes-file "$notes" --target "$GITHUB_SHA" --prerelease --latest=false
           else
             gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" --title 'CI Screenshots' \

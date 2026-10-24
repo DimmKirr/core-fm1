@@ -10,3 +10,26 @@ tests/results/
 .venv/
 .pytest_cache/
 .task/remote/
+
+# Binary assets
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.ico
+*.gif
+*.bmp
+*.pdf
+*.ttf
+*.otf
+*.woff
+*.woff2
+*.wasm
+*.fwsc
+*.bin
+*.syx
+*.dat

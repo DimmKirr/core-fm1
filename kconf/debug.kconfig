@@ -1,0 +1,18 @@
+menu "Debug"
+
+config DEBUG
+    bool "Debug mode"
+    default n
+    help
+      Master switch for debug features. Enables diagnostic logging,
+      the DEBUG UI page, and future debug instrumentation.
+
+config DEBUG_LOG
+    bool "Debug log ring buffer"
+    default y if DEBUG
+    depends on DEBUG
+    help
+      Enable a 32-line ring buffer for diagnostic messages.
+      Subsystems write via cfm1_log(); the DEBUG page displays them.
+
+endmenu

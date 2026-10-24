@@ -1,5 +1,9 @@
+# minimal: smallest buildable config with audio output.
+# Melodee audio core + effects, no engines, no input, no storage.
+# The baseline for CI build and e2e emulator tests.
 CONFIG_FIRMWARE_NAME="core-fm1"
-CONFIG_FIRMWARE_VERSION="0.1.0"
+
+# HAL (full Melodee variant: all peripheral registers)
 CONFIG_HAL_SYS_MELODEE=y
 CONFIG_HAL_IRQ_MELODEE=y
 CONFIG_HAL_LCD_MELODEE=y
@@ -13,9 +17,17 @@ CONFIG_HAL_MULTICORE_MELODEE=y
 CONFIG_HAL_MELODEE_CACHE=y
 CONFIG_HAL_MELODEE_CLOCK=y
 CONFIG_HAL_MELODEE_POWER=y
-# CONFIG_AUDIO is not set
+
+# Audio (Melodee core + effects, no engines)
+CONFIG_AUDIO=y
+CONFIG_AUDIO_CORE_MELODEE=y
+CONFIG_EFFECTS_MELODEE=y
+
+# Disabled subsystems
 # CONFIG_INPUT is not set
 # CONFIG_FLASH is not set
 # CONFIG_MIDI_UART is not set
-# CONFIG_USB is not set
 # CONFIG_DUAL_CORE is not set
+
+# USB (mandatory: keeps the device reflashable via SysEx UBOOT key)
+CONFIG_USB=y

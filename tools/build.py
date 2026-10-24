@@ -30,7 +30,7 @@ import lz4blk
 ROOT = Path(__file__).resolve().parents[1]
 FW = ROOT / 'firmware'
 OUT = ROOT / 'build'
-GEN = OUT / 'gen'
+GEN = Path(os.environ['CFM1_GEN_DIR']) if 'CFM1_GEN_DIR' in os.environ else OUT / 'gen'
 
 DOCKER_IMAGE = os.environ.get('JIELI_DOCKER_IMAGE', 'debian:bookworm-slim')
 
@@ -233,11 +233,69 @@ def package():
     fwsc = fm1pkg_make.ufw(fm1pkg_make.flash_image(app, fm1pkg_make.KEY), ota, 'FM-1_900')
     path = OUT / 'core-fm1.fwsc'
     path.write_bytes(fwsc)
+    (OUT / 'core-fm1.version').write_text(_firmware_version())
     print(f'package: {path.relative_to(ROOT)} ({len(fwsc)} bytes)')
 
 
+def _firmware_version():
+    """Return the firmware version string.
+
+    Priority: FIRMWARE_VERSION env var > dev-<datetime>-<sha> > v0.0.0.
+    """
+    env_ver = os.environ.get('FIRMWARE_VERSION')
+    if env_ver:
+        return env_ver
+    try:
+        sha = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True, text=True, cwd=str(ROOT), timeout=5,
+        ).stdout.strip()
+        if sha:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            return f'dev-{now}-{sha}'
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return 'v0.0.0'
+
+
+def gen_felucca_ui():
+    """Run Felucca's font/icon/keycap/palette generators into build/gen/."""
+    GEN.mkdir(parents=True, exist_ok=True)
+    felucca = FW / 'upstream' / 'felucca'
+    tools = felucca / 'tools'
+    cmds = [
+        [tools / 'gen_aa_font.py', GEN / 'ui_fonts.h', '--preset', 'inter-tight'],
+        [tools / 'gen_aa_icons.py', GEN / 'ui_icons.h'],
+        [tools / 'gen_aa_keycaps.py', GEN / 'ui_keycaps.h'],
+        [tools / 'gen_ui_palettes.py', GEN / 'ui_palettes.h'],
+    ]
+    procs = [subprocess.Popen([sys.executable, *map(str, c)],
+             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+             for c in cmds]
+    failed = []
+    for c, p in zip(cmds, procs):
+        sys.stdout.write(p.communicate()[0])
+        if p.returncode:
+            failed.append(c[0].name)
+    if failed:
+        raise SystemExit(f'gen_felucca_ui: {", ".join(failed)} failed')
+    print(f'gen_felucca_ui: {len(cmds)} headers -> {GEN.relative_to(ROOT)}/')
+
+
+def gen_engine_tables():
+    """Generate fixed-point lookup tables for Felucca-derived engines."""
+    GEN.mkdir(parents=True, exist_ok=True)
+    dst = GEN / 'fe_tables.h'
+    subprocess.run([sys.executable, str(ROOT / 'tools' / 'gen_engine_tables.py'),
+                    str(dst)], check=True, cwd=str(ROOT))
+
+
 def build(dry_run=False):
-    flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/src', '-Ibuild/gen']
+    flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/adapters',
+             '-Ifirmware/src', '-Ifirmware', '-Ibuild/gen',
+             '-Ifirmware/upstream/felucca/build/gen',
+             '-Ifirmware/upstream/optimist/firmware/src/ble']
 
     config_h = GEN / 'config.h'
     if not config_h.exists():
@@ -245,14 +303,30 @@ def build(dry_run=False):
             f'{config_h} not found. Run "task config:generate" first.')
 
     enabled = set(re.findall(r'^#define CONFIG_(\w+) 1$', config_h.read_text(), re.M))
-    pending = enabled & {'AUDIO', 'INPUT', 'FLASH', 'MIDI_UART', 'USB', 'DUAL_CORE'}
+
+    if 'GEN_FELUCCA_UI' in enabled:
+        gen_felucca_ui()
+    if 'ENGINES' in enabled:
+        gen_engine_tables()
+    pending = enabled & {'MIDI_UART', 'DUAL_CORE'}
     unsupported = {s for s in enabled if s.startswith('HAL_') and
                    s.endswith(('_FELUCCA', '_SLOOP'))}
     if pending or unsupported:
         raise SystemExit('Not integrated yet: ' + ', '.join(sorted(pending | unsupported)) +
                          '. Load the minimal defconfig for the LCD boot milestone.')
 
+    # Strip the Kconfig version define so the build-time -D takes precedence
+    # without a macro-redefined warning.
+    config_text = config_h.read_text()
+    filtered = re.sub(r'^#define CONFIG_FIRMWARE_VERSION ".*"$', '', config_text, flags=re.M)
+    if filtered != config_text:
+        config_h.write_text(filtered)
+
     flags.append('-includebuild/gen/config.h')
+
+    version = _firmware_version()
+    flags.append(f'-DCONFIG_FIRMWARE_VERSION="{version}"')
+    print(f'build: version {version}')
 
     asm_srcs = []
     if (FW / 'crt0.S').exists():
@@ -273,6 +347,12 @@ def build(dry_run=False):
         print('Then build firmware/stub, firmware/loader and package build/core-fm1.fwsc')
         return
 
+    logo_src = ROOT / 'assets' / 'logo-dark.png'
+    logo_hdr = GEN / 'boot_logo.h'
+    if logo_src.exists():
+        subprocess.run([sys.executable, str(ROOT / 'tools' / 'logo_convert.py')],
+                       check=True, cwd=str(ROOT))
+
     runner = _pick_runner(toolchain_path())
     OUT.mkdir(parents=True, exist_ok=True)
     print(f'build: compiling{runner.label()}...')
@@ -286,6 +366,22 @@ def build(dry_run=False):
 
     objs = [str(OUT / (Path(name).stem + '.o')) for name, _ in asm_srcs]
     objs.append(str(OUT / 'core_fm1.o'))
+
+    if 'USB_HOST' in enabled:
+        sdk = Path(os.environ.get('AC79_SDK', Path.home() / '.fm1-toolchain' / 'AC79_SDK'))
+        cpu_a = sdk / 'cpu' / 'wl82' / 'liba' / 'cpu.a'
+        if cpu_a.exists():
+            bc_obj = OUT / 'usb_sdk.bc'
+            native_obj = OUT / 'usb_sdk.o'
+            subprocess.run(['ar', 'x', str(cpu_a), 'usb.c.o',
+                           f'--output={OUT}'], check=True)
+            (OUT / 'usb.c.o').rename(bc_obj)
+            tc('cc', '-target', 'pi32v2', '-mcpu=r3', '-Os',
+               '-ffunction-sections', '-fdata-sections',
+               '-c', str(bc_obj), '-o', str(native_obj))
+            objs.append(str(native_obj))
+            print(f'build: compiled usb_sdk.o from cpu.a bitcode')
+
     elf = OUT / 'core_fm1.elf'
     tc('pi32v2/bin/ld', '--gc-sections', '-T', str(FW / 'app.ld'), *objs,
        '-o', str(elf))
@@ -331,7 +427,8 @@ def main():
     ap.add_argument('--dry-run', action='store_true')
     args = ap.parse_args()
 
-    genconfig(args.defconfig)
+    if 'CFM1_GEN_DIR' not in os.environ:
+        genconfig(args.defconfig)
     if args.genconfig_only:
         return
 

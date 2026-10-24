@@ -1,0 +1,85 @@
+menu "UI"
+
+config INPUT
+    bool "Panel input"
+    default n
+
+choice
+    prompt "UI framework"
+    default UI_MELODEE if INPUT
+    default UI_CORE
+
+config UI_FELUCCA
+    bool "Felucca"
+    depends on INPUT
+    select GEN_FELUCCA_UI
+    help
+      SURF cards, Inter Tight font, anti-aliased icons, knob arcs.
+
+config UI_SLOOP
+    bool "SLOOP"
+    depends on INPUT
+
+config UI_MELODEE
+    bool "Melodee"
+    depends on INPUT
+    help
+      Rubik font, track colors, 8 palettes, partial screen updates.
+
+config UI_CORE
+    bool "core-fm1 (minimal)"
+    help
+      Bitmap font, basic page navigation. No theming.
+      Uses the page adapter: any engine/seq/fx appears automatically.
+      Does not require INPUT: works in emulator-only builds.
+
+endchoice
+
+choice
+    prompt "Control model"
+    default CONTROLS_FELUCCA
+
+config CONTROLS_FELUCCA
+    bool "Felucca"
+    help
+      Felucca button layout: direct page navigation, SELECT steps pages,
+      HOME hold opens ABOUT. GLO opens DEBUG when debug log is enabled.
+
+config CONTROLS_MELODEE
+    bool "Melodee"
+    help
+      Melodee button layout: SELECT adjusts BPM, GLO opens MIXER,
+      SAVE opens SAVE page, HOME hold opens MENU.
+
+config CONTROLS_SLOOP
+    bool "SLOOP"
+    help
+      SLOOP button layout: SELECT adjusts BPM, GLO opens MIXER,
+      0.7s hold threshold, HOME hold opens MENU.
+
+endchoice
+
+choice
+    prompt "Splash screen"
+    default SPLASH_LOGO
+
+config SPLASH_LOGO
+    bool "core-fm1 boot logo"
+    help
+      RLE-compressed logo from assets/logo-dark.png, centered on screen.
+      Generated at build time by tools/logo_convert.py.
+
+config SPLASH_NONE
+    bool "No splash screen"
+    help
+      Skip the splash screen, go straight to the home page.
+
+endchoice
+
+config GEN_FELUCCA_UI
+    bool
+    help
+      Hidden. Selected by UI_FELUCCA. Tells the build system to run
+      Felucca font/icon/keycap/palette generators before compiling.
+
+endmenu

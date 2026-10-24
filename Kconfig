@@ -6,36 +6,24 @@ config FIRMWARE_NAME
 
 config FIRMWARE_VERSION
     string "Firmware version"
-    default "0.1.0"
+    default "v0.0.0"
+
+source "kconf/engines.kconfig"
+source "kconf/effects.kconfig"
+source "kconf/sequencer.kconfig"
+source "kconf/scales.kconfig"
+
+menu "System"
 
 source "kconf/hal.kconfig"
-
-menu "Subsystems (integration pending)"
-
-comment "Only the minimal LCD boot is buildable today"
-
-config AUDIO
-    bool "Audio"
-    default n
-
-config INPUT
-    bool "Panel input"
-    default n
-
-config FLASH
-    bool "Application flash storage"
-    default n
-
-config MIDI_UART
-    bool "UART MIDI"
-    default n
-
-config USB
-    bool "Application USB"
-    default n
-
-config DUAL_CORE
-    bool "Second application core"
-    default n
+source "kconf/boot.kconfig"
+source "kconf/audio.kconfig"
+source "kconf/midi.kconfig"
+source "kconf/ui.kconfig"
+source "kconf/storage.kconfig"
+source "kconf/udisk.kconfig"
+source "kconf/ble.kconfig"
+source "kconf/debug.kconfig"
+source "kconf/sys_menu.kconfig"
 
 endmenu

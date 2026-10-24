@@ -1,0 +1,29 @@
+menu "Boot"
+
+choice
+    prompt "Boot/OTA"
+    default BOOT_MELODEE
+
+config BOOT_FELUCCA
+    bool "Felucca (stock DFU)"
+
+config BOOT_SLOOP
+    bool "SLOOP (stock DFU)"
+
+config BOOT_MELODEE
+    bool "Melodee (M-UPGRADE SysEx OTA, safe-recovery)"
+
+endchoice
+
+config OTA
+    bool "M-UPGRADE OTA (SysEx firmware update)"
+    depends on BOOT_MELODEE && FLASH
+    default y if BOOT_MELODEE && FLASH
+    help
+      Enable the M-UPGRADE SysEx update protocol. The running firmware
+      reads the package from the host, stages the update loader in the
+      OTA area, then reboots into it. Requires flash access (CONFIG_FLASH).
+      Without this, firmware updates need manual UBOOT entry (hold OCT+/-
+      for 5 seconds, or send the UBOOT soft key F0 22 24 35 7D F7).
+
+endmenu

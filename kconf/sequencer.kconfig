@@ -1,0 +1,25 @@
+menu "Sequencer"
+
+choice
+    prompt "Sequencer implementation"
+    default SEQ_MELODEE
+
+config SEQ_FELUCCA
+    bool "Felucca"
+    help
+      64-step, chords, ties, live loop.
+
+config SEQ_SLOOP
+    bool "SLOOP"
+    help
+      Arranger, scenes.
+
+config SEQ_MELODEE
+    bool "Melodee"
+    help
+      64-step, 8 banks, 1024 timed notes, recording,
+      undo, motion, song.
+
+endchoice
+
+endmenu

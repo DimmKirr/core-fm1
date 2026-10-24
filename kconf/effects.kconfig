@@ -1,0 +1,38 @@
+menu "Effects"
+    depends on AUDIO
+
+choice
+    prompt "Effects chain"
+    default EFFECTS_MELODEE
+
+config EFFECTS_FELUCCA
+    bool "Felucca (dist, chorus, delay, reverb, slicer)"
+
+config EFFECTS_SLOOP
+    bool "SLOOP"
+
+config EFFECTS_MELODEE
+    bool "Melodee (3 inserts + shared chain)"
+
+endchoice
+
+config MODULATION
+    bool "Modulation matrix (4-slot per track)"
+    default n
+
+choice
+    prompt "Modulation lineage"
+    depends on MODULATION
+    default MOD_MELODEE
+
+config MOD_MELODEE
+    bool "Melodee (11 sources, 21 destinations)"
+
+endchoice
+
+config MIX
+    bool "Stereo mixer (per-track level, pan, FX sends)"
+    depends on AUDIO
+    default n
+
+endmenu

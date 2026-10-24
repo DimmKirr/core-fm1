@@ -1,0 +1,107 @@
+name: Dev Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/ci.yml
+    with:
+      release_bundle: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download tested firmware bundle
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.firmware_artifact_id }}
+          path: dist
+          merge-multiple: true
+
+      - name: Download E2E results
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.results_artifact_id }}
+          path: results
+          merge-multiple: true
+
+      - name: Verify release files
+        run: |
+          set -euo pipefail
+          cd dist
+          test -s core-fm1.fwsc
+          sha256sum -c SHA256SUMS
+
+      - name: Compute version tag
+        id: ver
+        run: |
+          ts=$(date -u +%Y%m%d%H%M%S)
+          short=$(echo "$GITHUB_SHA" | head -c 8)
+          echo "version=dev-${ts}-${short}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish dev release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=dev
+          version="${{ steps.ver.outputs.version }}"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          notes="$RUNNER_TEMP/dev-notes.md"
+
+          mapfile -d '' screenshots < <(find results -type f -path '*/screenshots/*.png' -print0 | sort -z)
+
+          {
+            echo "# core-fm1 $version"
+            echo
+            echo "Rolling dev build from \`main\` at commit $GITHUB_SHA."
+            echo "Tests passed: [workflow run]($run_url)."
+            echo
+          } > "$notes"
+
+          assets=(dist/core-fm1.fwsc dist/minimal.config
+                  dist/core-fm1-source.tar.gz dist/core-fm1-licenses.tar.gz
+                  dist/SHA256SUMS)
+
+          idx=0
+          for screenshot in "${screenshots[@]}"; do
+            idx=$((idx + 1))
+            asset_name="screenshot-${idx}.png"
+            assets+=("$screenshot#$asset_name")
+            printf '![%s](%s/%s/releases/download/%s/%s)\n\n' \
+              "$asset_name" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$tag" "$asset_name" >> "$notes"
+          done
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Delete old assets, upload new ones, update notes and title.
+            old_assets=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+            for old in $old_assets; do
+              gh release delete-asset "$tag" "$old" --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+            done
+            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+              --title "core-fm1 $version" --notes-file "$notes" \
+              --target "$GITHUB_SHA" --prerelease --latest=false
+          else
+            gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "core-fm1 $version" \
+              --notes-file "$notes" --prerelease --latest=false
+          fi
+          cat "$notes" >> "$GITHUB_STEP_SUMMARY"
