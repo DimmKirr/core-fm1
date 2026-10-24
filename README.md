@@ -1,12 +1,18 @@
-# core-fm1
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
+    <img src="assets/logo-light.png" alt="core-fm1" width="480">
+  </picture>
+</p>
 
-**Your FM-1. Your combination.**
+<p align="center"><strong>Your FM-1. Your combination.</strong></p>
 
-A modular firmware framework for the M-VAVE FM-1 synthesizer. The goal:
-combine engines and features from [Felucca](https://github.com/hugelton/Felucca),
+A modular firmware framework for the M-VAVE FM-1 synthesizer, inspired by
+[Felucca](https://github.com/hugelton/Felucca),
 [Melodee](https://github.com/keremimo/melodee), and
-[SLOOP](https://github.com/isod89/sloop-fm1) through configuration, then build
-one firmware image for your instrument.
+[SLOOP](https://github.com/isod89/sloop-fm1). The goal: build
+one firmware image configured for your instrument.
 
 > **Early development:** the minimal firmware builds and has emulator boot tests.
 > It displays a boot screen; audio, engine mixing, and musical workflows are

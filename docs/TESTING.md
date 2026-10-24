@@ -28,66 +28,184 @@ On Ubuntu, add `--with-deps` to install required system libraries too.
 ## Run tests
 
 ```sh
-mise exec -- task test:unit
-mise exec -- task config:defconfig -- minimal
-mise exec -- task test:e2e
+task test           # both suites (unit + e2e)
+task test:unit      # Python unit tests only
+task test:e2e       # emulator + Playwright e2e tests (core suite)
 ```
 
-Or run both suites with `mise exec -- task test` after selecting the configuration.
-With mise activated in your shell, the `mise exec --` prefix is optional.
+With mise activated in your shell, `mise exec --` prefix is optional.
 On first use, Task asks you to trust the two remote setup-fm1 Taskfiles
 listed in `Taskfile.yml`. CI uses `task --yes` to accept them non-interactively.
-
-Unit tests cover Kconfig generation, package checksums/compression, and control
-helper validation. E2E builds `build/core-fm1.fwsc`, downloads the SDK/toolchain
-and WASM emulator when missing, and opens the package in headless Chromium.
-
-The E2E tests verify the LCD title pixels, check the display again after ten
-seconds, and verify knob/button/note messages reach the emulator. The minimal
-firmware does not yet handle panel input or produce audio. Three preset tests
-skip because the Melodee, Felucca, and SLOOP defconfigs are absent.
 
 Run one E2E test with:
 
 ```sh
-mise exec -- task test:e2e -- -k test_panel_controls_reach_emulator
+task test:e2e -- -k test_firmware_boots
 ```
+
+Run a specific E2E file outside the Taskfile (useful for tests not in the core suite):
+
+```sh
+uv run python -m pytest tests/e2e_ui_controls_test.py -v
+```
+
+## Test architecture
+
+### Unit tests (`tests/test_*.py`)
+
+Host-only, no hardware or emulator. Cover configuration generation, package
+checksums/compression, defconfig validation, and control helper validation.
+
+### E2E tests (`tests/e2e_*_test.py`)
+
+Browser-based tests using the fm1-emu WASM emulator and Playwright.
+Each test class inherits from `E2ETestCase` (in `tests/e2e_fixtures.py`), which:
+
+- Starts a local HTTP server serving the emulator
+- Launches headless Chromium via Playwright
+- Provides `controls(page)` for named encoders, buttons, and notes
+- Provides helpers: `push()`, `long_push()`, `send_enc()`, `screenshot()`
+- Saves screenshots and logs in `tests/results/<timestamp>-<module>/`
+
+A typical E2E test uploads the built `.fwsc` into the emulator, waits for boot,
+then interacts with the virtual panel and asserts LCD canvas state via pixel
+hash comparison.
+
+## E2E test inventory
+
+### Core suite (run by `task test:e2e`)
+
+| File | What it tests | Controls exercised |
+|------|--------------|-------------------|
+| `e2e_boot_test.py` | Firmware boots, LCD renders, panel messages reach emulator | All encoders (0-6), all 14 buttons, 3 notes, hold+encoder, master pot |
+| `e2e_components_test.py` | Build manifest matches defconfig, binary manifest | None (build verification) |
+| `e2e_usb_safety_test.py` | USB SysEx keys present/absent per defconfig | None (binary/manifest checks) |
+| `e2e_audio_test.py` | Oscillator output, analog acid sequence | Notes (C4-G4) |
+| `e2e_audio_engines_test.py` | Engine switching, audio output per engine, level normalization, master volume | SELECT encoder, HOME button, master pot, notes |
+
+### Extended suite (run individually or via pytest glob)
+
+| File | What it tests | Controls exercised |
+|------|--------------|-------------------|
+| `e2e_ui_controls_test.py` | **All Felucca UI controls on all pages** (59 tests). Button-tap navigation, long-press, encoder CW/CCW on every param page, dead buttons, hold+encoder combos, full page sweep | All buttons, all encoders, notes, hold+encoder combos |
+| `e2e_page_nav_test.py` | Page-change latency via SELECT encoder | SELECT encoder CW/CCW |
+| `e2e_sys_menu_test.py` | SYS page opens, tab switching, value cycling, HOME return | HOME (long-press), ALGO encoder, SELECT encoder |
+| `e2e_debug_log_test.py` | DEBUG page renders boot log, scroll works | GLO button, SELECT encoder |
+| `e2e_stuck_notes_test.py` | Notes don't stick after engine switch or page change | SELECT encoder, notes |
+| `e2e_ble_test.py` | BLE subsystem integration | (varies) |
+
+### Coverage summary
+
+| Area | Covered by |
+|------|-----------|
+| Button → page navigation (all 9 nav buttons) | `e2e_ui_controls_test.py::TestButtonNavigation` |
+| Long-press HOME → SYS | `e2e_ui_controls_test.py::TestLongPressNavigation`, `e2e_sys_menu_test.py` |
+| SELECT encoder page nav (CW/CCW) | `e2e_ui_controls_test.py::TestSelectEncoder`, `e2e_page_nav_test.py` |
+| HOME: engine select, track select, K1-K3 | `e2e_ui_controls_test.py::TestHomePage` |
+| Param pages: K1-K3 on ENV/LFO/FX/SCL/EDIT/ARP | `e2e_ui_controls_test.py::Test{ENV,LFO,FX,SCL,EDIT,ARP}Page` |
+| VOICE, MIXER pages | `e2e_ui_controls_test.py::TestVOICEPage`, `TestMIXERPage` |
+| Dead buttons (OCT+/-, PLAY, REC, SAVE) | `e2e_ui_controls_test.py::TestDeadButtons` |
+| Hold+encoder combos | `e2e_ui_controls_test.py::TestHoldEncoderCombo` |
+| Full page sweep (all registered pages) | `e2e_ui_controls_test.py::TestFullPageSweep` |
+| Engine audio output | `e2e_audio_engines_test.py` |
+| Master volume | `e2e_audio_engines_test.py::TestMasterVolume` |
+
+### Known gaps
+
+- **OCT+/-, PLAY, REC, SAVE** have no firmware handler. Tests verify they don't
+  crash but can't verify function.
+- **PRESET encoder (ENC 6)** is tested for message delivery (`e2e_boot_test`)
+  but has no page-level handler to verify.
+
+## Panel controls in tests
+
+```python
+ctrl = self.controls(page)
+ctrl.rotate_encoder('presets', direction=1, steps=3)
+ctrl.press_button('home')
+ctrl.press_button('home', hold_ms=600)     # long-press
+with ctrl.hold_button('edit'):
+    ctrl.rotate_encoder('knob1', direction=-1, steps=2)
+ctrl.play_note('C#4', hold_ms=500)
+ctrl.set_master_volume(512)
+```
+
+### Physical controls map
+
+| Encoder ID | Name | Test name | What it does |
+|-----------|------|-----------|-------------|
+| 0 | SELECT | `select` | Engine select (HOME), page nav (others), scroll (DEBUG/FILES/BLE) |
+| 1 | ALGO | `algorithm` | Track select (HOME), tab switch (SYS) |
+| 2 | KNOB1 | `knob1` | Param knob[0] (HOME), param[0] (param pages) |
+| 3 | KNOB2 | `knob2` | Param knob[1] (HOME), param[1] (param pages) |
+| 4 | KNOB3 | `knob3` | Param knob[2] (HOME), param[2] (param pages) |
+| 5 | KNOB4 | `knob4` | Param knob[3] (HOME), param[3] (param pages) |
+| 6 | PRESET | `presets` | (no page handler yet) |
+| — | MASTER | `master` | Analog volume pot (hardware ADC, not an encoder) |
+
+### Button map
+
+| ID | Name | Test name | Tap action | Hold action (500ms) |
+|----|------|-----------|-----------|-------------------|
+| 0 | OCT- | `oct-` | — | — |
+| 1 | OCT+ | `oct+` | — | — |
+| 2 | FX | `fx` | → FX page | — |
+| 3 | SCL | `scl` | → SCL page | — |
+| 4 | ENV | `env` | → ENV page | — |
+| 5 | LFO | `lfo` | → LFO page | — |
+| 6 | EDIT | `edit` | → EDIT page | — |
+| 7 | GLO | `glo` | → DEBUG page* | — |
+| 8 | HOME | `home` | → HOME page | → SYS page** |
+| 9 | SAVE | `save` | — | — |
+| 10 | ARP | `arp` | → ARP page | — |
+| 11 | SEQ | `seq` | → SEQ page | — |
+| 12 | PLAY | `play` | — | — |
+| 13 | REC | `rec` | — | — |
+
+\* Only when `CONFIG_DEBUG_LOG` is enabled, otherwise no action.
+\** Only when `CONFIG_SYS_MENU` is enabled, otherwise → ABOUT page.
+
+### Assertion patterns
+
+E2E tests detect UI changes by comparing pixel hashes of LCD canvas regions:
+
+```python
+# Full LCD region (native canvas coords: 1280x820, LCD at 370,42 size 480x480)
+LCD_REGION = (370, 42, 480, 480)
+
+# Hash a region before and after an action
+before = _lcd_region_hash(page, *LCD_REGION)
+ctrl.press_button('env', delay_ms=500)
+after = _lcd_region_hash(page, *LCD_REGION)
+self.assertNotEqual(before, after, 'LCD did not change')
+```
+
+For finer assertions, use sub-regions (cards row, footer) to detect which
+part of the screen changed. The `_canvas_hash()` function hashes the entire
+canvas including the panel frame.
 
 ## Screenshots and logs
 
 Each run writes under `tests/results/<UTC-timestamp>-<test-module>/`:
 
-- `screenshots/*.png`: panel canvas only, captured automatically.
-- `fm1-emulator.log`: boot test diagnostics.
-- `panel-controls.log`: control test diagnostics.
+- `screenshots/*.png`: panel canvas captures at named test points.
+- `*.log`: emulator status, firmware log, JS console output.
 
-No `E2E_DEBUG` setting is required. Results are ignored by Git.
+Results are gitignored. No `E2E_DEBUG` setting is required.
 
 ## CI results
 
-GitHub Actions runs unit tests and the minimal firmware E2E suite on pull
-requests and pushes to `main`. It can also be started manually. Setup uses
-`mise install` and `uv sync --locked`. The `dimmkirr/setup-fm1-toolchain@v1`
-and `dimmkirr/setup-fm1-emulator@v1` actions install the SDK, compiler, and
-emulator. CI checks `fm1-emu --help`, installs Chromium with its system
-libraries using the locked Playwright version, and passes the actions' paths
-to the E2E task. Task reuses those installations and builds the firmware
-before testing.
+GitHub Actions runs unit tests and the core E2E suite on pull requests and
+pushes to `main`. Setup uses `mise install` and `uv sync --locked`. The
+`dimmkirr/setup-fm1-toolchain@v1` and `dimmkirr/setup-fm1-emulator@v1` actions
+install the SDK, compiler, and emulator.
 
 Each run that reaches E2E saves screenshots, logs, and JUnit XML in the
 `e2e-results` Actions artifact for 14 days, including when tests fail.
 `main` push/manual runs also attach captured PNGs to the rolling
-`ci-screenshots` prerelease from a step in the test job, including after E2E
-failures, and embed them in the job summary. No separate screenshot job runs.
-Release notes
-identify the run, commit, and test outcome; older screenshot assets remain.
-Pull requests never publish releases. This is a screenshot prerelease, not a
-firmware release or a claim that hardware testing passed.
+`ci-screenshot` prerelease and embed them in the job summary.
 
-The test job requests `contents: write` for this publication step. The
-main-only condition prevents PR publication; it is not a token-permission
-boundary. Same-repository PR jobs can receive write permission, while fork PR
-tokens are normally read-only. Runs on the same ref are serialized.
+Pull requests never publish releases.
 
 ## Tagged releases
 
@@ -95,31 +213,8 @@ Pushing a tag matching `v[0-9]*` starts `release.yml`. It calls the same CI
 build and test workflow, then publishes only if that workflow succeeds.
 The release uses the exact firmware tested by E2E; it does not rebuild it.
 
-Release assets are `core-fm1.fwsc`, `minimal.config`, the tagged source archive,
-license notices, `SHA256SUMS`, and the panel screenshots. Screenshots are also
-embedded in the release notes and job summary. Failed test runs retain their
-diagnostic artifact but do not publish a versioned release.
-
-The minimal LCD-only milestone is marked as a prerelease and is not hardware
-verified. Existing releases are not overwritten on reruns, and no moving
-major-version tag is created.
-
-## Panel controls in tests
-
-```python
-panel = self.controls(page)
-panel.rotate_encoder('presets', direction=1, steps=3)
-panel.press_button('home')
-with panel.hold_button('edit'):
-    panel.rotate_encoder('knob1', direction=-1, steps=2)
-panel.play_note('C#4', hold_ms=500)
-```
-
-Encoder names: `select`, `presets`, `algorithm`, `knob1` through `knob4`.
-`master` controls the analog pot. The upstream aliases `k1` and `k2` map to
-`presets` and `algorithm`, not `knob1` and `knob2`.
-Button names match the panel labels; `press_button(..., hold_ms=900)` holds a
-button longer. Notes span C4 through F5.
+Release assets: `core-fm1.fwsc`, `minimal.config`, tagged source archive,
+license notices, `SHA256SUMS`, and panel screenshots.
 
 ## Emulator setup fallback
 
@@ -129,8 +224,19 @@ and `rustup`. On Nix with the WASM target already installed, build a local
 fm1-emu v0.2.0 checkout directly:
 
 ```sh
-mise exec -- task emulator:build EMU_SOURCE=/path/to/fm1-emu
+task emulator:build EMU_SOURCE=/path/to/fm1-emu
 ```
 
-The JieLi compiler runs natively on x86-64 Linux, through QEMU on supported
-ARM Linux setups, or through Docker. These tests do not flash hardware.
+## Toolchain and cross-compilation
+
+The JieLi clang 4.0.1 compiler is an x86-64 Linux binary. The build system
+(`tools/build.py`) auto-detects the host architecture and picks the right
+runner:
+
+- **x86-64 Linux**: runs the compiler natively.
+- **ARM/aarch64 Linux**: requires `qemu-x86_64` plus x86-64 glibc and
+  libstdc++ in the nix store.
+- **macOS / Docker fallback**: set `JIELI_DOCKER=1` to compile inside a
+  `linux/amd64` Docker container.
+
+These tests do not flash hardware.

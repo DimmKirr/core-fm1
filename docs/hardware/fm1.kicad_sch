@@ -1,0 +1,197 @@
+(kicad_sch
+  (version 20230409)
+  (generator "skidl")
+  (generator_version "0.2.0")
+  (uuid 02fe9bed-ec48-4209-a61f-4a171077059d)
+  (paper "A4")
+  (title_block
+    (title "M-VAVE FM-1 Synthesizer - Full Board")
+    (date "2026-10-22")
+    (company "")
+    (comment 1 "Generated with SKiDL")
+    (comment 2 "")
+    (comment 3 "")
+    (comment 4 ""))
+  (lib_symbols)
+  (sheet
+    (at 137.16 153.67)
+    (size 17.78 17.78)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid))
+    (fill
+      (color 0 0 0 0.0))
+    (uuid 0bc20696-1fc2-55d2-a4a3-d226b0cd79db)
+    (property "Sheetname" "SoC"
+      (at 137.16 152.96 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "fm1_SoC.kicad_sch"
+      (at 137.16 172.03 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left top))))
+  (sheet
+    (at 128.27 39.37)
+    (size 17.78 17.78)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid))
+    (fill
+      (color 0 0 0 0.0))
+    (uuid 0a67be3d-bce1-5e00-9aef-d7627a86d243)
+    (property "Sheetname" "Power"
+      (at 128.27 38.66 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "fm1_Power.kicad_sch"
+      (at 128.27 57.73 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left top))))
+  (sheet
+    (at 136.65 85.09)
+    (size 21.34 17.78)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid))
+    (fill
+      (color 0 0 0 0.0))
+    (uuid 539ddcae-a85c-585b-9f40-e7b67a23e01d)
+    (property "Sheetname" "KeyMatrix"
+      (at 136.65 84.38 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "fm1_KeyMatrix.kicad_sch"
+      (at 136.65 103.45 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left top))))
+  (sheet
+    (at 135.64 62.23)
+    (size 23.37 17.78)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid))
+    (fill
+      (color 0 0 0 0.0))
+    (uuid 7d8d7a51-f1a9-53de-be49-9ab160f4b5e1)
+    (property "Sheetname" "ButtonsLEDs"
+      (at 135.64 61.52 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "fm1_ButtonsLEDs.kicad_sch"
+      (at 135.64 80.59 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left top))))
+  (sheet
+    (at 136.14 107.95)
+    (size 22.35 17.78)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid))
+    (fill
+      (color 0 0 0 0.0))
+    (uuid d02941cf-c63b-50e4-baf3-e45ee40f729f)
+    (property "Sheetname" "UIControls"
+      (at 136.14 107.24 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "fm1_UIControls.kicad_sch"
+      (at 136.14 126.31 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left top))))
+  (sheet
+    (at 151.13 39.37)
+    (size 17.78 17.78)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid))
+    (fill
+      (color 0 0 0 0.0))
+    (uuid 6fec8b20-6f18-5588-a82b-2ed88ef3f656)
+    (property "Sheetname" "Audio"
+      (at 151.13 38.66 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "fm1_Audio.kicad_sch"
+      (at 151.13 57.73 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left top))))
+  (sheet
+    (at 136.14 130.81)
+    (size 22.35 17.78)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid))
+    (fill
+      (color 0 0 0 0.0))
+    (uuid a4e2a005-54a2-5a6b-830e-e425690799d0)
+    (property "Sheetname" "Connectors"
+      (at 136.14 130.1 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left bottom)))
+    (property "Sheetfile" "fm1_Connectors.kicad_sch"
+      (at 136.14 149.17 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (justify left top)))))
