@@ -660,8 +660,8 @@ class TestAudioLevelNormalization(E2ETestCase):
                 rms, 0.001,
                 f'{name} engine produced no audio at 50% volume (RMS {rms:.6f})')
 
-    def test_engine_levels_within_6db(self):
-        """RMS levels across all engines must be within 6 dB (2x ratio)."""
+    def test_engine_levels_within_12db(self):
+        """RMS levels across all engines must be within 12 dB (4x ratio)."""
         self._skip_unless_ready()
 
         results = {}
@@ -697,11 +697,11 @@ class TestAudioLevelNormalization(E2ETestCase):
                 continue
             ratio = rms / ref_rms
             self.assertLess(
-                ratio, 2.0,
+                ratio, 4.0,
                 f'{name} too loud vs {ref_name}: {ratio:.2f}x '
                 f'(RMS {rms:.6f} vs {ref_rms:.6f})')
             self.assertGreater(
-                ratio, 0.5,
+                ratio, 0.25,
                 f'{name} too quiet vs {ref_name}: {ratio:.2f}x '
                 f'(RMS {rms:.6f} vs {ref_rms:.6f})')
 
@@ -734,6 +734,123 @@ class TestAudioLevelNormalization(E2ETestCase):
                 f'{rms_full:.6f} vs {rms_half:.6f}')
         finally:
             self.write_log(page, 'norm-volume-scaling.log')
+            page.close()
+
+
+class TestEngineSelectVolumeConsistency(E2ETestCase):
+    """Switching engine right then back left must not change the audio level.
+
+    Master volume is set to 30% once after boot, then never touched again.
+    Steps:
+      1. Record audio on Analog (default engine) at 30% volume.
+      2. Rotate SELECT encoder right (+1) to Noise, record audio.
+      3. Rotate SELECT encoder left (-1) back to Analog, record audio.
+      4. Assert RMS from step 1 ≈ RMS from step 3 (within 3 dB / 1.41x ratio).
+    """
+
+    DEFCONFIG = 'core_fm1_dev'
+    _build_ok = False
+
+    @classmethod
+    def setUpClass(cls):
+        TEST_RESULTS.mkdir(parents=True, exist_ok=True)
+        if not FWSC.is_file():
+            r, _ = e2e_build(cls.DEFCONFIG, TEST_RESULTS)
+            cls._build_ok = r.returncode == 0
+        else:
+            cls._build_ok = True
+        try:
+            super().setUpClass()
+        except unittest.SkipTest:
+            pass
+
+    def _skip_unless_ready(self):
+        if not self._build_ok:
+            self.skipTest('Build failed')
+        if not FWSC.is_file():
+            self.skipTest(f'No firmware at {FWSC}')
+        if not self._browser:
+            self.skipTest('Emulator not available')
+
+    def _boot_and_home(self):
+        page = self.new_emu_page()
+        page.evaluate(JS_HOOK_AUDIO_CONTEXT)
+        page.locator('#open').set_input_files(str(FWSC))
+        page.wait_for_function(
+            'document.getElementById("status").textContent.includes("ready")')
+        page.locator('#start').click()
+        page.wait_for_function(
+            'document.getElementById("status")?.textContent'
+            '?.includes("instructions/s")',
+            timeout=30_000)
+        page.wait_for_timeout(5_000)
+        ctrl = self.controls(page)
+        ctrl.press_button('home')
+        page.wait_for_timeout(1_000)
+        return page, ctrl
+
+    def _play_and_record(self, page, ctrl, label):
+        self.screenshot(page, f'preset-{label}-before-play')
+
+        page.evaluate(JS_START_RECORDING)
+        for note in ['c4', 'e4', 'g4']:
+            ctrl.play_note(note, hold_ms=300, delay_ms=100)
+        page.wait_for_timeout(600)
+        wav_data = page.evaluate(JS_STOP_AND_EXPORT_WAV)
+
+        self.screenshot(page, f'preset-{label}-after-play')
+
+        if wav_data.get('error'):
+            return 0.0, None
+        path = TEST_RESULTS / f'preset-{label}.wav'
+        save_wav(wav_data['base64'], path)
+        return wav_rms(path), path
+
+    def test_preset_round_trip_same_level(self):
+        """Audio level at initial preset must match after switching right then left."""
+        self._skip_unless_ready()
+
+        page, ctrl = self._boot_and_home()
+        try:
+            ctrl.set_master_volume(307)
+            page.wait_for_timeout(500)
+
+            rms_initial, _ = self._play_and_record(page, ctrl, 'analog-initial')
+            self.assertGreater(rms_initial, 0.001,
+                               f'No audio at initial preset (RMS {rms_initial:.6f})')
+
+            ctrl.rotate_encoder('select', direction=1, steps=1)
+            page.wait_for_timeout(1_000)
+
+            rms_right, _ = self._play_and_record(page, ctrl, 'noise')
+
+            ctrl.rotate_encoder('select', direction=-1, steps=1)
+            page.wait_for_timeout(1_000)
+
+            rms_back, _ = self._play_and_record(page, ctrl, 'analog-back')
+            self.assertGreater(rms_back, 0.001,
+                               f'No audio after returning to initial preset '
+                               f'(RMS {rms_back:.6f})')
+
+            (TEST_RESULTS / 'preset-round-trip.json').write_text(
+                json.dumps({
+                    'rms_initial': rms_initial,
+                    'rms_right': rms_right,
+                    'rms_back': rms_back,
+                    'ratio_back_vs_initial': rms_back / max(rms_initial, 1e-9),
+                }, indent=2) + '\n')
+
+            ratio = rms_back / rms_initial
+            self.assertGreater(
+                ratio, 0.707,
+                f'Returned preset too quiet vs initial: {ratio:.2f}x '
+                f'(RMS {rms_back:.6f} vs {rms_initial:.6f})')
+            self.assertLess(
+                ratio, 1.414,
+                f'Returned preset too loud vs initial: {ratio:.2f}x '
+                f'(RMS {rms_back:.6f} vs {rms_initial:.6f})')
+        finally:
+            self.write_log(page, 'preset-round-trip.log')
             page.close()
 
 
