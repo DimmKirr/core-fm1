@@ -9,7 +9,7 @@ build/
 tests/results/
 .venv/
 .pytest_cache/
-.task/remote/
+.task/
 
 # IDE / OS
 .DS_Store
@@ -32,10 +32,8 @@ skidl_*
 *.mp3
 *.ogg
 *.flac
-*.png
 *.jpg
 *.jpeg
-*.webp
 *.ico
 *.gif
 *.bmp
