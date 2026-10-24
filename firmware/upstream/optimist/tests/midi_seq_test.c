@@ -1,0 +1,459 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* SLOOP 2.4 phase 3, SEQ -> MIDI OUT and IN = CLOCK (firmware/src/seq/seq_midi.c; always built, tests/run_tests.sh):
+ *   MIDI OUT  SEQ: the sequencer, the drums, the arp and the rolls go out on the track's channel, every note is
+ *             ended, STOP ends what is on, KEYS (the default) sends none of it, a channel changed under a note ends
+ *             it where it began, notes in from MIDI are never sent back; OUT / IN are no project's
+ *   MIDI IN   CLOCK: note-ons are dropped, a held note still ends
+ * Exit status: the number of failed checks. */
+#define main hostsim_main
+#include "hostsim.c"
+#undef main
+#define PROJ_HOST 1
+#if FELUCCA_BLE
+static uint8_t ble_on;                          /* (firmware/src/io/midi/midi_ble.c: HOME > BLUETOOTH, the radio's address) */
+static uint8_t ble_addr_kept[8];
+static void ble_midi_out(uint32_t pkt) { (void)pkt; }
+#endif
+static uint32_t trk_def_engine(uint32_t i)
+{
+    static const uint8_t E[NPART] = {0, 1, 3};
+    return i < NPART ? E[i] : 0u;
+}
+#include "../firmware/src/storage/project.c"
+
+static int fails;
+static void check(int ok, const char *what)
+{
+    printf("midi_seq: %-86s %s\n", what, ok ? "ok" : "FAIL");
+    fails += !ok;
+}
+
+static dlrec_t tdl;
+#include "../firmware/src/storage/settings_word.c"
+static uint32_t out_pk[8192], out_n;
+static int8_t bal[16][128];                     /* note ons - offs per (channel, note) since the last clear */
+static uint32_t ons[16];                        /* note ons per channel */
+
+static void collect(void)                       /* what went to MIDI OUT since the last call */
+{
+    while (mo_r != mo_w) {
+        uint32_t p = midi_out_q[mo_r % MQ], st = (p >> 8) & 0xF0u, ch = (p >> 8) & 15u, n = (p >> 16) & 0x7Fu;
+        if (out_n < 8192u)
+            out_pk[out_n++] = p;
+        if (st == 0x90u && ((p >> 24) & 0x7Fu)) {
+            bal[ch][n]++;
+            ons[ch]++;
+        } else if (st == 0x80u || st == 0x90u) {
+            bal[ch][n]--;
+        }
+        mo_r++;
+    }
+}
+static void clear_out(void)
+{
+    collect();
+    memset(bal, 0, sizeof bal);
+    memset(ons, 0, sizeof ons);
+    out_n = 0;
+}
+static uint32_t total_ons(void)
+{
+    uint32_t c, n = 0;
+    for (c = 0; c < 16u; c++)
+        n += ons[c];
+    return n;
+}
+static int all_ended(void)                      /* every note on was ended, none twice */
+{
+    uint32_t c, n;
+    for (c = 0; c < 16u; c++)
+        for (n = 0; n < 128u; n++)
+            if (bal[c][n] != 0)
+                return 0;
+    return 1;
+}
+static uint32_t blk;
+static void blocks(uint32_t n)
+{
+    int32_t out[CTL * 2];
+    while (n--) {
+        mix_block(out, CTL);
+        collect();
+        blk++;
+    }
+}
+static void send(uint32_t status, uint32_t note, uint32_t vel)
+{
+    midi_in_q[mi_w++ % MQ] = (status >> 4) | status << 8 | note << 16 | vel << 24;
+    blocks(1);
+}
+static int gated(const track_t *t, uint32_t note)
+{
+    uint32_t i;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].gate && t->v[i].note == note)
+            return 1;
+    return 0;
+}
+static uint32_t ngated(const track_t *t)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < NVOICE; i++)
+        n += t->v[i].active && t->v[i].gate;
+    return n;
+}
+static void reset(void)
+{
+    uint32_t i;
+    memset(trk, 0, sizeof trk);
+    memset(&song, 0, sizeof song);
+    memset(midi_ch, 0, sizeof midi_ch);
+    memset(midi_held, 0, sizeof midi_held);
+    memset(kb_kind, 0, sizeof kb_kind);
+    memset(&um, 0, sizeof um);
+    memset(&drums, 0, sizeof drums);
+    drums_set = -2;
+    midi_nheld = 0;
+    host_tracks_init();
+    bps_defaults();
+    bp_set[BPS_MOUT] = 0;
+    bp_set[BPS_MIN] = 0;
+    fm1_in.notes = fm1_in.buttons = kb_prev = 0;
+    mi_w = mi_r = 0;
+    mo_w = mo_r = 0;
+    usb.config = 1;
+    panic_req = transport_req = 0;
+    song.playing = 0;
+    song.sel = 0;
+    mo_any = 0;
+    memset(mo_set, 0, sizeof mo_set);
+    for (i = 0; i < NPART; i++) {
+        host_preset(&trk[i], 0, 1);
+        trk[i].p[P_VOICE] = V_POLY;
+        trk[i].p[P_AMODE] = trk[i].p[P_AHOLD] = 0;
+        trk[i].p[P_SUS] = 127;
+        trk[i].p[P_TRANS] = 0;
+    }
+    song.g[G_BPM] = 120;
+    ly_bit[LY_ROLL] = 1u << 8;
+    clear_out();
+}
+static void step_note(track_t *t, uint32_t k, uint32_t note)
+{
+    t->step[k].n = 1;
+    t->step[k].note[0] = (uint8_t)note;
+    t->step[k].time = ST_NOTE;
+    t->step[k].vel = 100;
+}
+static void play_bars(uint32_t bars)
+{
+    transport_req = 1;
+    blocks((uint32_t)(FS * 60.0 / song.g[G_BPM] * 4 * bars / CTL));
+}
+static void stop(void)
+{
+    transport_req = 2;
+    blocks(4);
+}
+
+static void t_word(void)
+{
+    static project_t q;
+    uint32_t w;
+    reset();
+    song.g[G_SYNC] = SYNC_INT;
+    w = bp23_word();
+    check(((w >> 11) & 3u) == (SYNC_INT ^ SYNC_AUTO), "settings word: SYNC in bits 11..12 (xor AUTO)");
+    song.g[G_SYNC] = SYNC_AUTO;
+    check(((bp23_word() >> 11) & 3u) == 0u, "settings word: AUTO is 0 (older records read AUTO)");
+    bp_set[BPS_MOUT] = 1; bp_set[BPS_MIN] = 1;
+    w = bp23_word();
+    check(((w >> 14) & 3u) == 3u, "settings word: bit 14 OUT = SEQ, bit 15 IN = CLOCK (as 2.4)");
+#if FELUCCA_CDC
+    usb_serial = 1;
+    check(((bp23_word() >> 16) & 1u) == 1u, "settings word: bit 16 USB SERIAL (as 2.4)");
+    usb_serial = 0;
+#endif
+    song.g[G_SYNC] = SYNC_TRS;
+    proj_capture(&q, &tdl);
+    song.g[G_SYNC] = SYNC_USB;
+    proj_apply(&q, &tdl, 1);
+    check(song.g[G_SYNC] == SYNC_USB, "a project load leaves SYNC alone (device-wide)");
+    bp23_from_word((bp23_word() & ~(3u << 11)) | ((uint32_t)(SYNC_TRS ^ SYNC_AUTO) << 11));
+    check(song.g[G_SYNC] == SYNC_TRS && sync_boot == SYNC_TRS, "the settings word gives SYNC back at boot");
+    hold_sel = 2;
+    check(((bp23_word() >> 21) & 3u) == 2u, "settings word: bits 21..22 HOLD (2 = 500 ms)");
+    bp23_from_word(bp23_word());
+    check(hold_sel == 2u && HOLD_MS == 500u, "the settings word gives HOLD back at boot");
+    bp23_from_word(0);
+    check(hold_sel == 0u && HOLD_MS == 350u, "an empty word: HOLD 350 ms (the default)");
+    /* bit 25 KNOB COLORS: its own bit, none of the neighbours' (HOLD 21..22, CARDS 23, BLUETOOTH 24 kept as read) */
+    bp23_from_word(0);
+    knob_colors = 1;
+    check((bp23_word() >> 25) == 1u && (bp23_word() & ((1u << 25) - 1u)) == (((uint32_t)(song.g[G_SYNC] & 3) ^ SYNC_AUTO) << 11),
+          "settings word: bit 25 KNOB COLORS alone, no other bit moves");
+    bp23_from_word(3u << 21 | 1u << 24);
+    check(knob_colors == 0u && hold_sel == 3u % HOLD_N, "settings word: a word without bit 25: KNOB COLORS off");
+    knob_colors = 1;
+    check(((bp23_word() >> 24) & 1u) == 1u && ((bp23_word() >> 25) & 1u) == 1u, "settings word: bit 24 (BLUETOOTH) is kept as read beside bit 25");
+    bp23_from_word(1u << 25);
+    check(knob_colors == 1u && ((bp23_word() >> 21) & 7u) == 0u, "settings word: bit 25 set: KNOB COLORS on, HOLD / CARDS untouched");
+    knob_colors = 0;
+    check(((bp23_word() >> 25) & 1u) == 0u, "settings word: KNOB COLORS off clears bit 25");
+    bp23_from_word(0);
+    check(song.g[G_SYNC] == SYNC_AUTO && bp_set[BPS_MOUT] == 0 && bp_set[BPS_MIN] == 0, "an empty word: AUTO, KEYS, NOTES");
+#if FELUCCA_MIDI_CLKOUT
+    /* bit 26 CLOCK OUT (io/midi/clock_out.c): OFF in a word without it, its own bit */
+    check(clko_on == 0u && ((bp23_word() >> 26) & 1u) == 0u, "settings word: an empty word: CLOCK OUT OFF, bit 26 written 0");
+    clko_on = 1;
+    w = bp23_word();
+    check((w >> 26) == 1u && (w & ((1u << 26) - 1u)) == (((uint32_t)(song.g[G_SYNC] & 3) ^ SYNC_AUTO) << 11),
+          "settings word: bit 26 CLOCK OUT alone, no other bit moves");
+    clko_on = 0;
+    bp23_from_word(w);
+    check(clko_on == 1u && knob_colors == 0u, "settings word: bit 26 gives CLOCK OUT ON back at boot");
+    bp23_from_word(1u << 25);
+    check(clko_on == 0u && knob_colors == 1u, "settings word: bit 25 alone: CLOCK OUT stays OFF");
+    bp23_from_word(0);
+#endif
+}
+
+/* HOME > BLUETOOTH (FELUCCA_BLE): bit SETTINGS_BLE_ON_BIT (24) of the settings word, 1 = ON, so a word from before it (or from SLOOP), or none
+ * at all (a fresh unit), is OFF: the radio is never started unless the user switched it ON */
+static void t_ble_word(void)
+{
+    uint32_t w, w0;
+    reset();
+#if FELUCCA_BLE
+    ble_on = 1;
+    bp23_from_word(0x1C6FFu);                   /* an older record: every other bit, none of ours */
+    check(ble_on == 0u, "BLUETOOTH: a settings word without bit 24 reads OFF (older records, SLOOP's)");
+    ble_on = 1;
+    bp23_from_word(0);
+    check(ble_on == 0u && ((bp23_word() >> SETTINGS_BLE_ON_BIT) & 1u) == 0u, "BLUETOOTH: an empty word (a fresh unit) is OFF, and writes bit 24 as 0");
+    bp23_from_word(0x1C6FFu | (3u << 11));
+    w0 = bp23_word();
+    ble_on = 1;
+    w = bp23_word();
+    check(((w >> SETTINGS_BLE_ON_BIT) & 1u) == 1u, "BLUETOOTH: ON writes bit 24 as 1");
+    check((w ^ w0) == (1u << SETTINGS_BLE_ON_BIT), "BLUETOOTH: no other bit of the word moves with it");
+    ble_on = 0;
+    bp23_from_word(w);
+    check(ble_on == 1u, "BLUETOOTH: the word with bit 24 gives ON back at boot (the choice persists)");
+    bp23_from_word(w & ~(1u << SETTINGS_BLE_ON_BIT));
+    check(ble_on == 0u, "BLUETOOTH: ... and its absence OFF");
+    bp_set[BPS_MOUT] = 1;
+    ble_on = 1;
+    w = bp23_word();
+    bp_set[BPS_MOUT] = 0;
+    ble_on = 0;
+    bp23_from_word(w);
+    check(bp_set[BPS_MOUT] == 1 && ble_on == 1u, "BLUETOOTH: the word keeps OUT (14) beside it (24)");
+    ble_on = 0;
+#else
+    bp23_from_word(1u << SETTINGS_BLE_ON_BIT);
+    w = bp23_word();
+    check(((w >> SETTINGS_BLE_ON_BIT) & 1u) == 1u, "no BLE in this build: bit 24 is kept as read (a record from a BLE build, written back whole)");
+    bp23_from_word(0);
+#endif
+}
+
+static void t_settings(void)
+{
+    static project_t q;
+    reset();
+    bp_set[BPS_MOUT] = 1;
+    bp_set[BPS_MIN] = 1;
+    proj_capture(&q, &tdl);
+    reset();
+    bp_set[BPS_MOUT] = 1;
+    proj_apply(&q, &tdl, 1);
+    check(bp_set[BPS_MOUT] == 1 && bp_set[BPS_MIN] == 0, "OUT / IN are the FM-1's: a project neither saves nor loads them");
+    bps_defaults();
+    check(bp_set[BPS_MOUT] == 1, "NEW leaves OUT as it was");
+}
+
+static void t_seq_out(void)
+{
+    uint32_t i;
+    reset();
+    for (i = 0; i < 16u; i += 4u)
+        step_note(&trk[0], i, 60 + i);
+    for (i = 0; i < 16u; i += 4u)
+        step_note(&trk[1], i + 2u, 48);
+    dstep_set(&TDRUM->dstep[0], 0, LV_NORM, 0);
+    dstep_set(&TDRUM->dstep[4], 4, LV_NORM, 0);
+    bp_set[BPS_CH1] = 8;
+    play_bars(2);
+    check(total_ons() == 0u, "OUT = KEYS: the sequencer sends nothing");
+    stop();
+    bp_set[BPS_MOUT] = 1;
+    clear_out();
+    play_bars(2);
+    check(ons[0] >= 8u, "OUT = SEQ: track 1's steps go out on channel 1");
+    check(ons[7] >= 8u, "track 2's on its own channel (8)");
+    check(ons[9] >= 4u, "the drum hits on channel 10");
+    {
+        uint32_t k, bad = 0;
+        for (k = 0; k < out_n; k++)
+            if ((out_pk[k] & 0xFu) != 9u && (out_pk[k] & 0xFu) != 8u)
+                bad++;
+        check(bad == 0u, "only note on / off packets (CIN 9 / 8)");
+    }
+    stop();
+    check(all_ended(), "STOP: every note on was ended, none twice");
+    {
+        uint32_t o = total_ons();
+        stop();
+        check(total_ons() == o, "(STOP again: nothing more)");
+    }
+    clear_out();
+    play_bars(1);
+    bp_set[BPS_MOUT] = 0;
+    blocks(2);
+    stop();
+    check(all_ended(), "OUT back to KEYS while playing: what was sent ends");
+    bp_set[BPS_MOUT] = 1;
+    clear_out();
+    play_bars(1);
+    bp_set[BPS_CH0] = 0;
+    blocks(1);
+    check(ons[0] > 0u && bal[0][60] == 0 && bal[0][64] == 0 && bal[0][68] == 0 && bal[0][72] == 0, "a track set to OFF ends its notes");
+    stop();
+    check(ons[0] == ons[0] && all_ended(), "(and the rest ends at STOP)");
+}
+
+static void t_chan_move(void)
+{
+    uint32_t k;
+    reset();
+    bp_set[BPS_MOUT] = 1;
+    trk[0].p[P_AMODE] = 1;
+    trk[0].p[P_AGATE] = 127;
+    send(0x90, 60, 100);
+    blocks(800);
+    check(ons[0] >= 2u, "the arp's notes go out on the track's channel");
+    bp_set[BPS_CH0] = 4;
+    blocks(1);
+    for (k = 0; k < 128u; k++)
+        if (bal[0][k] != 0)
+            break;
+    check(k == 128u, "channel changed under the arp's note: the off went on the channel it began on");
+    blocks(800);
+    check(ons[3] >= 2u, "the arp goes on on the new channel (4)");
+    send(0x80, 60, 0);
+    blocks(20);
+    check(all_ended(), "the arp's last note is ended once the key is up");
+}
+
+static void t_no_echo(void)
+{
+    reset();
+    bp_set[BPS_MOUT] = 1;
+    send(0x90, 60, 100);
+    send(0x90, 64, 100);
+    send(0x99, 36, 100);
+    blocks(4);
+    send(0x80, 60, 0);
+    send(0x80, 64, 0);
+    blocks(4);
+    check(total_ons() == 0u && out_n == 0u, "notes in from MIDI are never sent back (a note, a chord, a drum hit)");
+}
+
+static void t_roll(void)
+{
+    reset();
+    bp_set[BPS_MOUT] = 1;
+    song.sel = 0;
+    fm1_in.buttons = ly_bit[LY_ROLL];                     /* ARP held: the key repeats */
+    fm1_in.notes = 1u << 7;
+    blocks(800);
+    check(ons[0] >= 3u && ons[0] == total_ons(), "a roll goes out on its track's channel");
+    fm1_in.notes = 0;
+    blocks(100);
+    fm1_in.buttons = 0;
+    blocks(4);
+    check(all_ended(), "every roll hit is ended");
+    clear_out();
+    song.sel = TRK_DRUM;
+    fm1_in.buttons = ly_bit[LY_ROLL];
+    fm1_in.notes = 1u << 7;
+    blocks(800);
+    check(ons[9] >= 3u, "a drum roll goes out on the drum channel");
+    fm1_in.notes = 0;
+    fm1_in.buttons = 0;
+    blocks(100);
+    check(all_ended(), "the drum roll's hits end with it");
+}
+
+static void t_in_clock(void)
+{
+    reset();
+    send(0x90, 60, 100);
+    check(gated(&trk[0], 60), "IN = NOTES: a note plays");
+    bp_set[BPS_MIN] = 1;
+    send(0x90, 62, 100);
+    check(!gated(&trk[0], 62), "IN = CLOCK: a note on is dropped");
+    send(0x80, 60, 0);
+    check(!gated(&trk[0], 60), "its note off still ends a note held before");
+    send(0x99, 36, 100);
+    send(0x80, 62, 0);
+    check(ngated(&trk[0]) == 0u, "no hanging note");
+    {
+        uint32_t d0 = drums.age;
+        send(0x99, 38, 100);
+        check(drums.age == d0, "no drum hit either");
+    }
+}
+
+/* MIDI OUT = KEYS / BOTH / SEQ (the user, 2026-10-17): a key goes out with KEYS and BOTH, not with SEQ (the sequencer alone);
+ * the settings word: bit 14 the sequencer out (2.4's SEQ = our BOTH), bit 29 the keys not */
+static void t_keys_mode(void)
+{
+    static const char *const NM[3] = {"KEYS", "BOTH", "SEQ"};
+    uint32_t m, k;
+    char what[96];
+    for (m = MOUT_KEYS; m <= MOUT_SEQ; m++) {
+        reset();
+        bp_set[BPS_MOUT] = (int16_t)m;
+        for (k = 0; k < 16u; k += 4u)
+            step_note(&trk[1], k, 48);
+        bp_set[BPS_CH1] = 8;
+        fm1_in.notes = 1u << 7;                         /* a key held on track 1 */
+        blocks(2);
+        snprintf(what, sizeof what, "OUT = %s: the key %s out", NM[m], m == MOUT_SEQ ? "does not go" : "goes");
+        check(m == MOUT_SEQ ? ons[0] == 0u : ons[0] == 1u, what);
+        fm1_in.notes = 0;
+        blocks(2);
+        clear_out();
+        play_bars(1);
+        snprintf(what, sizeof what, "OUT = %s: track 2's steps %s out", NM[m], m == MOUT_KEYS ? "do not go" : "go");
+        check(m == MOUT_KEYS ? ons[7] == 0u : ons[7] >= 4u, what);
+        stop();
+        check(all_ended(), "(STOP: every note ended)");
+        bp23_from_word(0);
+        bp_set[BPS_MOUT] = (int16_t)m;
+        k = bp23_word();
+        snprintf(what, sizeof what, "settings word: %s is bit 14 %u, bit 29 %u, read back", NM[m], m != MOUT_KEYS, m == MOUT_SEQ);
+        bp_set[BPS_MOUT] = 0;
+        bp23_from_word(k);
+        check(((k >> 14) & 1u) == (m != MOUT_KEYS) && ((k >> 29) & 1u) == (m == MOUT_SEQ) && bp_set[BPS_MOUT] == (int16_t)m, what);
+    }
+    bp23_from_word(1u << 14);
+    check(bp_set[BPS_MOUT] == MOUT_BOTH, "settings word: a 2.4 / older word's SEQ (bit 14 alone) reads BOTH: keys and sequencer, as before");
+}
+
+int main(void)
+{
+    t_word();
+    t_ble_word();
+    t_settings();
+    t_keys_mode();
+    t_seq_out();
+    t_chan_move();
+    t_no_echo();
+    t_roll();
+    t_in_clock();
+    printf("midi_seq: %d failed\n", fails);
+    return fails;
+}

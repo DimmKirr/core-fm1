@@ -1,0 +1,1167 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* The renderer (docs/UI-OPTIMIST-DESIGN.md section 3), Felucca 1.0's structure in Terminus:
+ *   y   0..24   the header: the selected track's engine (in its colour), the screen and row, the loop position, the
+ *               tempo; a passive message (2.5 s: MISSING, RECORDING) takes it over
+ *   y  28..72   four cards: the cursor row's cells, KNOB 1..4 (label, value, unit, its form; the hot cell white)
+ *   y 76..221   the panel (no footer, the user, 2026-10-08; to the screen's foot without the help line): the list of rows (each value a number over its form; the cursor row a bar in the track's
+ *               colour; on SOUND the cursor row's graph above it), or STEP's grid / roll (op_stepdraw.c), or the
+ *               scope (op_scope.c); a question covers it with the modal, the result of a confirmed action shows as a
+ *               toast in its middle
+ *               the mixer's panel: a row a track, MASTER above T1, the drum lanes after DR (op_mixdraw.c)
+ *   y 222..239  the help band (a build with the help line, op_graph.c OP_FOOT): the help line's alone, black without it
+ * What the footer said went elsewhere: STEP's window to the grid's strip, its pick to the grid (the audit's #17), a held step's values under its grid,
+ * a layer's "Home locks it" to the help line once (the audit's #24).
+ * Lazy: each band remembers a signature of what it drew and is drawn again only when that changes; the meters
+ * and the playheads are small canvases of their own, so a playing mixer never redraws a whole band. Each band is
+ * one canvas of at most 240 x 124 pixels (gfx.c CV_MAX; a band: 124 rows at most). */
+#define ROW_H (OP_FOOT ? 19 : 20)       /* a list row: 5 under the 2x2 cards, over the help band too (99 rows: 19 each) */
+#define OH_BODY OP_PH                 /* the panel to the help band (or the screen's foot): no footer (the user, 2026-10-08) */
+#define ROWS_SHOWN ((uint32_t)OH_BODY / ROW_H)   /* 5 rows under the 2x2 cards (draw_list) */
+#define METER_H 90                      /* meter_h's scale (op_mixdraw.c scales it to a row's meter) */
+static void draw_step_panel(void);                     /* op_stepdraw.c: STEP's grid / roll */
+static void step_frame(void);
+static void lay_title(char *t, uint32_t n);             /* op_laydraw.c: a performance layer's map */
+static const char *lay_badge(void);
+static void lay_draw_cards(void);
+static void lay_draw_tiles(void);
+static uint32_t tempo_sig(void);
+#if FELUCCA_PATTERNS
+static uint32_t song_grid_sig(void);                    /* op_laydraw.c: SONG's session grid */
+static void song_grid_draw(int32_t h);
+#endif
+static void tempo_draw(int32_t h);
+static void mx_draw(void);                              /* op_mixdraw.c: the mixer's rows */
+static void mx_redraw(void);
+static void scope_draw(void);                           /* op_scope.c: the oscilloscope */
+static uint32_t op_overlay(void);
+static uint32_t f6_graph_sig(void);                     /* op_fm6draw.c: FM6's algorithm */
+static void f6_alg_draw(int32_t y0, int32_t h, int big);
+static void gl_draw(void);                              /* op_gldraw.c: GLOBAL and SYSTEM's list */
+static uint8_t lay_hint_t;                              /* op_laydraw.c lay_hint: frames a layer's "Home locks it" stays */
+#if FELUCCA_PARAM_HELP
+static void hl_pre(uint32_t ov);                        /* op_help.c: the help line, in its band */
+static void hl_post(void);
+#else
+#define hl_pre(ov) ((void)(ov))
+#define hl_post() ((void)0)
+#endif
+#if FELUCCA_PARAM_HELP
+#define HL_NOTE(k) hl_note(k)
+#define HL_TICK() hl_tick()
+static void hl_note(uint32_t k);
+static void hl_tick(void);
+#else
+#define HL_NOTE(k) ((void)(k))
+#define HL_TICK() ((void)0)
+#endif
+#define LIST_H ((int32_t)OH_BODY)       /* the rows' panel: over the help band (op_graph.c OP_FOOT) on every screen */
+
+static uint32_t hs(uint32_t h, const char *s)          /* a signature: FNV-1a over a string */
+{
+    while (*s)
+        h = (h ^ (uint8_t)*s++) * 16777619u;
+    return h * 16777619u;
+}
+static uint32_t hu(uint32_t h, uint32_t v) { return (h ^ v) * 16777619u; }
+static uint32_t hc(uint32_t h, const cell_t *c)        /* a cell's signature: all it draws */
+{
+    h = hs(hs(hu(hu(hu(h, c->kind + c->mark * 16u + c->dim * 256u + c->dr * 512u + c->strike * 1024u), c->col), (uint32_t)c->gk << 16 ^ (uint16_t)c->gv), c->label ? c->label : ""), c->val);
+    return hs(h, c->unit);
+}
+
+/* s cut to n characters into b (b holds n + 1) */
+static const char *cut(char *b, const char *s, uint32_t n)
+{
+    str_cpy(b, s, n + 1u);
+    return b;
+}
+
+/* the loop position of track t: "bar.beat" in its pattern */
+static void loop_pos(const track_t *t, char *b)
+{
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), s = t->seq_idx % len, k;
+    fmt_int(b, (int32_t)(s / 16u + 1u));
+    k = str_len(b);
+    b[k] = '.';
+    b[k + 1] = (char)('1' + (s % 16u) / 4u);
+    b[k + 2] = 0;
+}
+
+/* ---- the header */
+/* which pages show the track's badge (the user, 2026-10-13: "while in pages that are not relevant for a track, we should
+ * not display the track in the header"). The rule: the badge only where the page's values belong to the selected
+ * track / lane. One flag per screen and per layer, so a change is one digit. The mixer's title carries the row's name
+ * ("SNARE LEVELS"), SONG's PATTERNS row is every track's, SCOPE picks its own source, TEMPO's rows are the project's REC
+ * settings; the MASTER pages show no track either. Those pages' badge names the screen instead (head_other, the
+ * audit's #11) */
+static const uint8_t HEAD_TRK_SCR[SCR_N] = {
+    [SCR_HOME] = 0, [SCR_SOUND] = 1, [SCR_FX] = 0, [SCR_PROJECT] = 0, [SCR_SYSTEM] = 0,
+    [SCR_STEP] = 1, [SCR_SONG] = 0,  [SCR_TEMPO] = 0, [SCR_SCOPE] = 0, [SCR_GLOBAL] = 0};
+/* the page's title into t (n bytes), as drawn (sentence case, the names table's: op_names.c): the cursor row's name alone,
+ * the badge names the screen ("Ins tone", "Tools", "Scene A"); the mixer's track rows: the row's name and the set ("T1 mix").
+ * The title is the row's name verbatim, its continuation number kept ("Edit 1 2/7": the audit's #2, style guide 1) */
+static void head_title(uint32_t scr, uint32_t row, char *t, uint32_t n)
+{
+    char r[32], d[32];
+    if (scr == SCR_STEP && st.held && ui.cards_t) {     /* a step held, its cards up: their page, "LFO 5/21" (a tap shows
+                                                         * no cards: the header stays the window's) */
+        hp_title(r, sizeof r);
+    } else if (scr == SCR_STEP) {                       /* the page SELECT is on, cards up or not ("Pattern 1/19": the
+                                                         * audit's #17; the window is the strip's, the pick the grid's) */
+        SCREENS[SCR_STEP].name(row, r);
+    } else if (scr == SCR_SOUND) {
+        snd_title_row(row, r);                          /* (the drum track's pages by what they hold: "Body", "Lane sends") */
+    } else {
+        SCREENS[scr % SCR_N].name(row, r);
+    }
+    nm_title(r, d, sizeof d);
+    str_cpy(t, d, n);                                   /* the page's name alone: the badge names the track or the screen (the mixer's track rows
+                                                         * too since 2026-10-14: the badge is the track or lane, the title the set) */
+    (void)row;
+}
+/* SOUND's whole list (snd_fam SND_ALL): row's place among the rows of its family (the SOUND row: EDIT's first) and their
+ * count, the n/N its page button's list shows */
+static void snd_fam_pos(uint32_t row, uint32_t *at, uint32_t *n)
+{
+    uint32_t r, rows = snd_rows(), f = row && snd_page(row) ? snd_page(row)->fam : FAM_EDIT;
+    *at = *n = 0;
+    for (r = 0; r < rows; r++)
+        if ((r && snd_page(r) ? snd_page(r)->fam : FAM_EDIT) == f) {
+            *at += r < row;
+            (*n)++;
+        }
+}
+/* where SELECT is among the pages its turns walk, " 2/4" after the title (the user, 2026-10-11: "when i page thru
+ * with select (for plock or normal pages) we should display the name of the page and the 1/4 (current/total pages).
+ * ideally everywhere"): a held step's card pages, STEP's pages while their cards show, the mixer's sets of the row, a
+ * screen's rows (SOUND, its families, FX, PROJECT, SYSTEM, SONG). The same button's repeat walks the same pages.
+ * Empty when there is one page */
+static void head_pos(uint32_t scr, uint32_t row, char *p)
+{
+    uint32_t at, n;
+    p[0] = 0;
+    if (scr == SCR_STEP && st.held && ui.cards_t)
+        at = st.hp, n = hp_count();
+    else if (scr == SCR_HOME)
+        at = mx_set(row % MXR_N), n = mx_sets(row % MXR_N);
+    else if (gl_scr(scr))                               /* GLOBAL, SYSTEM: the page (whole sections, op_global.c), within the screen */
+        at = gl_pg(scr == SCR_SYSTEM, row), n = gl_npg(scr == SCR_SYSTEM);
+    else if (scr == SCR_SOUND && snd_fam == SND_ALL)    /* SOUND's whole list: the row within its family, as its page */
+        snd_fam_pos(row, &at, &n);                      /* button shows it (one counter a page; the titles fit: op_names.c) */
+    else
+        at = row, n = SCREENS[scr % SCR_N].rows();
+    if (n < 2u)
+        return;
+    p[0] = ' ';
+    fmt_int(p + 1, (int32_t)(at < n ? at : n - 1u) + 1);
+    str_cpy(p + str_len(p), "/", 2);
+    fmt_int(p + str_len(p), (int32_t)n);
+}
+/* the title t (32 bytes) and the page's n/N in w characters: the n/N always whole, the name cut before it; a name too
+ * long loses the screen's word first ("Sound ENV dest 3/12" -> "ENV dest 3/12"). 1: the name was cut (never on a track
+ * page: the names table, op_names.c, gives titles that fit next to the widest badge; tests/ui_optimist_names.h) */
+static int head_fit(char *t, const char *pos, int32_t w)
+{
+    char c[32];
+    int32_t k = w - (int32_t)str_len(pos), i;
+    const char *nm = t;
+    if ((int32_t)str_len(t) <= k) {
+        str_cpy(t + str_len(t), pos, 32u - str_len(t));
+        return 0;
+    }
+    for (i = 0; t[i] && t[i] != ' '; i++)
+        ;
+    if (t[i])
+        nm = t + i + 1;
+    cut(c, nm, (uint32_t)(k < 1 ? 1 : k > 24 ? 24 : k));
+    for (k = (int32_t)str_len(c); k > 1 && c[k - 1] == ' '; k--)
+        c[k - 1] = 0;
+    str_cpy(c + str_len(c), pos, sizeof c - str_len(c));
+    str_cpy(t, c, 32);
+    return 1;                                           /* (cut: a word dropped, or the name) */
+}
+/* text, struck through when st (a muted track: the user, 2026-10-15): a line in the text's own colour across its width,
+ * through the glyphs' middle, 1 px in the small face, 2 in the large; the text's end x (cv_text's) */
+static int32_t text_st(int32_t x, int32_t y, const felucca_font_t *f, const char *s, uint16_t col, uint32_t st)
+{
+    int32_t e = cv_text(x, y, f, s, col);
+    if (st && e > x)
+        cv_rect(x, y + (int32_t)f->h / 2 - 1, e - x, f->h > 8 ? 2 : 1, col);
+    return e;
+}
+/* the header's badge: the selected track's engine (the drum track: DRUMS; a lane selected: its name, "SNARE"), in its
+ * colour (the user, 2026-10-08: the track tag "brings no value, put the algo there"; the track is the colour and the
+ * strips) */
+static const char *head_engine(void)
+{
+    static char ln[8];
+    uint32_t i;
+    if (lane_picked()) {
+        const char *s = lane_acc() ? DACC_NAME : LANE_SHORT_OF(lane_selected());   /* (the ACCENT lane: "ACCENT") */
+        for (i = 0; s[i] && i < sizeof ln - 1u; i++)
+            ln[i] = (char)(s[i] >= 'a' && s[i] <= 'z' ? s[i] - 32 : s[i]);
+        ln[i] = 0;
+        return ln;
+    }
+    return is_drum(TSEL) ? "DRUMS" : ENGINES[TSEL->eng_req % NENGINES]->name;
+}
+/* the track page's badge (the user, 2026-10-14: "we should always have the track number on the top left with the engine/
+ * preset"): the track code and the engine, "2 DIGITAL", "4 DRUMS", "4 SNARE" for a picked lane, "4 ACCENT" */
+static uint32_t head_muted(void)                        /* the selected track's / lane's mute (the mixer's, struck through) */
+{
+    if (lane_picked())
+        return lane_acc() ? (uint32_t)smute_lane_on(DRUM_ACC) : (uint32_t)dlm_muted(lane_selected());
+    return TSEL->p[P_MUTE] != 0;
+}
+static const char *head_badge(char *b, uint32_t n)
+{
+    fmt_int(b, (int32_t)song.sel % NTRK + 1);           /* (the number only: 1 2 3, the drum track 4) */
+    str_cpy(b + str_len(b), " ", n - str_len(b));
+    str_cpy(b + str_len(b), head_engine(), n - str_len(b));
+    return b;
+}
+/* the preset follows the page's name where it fits whole (the title keeps its room first; the preset is dropped before
+ * the name shortens): the track's sound as stored ("Insert 1/4  WARM PAD"); a picked lane has none, MASTER and the
+ * non-track pages no badge. pr (14 bytes) is empty when none */
+static void head_preset(char *pr, uint32_t badge_trk)
+{
+    char nm[16];
+    pr[0] = 0;
+    if (!badge_trk || lane_picked())
+        return;
+    snd_name(song.sel, nm);
+    str_cpy(pr, nm, 16);                                /* (as stored: never re-cased) */
+}
+/* the track's name on a track change (the user, 2026-10-11): ~1.5 s in the header, on every screen, the badge "TRACK 2"
+ * in the track's colour, then its engine in that colour and its preset; a synth track only (the drum track and MASTER:
+ * none). Then the normal header comes back. Drawn as the header always is, by its signature: in place, no clear */
+#define OP_TFLASH_FRAMES 90u
+static struct {
+    uint8_t t;                          /* frames the name stays */
+    uint8_t sel;                        /* the track seen last */
+    uint8_t seen;                       /* (the first frame: no flash at power-on) */
+} tf;
+static void tflash_tick(void)
+{
+    if (!tf.seen || song.sel != tf.sel) {
+        tf.t = (uint8_t)(tf.seen && song.sel < NPART && !ui.master ? OP_TFLASH_FRAMES : 0u);
+        tf.sel = song.sel;
+        tf.seen = 1;
+    } else if (tf.t) {
+        tf.t--;
+    }
+    if (ui.master)
+        tf.t = 0;                                       /* (MASTER picked meanwhile: its own badge) */
+}
+#define BADGE_UL_Y 21                   /* the header's badge: its text in its colour on black, a 1 px line under it */
+static void draw_head_flash(uint16_t tc)                /* the header while tf.t runs: TRACK 2, ANALOG, the preset */
+{
+    char b[16], c[32];
+    int32_t x, bw;
+    uint32_t room;
+    const char *eng = ENGINES[TSEL->eng_req % NENGINES]->name;
+    str_cpy(b, "TRACK ", sizeof b);
+    fmt_int(b + 6, (int32_t)song.sel + 1);
+    bw = text_w(&FONT_S, b) + 8;
+    cv_texts(6, 4, b, tc);                              /* (the badge's look: head_badge_draw) */
+    cv_rect(2, BADGE_UL_Y, bw, 1, tc);
+    x = cv_texts(bw + 8, 4, eng, tc);
+    snd_name(song.sel, c);                              /* (the preset as stored: never re-cased) */
+    room = x + 8 < 228 ? (uint32_t)(236 - x - 8) / 8u : 1u;
+    cv_texts(x + 8, 4, cut(b, c, room < 14u ? room : 14u), C_WHITE);   /* (b holds 16) */
+}
+/* the title's room in pixels: right of the title's x (lead: the badge and its gap, or the bare margin), left of the loop
+ * position r and the tempo bpm */
+#define HEAD_PAD 2                      /* the badge: its text's inset */
+#define HEAD_GAP 5                      /* the badge to the title */
+#define HEAD_END 1                      /* the title's end to the REC mark (the title's room: op_names.c's titles fit it) */
+static int32_t head_room(int32_t lead, const char *bpm, const char *r)
+{
+    return 236 - text_w(&FONT_S, bpm) - 16 - HEAD_END - (r[0] ? text_w(&FONT_S, r) : 0) - lead;
+}
+/* ... and per layer (HEAD_TRK_SCR above) */
+static const uint8_t HEAD_TRK_LY[LY_COUNT] = {
+    [LY_PLAY] = 1,      /* (the screen's flag decides) */
+    [LY_FX] = 0,        /* filter, dust, duck are the song's (TRK FLT is the only track knob) */
+    [LY_ERASE] = 1, [LY_ROLL] = 0, [LY_STEP] = 1, [LY_SCALE] = 1, [LY_MIX] = 0, [LY_SONG] = 0, [LY_OPS] = 1,
+#if FELUCCA_PATTERNS
+    [LY_PAT] = 0,       /* every track's pattern */
+#endif
+};
+static uint32_t head_has_track(void)
+{
+    if (name_on())
+        return 0;
+    if (lay.shown != LY_PLAY)
+        return HEAD_TRK_LY[lay.shown % LY_COUNT] && !ui.master;
+    if (ui.scr == SCR_HOME)                             /* the mixer: the badge names the row's track or lane (the user, 2026-10-14: "it says mix on
+                                                         * drum main and sub tracks"), MASTER its own */
+        return mx_row() != MXR_MASTER && !mx_is_usb(mx_row()) && !ui.master;
+    return HEAD_TRK_SCR[ui.scr % SCR_N] && !ui.master;
+}
+/* the title t (32 bytes, as drawn) with the n/N pos, cut to the room only where the names table failed (losing the
+ * screen's word first); 1: cut (tests/ui_optimist_names.h: never on a page) */
+static int head_finish(char *t, const char *pos, int32_t room)
+{
+    if (pos[0])
+        return head_fit(t, pos, room > 8 ? room / 8 : 1);
+    return (int32_t)str_len(t) * 8 > room;
+}
+/* the header as drawn (draw_head; the tests read it): the badge, the title and its n/N fitted, the preset, the loop
+ * position and the tempo, their places */
+typedef struct {
+    char t[32], r[16], bpm[8], pos[12], bt[24], pr[16];
+    const char *eng;                    /* the badge's text, "" none */
+    uint16_t tc, mc;                    /* the badge's colour, the title's */
+    uint8_t badge, cut, muted;               /* a badge drawn; the title cut to its room (never, on a track page) */
+    uint8_t batt;                       /* the battery icon at the right (head_batt), 0 none */
+    int32_t bw, tx, room;               /* the badge's width, the title's x and room (px) */
+} head_t;
+/* the battery in the header of GLOBAL and SYSTEM (the user, 2026-10-17: "battery icon in title bar in glo and system"):
+ * SLOOP's 3 bars (op_project.c sys_batt_bars), right of the tempo. 0: none here, 1: no reading yet, 2 + the bars */
+#define HEAD_BATT_W 16                  /* the icon (13) and its gap to the tempo */
+static uint32_t head_batt(void)
+{
+    if (ui.msg_t || lay.shown != LY_PLAY || name_on() || (ui.scr != SCR_GLOBAL && ui.scr != SCR_SYSTEM))
+        return 0;
+    return song.batt_raw ? 2u + sys_batt_bars() : 1u;
+}
+static void head_batt_draw(int32_t x, uint32_t st)     /* the icon at x: an outline, its tip, a bar a third */
+{
+    uint16_t c = st == 1u ? C_DIM : st == 2u ? C_WARN : C_HI;   /* (no bar left: amber) */
+    uint32_t i;
+    cv_frame(x, 7, 11, 10, c);
+    cv_rect(x + 11, 10, 2, 4, c);
+    for (i = 0; st > 2u && i < st - 2u; i++)
+        cv_rect(x + 2 + (int32_t)i * 3, 9, 2, 6, c);
+}
+/* the badge of a page that is not a track's, and the title it leaves (the audit's #11): MASTER (the master FX, the mixer's
+ * MASTER row, MASTER in a layer: the layer's name the title), a layer that is not the track's (its name; "Locked" the
+ * title while HOME holds it open), NAME (the slot the title), the screen's (GLOBAL, SYSTEM: the page's name and n/N
+ * the title, as everywhere), else the screen's name (MIX, PROJECT, SONG, TEMPO, SCOPE; style guide 1: the title
+ * is then the page's name alone, never the screen's word again). 1: the title is t's already */
+static int head_other(head_t *h)
+{
+    h->tc = C_HI;
+    if (name_on()) {
+        char b[32];
+        h->eng = "NAME";
+        name_title(b, sizeof b);                        /* ("NAME U03": the slot after the screen's word) */
+        nm_title(b + 5, h->t, sizeof h->t);
+        return 1;
+    }
+    if (lay.shown != LY_PLAY) {
+        if (ui.master) {
+            char b[32];                                 /* (the layer's name, "FX", over MASTER) */
+            h->eng = "MASTER";
+            lay_title(b, sizeof b);
+            nm_title(b, h->t, sizeof h->t);
+        } else {
+            h->eng = lay_badge();                       /* ("SCENES", "REPEAT") */
+            str_cpy(h->t, lay.lock != LY_PLAY ? "Locked" : "", sizeof h->t);
+        }
+        return 1;
+    }
+    h->eng = ui.scr == SCR_FX || ui.master || mx_on_master() ? "MASTER" : mx_on_usb() ? "5 USB" : SCR_NAME[ui.scr % SCR_N];
+    h->muted = (uint8_t)(mx_on_usb() && mx_muted(mx_row()));   /* (the USB input muted: its badge struck through) */
+    if (!gl_scr(ui.scr))
+        return 0;
+    {
+        char b[32];
+        gl_ptitle(ui.scr == SCR_SYSTEM, ui.row[ui.scr], b, sizeof b);   /* (GLOBAL, SYSTEM: the page's name, cased: "Channels 5/5") */
+        str_cpy(h->t, b, sizeof h->t);
+        head_pos(ui.scr, ui.row[ui.scr], h->pos);
+    }
+    return 1;
+}
+/* a title's deliberate short form, for a header short of room (the user's ruling, 2026-10-14: bar.beat always stays, the
+ * title shortens, never a cut mid-word, the n/N whole): a continuation's number joins its word ("Voice 2" -> "Voice2"),
+ * then the names table's short title (op_names.c NM_SHORT) */
+static void head_short(char *t, uint32_t n, uint32_t room)   /* room: the title's characters (its n/N's taken off) */
+{
+    uint32_t l = str_len(t);
+    char b[16];
+    if (l >= 3u && t[l - 1u] >= '0' && t[l - 1u] <= '9' && t[l - 2u] == ' ') {
+        t[l - 2u] = t[l - 1u];
+        t[l - 1u] = 0;
+    }
+    if (str_len(t) > room && nm_find(NM_SHORT, t, 0, b, sizeof b))
+        str_cpy(t, b, n);
+}
+static void head_make(head_t *h)
+{
+    uint32_t trkb = !ui.msg_t && head_has_track(), done = 0;
+    h->tc = lane_picked() ? op_lane_col(lane_selected()) : trk_col(song.sel);
+    h->mc = C_HI;
+    h->pos[0] = 0;
+    h->t[0] = 0;
+    h->badge = 1;                                       /* (every screen: the audit's #11; a message takes the header whole) */
+    h->muted = 0;
+    if (trkb) {
+        h->eng = head_badge(h->bt, sizeof h->bt);       /* (a track page: "2 DIGITAL") */
+        h->muted = (uint8_t)head_muted();
+    }
+    if (trkb)
+        ;
+    else if (!ui.msg_t)
+        done = (uint32_t)head_other(h);
+    else
+        h->eng = "";
+    head_preset(h->pr, trkb);
+    h->bw = text_w(&FONT_S, h->eng) + HEAD_PAD * 2;
+    if (ui.msg_t) {
+        h->mc = ui.msg_st ? C_STATUS[ui.msg_st & 3u] : C_HI;
+    } else if (done) {
+        ;                                               /* (the title head_other gave) */
+    } else if (lay.shown != LY_PLAY) {
+        char b[32];                                     /* a track's layer: its name ("Key", "Erase locked") */
+        lay_title(b, sizeof b);
+        nm_title(b, h->t, sizeof h->t);
+    } else {
+        head_pos(ui.scr, ui.row[ui.scr], h->pos);
+        head_title(ui.scr, ui.row[ui.scr], h->t, sizeof h->t);
+    }
+    loop_pos(TSEL, h->r);                               /* (STEP too: bar.beat on every screen, style guide 1) */
+    fmt_int(h->bpm, song.g[G_BPM]);
+    h->batt = (uint8_t)head_batt();
+    h->tx = 2 + h->bw + HEAD_GAP;                       /* the title's room, left of the position and the tempo */
+    h->room = head_room(h->tx, h->bpm, h->r) - (h->batt ? HEAD_BATT_W : 0);
+    if ((int32_t)(str_len(h->t) + str_len(h->pos)) * 8 > h->room)
+        head_short(h->t, sizeof h->t, h->room > 8 * (int32_t)str_len(h->pos) ? (uint32_t)(h->room / 8 - (int32_t)str_len(h->pos)) : 0u);                  /* (short of room: the title's short form; bar.beat always stays, the
+                                                         * user, 2026-10-14) */
+    h->cut = (uint8_t)head_finish(h->t, h->pos, h->room);
+}
+/* the title, then its n/N in grey (a read-out: "Edit 1 2/7", the row's own number and the page's place told apart, the
+ * audit's #2); c a 32-byte scratch. The title's end x */
+static int32_t head_draw_title(const head_t *h, char *c)
+{
+    uint32_t n, p = str_len(h->pos);
+    int32_t x;
+    cut(c, h->t, h->room > 8 ? (uint32_t)h->room / 8u : 1u);   /* (fitted above) */
+    n = str_len(c);
+    if (!p || n < p || !str_eq(c + n - p, h->pos))
+        return cv_texts(h->tx, 4, c, h->mc);
+    c[n - p] = 0;
+    x = cv_texts(h->tx, 4, c, h->mc);
+    return cv_texts(x, 4, h->pos, C_GRAY);
+}
+/* (noinline: a call from op_frame_draw, which is smaller without it inlined) */
+static __attribute__((noinline)) void draw_head(void)
+{
+    head_t h;
+    char c[32];
+    uint32_t sig, rec = song.rec || rec_wait || ft_on, drop, xr = info_xruns(), fl;
+    int32_t tw, bx;
+    uint16_t mk;
+    if (xr != ovl.xrun_seen)                            /* (another underrun: USB audio, MIDI in; system/overload.h) */
+        ovl.xrun_seen = xr, ovl.xrun_ms = fm1_ms;
+    drop = ovl_recent(fm1_ms, OVL_MARK_MS) ? 2u : xr && fm1_ms - ovl.xrun_ms < OVL_MARK_MS ? 1u : 0u;
+    mk = drop == 2u ? C_ERR : C_WARN;                   /* (the mark: red a drop-out, amber another underrun) */
+    head_make(&h);
+    bx = 236 - text_w(&FONT_S, h.bpm) - (h.batt ? HEAD_BATT_W : 0);
+    sig = hs(hs(hs(hs(hu(hu(hu(1u, h.tc), h.mc), rec * 2u + song.playing), ui.msg_t ? ui.msg : h.t), h.r), h.bpm), h.eng);
+    sig = hs(sig, h.pr);
+    sig = hu(hu(sig, h.muted), h.batt);
+    sig = hu(sig, (uint32_t)(ui.msg_t != 0) + settings.palette * 8u + drop * 2u);
+    tflash_tick();
+    fl = tf.t && !ui.msg_t && !name_on() && !master_sel();   /* (MASTER: its own badge, no track flash: #8) */
+    if (fl) {
+        snd_name(song.sel, c);
+        sig = hs(hu(hu(sig, 0x7F1u), TSEL->eng_req), c);
+    }
+    if (sig == ui.sig[0])
+        return;
+    ui.sig[0] = sig;
+    cv_begin(240, OH_HEAD, C_BLACK);
+    if (fl) {
+        draw_head_flash(trk_col(song.sel));             /* (the track's colour, whatever the page's badge) */
+    } else if (ui.msg_t) {
+        cv_texts(4, 4, op_case(c, ui.msg, sizeof c), h.mc);   /* (sentence case: "T1 cleared") */
+    } else {
+        if (h.badge) {
+            text_st(2 + HEAD_PAD, 4, &FONT_S, h.eng, h.tc, h.muted);   /* the track's engine, in its colour (a muted track:
+                                                                         * struck through) */
+            cv_rect(2, BADGE_UL_Y, h.bw, 1, h.tc);     /* underlined: no fill (the user, 2026-10-18: black on the colour was
+                                                         * often impossible to read on the FM-1) */
+        }
+        tw = head_draw_title(&h, c);
+        if (h.pr[0] && tw + 8 + text_w(&FONT_S, h.pr) <= h.tx + h.room)   /* (the preset, if it fits whole) */
+            cv_texts(tw + 8, 4, h.pr, h.tc);
+        cv_texts(bx, 4, h.bpm, C_HI);
+        if (h.batt)
+            head_batt_draw(238 - 13, h.batt);
+        bx -= 8 + text_w(&FONT_S, h.r);                 /* (the loop position's x, "" none) */
+        cv_texts(bx, 4, h.r, song.playing ? C_OK : C_DIM);
+        if (rec)
+            cv_rect(bx - 8, 9, 6, 6, rec_col(song.rec || ft_on, rec_wait));   /* recording: green; armed: amber */
+    }
+    cv_rect(0, OH_HEAD - 1 - (drop != 0u), 240, 1 + (drop != 0u), drop ? mk : C_LINE);   /* (a drop-out (red) or an underrun
+                                                         * (amber) in the last second: the header's rule, 2 px) */
+    cv_blit(0, OY_HEAD);
+}
+
+/* ---- the cards: label, value and unit, the value's form under them */
+/* the actual value's bar (op_effval.c: the user, 2026-10-12, "one number, two bars"): 2 px, white (amber on the hot
+ * card, whose entered bar is white), no trough; in a 1x4 card under the entered bar (both 2 px), in a big card 3 px
+ * over it (below the digits' foot) */
+#define EFFV_Y1 41                      /* a 1x4 card's: y (the entered bar at 37) */
+#define EFFV_Y2 (BIG_H - 6)             /* a big card's, from its top */
+static void effv_bar(int32_t x, int32_t y, int32_t w, const cell_t *c, uint32_t hot)
+{
+    cell_t a = *c;
+    a.gk = c->ak, a.gmin = c->amin, a.gmax = c->amax, a.gv = c->av;
+    draw_gauge(x, y, w, 2, &a, hot ? C_AMB : C_WHITE, OP_SURF);
+}
+/* an action's card (the user, 2026-10-13: the value is the verb, never "YES"): the verb (val, else the label), its object
+ * small above (obj, else the label over a val), destructive ones in the alarm colour; YES does it, and asks first */
+static const char *act_verb(const cell_t *c) { return c->val[0] ? c->val : c->label; }
+static const char *act_small(const cell_t *c) { return c->obj ? c->obj : c->val[0] ? c->label : ""; }
+/* (a verb takes a status colour only, never an identity colour: SONG REC while it records / waits is green / amber) */
+static uint16_t act_col(const cell_t *c, uint32_t hot)
+{
+    return c->danger ? C_ERR : hot ? C_WHITE : c->col == C_OK || c->col == C_WARN ? c->col : C_AMB;
+}
+/* a card's label as drawn: the action's object, else the label; the names table's card form (capitals, 6 at most) */
+static const char *card_label(const cell_t *c, char *b, uint32_t n)
+{
+    const char *eng = (ui.scr == SCR_SOUND || ui.scr == SCR_STEP) && !is_drum(TSEL) ? ENGINES[TSEL->eng_req % NENGINES]->name : 0;
+    return nm_card(c->kind == CK_ACT ? act_small(c) : c->label, eng, b, n);
+}
+/* a value as a card draws it, into v (n bytes), and its unit (style guide 5: the unit in the label row, on every card): the
+ * cell's unit, or one the value carries itself split off its number ("10ms": a list of names, the compressors' ATK REL;
+ * the lists keep "10ms" whole) */
+static const char *card_unit(const cell_t *c, char *v, uint32_t n)
+{
+    static const char *const U[5] = {"ms", "Hz", "dB", "%", "s"};
+    uint32_t i, l, m;
+    str_cpy(v, c->val, n);
+    if (c->unit[0] || c->kind == CK_ACT)
+        return c->unit;
+    l = str_len(v);
+    for (i = 0; i < 5u; i++) {
+        m = str_len(U[i]);
+        if (l > m && str_eq(v + l - m, U[i]) && v[l - m - 1u] >= '0' && v[l - m - 1u] <= '9') {
+            v[l - m] = 0;
+            return U[i];
+        }
+    }
+    return "";
+}
+/* a 1x4 card's label row (the mixer's, 57 px): the label from the left, the unit right-aligned left of the DR tag and the
+ * lock mark; a label that cannot leave 3 px of air before the unit takes its narrow form (op_names.c NM_NARROW: LVL) */
+#define CARD_UX(x, uw, rw) ((x) + CARD_W - 1 - (uw) - (rw))   /* the unit's x (rw: the tag's and the mark's room) */
+#define DR_W 16                         /* "DR" in the small face (Terminus: 8 px a character, as head_finish counts) */
+static int32_t card_rw(const cell_t *c) { return (c->dr ? DR_W + 4 : 0) + (c->mark ? 10 : 0); }   /* the tag's and the mark's room */
+static const char *card_label_n(const cell_t *c, const char *u, char *b, uint32_t n, char *nb)
+{
+    const char *lab = card_label(c, b, n);
+    int32_t uw = u[0] ? text_w(&FONT_S, u) : 0;
+    if (uw && 3 + text_w(&FONT_S, lab) + 4 > CARD_UX(0, uw, card_rw(c)))
+        lab = nm_narrow(lab, nb, 12);
+    return lab;
+}
+/* a card's ground (draw_card, draw_big): its outline, the track's / the engine's colour, the hot cell's top (PRESETS and
+ * YES act on it), the step held's event top right (big: the large card's padlock, its shackle filled) */
+static void card_ground(int32_t x, int32_t y, int32_t w, int32_t h, const cell_t *c, uint32_t hot, uint32_t big)
+{
+    int32_t xr = x + w;
+    cv_box(x, y, w, h, OP_SURF);
+    if (c->col)
+        cv_rect(x, y, 2, h, c->col);
+    if (hot)
+        cv_rect(x, y, w, 2, C_WHITE);
+    if (c->mark == 2u) {                                /* a hold event: an arrow */
+        cv_rect(xr - 10, y + 7, 6, 2, C_WARN);
+        cv_rect(xr - 5, y + 5, 1, 6, C_WARN);
+        cv_rect(xr - 4, y + 6, 1, 4, C_WARN);
+        cv_rect(xr - 3, y + 7, 1, 2, C_WARN);
+    } else if (c->mark) {                               /* a lock: a padlock */
+        cv_rect(xr - 9, y + 7, 7, 5, C_WARN);
+        cv_rect(xr - 8, y + 3, 5, big ? 4 : 1, C_WARN);
+        if (!big) {
+            cv_rect(xr - 8, y + 4, 1, 3, C_WARN);
+            cv_rect(xr - 4, y + 4, 1, 3, C_WARN);
+        }
+    }
+}
+/* a card's value colour: dim, the hot one white, a read-out its own (grey), else the knob's (KNOB COLORS: knob k's) */
+static uint16_t card_vc(uint32_t k, const cell_t *c, uint32_t hot)
+{
+    return c->dim ? C_DIM : hot ? C_WHITE : c->kind == CK_RO ? (c->col ? c->col : C_GRAY) : knob_col(k, c->col ? c->col : C_HI);
+}
+/* a 1x4 card w px wide (w; a name with an empty card after it two cards wide: draw_card_band) */
+#define CARD_BIG_Y 13                   /* a 1x4 card's value in the large face: its y (the ink between the label and the bar) */
+static void draw_card(uint32_t k, int32_t x, int32_t w, const cell_t *c, uint32_t hot)
+{
+    char b[16], v[16], nb[12];
+    const char *u = card_unit(c, v, sizeof v);
+    uint16_t vc = card_vc(k, c, hot);
+    card_ground(x, 0, w, OH_CARD - 1, c, hot, 0);
+    if (!c->label)
+        return;
+    if (c->dr)                                          /* the drum track's own value, a lane picked: tagged DR */
+        cv_texts(x + w - 3 - DR_W, 3, "DR", C_GRAY);
+    {
+        const char *lab = card_label_n(c, u, b, sizeof b, nb);   /* (the names table's: in capitals, 6 at most) */
+        text_st(x + (text_w(&FONT_S, lab) > w - 4 ? 0 : 3), 3, &FONT_S, lab, knob_col(k, C_GRAY), c->strike);
+    }
+    if (u[0])                                           /* the unit: the label row, right-aligned (never after the value) */
+        cv_texts(CARD_UX(x + w - CARD_W, text_w(&FONT_S, u), card_rw(c)), 3, u, C_DIM);
+    if (c->kind == CK_ACT) {
+        cv_texts(x + 3, 20, cut(b, act_verb(c), (uint32_t)(w - 6) / 8u), act_col(c, hot));
+        return;
+    }
+    if (!c->ak && text_w(font_big(), v) <= w - 6)      /* (the large face where it fits, as the 2x2 cards: the user,
+                                                         * 2026-10-18, the mixer's small values were hard to read) */
+        text_st(x + 3, CARD_BIG_Y, font_big(), v, vc, c->strike);
+    else
+        text_st(x + 3, 20, &FONT_S, cut(b, v, (uint32_t)(w - 6) / 8u), vc, c->strike);
+    if (c->ak) {                                        /* two bars: entered, then the actual value (op_effval.c) */
+        draw_gauge(x + 4, EFFV_Y1 - 4, w - 8, 2, c, vc, C_LINE);
+        effv_bar(x + 4, EFFV_Y1, w - 8, c, hot);
+    } else {
+        draw_gauge(x + 4, 38, w - 8, 4, c, vc, C_LINE);
+    }
+}
+/* the cards 2x2 (the user, 2026-10-08; SLOOP 2.4's big values, ui/sloop/ui_draw.c graph_big's layout, copied): value k
+ * in large type in a 2 x 2 block placed as the knobs sit (KNOB 1 top left, 2 top right, 3 bottom left, 4 bottom
+ * right), its label and unit small above it, its form under it; the hot one white. A value too wide for the large
+ * face (a name) is drawn in the small one */
+#define BIG_W 116
+#define BIG_H 46
+static void draw_big(uint32_t k, const cell_t *c, uint32_t hot)
+{
+    char b[16], v[16];
+    const char *u = card_unit(c, v, sizeof v);          /* ("10ms": 10, its unit in the label row) */
+    int32_t x = k & 1u ? 121 : 3, y = k & 2u ? BIG_H + 1 : 0, uw = u[0] ? text_w(&FONT_S, u) + 4 : 0;
+    int32_t dw = c->dr ? DR_W + 4 : 0;                  /* (the DR tag's room, top right) */
+    uint16_t vc = card_vc(k, c, hot);
+    card_ground(x, y, BIG_W, BIG_H, c, hot, 1);
+    if (c->mark)
+        uw += 10;                                       /* (the event's mark, top right) */
+    if (!c->label)
+        return;
+    uw += dw;
+    if (c->dr)                                          /* the drum track's own value, a lane picked: tagged DR */
+        cv_texts(x + BIG_W - 3 - DR_W, y + 2, "DR", C_GRAY);
+    {
+        char l[16];
+        text_st(x + 5, y + 2, &FONT_S, cut(b, card_label(c, l, sizeof l), (uint32_t)(BIG_W - 10 - uw) / 8u), knob_col(k, C_GRAY), c->strike);
+    }
+    if (u[0])
+        cv_texts(x + BIG_W - 3 - text_w(&FONT_S, u) - (c->mark ? 10 : 0) - dw, y + 2, u, C_DIM);
+    if (c->kind == CK_ACT) {
+        const char *vb = act_verb(c);
+        if (text_w(font_big(), vb) <= BIG_W - 10)
+            cv_text(x + 5, y + 13, font_big(), vb, act_col(c, hot));
+        else if (text_w(font_big(), vb) <= BIG_W - 4)   /* (a 7-letter verb, REVERSE: large too, from the card's edge) */
+            cv_text(x + 2, y + 13, font_big(), vb, act_col(c, hot));
+        else
+            cv_texts(x + 5, y + 20, cut(b, vb, 13), act_col(c, hot));   /* (CALIBRATE: the small face) */
+        return;
+    }
+    if (text_w(font_big(), v) <= BIG_W - 10)
+        text_st(x + 5, y + 13, font_big(), v, vc, c->strike);
+    else
+        text_st(x + 5, y + 20, &FONT_S, cut(b, v, 13), vc, c->strike);
+    draw_gauge(x + 5, y + BIG_H - 3, BIG_W - 10, 2, c, vc, C_LINE);
+    if (c->ak)                                          /* the actual value's bar, over the entered one (op_effval.c) */
+        effv_bar(x + 5, y + EFFV_Y2, BIG_W - 10, c, hot);
+}
+/* a 1x4 card whose value is longer than its 6 characters (a sound's, a kit's name: "808 BOOM") with an empty card after
+ * it takes that card's room too, its name whole in the small face (the audit's #33, style guide 3: never cut) */
+static int card_wide(const cell_t *c, uint32_t k)
+{
+    return k < 3u && c[k].label && c[k].kind != CK_ACT && str_len(c[k].val) > 6u && !c[k + 1u].label;
+}
+/* the cards' band: the four cells c, hot the one white (4: none), 2x2 but on the mixer (op_layers.c cards_2x2) */
+static void draw_card_band(const cell_t *c, uint32_t hot)
+{
+    uint32_t k;
+    cv_begin(240, OP_CH, C_BLACK);
+    for (k = 0; k < 4u; k++) {
+        if (cards_2x2()) {
+            draw_big(k, &c[k], k == hot);
+        } else if (card_wide(c, k)) {                   /* (a name, the card after it empty: both cards' room) */
+            draw_card(k, CARD_X(k), CARD_X(k + 1u) + CARD_W - CARD_X(k), &c[k], k == hot);
+            k++;
+        } else {
+            draw_card(k, CARD_X(k), CARD_W, &c[k], k == hot);
+        }
+    }
+    cv_blit(0, OY_CARD);
+}
+/* the actual values' bars (op_effval.c): computed every frame for the four cards shown; the band is drawn again only when
+ * what it shows besides them changes (a bar appearing or going is such a change), a moving bar alone is its own 2 px
+ * strip, at most every EFFV_MS (~30 Hz). A bar whose value comes back to the entered one stays EFFV_LINGER_MS, so an LFO
+ * crossing it does not make the band blink */
+#define EFFV_MS 33u
+#define EFFV_LINGER_MS 400u
+static struct {
+    int16_t *vp[4];                                     /* the value whose bar shows (the cell's) */
+    uint32_t t_on[4];                                   /* when it last differed (fm1_ms) */
+    int16_t av[4];                                      /* the bars as drawn */
+    uint32_t t;                                         /* the last strips drawn */
+} ev;
+static void effv_take(uint32_t k, cell_t *c)
+{
+    uint32_t r = effv_cell(c);
+    if (r == 1u)
+        ev.t_on[k] = fm1_ms, ev.vp[k] = c->vp;
+    else if (r == 2u && !(ev.vp[k] == c->vp && fm1_ms - ev.t_on[k] < EFFV_LINGER_MS))
+        c->ak = GK_NONE;
+    if (!r)
+        ev.vp[k] = 0;
+}
+static void effv_strips(const cell_t *c, uint32_t hot)
+{
+    uint32_t k;
+    if (fm1_ms - ev.t < EFFV_MS)
+        return;
+    for (k = 0; k < 4u; k++) {
+        int32_t x = CARD_X(k) + 4, y = EFFV_Y1, w = CARD_W - 8;
+        if (!c[k].ak || c[k].av == ev.av[k])
+            continue;
+        if (cards_2x2())
+            x = (k & 1u ? 121 : 3) + 5, y = (k & 2u ? BIG_H + 1 : 0) + EFFV_Y2, w = BIG_W - 10;
+        cv_begin((uint32_t)w, 2, OP_SURF);
+        effv_bar(0, 0, w, &c[k], k == hot);
+        cv_blit((uint32_t)x, (uint32_t)(OY_CARD + y));
+        ev.av[k] = c[k].av;
+    }
+    ev.t = fm1_ms;
+}
+static void draw_cards(void)
+{
+    static cell_t snap[4];                              /* the cells last drawn (STEP: what a step let go still shows) */
+    cell_t c[4];
+    const screen_t *s = SCR;
+    uint32_t k, sig = hu(hu(ui.hot * 2u + ui.hot_lit, settings.palette), cards_2x2() + knob_colors * 2u), row = ui.row[ui.scr];
+    for (k = 0; k < 4u; k++) {
+        if (cards_snap_use && ui.scr == SCR_STEP) {     /* (the snapshot is STEP's only: elsewhere a page's own cells) */
+            c[k] = snap[k];
+        } else {
+            s->cell(row, k, &c[k]);
+            effv_take(k, &c[k]);                        /* (right after the cell: a lane value's dsv is the cell's) */
+        }
+        snap[k] = c[k];
+        sig = hu(hc(sig, &c[k]), (c[k].ak | (uint32_t)(uint16_t)c[k].amin << 4) ^ (uint32_t)(uint16_t)c[k].amax << 16);
+    }
+    if (sig == ui.sig[1]) {
+        effv_strips(c, ui.hot_lit ? ui.hot : 4u);
+        return;
+    }
+    ui.sig[1] = sig;
+    draw_card_band(c, ui.hot_lit ? ui.hot : 4u);
+    for (k = 0; k < 4u; k++)
+        ev.av[k] = c[k].av;
+    ev.t = fm1_ms;
+}
+
+/* ---- the panel: the rows, each value a number over its form; SOUND: the cursor row's graph on top */
+/* a row rh px high (ROW_H, or taller when a page's few rows fill the panel: its text and gauge stay together, in the
+ * middle of the row, the gauge thicker) */
+/* A list row's columns (the audit's #23 and the cut 5-letter cells; style guide 3): the row's name from x 4, 9 characters
+ * at most, then a character's gap, then the four cells at their places LC_X0 + LC_P k (4 characters and a gap each). A
+ * text longer than its place reflows the row: it keeps its place and pushes the cells after it right, at least LC_GAP
+ * apart, or a long last one pulls the cells before it left, as long as the row fits its width; only a row that cannot hold
+ * every text whole gives up a character, the longest text first (its 4-letter form from the names table first: "ANLG",
+ * "INS"). So "BLUES", "REUSE", "L1 RT", "100ms" show whole beside their neighbours, and the columns stay where they are
+ * on every row that needs no room */
+#define LC_NAME_X 4                     /* the row's name */
+#define LC_X0 (LC_NAME_X + 9 * 8 + 8)   /* the first cell: the longest name (9) and a character's gap */
+#define LC_P 38                         /* a cell's place */
+#define LC_GAP 6                        /* the least room between two texts (8 px of ink apart) */
+#define LC_TXT 14                       /* a text's bytes (13 characters at most: a name over the empty cells after it) */
+typedef struct {
+    char t[4][LC_TXT];                  /* the texts as drawn ("" none) */
+    int16_t x[4];                       /* each cell's x (its text and its form) */
+    uint8_t cut;                        /* bit k: cell k's text cut (the row could not hold it whole) */
+} rowl_t;
+static int32_t lc_w(const rowl_t *L, uint32_t k) { return 8 * (int32_t)str_len(L->t[k]); }
+/* the places for the texts as they are: 1 when they fit in end (the row's width), else 0 */
+static int lc_place(rowl_t *L, int32_t end)
+{
+    int32_t late[4], lim = end, prev = LC_X0, k;        /* (never into the name's column) */
+    for (k = 3; k >= 0; k--) {                          /* the latest each text may start, from the right */
+        late[k] = lim - lc_w(L, (uint32_t)k);
+        if (L->t[k][0])
+            lim = late[k] - LC_GAP;
+    }
+    for (k = 0; k < 4; k++) {                           /* its place, or after the text before it, or pulled left */
+        int32_t slot = LC_X0 + LC_P * k, x = slot > prev ? slot : prev;
+        if (!L->t[k][0]) {
+            L->x[k] = (int16_t)slot;
+            continue;
+        }
+        x = x > late[k] ? late[k] : x;
+        if (x < prev)
+            return 0;
+        L->x[k] = (int16_t)x;
+        prev = x + lc_w(L, (uint32_t)k) + LC_GAP;
+    }
+    return 1;
+}
+/* a row's texts and places in a row end px wide (the scroll bar's room off), the cells c[4] read: 0 when the row is empty */
+static uint32_t row_layout(const cell_t *c, rowl_t *L, int32_t end)
+{
+    uint32_t k, any = 0;
+    memset(L, 0, sizeof *L);
+    for (k = 0; k < 4u; k++) {
+        const cell_t *e = &c[k];
+        if (e->kind == CK_ACT && e->label)
+            str_cpy(L->t[k], nm_cell(e->val[0] ? e->val : e->label), LC_TXT);
+        else if (e->val[0])
+            str_cpy(L->t[k], e->gk != GK_NONE ? nm_cell(e->val) : e->val, LC_TXT);
+        any |= L->t[k][0] != 0;
+    }
+    while (!lc_place(L, end)) {                         /* (too long for the row: a text with a shorter fixed form takes
+                                                         * it first, "SAVE AS" -> "SAVE"; then the longest gives a character) */
+        uint32_t m = 4u;
+        for (k = 0; k < 4u; k++)
+            if (str_len(nm_cell(L->t[k])) < str_len(L->t[k]) && (m == 4u || str_len(L->t[k]) > str_len(L->t[m])))
+                m = k;
+        if (m < 4u) {
+            str_cpy(L->t[m], nm_cell(L->t[m]), LC_TXT);
+            continue;
+        }
+        m = 0;
+        for (k = 1; k < 4u; k++)
+            m = str_len(L->t[k]) > str_len(L->t[m]) ? k : m;
+        if (str_len(L->t[m]) <= 1u)
+            break;
+        if (!str_eq(nm_cell(L->t[m]), L->t[m]) && str_len(nm_cell(L->t[m])) < str_len(L->t[m]))
+            str_cpy(L->t[m], nm_cell(L->t[m]), LC_TXT);  /* (its fixed form first: never a cut word the table has) */
+        else {
+            L->t[m][str_len(L->t[m]) - 1u] = 0;
+            L->cut |= (uint8_t)(1u << m);               /* (a value the row cannot hold: tests/ui_optimist_names.h) */
+        }
+    }
+    return any;
+}
+#define LC_END(wide) ((wide) - 4)       /* a row's texts end here: the screen less a margin (the scroll bar's) */
+/* (noinline: a call from list_paint, which is smaller without it inlined) */
+static __attribute__((noinline)) void draw_row(uint32_t i, int32_t y, uint32_t on, uint16_t bar, int32_t wide, int32_t rh)
+{
+    char nm[12], b[16];
+    uint32_t k;
+    cell_t c[4];
+    rowl_t L;
+    const screen_t *s = SCR;
+    int32_t gh = 2 + (rh - ROW_H) / 10;
+    if (on)
+        cv_rect(0, y, wide, rh - 1, cur_bg(bar));       /* the cursor row: the track's colour, its ink (cur_ink) */
+    y += (rh - ROW_H) / 2;
+    if (ui.scr == SCR_SOUND)
+        snd_title_row(i, nm);                           /* (the drum track's pages by what they hold, as the header) */
+    else
+        s->name(i, nm);
+    cv_texts(LC_NAME_X, y + 1, nm_title(nm, b, sizeof b), on ? cur_ink(bar) : C_GRAY);   /* "ENV to": the header's title */
+    if (ui.scr == SCR_SONG && song_row_col(i))         /* SONG: the scene playing, queued; the part playing */
+        cv_rect(70, y + 5, 7, 7, song_row_col(i));
+    for (k = 0; k < 4u; k++)
+        s->cell(i, k, &c[k]);
+    row_layout(c, &L, LC_END(wide));
+    for (k = 0; k < 4u; k++) {
+        int32_t x = L.x[k], gw = (k < 3u ? L.x[k + 1u] : LC_END(wide)) - x - 2;   /* (the form: to the next cell's place) */
+        if (L.t[k][0])
+            cv_texts(x, y + 1, L.t[k], on ? cur_ink(bar) : c[k].kind == CK_ACT ? C_GRAY : C_HI);   /* (an action: its verb, grey: dim is free / unused only) */
+        draw_gauge(x, y + 16, gw > LC_P - 2 && k == 3u ? LC_P - 2 : gw, gh, &c[k], on ? cur_ink(bar) : c[k].col ? c[k].col : C_AMB,
+                   on ? cur_trough(bar) : C_LINE);
+    }
+}
+/* a band taller than a canvas (gfx.c CV_MAX: 240 x 124): drawn in passes of 120 rows, fn painting the whole band in
+ * its own coordinates each time (gfx.c cv_oy shifts and clips every primitive) */
+static void cv_tall(uint32_t y, uint32_t h, uint16_t bg, void (*fn)(void))
+{
+    uint32_t r0, n;
+    for (r0 = 0; r0 < h; r0 += n) {
+        n = h - r0 < 120u ? h - r0 : 120u;
+        cv_begin(240, n, bg);
+        cv_oy = -(int32_t)r0;
+        fn();
+        cv_oy = 0;
+        cv_blit(0, y + r0);
+    }
+}
+static struct {
+    const page_t *gp;
+    uint32_t pic, first, shown, n, cur;
+    int32_t top, rh;
+    uint16_t bar;
+} lst;                                                  /* what list_paint draws (draw_list) */
+static void list_paint(void)
+{
+    uint32_t i;
+    if (lst.pic == 1u)
+        draw_sound_graph(lst.gp);
+    else if (lst.pic == 3u)
+        tempo_draw(GRAPH_H);
+    else if (lst.pic == 4u)
+        f6_alg_draw(0, GRAPH_H, 0);
+    else if (lst.pic == 5u)
+        pre_draw();
+#if FELUCCA_PATTERNS
+    else if (lst.pic == 2u)
+        song_grid_draw(GRAPH_H);
+#endif
+    if (lst.pic && lst.shown)
+        cv_hline(GRAPH_H + 1, C_LINE);   /* (the rule over the rows; the picture alone: none) */
+    for (i = lst.first; i < lst.n && i < lst.first + lst.shown; i++)
+        draw_row(i, lst.top + (int32_t)(i - lst.first) * lst.rh, i == lst.cur, lst.bar, lst.n > lst.shown ? 236 : 240, lst.rh);
+    if (lst.shown && lst.n > lst.shown) {               /* where the window is in the list */
+        int32_t h = (LIST_H - lst.top) * (int32_t)lst.shown / (int32_t)lst.n;
+        cv_rect(238, lst.top, 1, LIST_H - lst.top, C_LINE);
+        cv_rect(237, lst.top + (LIST_H - lst.top) * (int32_t)lst.first / (int32_t)lst.n, 3, h, C_GRAY);
+    }
+}
+/* PAGE_LINES: a SOUND page's graph is worth the 2x2 cards over it (the user, 2026-10-18: "use the 2*2 card layout only
+ * when there is something useful to display below it"): a shape (ENV, LFO, ARP, SCL, the steps, the gater), not the FX
+ * slots' needles (faders repeating the cards' values: an insert's had them, a lane's not), nor a lane's name and kit */
+static int pic_useful(const page_t *gp)
+{
+    return has_graph(gp) && gp->graph != GR_FX && gp->graph != GR_INS && gp->graph != GR_DSND;
+}
+/* the picture row cur of the screen shows over its rows: 0 none, 1 SOUND's graph, 2 the session grid (SONG's PATTERNS
+ * row), 3 the tempo, 4 FM6's algorithm, 5 the SOUND row's presets */
+static uint32_t row_pic(uint32_t cur)
+{
+    const page_t *gp = ui.scr == SCR_SOUND ? snd_graph_page(cur) : 0;
+    uint32_t pic = gp && (!FELUCCA_PAGE_LINES || pic_useful(gp)) ? 1u : ui.scr == SCR_TEMPO ? 3u : 0u;
+    if (ui.scr == SCR_SOUND && snd_fam == SND_FM6)
+        pic = 4u;                                       /* FM6's rows: the algorithm (op_fm6draw.c) */
+    else if (ui.scr == SCR_SOUND && !snd_page(cur))
+        pic = 5u;                                       /* the SOUND row: the presets with their engines */
+#if FELUCCA_PATTERNS
+    if (song_on_pat_row())
+        pic = 2u;
+#endif
+    return pic;
+}
+/* the builder's PAGE_LINES (the user, 2026-10-18): a screen of rows with no picture (EDIT, VOICE, PROJECT, SONG, the
+ * master FX ...) shows its cursor row as GLOBAL's four lines (op_gldraw.c pl_draw), from under the header to the help
+ * line, KNOB k line k, SELECT the next row; no 2x2 cards, no row list. Off: the cards and the list under them */
+static int pl_on(void)
+{
+#if FELUCCA_PAGE_LINES
+    return lay.shown == LY_PLAY && !name_on() && ui.scr != SCR_HOME && ui.scr != SCR_STEP && ui.scr != SCR_SCOPE &&
+           !glo_cycle() && !prj_listing() && SCR->rows() && !row_pic(ui.row[ui.scr])
+#if FELUCCA_BLE
+           && !dev_listing()
+#endif
+        ;
+#else
+    return 0;
+#endif
+}
+static void draw_list(void)
+{
+    const screen_t *s = SCR;
+    uint32_t n = s->rows(), cur = ui.row[ui.scr], first = 0, i, k, sig, shown = ROWS_SHOWN;
+    uint16_t bar = trk_col(song.sel);
+    const page_t *gp = ui.scr == SCR_SOUND ? snd_graph_page(cur) : 0;
+    int32_t top = 0, rh = ROW_H;
+    uint32_t pic = row_pic(cur);                        /* the picture over the rows (row_pic) */
+    char nm[12];
+    cell_t c;
+    if (pic && ui.scr != SCR_SONG) {                    /* a picture: alone, the whole panel (the user, 2026-10-12: "Keep the
+                                                         * graph"; ARP "is the same as lfo/env. no list"); the header names
+                                                         * the row and its n/N, SELECT walks them. SONG keeps its rows under
+                                                         * the session grid: its list is the content */
+        shown = 0;
+        top = LIST_H;
+        gr_h = LIST_H;
+    } else if (pic) {                                   /* the picture takes the height the rows leave: they sit at the foot */
+        uint32_t fit = (uint32_t)(LIST_H - GRAPH_MIN - 3) / ROW_H;
+        shown = n < fit ? n : fit;
+        top = LIST_H - (int32_t)shown * ROW_H;
+        gr_h = top - 3;
+    } else if (n && n <= shown) {                       /* no picture (EDIT, VOICE, PROJECT, SYSTEM, GLOBAL, the master FX: the
+                                                         * user, 2026-10-12, "we can keep the list below when there is nothing
+                                                         * to display besides the 4 cards"), rows to spare: taller rows */
+        shown = n;
+        rh = LIST_H / (int32_t)n;
+        rh = rh > 40 ? 40 : rh;                         /* (a few rows, no picture: at most 40 px a row, at the top) */
+    }
+    if (cur >= shown / 2u)
+        first = cur - shown / 2u;
+    if (first + shown > n)
+        first = n > shown ? n - shown : 0u;
+    sig = hu(hu(hu(hu(hu(7u, n), cur), first), bar + settings.palette * 65536u), (uint32_t)(uintptr_t)gp);
+    for (i = first; i < n && i < first + shown; i++) {
+        s->name(i, nm);
+        sig = hs(sig, nm);
+        for (k = 0; k < 4u; k++) {
+            s->cell(i, k, &c);
+            sig = hc(sig, &c);
+        }
+    }
+    if (!shown && n) {                                  /* the picture alone: the values it reads, the cursor row's and its graph page's */
+        for (k = 0; k < 4u; k++) {
+            s->cell(cur, k, &c);
+            sig = hc(sig, &c);
+            if (gp) {
+                page_cell(gp, k, &c);
+                sig = hc(sig, &c);
+            }
+        }
+    }
+    sig = hu(sig, pic == 1u ? graph_sig() : pic == 3u ? tempo_sig() : pic == 4u ? f6_graph_sig() : pic == 5u ? pre_sig() :
+                  pic * 977u);
+#if FELUCCA_PATTERNS
+    if (pic == 2u)
+        sig = hu(sig, song_grid_sig());
+#endif
+    sig = hu(sig, (uint32_t)(top * 256 + rh));
+    if (ui.scr == SCR_SONG)
+        for (i = first; i < n && i < first + shown; i++)
+            sig = hu(sig, song_row_col(i));
+    if (sig == ui.sig[2])
+        return;
+    ui.sig[2] = sig;
+    lst.gp = gp, lst.pic = pic, lst.first = first, lst.shown = shown, lst.n = n, lst.cur = cur, lst.top = top, lst.rh = rh;
+    lst.bar = bar;
+    cv_tall(OP_PY, LIST_H, C_BLACK, list_paint);    /* (the panel to the screen's foot: two passes) */
+}
+
+/* ---- pieces of the mixer's rows (op_mixdraw.c) */
+static uint32_t meter_h(int32_t pk)                     /* a peak (32767 = 0 dBFS) as a height: 6 dB a step */
+{
+    uint32_t lg = 0, a = pk > 0 ? (uint32_t)pk : 0u;
+    while (a >>= 1)
+        lg++;
+    return lg < 5u ? 0u : (uint32_t)clamp(((int32_t)(lg - 5u) * 4 + 4) * METER_H / 44, 0, METER_H);
+}
+/* ---- no footer (the user, 2026-10-08: "no footer anywhere"): every screen draws to the screen's foot. Under a
+ * question the modal covers the panel's first MODAL_H rows; the rows below it are an empty band */
+static void draw_under(void)
+{
+    if ((op_overlay() != 1u && op_overlay() != 3u && op_overlay() != 4u) || ui.sig[3] == 1u)
+        return;
+    ui.sig[3] = 1u;
+    if (OP_PH > MODAL_H) {                              /* (2x2: the modal takes the whole panel) */
+        cv_begin(240, (uint32_t)(OP_PH - MODAL_H), C_BLACK);
+        cv_blit(0, (uint32_t)(OP_PY + MODAL_H));
+    }
+}
+
+/* ---- the overlay: the modal (a question) or the toast (a result) over the panel */
+static uint32_t op_overlay(void) { return op_code_on() ? 4u : rh.ring ? 3u : op_armed() ? 1u : ui.toast_t ? 2u : 0u; }
+/* REC held: the ring over the panel (SLOOP's hold screen's ring, copied: 36 px, 7 thick, filling clockwise from the
+ * top), in the track's instrument colour, its name, "Keep holding"; no question: the ring is the confirmation */
+#define RING_R (MODAL_H >= 117 ? 36 : 28)               /* the ring's outer radius: smaller over the help band's shorter panel */
+#define RING_CY ((MODAL_H - (2 * RING_R + 36)) / 2 + RING_R)   /* its centre: the ring and its two lines in the panel's middle */
+static void draw_ring(void)
+{
+    uint32_t el = fm1_ms - rh.t1;
+    int32_t a, rr, end = el >= RH_CLEAR_MS ? 1024 : (int32_t)(el * 1024u / RH_CLEAR_MS), cy = RING_CY;
+    uint16_t tc = rh.lane >= 0 ? op_lane_col((uint32_t)rh.lane) : trk_col(rh.trk);
+    char b[24];
+    cv_begin(240, MODAL_H, C_BLACK);
+    for (a = 0; a < 1024; a += 2) {
+        int32_t co = SINE[((uint32_t)a + 768u) & 1023u], si = SINE[(uint32_t)a & 1023u];   /* from 12 o'clock */
+        uint16_t c = a <= end ? tc : C_LINE;
+        for (rr = RING_R - 6; rr <= RING_R; rr++)
+            if (a <= end || rr == RING_R - 3)           /* (the part to come: a thin line on black) */
+                cv_pset(120 + ((si * rr) >> 15), cy + ((co * rr) >> 15), c);
+    }
+    str_cpy(b, "Clear ", sizeof b);
+    str_cpy(b + 6, rh.lane >= 0 ? lane_name((uint32_t)rh.lane) : trk_tag(rh.trk), sizeof b - 6u);   /* (a lane: "Clear SNARE") */
+    if (rh.motion)
+        str_cpy(b + str_len(b), " locks", sizeof b - str_len(b));   /* (SHIFT + REC: "Clear T1 locks", the notes stay) */
+    cv_texts(120 - text_w(&FONT_S, b) / 2, cy + RING_R + 4, b, tc);
+    cv_texts(120 - text_w(&FONT_S, "Keep holding") / 2, cy + RING_R + 20, "Keep holding", C_GRAY);
+    cv_blit(0, OP_PY);
+}
+static void draw_overlay(uint32_t ov)
+{
+    uint32_t sig = ov == 4u ? hu(hu(5u, ble_code_sig()), settings.palette)
+                 : ov == 3u ? hu(hu(hu(0x71u, (fm1_ms - rh.t1) * 64u / RH_CLEAR_MS), (rh.trk * 16u + settings.palette) * 32u + (uint32_t)(rh.lane + 1)), rh.motion)
+                 : ov == 1u ? hs(hs(hu(hu(3u, ui.arm_danger), settings.palette), ui.arm_verb), ui.arm_arg)
+                           : hs(hu(4u, ui.msg_st), ui.msg);
+    if (sig == ui.sig[4])
+        return;
+    ui.sig[4] = sig;
+    if (ov == 4u)
+        draw_code();
+    else if (ov == 3u)
+        draw_ring();
+    else if (ov == 1u)
+        draw_modal();
+    else
+        draw_toast();
+}
+
+static void pl_draw(void);                              /* op_gldraw.c */
+static void op_frame_draw(void)
+{
+    uint32_t ov = op_overlay();
+    if ((ov == 4u) != (ui.overlay == 4u))
+        ui.force = 1;                                   /* (a Bluetooth code comes or goes: over any screen, NAME too) */
+    if (ui.force) {
+        lcd_fill(0, 0, 240, 240, C_BLACK);
+        memset(ui.sig, 0, sizeof ui.sig);
+    }
+    if (ov != ui.overlay || ui.force) {                 /* the panel under the overlay: again when it goes */
+        ui.overlay = (uint8_t)ov;
+        ui.sig[2] = ui.sig[4] = 0;
+        ui.sig[3] = 0;                                  /* (the band under a question) */
+        mx_redraw();
+    }
+    {                                                   /* STEP's grid takes the panel from y 25 (no cards): the band again whole when
+                                                         * that changes (a layer on STEP, the NAME screen) */
+        static uint8_t was_full;
+        uint32_t full = (ui.scr == SCR_STEP || glo_cycle() || pl_on()) && lay.shown == LY_PLAY && !name_on();   /* (GLOBAL and
+                                                         * SYSTEM's list too: no cards, op_gldraw.c) */
+        if (full != was_full && !ui.force) {
+            lcd_fill(0, OH_HEAD, 240, 240 - OH_HEAD, C_BLACK);
+            memset(ui.sig + 1, 0, sizeof ui.sig - sizeof ui.sig[0]);   /* (the help line's too) */
+            mx_redraw();
+        }
+        was_full = (uint8_t)full;
+    }
+    hl_pre(ov);                                         /* (the help line: its rows kept from the bands, op_help.c) */
+    draw_head();
+    if (name_on() && ov != 4u) {                        /* NAME: the field, the keyboard, the hints (op_name.c) */
+        name_draw();
+        ui.force = 0;
+        return;
+    }
+    if (lay.shown != LY_PLAY)
+        lay_draw_cards();                               /* a layer: its knobs' cards, its tiles (op_laydraw.c) */
+    else if (ui.scr != SCR_STEP && !glo_cycle() && !pl_on())
+        draw_cards();                                   /* (the mixer too: its knobs are the selected row's; STEP: step_frame) */
+    if (ov == 1u || ov == 3u || ov == 4u) {
+        draw_overlay(ov);                               /* the modal, the REC ring, a Bluetooth code: the whole panel */
+    } else {
+        uint32_t under = ui.sig[2];
+        if (lay.shown != LY_PLAY)
+            lay_draw_tiles();
+        else if (ui.scr == SCR_HOME)
+            mx_draw();                                  /* the mixer's rows: op_mixdraw.c */
+        else if (ui.scr == SCR_SCOPE)
+            scope_draw();                               /* the oscilloscope: op_scope.c */
+        else if (ui.scr == SCR_STEP)
+            step_frame();                               /* the grid / the roll, the cards over it: op_stepdraw.c */
+        else if (glo_cycle())
+            gl_draw();                                  /* GLOBAL, SYSTEM: the settings list (op_gldraw.c) */
+        else if (pl_on())
+            pl_draw();                                  /* PAGE_LINES: the cursor row as four lines (op_gldraw.c) */
+#if FELUCCA_BLE
+        else if (dev_listing())
+            dev_draw(OP_PY, OH_BODY);                   /* SYSTEM > BLUETOOTH > the BLE devices (op_project.c) */
+#endif
+        else if (prj_listing())
+            prj_draw(OP_PY, OH_BODY);                   /* PROJECT's slot rows: the strip and the item (op_prjflow.c) */
+        else
+            draw_list();
+        if (ov == 2u) {                                 /* the toast over the live panel: again when it redrew */
+            if (ui.sig[2] != under)
+                ui.sig[4] = 0;
+            draw_overlay(ov);
+        }
+    }
+    draw_under();
+    hl_post();
+    ui.force = 0;
+}

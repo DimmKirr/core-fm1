@@ -1,0 +1,733 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* GM drum part (track 4): the SAMPLE engine's KIT set (General MIDI percussion map,
+ * tools/gen_samples.py GM_KIT), played by its step pattern, the keys when track 4
+ * is selected, and its own MIDI channel (GLO -> DRUMS, default 10). Its own voices
+ * (outside the parts' voice budget). One-shots: note-offs are ignored; a closed or
+ * pedal hi-hat chokes the open one. LEVEL: GLO > DRUMS (G_DRLVL); the sends: each lane's (drum_sends.c);
+ * PAN and MUTE: the drum track's P_PAN / P_MUTE. Rendered from the audio ISR. */
+#define NDRUM 6
+#include "synth/drum_synth.c"       /* synthesised kits (DS_KITS) */
+/* P_E0 was unused on the drum track: it holds the kit. 0..4: the GM sample kit and its four
+ * treatments (as before: old projects keep their kit), 5..36: the synthesised kits, 37 / 38: X0X's 909 and 808
+ * (drum_x0x.c; registry.h). Every build knows every kit UID, built or not. */
+#define DRUM_SAMPLED 5u
+#define DRUM_SYNTH_END (DRUM_SAMPLED + DS_NKITS)   /* the synthesised kits: DRUM_SAMPLED .. DRUM_SYNTH_END - 1 */
+#define DRUM_KITS (DRUM_UID_XSTYLE + DRUM_NXSTYLE)   /* every kit UID */
+_Static_assert(DRUM_SYNTH_END == DRUM_UID_X909, "kit UIDs: the X0X kits follow the synthesised ones");
+/* the drum lanes' sources by name (ui_drums.c SRC: KIT, the track's; USR1..3; then every kit UID; every build has the
+ * lanes' pages, drum_edit.c DL_ANY: SOUND 3, their sends, at least); the kits' names (DRUM_KIT_NAMES) are its tail:
+ * one table for both */
+#define DRUM_SRC_HEAD 4u
+static const char *const DRUM_SRC_NAMES[] = {
+    "KIT", "USR1", "USR2", "USR3",
+    "ACOUSTIC", "DEEP", "TIGHT", "BRIGHT", "DUST", DS_KIT_NAME_LIST, "X0X 909", "X0X 808",
+    "X9 TECH", "X9 HOUSE", "X9 UKG", "X9 ACID", "X8 TRAP", "X8 BOOM", "X8 ELEC", "X8 MIAMI",   /* (their styles) */
+#if FELUCCA_DRUM_KITS && DRUM_SRC_HEAD                /* Optimist: then the X0X voices a lane can play (drum_edit.c */
+#if FELUCCA_DRUM_X909                                 /* DL_X909 / DL_X808), those of the machines built */
+    "X9 BD", "X9 SD", "X9 LT", "X9 MT", "X9 HT", "X9 RS", "X9 CP", "X9 CH", "X9 OH",
+#if FELUCCA_X909_CYM
+    "X9 CR", "X9 RD",
+#endif
+#endif
+#if FELUCCA_DRUM_X808
+    "X8 BD", "X8 SD", "X8 LT", "X8 MT", "X8 HT", "X8 LC", "X8 MC", "X8 HC", "X8 RS", "X8 CL",
+    "X8 MA", "X8 CP", "X8 CB", "X8 CH", "X8 OH", "X8 CY",
+#endif
+#endif
+};
+#define DRUM_KIT_NAMES (DRUM_SRC_NAMES + DRUM_SRC_HEAD)
+/* the X0X voices in DRUM_SRC_NAMES after the kits: the 909's (CR RD with its cymbal samples), then the 808's */
+#define DRUM_SRC_X909N (FELUCCA_DRUM_KITS && DRUM_SRC_HEAD && FELUCCA_DRUM_X909 ? (FELUCCA_X909_CYM ? 11u : 9u) : 0u)
+#define DRUM_SRC_X808N (FELUCCA_DRUM_KITS && DRUM_SRC_HEAD && FELUCCA_DRUM_X808 ? 16u : 0u)
+static const char *const DRUM_KIT_STYLES[] = {"STUDIO", "SOFT", "PUNCHY", "BRIGHT", "DUSTY", DS_KIT_STYLE_LIST
+#if DRUM_X0X                                      /* (read through drum_kit(): only a built kit's) */
+                                              , "TR-909 MODEL", "TR-808 MODEL", "909 TECHNO", "909 HOUSE", "909 GARAGE",
+                                              "909 ACID", "808 TRAP", "808 BOOM", "808 ELECTRO", "808 MIAMI"
+#endif
+};
+_Static_assert(sizeof DRUM_SRC_NAMES / sizeof DRUM_SRC_NAMES[0] ==
+               DRUM_SRC_HEAD + DRUM_KITS + DRUM_SRC_X909N + DRUM_SRC_X808N, "a name per kit UID, then the X0X voices");
+/* the kits of this build (registry.h): a kit UID not built plays a stand-in (the parameter keeps the UID: a project
+ * goes back to a full build as it was). Sampled <-> synthesised: the other source's first kit; X0X 909 / 808: the
+ * synthesised 909 / 808, else the first sampled kit */
+#define DRUM_SFIRST (DRUM_SMASK & 1 ? 0u : DRUM_SMASK & 2 ? 1u : DRUM_SMASK & 4 ? 2u : DRUM_SMASK & 8 ? 3u : 4u)
+static int drum_kit_built(uint32_t k)
+{
+    if (k < DRUM_SAMPLED)
+        return (DRUM_SMASK >> k) & 1;
+    if (k < DRUM_SYNTH_END)
+        return FELUCCA_DRUM_SYNTH;
+    k = DRUM_UID_XMACH(k);                         /* (a style kit: its machine's) */
+    return k == DRUM_UID_X909 ? FELUCCA_DRUM_X909 : k == DRUM_UID_X808 && FELUCCA_DRUM_X808;
+}
+static __attribute__((noinline)) uint32_t drum_kit_of(int32_t v)   /* (one copy: the X0X stand-ins) */
+{
+    uint32_t k = (uint32_t)clamp(v, 0, DRUM_KITS - 1);
+    /* an X0X kit not built: the synthesised 909 / 808 (37 -> 6, 38 -> 5; a style kit: its machine's), else sampled */
+    if (k >= DRUM_SYNTH_END && !drum_kit_built(k))
+        k = FELUCCA_DRUM_SYNTH ? DRUM_UID_X909 + DRUM_SAMPLED + 1u - DRUM_UID_XMACH(k) : DRUM_SFIRST;
+    if ((DRUM_SMASK == 31 && FELUCCA_DRUM_SYNTH) || drum_kit_built(k))   /* (every other kit built: as before) */
+        return k;
+    return k < DRUM_SAMPLED && FELUCCA_DRUM_SYNTH ? DRUM_SAMPLED : DRUM_SMASK ? DRUM_SFIRST : DRUM_SAMPLED;
+}
+static uint32_t drum_kit(void) { return drum_kit_of(TDRUM->p[P_E0]); }
+#define DRUM_DEFAULT_KIT (FELUCCA_DRUM_SYNTH ? DRUM_SAMPLED : DRUM_SFIRST)   /* power-on: 808 */
+
+static struct {
+    voice_t v[NDRUM];
+    uint32_t age;
+    int32_t tail;                /* declick: the last output of cut voices, decaying */
+    int32_t peak;                /* largest |output| since the UI last looked (TRACKS meter) */
+    uint8_t kit[NDRUM];
+    int32_t filter[NDRUM], env[NDRUM];
+    uint8_t synth[NDRUM];        /* the voice plays a synthesised kit (ds[]) */
+    uint8_t lane[NDRUM];         /* the lane that hit it (DRUM_LANES: the click): its mix, sends, inserts, meter */
+    dsv_t ds[NDRUM];
+    volatile uint16_t hits;      /* bit per lane hit since the UI last looked (pads, key LEDs) */
+    volatile uint8_t kick;       /* a kick was hit (fx.c DUCK) */
+    int32_t a0, a1;              /* the drum track's mute / solo attenuation over this block (fx.c), Q15, 0 = heard */
+} drums;                         /* (no initialiser: .bss, not 1.8 KB of .data copied from flash) */
+static int16_t drums_set = -2;   /* SMP_SETS index of "PERC" (GM map), -1 = none, -2 = not looked up yet */
+
+static int32_t ds_buf[CTL];
+
+static int32_t drum_set(void)
+{
+    uint32_t i;
+    if (drums_set == -2) {
+        drums_set = -1;
+        for (i = 0; i < SMP_NSETS; i++)
+            if (str_eq(SMP_SETS[i].name, "PERC") && SMP_SETS[i].nz)   /* (a set left out: nz 0) */
+                drums_set = (int16_t)i;
+    }
+    return drums_set;
+}
+
+/* ------------------------------------------------------------ lanes --- */
+/* The drum track's DRUM_LANES (10) lanes: each plays an instrument the user picks (drum_edit.c dl.inst, SOUND's
+ * INSTRUMENT row), and is named after it. An instrument is a GM note (the sampled kits: their samples; the
+ * synthesised kits: drum_synth.c DS_MAP; the X0X kits: X9_NOTE / X8_NOTE). INST_* keep the order of the 16 fixed
+ * lanes before 2026-10-16 (the tables keyed by them, drum_x0x.c X0X_STYLE, read the instrument), then MID TOM, CLAVE.
+ * The Optimist UI: black key n (F#3 .. D#5) selects and plays lane n, F#5 the ACCENT lane; the white keys are steps */
+enum { INST_KICK, INST_KICK2, INST_SNARE, INST_CLAP, INST_CH, INST_OH, INST_PH, INST_RIM, INST_SNARE2, INST_LT, INST_HT,
+       INST_CRASH, INST_RIDE, INST_SHAKER, INST_CONGA, INST_COWBELL, INST_MT, INST_CLAVE, INST_N };
+static const uint8_t INST_NOTE[INST_N] = {36, 35, 38, 39, 42, 46, 44, 37, 40, 43, 48, 49, 51, 70, 63, 56, 47, 75};
+static const char *const INST_NAME[INST_N] = {
+    "KICK", "KICK 2", "SNARE", "CLAP", "CLOSED HAT", "OPEN HAT", "PEDAL HAT", "RIM",
+    "SNARE 2", "LOW TOM", "HI TOM", "CRASH", "RIDE", "SHAKER", "CONGA", "COWBELL", "MID TOM", "CLAVE"};
+static const char *const INST_SHORT[INST_N] = {           /* 5 characters: tiles, dials */
+    "kick", "kick2", "snare", "clap", "c.hat", "o.hat", "p.hat", "rim",
+    "snr 2", "tom l", "tom h", "crash", "ride", "shake", "conga", "bell", "tom m", "clave"};
+static const char *const INST_CODE[INST_N] = {     /* 2 characters: the mixer's rows, the drum grids' lanes */
+    "BD", "B2", "SD", "CP", "CH", "OH", "PH", "RS", "S2", "LT", "HT", "CR", "RD", "SH", "CG", "CB", "MT", "CL"};
+/* the families (the GM notes no lane plays go to a lane of the same family): kick, snare / clap / rim, hats, toms,
+ * cymbals, percussion */
+static const uint8_t INST_FAM[INST_N] = {0, 0, 1, 1, 2, 2, 2, 1, 1, 3, 3, 4, 4, 5, 5, 5, 3, 5};
+/* a fresh project's lanes (dl.inst 0: the lane's default) */
+static const uint8_t LANE_DEF_INST[DRUM_LANES] = {INST_KICK, INST_SNARE, INST_CLAP, INST_CH, INST_OH,
+                                                  INST_LT, INST_HT, INST_RIM, INST_CRASH, INST_RIDE};
+static uint32_t lane_inst(uint32_t l);                 /* drum_edit.c: lane l's instrument (INST_*) */
+#define LANE_NOTE_OF(l) (INST_NOTE[lane_inst(l)])
+#define LANE_NAME_OF(l) (INST_NAME[lane_inst(l)])
+#define LANE_SHORT_OF(l) (INST_SHORT[lane_inst(l)])
+#define LANE_CODE_OF(l) (INST_CODE[lane_inst(l)])
+/* the ACCENT lane's names (core.h DRUM_ACC: the last lane, no sound) */
+#define DACC_NAME "ACCENT"
+#define DACC_SHORT "accent"
+#define DACC_CODE "AC"
+/* the engine's drum notes: the sequencer and the keys hit a lane (DNOTE_LANE | lane: drum_on plays the lane's
+ * instrument, each lane its own sound, two lanes on one instrument too); a plain GM note (MIDI in) finds its lane */
+#define DNOTE_LANE 0x80u
+#define DLANE_NOTE(l) (DNOTE_LANE | (uint32_t)(l))
+#define DLANE_NONE 0xFFu                               /* lane_of_note: no lane for the note */
+/* a lane code (DLANE_NOTE: drums.lane[], drum_x0x.c xc.lane give a voice's) -> the lane (DRUM_LANES: the click's wood
+ * block, or a plain note) */
+AINL uint32_t dnote_lane(uint32_t n)
+{
+    uint32_t l = n & 0x7Fu;
+    return (n & DNOTE_LANE) && l < DRUM_LANES ? l : DRUM_LANES;
+}
+/* a GM note (MIDI in, old projects) -> the instrument it is nearest (35..81; below: kick, above: shaker) */
+static const uint8_t INST_OF_GM[81 - 35 + 1] = {
+    /* 35 */ 1, 0, 7, 2, 3, 8, 9, 4, 9, 6,
+    /* 45 */ 9, 5, 16, 10, 11, 10, 12, 11, 12, 13,
+    /* 55 */ 11, 15, 11, 13, 12, 14, 14, 14, 14, 14,
+    /* 65 */ 14, 14, 15, 15, 13, 13, 15, 15, 13, 13,
+    /* 75 */ 17, 7, 7, 14, 14, 15, 15};
+static uint32_t inst_of_gm(uint32_t note) { return note < 35u ? INST_KICK : note > 81u ? INST_SHAKER : INST_OF_GM[note - 35u]; }
+/* a GM note -> its lane: the lane on that note, else on its instrument, else on its family (the lowest lane wins),
+ * else DLANE_NONE */
+static uint32_t lane_of_note(uint32_t note)
+{
+    uint32_t l, in = inst_of_gm(note);
+    for (l = 0; l < DRUM_LANES; l++)
+        if (LANE_NOTE_OF(l) == note)
+            return l;
+    for (l = 0; l < DRUM_LANES; l++)
+        if (lane_inst(l) == in)
+            return l;
+    for (l = 0; l < DRUM_LANES; l++)
+        if (INST_FAM[lane_inst(l)] == INST_FAM[in])
+            return l;
+    return DLANE_NONE;
+}
+/* the lane of key k (0 = F3 .. 26 = G5), DLANE_NONE: none. The Optimist UI: the black keys in order (F#3 .. D#5:
+ * lanes 0..9; F#5, DACC_KEY: seq.c kb_drum_lane, the ACCENT lane); SLOOP's UI: the white keys in order, a black key
+ * the white key left of it */
+static uint32_t lane_of_key(uint32_t k)
+{
+    static const int8_t W[12] = {0, -1, 1, -1, 2, -1, 3, 4, -1, 5, -1, 6};   /* from F */
+    int32_t i = W[k % 12u];
+#if FELUCCA_UI == 1
+    static const int8_t B[12] = {-1, 0, -1, 1, -1, 2, -1, -1, 3, -1, 4, -1};   /* from F: F# G# A# C# D# */
+    i = B[k % 12u];
+    if (i < 0)
+        return DLANE_NONE;
+    i += (int32_t)(k / 12u) * 5;
+    (void)W;
+#else
+    if (i < 0)
+        i = W[(k - 1u) % 12u];
+    i += (int32_t)(k / 12u) * 7;
+#endif
+    return (uint32_t)i < DRUM_LANES ? (uint32_t)i : DLANE_NONE;
+}
+/* the key of lane l (key index), for the key LEDs: the Optimist UI its black key, SLOOP's its white key */
+static uint32_t key_of_lane(uint32_t l)
+{
+    static const uint8_t K[7] = {0, 2, 4, 6, 7, 9, 11};      /* F G A B C D E */
+#if FELUCCA_UI == 1
+    static const uint8_t B[5] = {1, 3, 5, 8, 10};           /* F# G# A# C# D# */
+#if FELUCCA_DRUM_ACCENT && DACC_KEY_ON
+    if (l == DRUM_ACC)
+        return DACC_KEY;                                    /* the ACCENT lane: the last upper key, 25 */
+#endif
+    (void)K;
+    return (l / 5u) * 12u + B[l % 5u];
+#else
+    return (l / 7u) * 12u + K[l % 7u];
+#endif
+}
+/* a lane in the editor's messages (io/editor): 0..15 the lanes, 16 the ACCENT lane (the 16 fixed lanes' numbering) <->
+ * the device's (DRUM_ACC 10); a wire lane DRUM_LANES..15: EDL_NONE */
+#define EDW_ACC 16u
+#define EDL_NONE 0xFEu
+static uint32_t edl_in(uint32_t w) { return w == EDW_ACC ? DRUM_ACC : w < DRUM_LANES ? w : w < EDW_ACC ? EDL_NONE : w; }
+static uint32_t edl_out(uint32_t l) { return l == DRUM_ACC ? EDW_ACC : l; }
+/* the white key of step w (0..15) of a window (the step keys' LEDs) */
+static uint32_t white_key(uint32_t w)
+{
+    static const uint8_t K[7] = {0, 2, 4, 6, 7, 9, 11};      /* F G A B C D E */
+    return (w / 7u) * 12u + K[w % 7u];
+}
+
+/* drum steps: a lane's bit, level, ratchet. Lane DRUM_ACC (10, the ACCENT lane: core.h) is the step's acc byte (bit 0
+ * on, bits 1..2 level, bits 3..4 ratchet); dstep_mask is the lanes' (DRUM_LMASK: the stored bits past them ignored),
+ * dstep_lanes every step lane's */
+#define DACC_ON 1u
+#define DACC_LVL(a) (((uint32_t)(a) >> 1) & 3u)
+#define DACC_RAT(a) (((uint32_t)(a) >> 3) & 3u)
+static int dstep_has(const dstep_t *s, uint32_t l)
+{
+    return l == DRUM_ACC ? (int)(s->acc & DACC_ON) : (s->on[(l >> 3) & 1u] >> (l & 7u)) & 1u;
+}
+static uint32_t dstep_lvl(const dstep_t *s, uint32_t l)
+{
+    return l == DRUM_ACC ? DACC_LVL(s->acc) : (s->lvl[(l >> 2) & 3u] >> ((l & 3u) * 2u)) & 3u;
+}
+static uint32_t dstep_rat(const dstep_t *s, uint32_t l)
+{
+    return l == DRUM_ACC ? DACC_RAT(s->acc) : (s->rat[(l >> 2) & 3u] >> ((l & 3u) * 2u)) & 3u;
+}
+static uint32_t dstep_mask(const dstep_t *s) { return ((uint32_t)s->on[0] | (uint32_t)s->on[1] << 8) & DRUM_LMASK; }
+static uint32_t dstep_lanes(const dstep_t *s) { return dstep_mask(s) | (uint32_t)(s->acc & DACC_ON) << DRUM_ACC; }
+static void dstep_set(dstep_t *s, uint32_t l, uint32_t lvl, uint32_t rat)   /* lane on, with its level and ratchet */
+{
+    uint32_t sh = (l & 3u) * 2u, b = (l >> 2) & 3u;
+    if (l > DRUM_ACC)
+        return;                                     /* (no lane: lane_of_note's DLANE_NONE) */
+    if (l == DRUM_ACC) {
+        s->acc = (uint8_t)(DACC_ON | (lvl & 3u) << 1 | (rat & 3u) << 3);
+        return;
+    }
+    s->on[(l >> 3) & 1u] |= (uint8_t)(1u << (l & 7u));
+    s->lvl[b] = (uint8_t)((s->lvl[b] & ~(3u << sh)) | (lvl & 3u) << sh);
+    s->rat[b] = (uint8_t)((s->rat[b] & ~(3u << sh)) | (rat & 3u) << sh);
+}
+static void dstep_clr(dstep_t *s, uint32_t l)                                /* lane off */
+{
+    uint32_t sh = (l & 3u) * 2u, b = (l >> 2) & 3u;
+    if (l > DRUM_ACC)
+        return;
+    if (l == DRUM_ACC) {
+        s->acc = 0;
+        return;
+    }
+    s->on[(l >> 3) & 1u] &= (uint8_t)~(1u << (l & 7u));
+    s->lvl[b] &= (uint8_t)~(3u << sh);
+    s->rat[b] &= (uint8_t)~(3u << sh);
+}
+/* the ACCENT lane (FELUCCA_DRUM_ACCENT): velocity vel of a hit of a step whose accent byte is acc, the drum track's
+ * ACCENT amount amt (0..DACC_MAX) added, scaled by the accent step's own level as a hit's velocity is (lvl_vel:
+ * NORM x1, GHOST x0.42, SOFT x0.72, HARD x1.27; Q7), at most 127. No accent, amount 0: vel as it was (the ISR: no
+ * division) */
+static uint32_t dacc_vel(uint32_t vel, uint32_t acc, int32_t amt)
+{
+    static const uint8_t F[4] = {128, 54, 92, 163};
+    uint32_t a;
+    if (!(acc & DACC_ON) || amt <= 0)
+        return vel;
+    a = vel + (((uint32_t)(amt > DACC_MAX ? DACC_MAX : amt) * F[DACC_LVL(acc)]) >> 7);
+    return a > 127u ? 127u : a;
+}
+
+/* the velocity of a level: as played (LV_NORM: vel), ghost, soft, hard */
+static uint32_t lvl_vel(uint32_t lvl, uint32_t vel)
+{
+    static const uint8_t V[4] = {0, 42, 72, 127};
+    return lvl & 3u ? V[lvl & 3u] : vel;
+}
+/* a MIDI velocity -> the level it records as (keys play 100: LV_NORM) */
+static uint32_t vel_lvl(uint32_t vel)
+{
+    return vel < 56u ? LV_GHOST : vel < 88u ? LV_SOFT : vel < 116u ? LV_NORM : LV_HARD;
+}
+
+/* every drum voice stops now, faded by the declick tail (MIDI All Sound Off) */
+#if DRUM_X0X
+static void x0x_all_off(void);                  /* drum_x0x.c */
+#endif
+static void drums_off(void)
+{
+    uint32_t i;
+#if DRUM_X0X
+    x0x_all_off();
+#endif
+    for (i = 0; i < NDRUM; i++)
+        if (drums.v[i].active) {
+            drums.v[i].active = 0;
+            drums.tail += drums.v[i].s[7];
+        }
+}
+
+/* a voice for a hit: free, else the oldest (stolen: its last value fades, the declick tail); a closed or
+ * pedal hat chokes the open one */
+static voice_t *drum_voice(uint32_t note, uint32_t vel, uint32_t lane)
+{
+    voice_t *v = &drums.v[0];
+    uint32_t i;
+    if (note == 42u || note == 44u)                 /* hi-hat choke */
+        for (i = 0; i < NDRUM; i++)
+            if (drums.v[i].active && drums.v[i].note == 46u) {
+                drums.v[i].active = 0;
+                drums.tail += drums.v[i].s[7];          /* fade what it was playing, not a step */
+            }
+    for (i = 0; i < NDRUM; i++) {                   /* free voice, else the oldest */
+        if (!drums.v[i].active) {
+            v = &drums.v[i];
+            break;
+        }
+        if (drums.v[i].age < v->age)
+            v = &drums.v[i];
+    }
+    if (v->active)
+        drums.tail += v->s[7];                      /* stolen voice: fade its last value */
+    v->note = (uint8_t)note;
+    drums.lane[v - drums.v] = (uint8_t)(lane < DRUM_LANES ? lane : DRUM_LANES);
+    v->vel = (uint8_t)vel;
+    v->active = 1;
+    v->ofs = ev_ofs;                                /* a sequenced hit inside the block: from its sample */
+    v->s[7] = 0;
+    v->age = ++drums.age;
+    return v;
+}
+
+#include "drum_edit.c"        /* the lanes' own sounds: edits, user samples, other kits' sounds */
+#include "drum_sends.c"       /* the lanes' REV / DLY / CHO sends */
+#include "drum_mix.c"         /* the lanes' PAN, MUTE, SOLO and peak meters */
+#if DRUM_X0X
+#include "x0x/drum_x0x.c"         /* the X0X 909 / 808 kits */
+#endif
+
+#if DINS
+/* each sound's inserts (fx.c, after: dins_*): the voice's block after its loop, then its pan, mix and sends */
+typedef struct {
+    int32_t *ml, *mr, *rev, *mono;
+    int32_t gl0, gld, gr0, grd;                  /* the pan gains at the block's start and their change over it */
+    int32_t r, d, c, pre, on;                    /* the voice's sends; pre: the reverb send before the SLICER; FX on */
+} dins_mix_t;
+static uint32_t dins_of(uint32_t k, uint32_t note, int32_t on);
+static void dins_post(uint32_t k, uint32_t note, uint32_t i0, uint32_t i1, uint32_t n, const dins_mix_t *x);
+static void dins_restart(uint32_t k);
+#endif
+
+static void drum_on(uint32_t note, uint32_t vel)
+{
+    int32_t si = drum_set(), shift;
+    const smp_set_t *set;
+    voice_t *v;
+    uint32_t i, vi, zi = 0xFFFFu, kit = drum_kit(), lane;
+    if (note & DNOTE_LANE) {                        /* a lane's hit: its instrument */
+        lane = note & 0x7Fu;
+        if (lane >= DRUM_LANES)
+            return;
+        note = LANE_NOTE_OF(lane);
+    } else if (note == 76u || note == 77u || (lane = lane_of_note(note)) >= DRUM_LANES) {
+        lane = DRUM_LANES;                          /* (the click's wood block; a GM note no lane is near: the kit's sound for
+                                                     * it, no lane's edits, mix or sends, as the click) */
+    }
+    if (!((dlm_heard >> lane) & 1u))
+        return;                                     /* a muted lane, or another one soloed (drum_mix.c) */
+    if (lane < DRUM_LANES)                        /* the pads and key LEDs (not the click's wood block) */
+        drums.hits |= (uint16_t)(1u << lane);
+    if (note == 35u || note == 36u)
+        drums.kick = 1;                             /* (DUCK) */
+    DL_PLAY_HIT(lane);                              /* (its automation and LFO for this hit: drum_edit.c dl_ofs_play) */
+#if DL_ANY
+    kit = dl_kit_of(lane, kit);                     /* (the lane may play another kit's sound, a user sample) */
+#if FELUCCA_DRUM_USR
+    if ((i = dl_usr_of(lane)) != 0u) {
+        dl_usr_hit(lane, i, note, vel);
+        return;
+    }
+#endif
+#endif
+#if DRUM_X0X
+    if (kit >= DRUM_UID_X909) {                     /* an X0X kit (built: drum_kit_of) */
+        if (x0x_on(kit, note, vel, lane))
+            return;
+        kit = x0x_standin(kit);                     /* a sound the machine lacks */
+    }
+#endif
+    if (FELUCCA_DRUM_SYNTH && kit >= DRUM_SAMPLED) {   /* synthesised kit */
+        v = drum_voice(note, vel, lane);
+        vi = (uint32_t)(v - drums.v);
+#if DINS
+        dins_restart(vi);                           /* (its inserts start clean, as its envelope) */
+#endif
+        drums.synth[vi] = 1;
+        drums.kit[vi] = (uint8_t)kit;
+        dl_ds_on(&drums.ds[vi], vi, &DS_KITS[kit - DRUM_SAMPLED], note, vel, lane);
+        return;
+    }
+    if (si < 0)
+        return;
+    set = &SMP_SETS[si];
+    for (i = 0; i < set->nz; i++)
+        if (note >= SMP_ZONES[set->z0 + i].lo && note <= SMP_ZONES[set->z0 + i].hi)
+            zi = set->z0 + i;
+    if (zi == 0xFFFFu)
+        return;
+    v = drum_voice(note, vel, lane);
+    vi = (uint32_t)(v - drums.v);
+#if DINS
+    dins_restart(vi);
+#endif
+    v->s[4] = (int32_t)zi;
+    v->ph[0] = v->ph[1] = 0;
+    v->ph[2] = ~0u;                                 /* (no end before the sample's) */
+    v->s[0] = v->s[1] = v->s[2] = 0;
+    v->s[3] = FAR(sample_next)(&SMP_ZONES[zi], v, 0);  /* (a hit: XIP calls the RAM code) */
+    shift = kit == 1u ? (note <= 36u ? -5 : -2) : kit == 3u ? 2 : kit == 4u ? -1 : 0;
+    shift += dl_tune_play(lane);
+    v->s[5] = (int32_t)((pow2_q16((int32_t)note * 16 + shift * 16 - SMP_ZONES[zi].root16) >> 8) * (SMP_ZONES[zi].rate >> 8));
+    drums.kit[vi] = (uint8_t)kit;
+    drums.synth[vi] = 0;
+    drums.filter[vi] = 0;
+    drums.env[vi] = 32767;
+    dl_smp_fx(vi, lane);
+}
+
+#if FELUCCA_GLIDE
+/* the drum track's glides (FELUCCA_GLIDE, after X0X 0.10.1: fx.c glide_next): its LEVEL (GLO > DRUMS LEVEL) and PAN
+ * ramp per sample; each lane's sends (its REV / DLY / CHO) move a one-pole step a block (a
+ * staircase of 0.7 ms steps over ~10 ms). Nothing sounding: they settle at once */
+static struct {
+    int32_t lv, pl, pr;                          /* where the level and the pan gains are */
+    uint8_t on;                                  /* 0: the next block starts at the targets */
+    int16_t r[DRUM_LANES + 1], d[DRUM_LANES + 1], c[DRUM_LANES + 1];   /* each lane's sends (+ the click) */
+} dgl;
+static __attribute__((noinline)) void dgl_lanes(int settle)   /* (XIP) the lanes' sends one block on */
+{
+    uint32_t l;
+    for (l = 0; l <= DRUM_LANES; l++) {
+        int32_t r, d, c;
+        dsend_lane(l, &r, &d, &c);
+        dgl.r[l] = (int16_t)(settle ? r : glide_next(dgl.r[l], r));
+        dgl.d[l] = (int16_t)(settle ? d : glide_next(dgl.d[l], d));
+        dgl.c[l] = (int16_t)(settle ? c : glide_next(dgl.c[l], c));
+    }
+}
+AINL void dgl_sends(uint32_t note, int32_t *r, int32_t *d, int32_t *c)
+{
+    uint32_t l = dnote_lane(note);
+    *r = dgl.r[l];
+    *d = dgl.d[l];
+    *c = dgl.c[l];
+}
+#endif
+
+/* adds the drums into the dry mix and the reverb send; mono != 0: into mono instead, before the
+ * pan and the send (the SLICER, slicer.c slicer_drums, does those after it) */
+static inline HOT void drums_mix(int32_t *ml, int32_t *mr, int32_t *rev, int32_t *mono, uint32_t n)
+{
+    uint32_t k, i;
+    int32_t on = fx_on(TDRUM), lvl = song.g[G_DRLVL] * 200, pk = drums.peak;
+    FAR(dsend_table)(on);                           /* the lanes' send levels this block (drum_sends.c) */
+    int32_t pre = mono && FAR(dsend_one)(on) < 0;   /* the SLICER on, the lanes not alike: sends before it */
+    int32_t gl, gr;
+    pan_gains(trk[TRK_DRUM].p[P_PAN], &gl, &gr);      /* (dsp.c) */
+#if FELUCCA_GLIDE
+    int32_t lv0, gl0, gr0, dlv, dgl_l, dgl_r;
+    {
+        uint32_t any = drums.tail != 0, j;
+        for (j = 0; j < NDRUM; j++)
+            any |= drums.v[j].active;
+#if DRUM_X0X
+        any |= x0x_sounding() != 0;                 /* (the X0X channels: not drums.v voices) */
+#endif
+        if (!any || !dgl.on) {                      /* nothing sounds (or the first block): at the targets */
+            dgl.on = (uint8_t)any;
+            dgl.lv = lvl, dgl.pl = gl, dgl.pr = gr;
+            FAR(dgl_lanes)(1);
+            if (!any)
+                return;
+        } else {
+            FAR(dgl_lanes)(0);
+        }
+        lv0 = dgl.lv, gl0 = dgl.pl, gr0 = dgl.pr;
+        dgl.lv = glide_next(lv0, lvl), dgl.pl = glide_next(gl0, gl), dgl.pr = glide_next(gr0, gr);
+        dlv = dgl.lv - lv0, dgl_l = dgl.pl - gl0, dgl_r = dgl.pr - gr0;
+    }
+#endif
+#if DINS
+    dins_mix_t dx;
+    dx.ml = ml, dx.mr = mr, dx.rev = rev, dx.mono = mono, dx.pre = pre, dx.on = on;
+#if FELUCCA_GLIDE
+    dx.gl0 = gl0, dx.gld = dgl_l, dx.gr0 = gr0, dx.grd = dgl_r;
+#else
+    dx.gl0 = gl, dx.gld = 0, dx.gr0 = gr, dx.grd = 0;
+#endif
+#endif
+    for (i = 0; i < n && drums.tail; i++) {         /* declick tail, ~0.4 ms */
+        if (mono) {
+            mono[i] += drums.tail;
+        } else {
+            ml[i] += drums.tail;
+            mr[i] += drums.tail;
+#if FELUCCA_USB_AUDIO
+            track_capture[i * NTRK + TRK_DRUM] += drums.tail;
+#endif
+        }
+        drums.tail -= drums.tail / 16 + (drums.tail > 0 ? 1 : drums.tail < 0 ? -1 : 0);
+    }
+    for (k = 0; k < NDRUM; k++) {               /* synthesised voices: render, then as below */
+        voice_t *v = &drums.v[k];
+        uint32_t m = n < CTL ? n : CTL, o;          /* (the mix runs in blocks of CTL) */
+        int32_t r, d, c;                            /* its lane's sends (drum_sends.c) */
+        if (!v->active || !drums.synth[k])
+            continue;
+        uint32_t ln = drums.lane[k];            /* its lane: heard, its pan, its meter (drum_mix.c) */
+        int32_t vpk = 0;
+        if (!((dlm_heard >> ln) & 1u)) {            /* muted meanwhile: it stops, declicked */
+            v->active = 0;
+            drums.tail += v->s[7];
+            v->s[7] = 0;
+            continue;
+        }
+#if FELUCCA_GLIDE
+        int32_t pl0 = gl0, pld = dgl_l, pr0 = gr0, prd = dgl_r;
+        dgl_sends(DLANE_NOTE(drums.lane[k]), &r, &d, &c);
+#else
+        int32_t pl0 = gl, pld = 0, pr0 = gr, prd = 0;
+        dsend_of(DLANE_NOTE(drums.lane[k]), &r, &d, &c);
+#endif
+        dlm_gains(ln, &pl0, &pld, &pr0, &prd);
+#if DINS
+        uint32_t ins = dins_of(k, DLANE_NOTE(drums.lane[k]), on);     /* its inserts run: mixed after its loop (dins_post) */
+#endif
+        o = v->ofs < m ? v->ofs : 0u;               /* a hit inside the block: from its sample */
+        v->ofs = 0;
+        if (!ds_render(&drums.ds[k], ds_buf + o, m - o))
+            v->active = 0;
+        for (i = o; i < m; i++) {
+#if FELUCCA_GLIDE
+            int32_t s = mulq15(ds_buf[i], mulq15(lv0 + ((dlv * (int32_t)i) >> CTL_LOG2),
+                                                  32767 - drums.a0 - (((drums.a1 - drums.a0) * (int32_t)i) >> CTL_LOG2)));
+#else
+            int32_t s = mulq15(ds_buf[i], mulq15(lvl, 32767 - drums.a0 - (((drums.a1 - drums.a0) * (int32_t)i) >> CTL_LOG2)));
+#endif
+#if FELUCCA_DRUM_EDIT
+            if (dv.on[k])                              /* the lane's CUT - */
+                s = dl_smp_apply(k, s, v);
+#endif
+            v->s[7] = s;
+            DSEND_KEEP(i, s);                       /* (its delay / chorus sends: after its loop) */
+            if (s > vpk || -s > vpk)
+                vpk = s < 0 ? -s : s;
+#if DINS
+            if (ins)
+                continue;                           /* (its inserts first: dins_post mixes it) */
+#endif
+            if (mono) {
+                mono[i] += s;
+                continue;
+            }
+#if FELUCCA_GLIDE
+            ml[i] += (s * (pl0 + ((pld * (int32_t)i) >> CTL_LOG2))) >> 12;
+            mr[i] += (s * (pr0 + ((prd * (int32_t)i) >> CTL_LOG2))) >> 12;
+#else
+            ml[i] += (s * pl0) >> 12;
+            mr[i] += (s * pr0) >> 12;
+#endif
+#if FELUCCA_USB_AUDIO
+            track_capture[i * NTRK + TRK_DRUM] += s;
+#endif
+            if (r)
+                rev[i] += mulq15(s, r);
+        }
+        dlm_peak(ln, vpk);
+        if (vpk > pk)
+            pk = vpk;
+#if FELUCCA_USB_AUDIO
+#if DINS
+        if (!ins)                                   /* (with inserts: dins_post taps their output) */
+#endif
+            dlt_add(ln, dsend_buf, o, m);           /* its lane's USB tap, when a channel takes it (ua_tap.h) */
+#endif
+#if DINS
+        if (ins) {
+            dx.r = r, dx.d = d, dx.c = c, dx.gl0 = pl0, dx.gld = pld, dx.gr0 = pr0, dx.grd = prd;
+            dins_post(k, DLANE_NOTE(drums.lane[k]), o, m, m, &dx);
+        } else
+#endif
+        DSEND_POST(o, m, r, d, c, pre);
+        if (!v->active) {
+            drums.tail += v->s[7];                  /* ended: no step at the end */
+            v->s[7] = 0;
+        }
+    }
+    for (k = 0; k < NDRUM; k++) {
+        voice_t *v = &drums.v[k];
+        const smp_zone_t *z = smp_zone((uint32_t)v->s[4]);   /* (a user sample on a lane: its slot) */
+        if (drums.synth[k])
+            continue;
+        uint32_t frac = v->ph[1], stepq = (uint32_t)v->s[5], i0;   /* Q16 source samples per output (drum_on) */
+        int32_t g, r, d, c;
+        if (!v->active)
+            continue;
+        uint32_t ln = drums.lane[k];            /* its lane: heard, its pan, its meter (drum_mix.c) */
+        int32_t vpk = 0;
+        if (!((dlm_heard >> ln) & 1u)) {            /* muted meanwhile: it stops, declicked */
+            v->active = 0;
+            drums.tail += v->s[7];
+            v->s[7] = 0;
+            continue;
+        }
+#if FELUCCA_GLIDE
+        int32_t g1, dg, pl0 = gl0, pld = dgl_l, pr0 = gr0, prd = dgl_r;
+        dgl_sends(DLANE_NOTE(drums.lane[k]), &r, &d, &c);
+        g = mulq15(lv0, v->vel * 258);
+        g += g * 3 >> 2;                           /* x1.75 (+5 dB): as loud as the synthesised kits */
+        g1 = mulq15(dgl.lv, v->vel * 258);
+        g1 += g1 * 3 >> 2;
+        dg = g1 - g;
+#else
+        int32_t pl0 = gl, pld = 0, pr0 = gr, prd = 0;
+        dsend_of(DLANE_NOTE(drums.lane[k]), &r, &d, &c);
+        g = mulq15(lvl, v->vel * 258);
+        g += g * 3 >> 2;                           /* x1.75 (+5 dB): as loud as the synthesised kits */
+#endif
+        dlm_gains(ln, &pl0, &pld, &pr0, &prd);
+#if DINS
+        uint32_t ins = dins_of(k, DLANE_NOTE(drums.lane[k]), on);
+#endif
+        i = v->ofs < n ? v->ofs : 0u;              /* a hit inside the block: from its sample */
+        v->ofs = 0;
+        i0 = i;
+        for (; i < n; i++) {
+            int32_t s;
+            frac += stepq;
+            while (frac >= 65536u) {
+                frac -= 65536u;
+                v->s[2] = v->s[3];
+                if (v->ph[0] >= z->n || v->ph[0] >= v->ph[2]) {   /* (ph[2]: a lane's hit ends there) */
+                    v->active = 0;
+                    if (v->s[4] >= 0x8000)
+                        drums.tail += v->s[7];      /* (cut short: declicked) */
+                    break;
+                }
+                v->s[3] = sample_next(z, v, 0);
+            }
+            if (!v->active)
+                break;
+            s = lerp16(v->s[2], v->s[3], frac);         /* (dsp.c) */
+#if FELUCCA_GLIDE
+            s = mulq15(s, mulq15(g + ((dg * (int32_t)i) >> CTL_LOG2), 32767 - drums.a0 - (((drums.a1 - drums.a0) * (int32_t)i) >> CTL_LOG2)));
+#else
+            s = mulq15(s, mulq15(g, 32767 - drums.a0 - (((drums.a1 - drums.a0) * (int32_t)i) >> CTL_LOG2)));
+#endif
+            if (drums.kit[k] == 1u || drums.kit[k] == 4u) {
+                drums.filter[k] += (s - drums.filter[k]) >> (drums.kit[k] == 1u ? 2 : 1);
+                s = drums.filter[k];
+                if (drums.kit[k] == 4u) s = (s >> 8) * 256;
+            } else if (drums.kit[k] == 2u) {
+                s = mulq15(s, drums.env[k]);
+                drums.env[k] = decay_to0(drums.env[k]);   /* (dsp.c) */
+                if (drums.env[k] <= 0) v->active = 0;
+            }
+#if FELUCCA_DRUM_EDIT
+            if (dv.on[k])                          /* the lane's DECAY, CUT, LEVEL */
+                s = dl_smp_apply(k, s, v);
+#endif
+            v->s[7] = s;
+            DSEND_KEEP(i, s);                       /* (its delay / chorus sends: after its loop) */
+            if (s > vpk || -s > vpk)
+                vpk = s < 0 ? -s : s;
+#if DINS
+            if (ins)
+                continue;                           /* (its inserts first: dins_post mixes it) */
+#endif
+            if (mono) {
+                mono[i] += s;
+                continue;
+            }
+#if FELUCCA_GLIDE
+            ml[i] += (s * (pl0 + ((pld * (int32_t)i) >> CTL_LOG2))) >> 12;
+            mr[i] += (s * (pr0 + ((prd * (int32_t)i) >> CTL_LOG2))) >> 12;
+#else
+            ml[i] += (s * pl0) >> 12;
+            mr[i] += (s * pr0) >> 12;
+#endif
+#if FELUCCA_USB_AUDIO
+            track_capture[i * NTRK + TRK_DRUM] += s;
+#endif
+            if (r)
+                rev[i] += mulq15(s, r);
+        }
+        dlm_peak(ln, vpk);
+        if (vpk > pk)
+            pk = vpk;
+#if FELUCCA_USB_AUDIO
+#if DINS
+        if (!ins)
+#endif
+            dlt_add(ln, dsend_buf, i0, i);          /* (i: where it ended) */
+#endif
+#if DINS
+        if (ins) {
+            dx.r = r, dx.d = d, dx.c = c, dx.gl0 = pl0, dx.gld = pld, dx.gr0 = pr0, dx.grd = prd;
+            dins_post(k, DLANE_NOTE(drums.lane[k]), i0, i, n, &dx);
+        } else
+#endif
+        DSEND_POST(i0, i, r, d, c, pre);           /* (i: where it ended) */
+        v->ph[1] = frac;
+    }
+#if DRUM_X0X
+    pk = FAR(drums_x0x)(ml, mr, rev, mono, n, on, lvl, pre, gl, gr, pk);   /* the X0X kits' voices */
+#endif
+    drums.peak = pk;
+}
+static HOT void drums_render(int32_t *ml, int32_t *mr, int32_t *rev, uint32_t n) { drums_mix(ml, mr, rev, 0, n); }
+static HOT void drums_render_mono(int32_t *mono, uint32_t n) { drums_mix(0, 0, 0, mono, n); }

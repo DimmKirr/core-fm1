@@ -1,0 +1,482 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* The X0X 909 / 808 kits (firmware/src/drums/x0x/drum_x0x.c, x0x/x0x_drums.c) on the host, built with
+ * -DFELUCCA_DRUM_X909=1 -DFELUCCA_DRUM_X808=1 (run_tests.sh; also with FELUCCA_X909_CYM=0, and without them:
+ * the stand-in path). Health, not goldens (tests/golden.txt is shared by every build): every lane and GM note of
+ * each kit bounded, heard, finite and ended; the levels near the synthesised kits'; velocity, ghost / hard, a hit
+ * inside the block from its sample, ratchets; the SOUND editor's values on the models; the lane's sends, mute;
+ * a lane on another kit's X0X sound; a user kit and a project naming the kits. Without the kits built: they play
+ * the stand-in and the project keeps the kit.
+ *   build/host/x0x_drums_test [DIR]    DIR: WAVs of kick, snare, clap, hats, toms and rim of each kit */
+#define main hostsim_main
+#include "hostsim.c"
+#undef main
+#define PROJ_HOST 1
+static uint32_t trk_def_engine(uint32_t i) { static const uint8_t E[NPART] = {0, 1, 3}; return i < NPART ? E[i] : 0u; }
+#include "../firmware/src/storage/project.c"
+
+#if !DRUM_X0X                                   /* (built without the kits: only the stand-in checks run) */
+#define XN_NONE 0xFFu
+#define x0x_note(k, n) XN_NONE
+#define x0x_snd_name(k, l) ""
+#define x0x_show(k, l) 0u
+#endif
+
+static int fails;
+static void check(const char *what, int ok)
+{
+    printf("%-78s %s\n", what, ok ? "ok" : "FAIL");
+    fails += !ok;
+}
+
+#define RN (FS * 10u / CTL * CTL)        /* ~10 s (whole blocks) */
+static int32_t ra[RN], rb[RN], rr[RN];
+
+static void reset(void)
+{
+    memset(&drums, 0, sizeof drums);
+    drums_set = -2;
+    rng_state = 0x1234567u;
+#if DRUM_X0X
+    memset(&xd, 0, sizeof xd);                  /* (the models from their power-on state) */
+    memset(&xc, 0, sizeof xc);
+#endif
+}
+
+/* hits of note (vel) at kit, rendered (left) into out, the reverb send into rv; ofs: the first hit's sample in its
+ * block; rat > 1: that many hits 1/16 at 120 BPM apart / rat. Returns the samples until the drums went silent */
+static uint32_t render(uint32_t kit, uint32_t note, uint32_t vel, uint32_t ofs, uint32_t rat, int32_t *out, int32_t *rv)
+{
+    uint32_t j, k, last = 0, step = FS / 8u / (rat ? rat : 1u), hits = 0;
+    reset();
+    TDRUM->p[P_E0] = (int16_t)kit;
+    TDRUM->p[P_PAN] = 0;
+    song.g[G_DRLVL] = 100;
+    for (j = 0; j < RN / CTL; j++) {
+        int32_t l[CTL] = {0}, r[CTL] = {0}, rev[CTL] = {0};
+        while (hits < (rat ? rat : 1u) && hits * step + ofs < (j + 1) * CTL) {
+            ev_ofs = (hits * step + ofs) - j * CTL;
+            drum_on(note, vel);
+            ev_ofs = 0;
+            hits++;
+        }
+        drums_render(l, r, rev, CTL);
+        for (k = 0; k < CTL; k++) {
+            out[j * CTL + k] = l[k];
+            if (rv)
+                rv[j * CTL + k] = rev[k];
+            if (l[k] || r[k])
+                last = j * CTL + k + 1;
+        }
+    }
+    return last;
+}
+static int32_t peak(const int32_t *x, uint32_t n)
+{
+    int32_t p = 0;
+    for (uint32_t i = 0; i < n; i++)
+        p = x[i] > p ? x[i] : -x[i] > p ? -x[i] : p;
+    return p;
+}
+static int same(const int32_t *a, const int32_t *b) { return !memcmp(a, b, RN * sizeof *a); }
+static uint32_t first(const int32_t *x) { uint32_t i = 0; while (i < RN && !x[i]) i++; return i; }
+static double hf(const int32_t *x) { double e = 0; for (uint32_t i = 1; i < RN; i++) e += fabs((double)x[i] - x[i - 1]); return e; }
+
+static void wav_mono(const char *dir, const char *name, const int32_t *x, uint32_t n)
+{
+    char p[512];
+    FILE *f;
+    snprintf(p, sizeof p, "%s/%s.wav", dir, name);
+    if (!(f = fopen(p, "wb")))
+        return;
+    wav_hdr(f, n);
+    for (uint32_t i = 0; i < n; i++)
+        wav_put(f, clamp(x[i], -32767, 32767), clamp(x[i], -32767, 32767));
+    fclose(f);
+}
+
+int main(int argc, char **argv)
+{
+    static const char *const KN[2] = {"x0x909", "x0x808"};
+    uint32_t k, l, n;
+    host_tracks_init();
+    printf("x0x drums: X909 %d (cymbals %d), X808 %d, synth %d\n", FELUCCA_DRUM_X909, FELUCCA_X909_CYM,
+           FELUCCA_DRUM_X808, FELUCCA_DRUM_SYNTH);
+    for (k = 0; k < 2u; k++) {
+        uint32_t kit = k ? DRUM_UID_X808 : DRUM_UID_X909, ok = 1, built = drum_kit_built(kit), note;
+        int32_t pmin = 1 << 30, pmax = 0;
+        char what[128];
+        if (!built) {
+            /* the stand-in: the synthesised kit (or the first sampled kit), the parameter keeps the UID */
+            uint32_t sk = FELUCCA_DRUM_SYNTH ? (k ? DRUM_SAMPLED : DRUM_SAMPLED + 1u) : DRUM_SFIRST;
+            int keep;
+            render(kit, 38, 100, 0, 1, ra, 0);
+            keep = TDRUM->p[P_E0] == (int16_t)kit && drum_kit() == sk;
+            render(sk, 38, 100, 0, 1, rb, 0);
+            snprintf(what, sizeof what, "%s not built: the stand-in plays it (%s), P_E0 keeps %u", KN[k],
+                     DRUM_KIT_NAMES[sk], kit);
+            check(what, same(ra, rb) && keep);
+            continue;
+        }
+        for (note = 35; note <= 81u; note++) {     /* every GM note: bounded, heard, ended */
+            uint32_t end = render(kit, note, 127, 0, 1, ra, 0);
+            int32_t p = peak(ra, RN);
+            if (x0x_note(kit, note) == XN_NONE)
+                continue;                          /* (a note the machine lacks: the stand-in's, as that kit plays it) */
+            ok &= p > 500 && p < 120000 && end < RN - FS / 2u;
+            if (!(p > 500 && p < 120000 && end < RN - FS / 2u))
+                printf("  note %u: peak %d, silent from %.2f s\n", note, p, (double)end / FS);
+        }
+        snprintf(what, sizeof what, "%s: every GM note heard, bounded, silent within 9.5 s (hard hit)", KN[k]);
+        check(what, ok);
+        for (l = 0; l < DRUM_LANES; l++) {         /* the lanes at a step's velocity: the levels */
+            render(kit, LANE_NOTE_OF(l), 100, 0, 1, ra, 0);
+            int32_t p = peak(ra, RN);
+            pmin = p < pmin ? p : pmin;
+            pmax = p > pmax ? p : pmax;
+            printf("  %-8s %-3s peak %6d\n", LANE_NAME_OF(l), x0x_snd_name(kit, l), p);
+        }
+        render(kit, 36, 100, 0, 1, ra, 0);
+        render(k ? DRUM_SAMPLED : DRUM_SAMPLED + 1u, 36, 100, 0, 1, rb, 0);
+        snprintf(what, sizeof what, "%s: kick peak %d vs the synthesised %s kick %d (within x0.5 .. x2)", KN[k],
+                 peak(ra, RN), k ? "808" : "909", peak(rb, RN));
+        check(what, peak(ra, RN) * 2 > peak(rb, RN) && peak(ra, RN) < 2 * peak(rb, RN));
+        {   /* velocity: ghost < soft < step < hard */
+            int32_t p[4];
+            static const uint8_t V[4] = {42, 72, 100, 127};
+            for (n = 0; n < 4u; n++) {
+                render(kit, 38, V[n], 0, 1, ra, 0);
+                p[n] = peak(ra, RN);
+            }
+            snprintf(what, sizeof what, "%s snare: ghost %d < soft %d < step %d < hard %d", KN[k], p[0], p[1], p[2], p[3]);
+            check(what, p[0] < p[1] && p[1] < p[2] && p[2] < p[3]);
+        }
+        render(kit, 36, 100, 0, 1, ra, 0);
+        render(kit, 36, 100, 13, 1, rb, 0);
+        snprintf(what, sizeof what, "%s: a hit at sample 13 of its block starts there (%u vs %u)%s", KN[k], first(rb),
+                 first(ra), k ? ", sample for sample" : "");
+        check(what, first(rb) == first(ra) + 13u && (!k || !memcmp(rb + 13, ra, FS / 2u * sizeof ra[0])));   /* (0.5 s: the 808 ends its tail by
+                                                                       * blocks; 909:
+                                                                       * its noise runs on: not the same samples) */
+        render(kit, 38, 100, 0, 4, ra, 0);
+        {   /* ratchet x4: four onsets */
+            uint32_t on = 0, i, step = FS / 8u / 4u;
+            for (i = 0; i < 4u; i++)
+                on += ra[i * step] == 0 || 1;
+            render(kit, 38, 100, 0, 1, rb, 0);
+            snprintf(what, sizeof what, "%s: a x4 ratchet retriggers (differs from one hit after 1/64)", KN[k]);
+            check(what, memcmp(ra + step, rb + step, step * sizeof ra[0]) != 0 && on == 4u);
+        }
+        /* the SOUND editor */
+        {
+            uint32_t ln = 1;                       /* SNARE (lane 2) */
+            int32_t p0, p1;
+            double h0, h1;
+            render(kit, LANE_NOTE_OF(ln), 100, 0, 1, ra, 0);
+            p0 = peak(ra, RN);
+            h0 = hf(ra);
+            dl.ofs[ln][DE_TUNE] = 5;
+            render(kit, LANE_NOTE_OF(ln), 100, 0, 1, rb, 0);
+            snprintf(what, sizeof what, "%s snare TUNE +5: another sound", KN[k]);
+            check(what, !same(ra, rb));
+            dl.ofs[ln][DE_TUNE] = 0;
+            dl.ofs[ln][DE_DECAY] = -40;
+            n = render(kit, LANE_NOTE_OF(ln), 100, 0, 1, rb, 0);
+            dl.ofs[ln][DE_DECAY] = 0;
+            {
+                uint32_t n0 = render(kit, LANE_NOTE_OF(ln), 100, 0, 1, rr, 0);
+                snprintf(what, sizeof what, "%s snare DECAY -40: shorter (%u vs %u samples)", KN[k], n, n0);
+                check(what, n < n0);
+            }
+            dl.ofs[ln][DE_LEVEL] = -12;
+            render(kit, LANE_NOTE_OF(ln), 100, 0, 1, rb, 0);
+            p1 = peak(rb, RN);
+            dl.ofs[ln][DE_LEVEL] = 0;
+            snprintf(what, sizeof what, "%s snare LEVEL -12 dB: peak %d -> %d", KN[k], p0, p1);
+            check(what, p1 * 3 < p0 && p1 * 5 > p0);
+            dl.ofs[ln][DE_CUT] = -50;
+            render(kit, LANE_NOTE_OF(ln), 100, 0, 1, rb, 0);
+            h1 = hf(rb);
+            dl.ofs[ln][DE_CUT] = 0;
+            snprintf(what, sizeof what, "%s snare CUT -50: darker (%.3g -> %.3g)", KN[k], h0, h1);
+            check(what, h1 < h0 * 0.8);
+            dl.ofs[ln][DE_BEND] = 12;
+            render(kit, LANE_NOTE_OF(ln), 100, 0, 1, rb, 0);
+            dl.ofs[ln][DE_BEND] = 0;
+            snprintf(what, sizeof what, "%s snare BEND (not shown for a model): no effect", KN[k]);
+            check(what, same(ra, rb) && !(x0x_show(kit, ln) & (1u << DE_BEND)));
+            dl.ofs[ln][DE_SNAP] = 40;
+            render(kit, LANE_NOTE_OF(ln), 100, 0, 1, rb, 0);
+            dl.ofs[ln][DE_SNAP] = 0;
+            snprintf(what, sizeof what, "%s snare SNAP +40 (Snappy): another sound", KN[k]);
+            check(what, !same(ra, rb));
+            {   /* every lane at all minima / maxima: bounded, it ends */
+                uint32_t e, i, ok2 = 1;
+                for (e = 0; e < 2u; e++) {
+                    for (l = 0; l < DRUM_LANES; l++)
+                        for (i = 0; i < DE_N; i++)
+                            dl.ofs[l][i] = e ? DE_MAX[i] : DE_MIN[i];
+                    for (l = 0; l < DRUM_LANES; l++) {
+                        uint32_t end = render(kit, LANE_NOTE_OF(l), 127, 0, 1, rb, 0);
+                        ok2 &= peak(rb, RN) < 300000 && end < RN - FS / 4u;
+                        if (!(peak(rb, RN) < 300000 && end < RN - FS / 4u))
+                            printf("  lane %u %s: peak %d end %u\n", l, e ? "max" : "min", peak(rb, RN), end);
+                    }
+                }
+                memset(&dl, 0, sizeof dl);
+                snprintf(what, sizeof what, "%s: every lane at all minima / maxima: bounded, it ends", KN[k]);
+                check(what, ok2);
+            }
+        }
+        /* the lane's sends and the track's mute */
+        {
+            static int32_t rv[RN], rv2[RN];
+            render(kit, 38, 100, 0, 1, ra, rv);
+            dsend[1] = dsend_word(31, 0, 0);
+            render(kit, 38, 100, 0, 1, rb, rv2);
+            dsend[1] = 0;
+            snprintf(what, sizeof what, "%s snare REV 31 (its own): the reverb bus gets more (%d -> %d)", KN[k],
+                     peak(rv, RN), peak(rv2, RN));
+            check(what, peak(rv2, RN) > peak(rv, RN) && same(ra, rb));
+            TDRUM->att = 0;
+            reset();
+            TDRUM->p[P_E0] = (int16_t)kit;
+            drum_on(46, 100);                      /* an open hat rings; the track muted: it fades out */
+            {
+                uint32_t j, loud = 0;
+                for (j = 0; j < FS / 2u / CTL; j++) {
+                    int32_t lb[CTL] = {0}, rbf[CTL] = {0}, rev[CTL] = {0};
+                    drums.a0 = j < 4u ? 0 : 32767;
+                    drums.a1 = j < 3u ? 0 : 32767;
+                    drums_render(lb, rbf, rev, CTL);
+                    if (j > 5u)
+                        loud |= (uint32_t)peak(lb, CTL);
+                }
+                drums.a0 = drums.a1 = 0;
+                snprintf(what, sizeof what, "%s: muted (the track's fade), the open hat is silent", KN[k]);
+                check(what, !loud);
+            }
+            reset();
+            TDRUM->p[P_E0] = (int16_t)kit;
+            drum_on(46, 100);
+            drums_off();
+            {
+                int32_t lb[CTL] = {0}, rbf[CTL] = {0}, rev[CTL] = {0}, j, loud = 0;
+                for (j = 0; j < 40; j++) {
+                    memset(lb, 0, sizeof lb);
+                    drums_render(lb, rbf, rev, CTL);
+                    if (j > 2)
+                        loud |= peak(lb, CTL);
+                }
+                snprintf(what, sizeof what, "%s: All Sound Off stops every voice (a short fade)", KN[k]);
+                check(what, !loud);
+            }
+        }
+        /* a lane on this kit's sound from another kit (SRC), a user kit naming it */
+        {
+            uint32_t sk = DRUM_SAMPLED + 1u;
+            render(kit, 38, 100, 0, 1, ra, 0);
+            dl.src[1] = (uint8_t)(DL_KIT0 + kit);
+            render(sk, 38, 100, 0, 1, rb, 0);
+            dl.src[1] = DL_KIT;
+            snprintf(what, sizeof what, "%s: the synthesised 909 kit, its SNARE lane on %s's snare", KN[k], KN[k]);
+            check(what, FELUCCA_DRUM_KITS ? same(ra, rb) : 1);
+        }
+        if (argc > 1) {   /* the comparison sounds, at a step's velocity */
+            static const uint8_t SN[9] = {36, 38, 39, 42, 46, 43, 48, 37, 35};
+            static const char *const SNAME[9] = {"kick", "snare", "clap", "closed-hat", "open-hat", "tom-low",
+                                                 "tom-high", "rim", "kick2"};
+            char nm[96];
+            for (n = 0; n < 9u; n++) {
+                /* this kit and its synthesised counterpart (the 909: kit 6, the 808: kit 5), once each */
+                const uint32_t sk[2] = {kit, k ? DRUM_SAMPLED : DRUM_SAMPLED + 1u};
+                uint32_t s;
+                for (s = 0; s < 2u; s++) {
+                    uint32_t end = render(sk[s], SN[n], 100, 0, 1, ra, 0);
+                    snprintf(nm, sizeof nm, "%s-%s", s ? (k ? "synth808" : "synth909") : KN[k], SNAME[n]);
+                    wav_mono(argv[1], nm, ra, end + FS / 10u < RN ? end + FS / 10u : RN);
+                }
+            }
+        }
+    }
+#if FELUCCA_DRUM_KITS
+    {   /* Optimist: an X0X voice as a lane's source (DL_X909 / DL_X808), any voice on any lane of any kit: it plays as
+         * the machine's own kit plays that voice (no variant); a build without the machine plays the synthesised
+         * 909 / 808's sound for the lane */
+        static const struct { uint8_t lane, note, src, ref_kit, ref_note; const char *what; } V[] = {
+            {0, 36, DL_X808 + 0u, DRUM_UID_X808, 36, "the synthesised 909 kit, KICK on the 808's BD"},
+            {9, 51, DL_X808 + 12u, DRUM_UID_X808, 56, "RIDE on the 808's CB"},
+            {5, 43, DL_X808 + 9u, DRUM_UID_X808, 75, "LOW TOM on the 808's claves (no lane of their own)"},
+            {3, 42, DL_X909 + 7u, DRUM_UID_X909, 42, "HAT on the 909's CH"},
+            {1, 38, DL_X909 + 1u, DRUM_UID_X909, 38, "SNARE on the 909's SD"},
+        };
+        static const uint32_t SK[2] = {DRUM_SAMPLED + 1u, DRUM_SAMPLED};   /* the synthesised 909, 808 */
+        uint32_t i, ok = 1, okm = 1;
+        for (i = 0; i < sizeof V / sizeof V[0]; i++) {
+            int x909 = V[i].src < DL_X808, built = x909 ? FELUCCA_DRUM_X909 : FELUCCA_DRUM_X808;
+            render(built ? V[i].ref_kit : SK[!x909], built ? V[i].ref_note : V[i].note, 100, 0, 1, rb, 0);
+            dl.src[V[i].lane] = V[i].src;
+            render(DRUM_SAMPLED + 1u, V[i].note, 100, 0, 1, ra, 0);
+            dl.src[V[i].lane] = DL_KIT;
+            if (!same(ra, rb) || peak(ra, RN) < 500)
+                printf("  %s: differs (peak %d / %d)\n", V[i].what, peak(ra, RN), peak(rb, RN));
+            ok &= same(ra, rb) && peak(ra, RN) >= 500;
+        }
+        check(FELUCCA_DRUM_X909 || FELUCCA_DRUM_X808 ? "lanes on X0X voices: each plays as its machine's kit plays it"
+                                                     : "lanes on X0X voices, not built: the synthesised 909 / 808 play",
+              ok);
+        /* a mixed kit: KICK the 808's BD, SNARE the synthesised 909's, HAT the 909's CH; the other lanes as before */
+        render(DRUM_SAMPLED + 1u, 38, 100, 0, 1, rb, 0);
+        dl.src[0] = (uint8_t)(DL_X808 + 0u);
+        dl.src[3] = (uint8_t)(DL_X909 + 7u);
+        render(DRUM_SAMPLED + 1u, 38, 100, 0, 1, ra, 0);
+        okm &= same(ra, rb);
+        render(DRUM_SAMPLED + 1u, 36, 100, 0, 1, ra, 0);
+        okm &= peak(ra, RN) > 500;
+        {   /* the project keeps the sources */
+            static project_t p;
+            static dlrec_t d;
+            proj_capture(&p, &d);
+            dl.src[0] = dl.src[3] = DL_KIT;
+            proj_apply(&p, &d, 1);
+            okm &= dl.src[0] == DL_X808 + 0u && dl.src[3] == DL_X909 + 7u;
+        }
+        dl.src[0] = dl.src[3] = DL_KIT;
+        check("a mixed kit: KICK on the 808's BD, HAT on the 909's CH, the snare as the kit's; a project keeps them", okm);
+    }
+#endif
+    {   /* Optimist: the style kits (UIDs 39..46): built with their machine (each GM note bounded, heard, ended; KICK
+         * not the machine's own), else the machine's stand-in note for note; the kit list's names */
+        uint32_t s, ok = 1, okn = 1, note;
+        for (s = DRUM_UID_XSTYLE; s < DRUM_UID_XSTYLE + DRUM_NXSTYLE; s++) {
+            uint32_t m = DRUM_UID_XMACH(s), built = drum_kit_built(m);
+            okn &= drum_kit_built(s) == built && !strncmp(DRUM_KIT_NAMES[s], m == DRUM_UID_X909 ? "X9 " : "X8 ", 3);
+            if (!built) {
+                render(s, 36, 100, 0, 1, ra, 0);
+                ok &= TDRUM->p[P_E0] == (int16_t)s;     /* (the UID kept) */
+                render(drum_kit_of((int32_t)m), 36, 100, 0, 1, rb, 0);
+                ok &= same(ra, rb);
+                continue;
+            }
+            for (note = 35; note <= 81u; note++) {
+                uint32_t end = render(s, note, 127, 0, 1, ra, 0);
+                int32_t p = peak(ra, RN);
+                if (x0x_note(s, note) == XN_NONE)
+                    continue;
+                if (!(p > 500 && p < 120000 && end < RN - FS / 2u)) {
+                    printf("  %s note %u: peak %d, silent from %.2f s\n", DRUM_KIT_NAMES[s], note, p, (double)end / FS);
+                    ok = 0;
+                }
+            }
+            render(s, 36, 100, 0, 1, ra, 0);
+            render(m, 36, 100, 0, 1, rb, 0);
+            ok &= !same(ra, rb);
+        }
+        check(FELUCCA_DRUM_X909 || FELUCCA_DRUM_X808 ? "style kits 39..46: each note heard and ended, KICK their own"
+                                                     : "style kits 39..46, not built: their machine's stand-in", ok);
+        check("style kits: built as their machine, names X9 ... / X8 ...", okn);
+    }
+#if FELUCCA_DRUM_X909 && FELUCCA_X909_CYM == 2
+    {   /* the 6-bit ride and crash (X909_CYM 2) against the 8-bit ones, as d9_render_smp reads them */
+        double e = 0.0, sg = 0.0;
+        uint32_t p, nz = 0;
+        for (k = 2; k < 4u; k++) {
+            const d9_smp_t *s = &x909.smp[k];
+            const int8_t *m8 = k == 2u ? x0x_smp_crash_m : x0x_smp_ride_m;
+            const uint8_t *e8 = k == 2u ? x0x_smp_crash_e : x0x_smp_ride_e;
+            x0x_ready();
+            for (p = 0; p < s->len; p++) {
+                double a = (double)((int32_t)m8[p] << e8[p / X0X_SMP_BLOCK]), b = (double)d9_smp_at(s, s->buf, s->sh, p);
+                e += (a - b) * (a - b);
+                sg += a * a;
+                nz += b != 0.0;
+            }
+        }
+        printf("  6-bit cymbals: %.1f dB against the 8-bit ones\n", 10.0 * log10(sg / (e > 0.0 ? e : 1.0)));
+        check("x0x909: the 6-bit ride and crash read back within 28 dB of the 8-bit ones (X909_CYM 2)",
+              10.0 * log10(sg / (e > 0.0 ? e : 1.0)) > 28.0 && nz > 80000u && x909.smp[2].b6 && !x909.smp[0].b6);
+    }
+#endif
+#if FELUCCA_DRUM_X808
+    {   /* the 808's block forms against the per-sample ones they replace (Optimist perf): bank_block against
+         * bank_tick, bit for bit, at the ratio's ends and between, blocks of 1..32 samples, retuned on the way */
+        static drum808_t a, b;
+        static const float R[7] = {0.25f, 0.5f, 0.97f, 1.0f, 1.83f, 3.1f, 4.0f};
+        float bus[32], pair[32];
+        uint32_t ri, s, diff = 0, len = 7u;
+        drum808_init(&a);
+        drum808_init(&b);
+        for (ri = 0; ri < 7u; ri++) {
+            bank_ratio(&a.bank, R[ri]);
+            bank_ratio(&b.bank, R[ri]);
+            for (s = 0; s < 40000u; s += len) {
+                uint32_t i;
+                len = 1u + (s * 7u + ri) % 32u;
+                bank_block(&b.bank, bus, pair, (int)len);
+                for (i = 0; i < len; i++) {
+                    float t = bank_tick(&a.bank);
+                    float p = ((a.bank.ph[4] < BANK_DUTY ? 2.5f : -2.5f) + (a.bank.ph[5] < BANK_DUTY ? 2.5f : -2.5f)) * 0.5f;
+                    diff += memcmp(&t, &bus[i], 4) != 0 || memcmp(&p, &pair[i], 4) != 0;
+                }
+            }
+        }
+        check("x0x808: the metal bank by blocks = sample by sample (7 ratios, 1..32-sample blocks, 280k samples)",
+              diff == 0 && !memcmp(&a.bank, &b.bank, sizeof a.bank));
+    }
+    {   /* fm_tanhf's short series (x^5, x^7 below 0.0154 / 0.0456) against the full x^13 one, every float of the
+         * Taylor branch [0.0004, 0.5) and its negative (X0X's form as it was) */
+        float x = 0.0004f;
+        uint32_t u, bad = 0;
+        memcpy(&u, &x, 4);
+        for (;; u++) {
+            float z, full, t, nx;
+            memcpy(&x, &u, 4);
+            if (!(x < 0.5f))
+                break;
+            z = x * x;
+            full = x * (1.0f + z * (-0.333333333f + z * (0.133333333f + z * (-0.0539682540f + z * (0.0218694885f +
+                       z * (-0.00886323552f + z * 0.00359212803f))))));
+            t = fm_tanhf(x);
+            nx = -x;
+            bad += memcmp(&t, &full, 4) != 0;
+            t = -fm_tanhf(nx);
+            bad += memcmp(&t, &full, 4) != 0;
+        }
+        check("x0x808: fm_tanhf's short series = the full one, bit for bit (every float in [0.0004, 0.5), both signs)",
+              bad == 0);
+    }
+#endif
+    {   /* a project naming the kits: captured and applied as it is (a build without them: kept) */
+        static project_t p;
+        static dlrec_t d;
+        uint32_t kit;
+        for (kit = DRUM_UID_X909; kit <= DRUM_UID_X808; kit++) {
+            TDRUM->p[P_E0] = (int16_t)kit;
+            proj_capture(&p, &d);
+            TDRUM->p[P_E0] = 5;
+            proj_apply(&p, &d, 1);
+            check(kit == DRUM_UID_X909 ? "project with X0X 909: captured, applied, the kit kept"
+                                       : "project with X0X 808: captured, applied, the kit kept",
+                  TDRUM->p[P_E0] == (int16_t)kit);
+        }
+    }
+#if DINS_X0X && FELUCCA_FX_DIST
+    if (drum_kit_built(DRUM_UID_X909)) {               /* a lane's inserts on an X0X channel (fx.c dins_x0x, 2026-10-18) */
+        uint32_t l = lane_of_note(38), e0, e1;
+        const uint8_t s[INS_N] = {FXT_DIST, FXT_NONE}, z[INS_N] = {FXT_NONE, FXT_NONE};
+        lin_put(l, z);
+        e0 = render(DRUM_UID_X909, 38, 100, 0, 1, ra, 0);
+        lin_put(l, s);
+        lin_set(l, 0, 100);
+        e1 = render(DRUM_UID_X909, 38, 100, 0, 1, rb, 0);
+        check("x0x909: the snare's lane with DIST in S1: heard through it (another render), still ending", !same(ra, rb) &&
+              e1 < RN - FS / 2u && peak(rb, RN) < 200000);
+        lin_set(l, 0, 0);
+        render(DRUM_UID_X909, 38, 100, 0, 1, rb, 0);
+        check("... DIST at 0: the dry render", same(ra, rb));
+        lin_put(l, z);
+        (void)e0;
+    }
+#endif
+    printf(fails ? "x0x drums test FAILED (%d)\n" : "x0x drums test passed\n", fails);
+    return fails != 0;
+}

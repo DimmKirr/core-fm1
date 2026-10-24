@@ -1,0 +1,428 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* The model operations both UIs and the core call (docs/UI-FEASIBILITY.md section 4.1, step 2): what loading a
+ * sound, an engine or the power-on defaults does to a track, the curated preset list (BANK) the PRESETS knob
+ * browses, and the core's forward declarations the UIs need. Moved verbatim from ui/sloop/ui.c (2026-10-08) so
+ * that a build with the other UI (FELUCCA_UI, ui/optimist) has them too; felucca.c includes it before the UI.
+ * Nothing here touches a UI's state: what must redraw says so through sync_reload (the editor) or its caller. */
+#ifndef FELUCCA_VERSION
+#define FELUCCA_VERSION "OPTIMIST 0.1"  /* the FM-1 firmware Optimist (based on SLOOP and Felucca) */
+#endif
+static void project_save(uint32_t slot);
+static void arrangement_save(void);
+static void panel_setup(void);
+static void project_load(uint32_t slot);
+static int project_used(uint32_t slot);
+#if FELUCCA_SL24_SAFE
+static uint32_t project_state(uint32_t s);   /* project.c sl24_guard.c */
+#if SL24_AUTO
+static void sl24_auto_import(void);
+#endif
+#endif
+#define FAV_SAVE_LATER() (settings_later = 1)       /* (panel.c: written once the audio is quiet, project.c sections_flush) */
+#include "favorites.c"                      /* FELUCCA_FAVORITES: the marked sounds (fav, fav_list) */
+static int up_used(uint32_t k);              /* user presets: upreset.c */
+static int up_load(uint32_t k);
+static uint32_t up_count(void);
+static uint32_t up_nth(uint32_t n);
+static uint32_t up_rank(uint32_t slot);
+static void up_name(uint32_t k, char *b);
+static void up_slot_label(char *b, uint32_t k);
+static void up_ui(uint32_t op, uint32_t k);
+#if FELUCCA_NB_LIST                     /* the engine's own collection after the user presets: nbank.c */
+#define NB_LIST (NENGINES + 1u)               /* preset_at: an entry of it */
+static uint32_t nb_list(uint32_t *rank, uint32_t n, uint32_t *at);
+static void nb_row(uint32_t k, char *tag, char *nm);
+static void nb_load(uint32_t k);
+#endif
+#if FELUCCA_SNAPSHOTS                        /* SAVE > SNAPSHOT: snapshots.c */
+static uint32_t sn_ui_n(void);
+static void sn_ui_label(char *b, uint32_t i);
+static uint32_t sn_ui_row(uint32_t i, char *name, uint32_t *bytes);
+static uint32_t sn_ui_free(void);
+static int sn_ui_fits(void);
+static uint32_t sn_ui_sig(void);
+static void sn_ui(uint32_t op, uint32_t i);
+#endif
+static uint32_t user_of(const track_t *t)    /* user preset slot its sound came from, UP_SLOTS = none */
+{
+    return t->user && up_used(t->user - 1u) ? t->user - 1u : UP_SLOTS;
+}
+static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
+static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */
+
+/* ------------------------------------------------------- track setup --- */
+/* LIVE: no factory sequence patterns. Loading a sound (factory or user preset) never
+ * writes the sequencer: every pattern is the one the player records or enters. */
+
+/* the parts' sounds at power-on (engine, preset): bass, pad, lead */
+static const uint8_t TRK_DEF[NPART][2] = {{0, 0}, {1, 0}, {4, 5}};   /* ANALOG 808 BOOM, DIGITAL RHODES, SAMPLE LOFI FLUTE */
+/* part i's default engine (slot; TRK_DEF holds UIDs: a fallback when not built) and preset */
+static uint32_t trk_def_engine(uint32_t i)
+{
+    return i >= NPART ? 0u : ENG_ALL ? TRK_DEF[i][0] : eng_slot(TRK_DEF[i][0]);
+}
+static uint32_t trk_def_preset(uint32_t i) { return ENG_ALL || eng_built(TRK_DEF[i][0]) ? TRK_DEF[i][1] : 0u; }   /* (i < NPART) */
+
+static int seq_is_empty(const track_t *t) { return track_empty(t); }
+
+static void track_defaults_steps(track_t *t) { steps_clear(t); }
+
+/* what loading a sound (factory or user preset) leaves alone: the mix (LEVEL, PAN, MUTE, the FX bypass:
+ * the TRACKS faders, GLO + key), the pattern parameters (LEN, DIV, SWING, GATE) and the key the part plays
+ * in (ROOT, SCALE, QNT, CHORD: the song's; SCL + key sets the root of every part). The SLICER is
+ * part of the sound: a factory preset turns it OFF (its defaults), a user preset brings its own */
+static int param_kept(uint32_t i)
+{
+    return i == P_LEVEL || i == P_PAN || i == P_MUTE || i == P_FXOFF || (i >= P_SLEN && i <= P_SGATE) ||
+           (i >= P_ROOT && i <= P_QUANT) || i == P_CHORD
+           || (i >= P_ENG_END && (i < P_E1PIT || i > P_NLAST))   /* (SLOOP 2.4's FILT, STRUM, VLEAD: the track's, as
+                                                      * 2.4 keeps them; the COMP insert's amount: the mix, D8; not ENV 1
+                                                      * MOD's depths nor ENV2's slots: the sound's) */
+        ;
+}
+
+/* INIT: an engine with no factory preset this build can play (none in its table, or none whose sample set is
+ * built) has this one entry on the PRESETS list, and in the web editor's list: the engine's defaults, as a fresh
+ * track on it. No data: made from the engine's and the track's defaults */
+#define PRESET_INIT 0xFFu
+static uint32_t eng_first_playable(const engine_t *e)    /* its first playable preset, else PRESET_INIT */
+{
+    uint32_t k;
+    for (k = 0; k < e->npresets; k++)
+        if (preset_playable(e, k))
+            return k;
+    return PRESET_INIT;
+}
+
+/* preset pi of the engine the track asked for: the whole sound (not the pattern parameters); PRESET_INIT, or any pi
+ * on an engine without a playable preset: INIT */
+static void apply_preset_to(track_t *t, uint32_t pi)
+{
+    const engine_t *e = ENGINES[t->eng_req % NENGINES];
+    uint32_t i;
+    if (is_drum(t))
+        return;
+    sound_change(t);                                  /* (SLOOP 2.6: what sounds fades out with the old sound, no click) */
+    panic_req |= (uint8_t)(1u << trk_index(t));       /* MONO/POLY may change: release what sounds */
+    t->user = 0;
+    if (t == TSEL)
+        sync_reload = 1;
+    for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults (INIT, a preset: it */
+        if (!param_kept(i))                           /* sounds the same after any edit; not the pattern, not the mix) */
+            t->p[i] = TP[i].def;
+    if (pi == PRESET_INIT || eng_first_playable(e) == PRESET_INIT) {
+        t->preset = 0;                                /* INIT: the engine's values to their defaults too */
+        for (i = 0; i < 8u; i++)
+            t->p[P_E0 + i] = e->edit[i].def;
+        for (i = P_E1PIT; i <= P_NLAST; i++)          /* ENV 1 MOD's depths at 0, ENV2's slots: DEST A the filter */
+            t->p[i] = TP[i].def;
+        env2_dest_def(t->p, t->eng_req);
+        return;
+    }
+    pi %= e->npresets;
+    t->preset = (uint8_t)pi;
+    if (ENG_IS(e, FM6))
+        fm6_cur[trk_index(t) % NPART] = 0;           /* its VOICE afresh: edits of the buffer go */
+    for (i = 0; i < 8u; i++)
+        t->p[P_E0 + i] = (int16_t)e->presets[pi].e[i];
+    t->p[P_ATK] = e->presets[pi].env[0];
+    t->p[P_DEC] = e->presets[pi].env[1];
+    t->p[P_SUS] = e->presets[pi].env[2];
+    t->p[P_REL] = e->presets[pi].env[3];
+    t->p[P_ED_FLT] = e->presets[pi].fenv;
+    t->p[P_ED_FX] = preset_trim(eng_uid(t->eng_req % NENGINES), pi);  /* level-matched (tools/level_presets.py) */
+    t->p[P_VOICE] = e->presets[pi].mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
+    {   /* the rest of the patch: sends, arpeggiator (never a pattern: LIVE) */
+        static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
+        const preset_t *pr = &e->presets[pi];
+        for (i = 0; i < 4u; i++) {
+            t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
+            t->p[P_AMODE + i] = (int16_t)(pr->arp[i] ? pr->arp[i] - 1 : TP[P_AMODE + i].def);
+        }
+        preset_extras(t->p, pr);                     /* glide, pitch / LFO modulation, voice mode */
+        analog2_extras(t->p, e, pi);                 /* ANALOG 2's own values */
+        for (i = P_E1PIT; i <= P_E1Z; i++)            /* ENV 1 MOD's PIT and moves (the tables have none) */
+            t->p[i] = 0;
+        (void)env_load(t->p);                        /* ENV2's depths of the tables -> its slots */
+        env2_dest_def(t->p, t->eng_req);
+    }
+}
+
+/* the engine's defaults and its first preset. With the audio IRQ off: the ISR sees the old engine with
+ * its values or the new one with its own (voice.c engine_block), never one with the other's */
+static void set_engine_of(track_t *t, uint32_t ei)
+{
+    const engine_t *e = ENGINES[ei % NENGINES];
+    uint32_t i;
+    if (is_drum(t))
+        return;
+    fm1_irq_off();
+#if FELUCCA_MOTION || FELUCCA_PLOCK
+    motion_restore(t);                                /* (the automation's values back first, then the new sound: it is
+                                                       * the patch now, STOP keeps it) */
+#endif
+    sound_change(t);                                  /* (SLOOP 2.6: the sound as it is, before anything new is written) */
+    t->eng_req = (uint8_t)(ei % NENGINES);
+    for (i = 0; i < 8u; i++)
+        t->p[P_E0 + i] = e->edit[i].def;
+    apply_preset_to(t, eng_first_playable(e));      /* (its first preset; none: INIT) */
+    fm1_irq_on();
+}
+
+static void apply_preset(uint32_t pi) { apply_preset_to(TSEL, pi); }
+static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
+
+static void track_defaults(track_t *t)
+{
+    uint32_t i;
+    for (i = 0; i < P_E0; i++)
+        t->p[i] = TP[i].def;
+    for (i = P_ENG_END; i < P_COUNT; i++)            /* (SLOOP 2.4's FILT, STRUM, VLEAD; the COMP insert's amount) */
+        t->p[i] = TP[i].def;
+    if (is_drum(t))
+        t->p[P_DACC] = DACC_DEF;                     /* (the ACCENT amount: core.h; the kit is the caller's) */
+    track_defaults_steps(t);
+}
+
+/* the factory presets as one list by kind (basses, keys, organs, pads, leads, plucks and bells, stabs,
+ * the rest), then the used user presets: the PRESETS knob and the PRESETS page browse it. By name: an
+ * engine's preset table may change order; tests/ui_pages_test.c checks every preset is here once */
+enum { BK_BASS, BK_KEYS, BK_ORGAN, BK_PAD, BK_LEAD, BK_PLUCK, BK_STAB, BK_FX };
+static const char *const BANK_KIND[] = {"BASS", "KEYS", "ORGN", "PAD", "LEAD", "PLCK", "STAB", "FX"};
+static const struct __attribute__((packed)) { uint8_t kind : 4, e : 4; const char *name; } BANK[] = {   /* (5 bytes an entry: an engine UID < 16) */
+    {BK_BASS, 0, "808 BOOM"}, {BK_BASS, 0, "808 DIRTY"}, {BK_BASS, 0, "808 SLIDE"}, {BK_BASS, 0, "SUB BASS"},
+    {BK_BASS, 0, "PLUGG BASS"}, {BK_BASS, 0, "REESE"}, {BK_BASS, 0, "WOBBLE"}, {BK_BASS, 0, "ACID 303"},
+    {BK_BASS, 1, "FM BASS"}, {BK_BASS, 2, "CZ BASS"}, {BK_BASS, 6, "FAT BASS"}, {BK_BASS, 0, "FUNK BASS"},
+    {BK_BASS, 5, "WOW BASS"}, {BK_BASS, 3, "GB BASS"}, {BK_BASS, 4, "UP BASS"}, {BK_BASS, 4, "DEEP BASS"},
+#if FELUCCA_ANALOG2
+    {BK_BASS, 0, "LP24 BASS"},
+#endif
+    {BK_KEYS, 1, "RHODES"}, {BK_KEYS, 1, "DX RHODES"}, {BK_KEYS, 1, "WURLI"}, {BK_KEYS, 1, "M1 PIANO"},
+    {BK_KEYS, 1, "AFRO KEYS"}, {BK_KEYS, 4, "GRAND PNO"}, {BK_KEYS, 4, "DUSTY PNO"}, {BK_KEYS, 4, "LOFI KEYS"}, {BK_KEYS, 2, "SOFT KEYS"},
+    {BK_KEYS, 1, "CLAV"},
+    {BK_ORGAN, 7, "SOUL ORGAN"}, {BK_ORGAN, 7, "GOSPEL"}, {BK_ORGAN, 7, "JAZZ ORGAN"}, {BK_ORGAN, 7, "DIRTY B3"},
+    {BK_ORGAN, 7, "HOUSE ORGN"},
+    {BK_PAD, 0, "WARM PAD"}, {BK_PAD, 6, "SAW PAD"}, {BK_PAD, 1, "GLASS PAD"}, {BK_PAD, 0, "DARK STR"},
+    {BK_PAD, 2, "CZ STRING"}, {BK_PAD, 0, "ATMOS PAD"}, {BK_PAD, 8, "LOFI CLOUD"}, {BK_PAD, 8, "VIBE HAZE"},
+    {BK_PAD, 5, "CHOIR AAH"}, {BK_PAD, 5, "SOUL OOH"}, {BK_PAD, ENG_UID_SUPER, "SUPER PAD"},
+    {BK_LEAD, 0, "SUPERSAW"}, {BK_LEAD, ENG_UID_SUPER, "SUPER LEAD"}, {BK_LEAD, 0, "G-FUNK LD"}, {BK_LEAD, 6, "SYNC LEAD"},
+    {BK_LEAD, 6, "HOOVER"}, {BK_LEAD, ENG_UID_SUPER, "HOOVER SAW"},
+#if FELUCCA_ANALOG2
+    {BK_LEAD, 0, "SYNC SWEEP"}, {BK_LEAD, 0, "FIFTH LEAD"},
+#endif
+    {BK_LEAD, 5, "TALKBOX"}, {BK_LEAD, 3, "GAME LEAD"}, {BK_LEAD, 4, "LOFI FLUTE"}, {BK_LEAD, 8, "FLUTE DUST"},
+    {BK_PLUCK, 0, "TRAP PLUCK"}, {BK_PLUCK, ENG_UID_SUPER, "SUPER PLCK"}, {BK_PLUCK, 2, "RESO PLUCK"}, {BK_PLUCK, 1, "PLUGG BELL"}, {BK_PLUCK, 1, "TRAP BELL"},
+    {BK_PLUCK, 1, "MUSIC BOX"}, {BK_PLUCK, 1, "KALIMBA"}, {BK_PLUCK, 1, "MARIMBA"}, {BK_PLUCK, 4, "VIBES"},
+    {BK_PLUCK, 3, "8BIT ARP"},
+    {BK_STAB, 6, "MIN STAB"}, {BK_STAB, 6, "MIN7 STAB"}, {BK_STAB, 6, "RAVE STAB"}, {BK_STAB, 6, "DUB CHORD"}, {BK_STAB, ENG_UID_SUPER, "SUPER CHRD"},
+    {BK_STAB, 0, "SYN BRASS"}, {BK_STAB, 2, "CZ BRASS"}, {BK_STAB, 4, "HORN STAB"}, {BK_STAB, 4, "STRING STB"},
+    {BK_FX, 4, "SCRATCH"}, {BK_FX, 4, "GM KIT"},
+    {BK_FX, ENG_UID_FM6, "INIT VOICE"}, {BK_FX, ENG_UID_FM6, "INIT WIDE"}, {BK_FX, ENG_UID_FM6, "INIT MONO"},   /* (FM6: the voice packs are nbank.c's) */
+#if FELUCCA_ENG_PHYS
+    {BK_PLUCK, ENG_UID_PHYS, "BELL TREE"}, {BK_PLUCK, ENG_UID_PHYS, "WOOD MRMBA"}, {BK_PLUCK, ENG_UID_PHYS, "PLUCK"},
+    {BK_PLUCK, ENG_UID_PHYS, "THUMB PNO"}, {BK_PLUCK, ENG_UID_PHYS, "SYMP HARP"}, {BK_PAD, ENG_UID_PHYS, "BOWED METAL"},
+    {BK_PAD, ENG_UID_PHYS, "DRONE STRING"}, {BK_FX, ENG_UID_PHYS, "HAND DRUM"}, {BK_FX, ENG_UID_PHYS, "TOMS"},
+#endif
+#if FELUCCA_ENG_ACID
+    {BK_BASS, ENG_UID_ACID, "ACID LINE"}, {BK_BASS, ENG_UID_ACID, "ACID SQR"}, {BK_BASS, ENG_UID_ACID, "ACID RAGE"},
+    {BK_BASS, ENG_UID_ACID, "ACID DUB"},
+#endif
+#if FELUCCA_ENG_SLICE
+    {BK_FX, ENG_UID_SLICE, "BREAK 16"}, {BK_FX, ENG_UID_SLICE, "CHOP 8"}, {BK_FX, ENG_UID_SLICE, "REVERSE"},
+    {BK_FX, ENG_UID_SLICE, "USR SLICE"},
+#endif
+#if FELUCCA_ENG_NOISE
+    {BK_FX, ENG_UID_NOISE, "WIND"}, {BK_FX, ENG_UID_NOISE, "RAIN"}, {BK_LEAD, ENG_UID_NOISE, "ARCADE"},
+    {BK_FX, ENG_UID_NOISE, "METAL"},
+#endif
+#if FELUCCA_ENG_CZ
+    {BK_BASS, ENG_UID_CZ, "PD BASS"}, {BK_LEAD, ENG_UID_CZ, "RESO SWEEP"}, {BK_PLUCK, ENG_UID_CZ, "GLASS BELL"},
+    {BK_STAB, ENG_UID_CZ, "WIRE BRASS"}, {BK_PAD, ENG_UID_CZ, "SOFT PAD"}, {BK_FX, ENG_UID_CZ, "NOISE BREATH"},
+    {BK_KEYS, ENG_UID_CZ, "PULSE KEYS"}, {BK_LEAD, ENG_UID_CZ, "CZ INIT"},
+#endif
+#if FELUCCA_ENG_JUNO
+    {BK_PAD, ENG_UID_JUNO, "JUNO STRNG"}, {BK_PAD, ENG_UID_JUNO, "JUNO PWM PD"}, {BK_STAB, ENG_UID_JUNO, "JUNO BRASS"},
+    {BK_BASS, ENG_UID_JUNO, "JUNO BASS"}, {BK_LEAD, ENG_UID_JUNO, "JUNO SYNCL"}, {BK_FX, ENG_UID_JUNO, "JUNO HOLLOW"},
+    {BK_KEYS, ENG_UID_JUNO, "JUNO ORGAN"}, {BK_LEAD, ENG_UID_JUNO, "JUNO INIT"},
+#endif
+#if GR_FALLBACK                                     /* (GRAIN without its presets' sets: eng_grain.c) */
+    {BK_PAD, 8, "GRAIN PAD"},
+#endif
+};
+_Static_assert(ENG_UID_N <= 16u && BK_FX < 16, "BANK: an entry's kind and engine UID in a byte");
+#define NBANK_ALL (sizeof BANK / sizeof BANK[0])
+static uint32_t bank_eng(uint32_t i) { return eng_slot_built(BANK[i].e); }   /* entry i's engine slot */
+/* the list as this build has it: the entries whose engine is built and whose preset exists (a reduced build:
+ * registry.h; a sample set left out takes its presets along). bank_ix: list position -> BANK entry */
+static uint8_t bank_pi[NBANK_ALL];                   /* the preset index of each entry in its engine */
+static uint8_t bank_ix[NBANK_ALL], bank_n;
+static uint8_t bank_init[NENGINES], bank_ni;          /* after them: INIT of each engine with no entry (slots) */
+static uint8_t bank_ready;
+static void bank_resolve(void)
+{
+    uint32_t i, k;
+    bank_n = bank_ni = 0;
+    for (i = 0; i < NBANK_ALL; i++) {
+        const engine_t *e;
+        bank_pi[i] = 0xFF;
+        if (!eng_built(BANK[i].e))
+            continue;
+        e = ENGINES[bank_eng(i)];
+        for (k = 0; k < e->npresets; k++)
+            if (str_eq(e->presets[k].name, BANK[i].name))
+                bank_pi[i] = (uint8_t)k;
+        if (bank_pi[i] != 0xFF && preset_playable(e, bank_pi[i]))
+            bank_ix[bank_n++] = (uint8_t)i;
+    }
+#if FELUCCA_UI == 1
+    for (i = 1; i < bank_n; i++) {                   /* the Optimist UI: by instrument, then as BANK has them (the user,
+                                                      * 2026-10-12: "presets should be sorted by instrument") */
+        uint8_t x = bank_ix[i];
+        uint32_t ex = bank_eng(x);
+        for (k = i; k > 0 && bank_eng(bank_ix[k - 1]) > ex; k--)
+            bank_ix[k] = bank_ix[k - 1];
+        bank_ix[k] = x;
+    }
+#endif
+    for (i = 0; i < NENGINES; i++) {
+        for (k = 0; k < bank_n && bank_eng(bank_ix[k]) != i; k++)
+            ;
+        if (k == bank_n)
+            bank_init[bank_ni++] = (uint8_t)i;
+    }
+    bank_ready = 1;
+}
+#define NBANK ((uint32_t)bank_n)                     /* the factory entries */
+#define NLIST (NBANK + bank_ni)                      /* and the INIT ones: then the user presets */
+static uint32_t preset_all_pos(uint32_t *total)      /* list index of the selected track's preset, in the whole list */
+{
+    uint32_t i, cur = 0;
+    if (!bank_ready)
+        bank_resolve();
+    for (i = 0; i < NBANK; i++)
+        if (bank_eng(bank_ix[i]) == TSEL->eng_req && bank_pi[bank_ix[i]] == TSEL->preset)
+            cur = i;
+    for (i = 0; i < bank_ni; i++)
+        if (bank_init[i] == TSEL->eng_req)
+            cur = NBANK + i;
+    if (user_of(TSEL) < UP_SLOTS)
+        cur = NLIST + up_rank(user_of(TSEL));
+    *total = NLIST + up_count();
+#if FELUCCA_NB_LIST
+    {
+        uint32_t at, n = nb_list(&i, ~0u, &at);           /* (the engine's own collection: nbank.c) */
+        if (i < n)
+            cur = *total + i;
+        *total += n;
+    }
+#endif
+    return cur;
+}
+
+/* list index n (< total) -> engine slot, *k its preset (PRESET_INIT: INIT); NENGINES = user preset, *k its slot */
+static uint32_t preset_all_at(uint32_t n, uint32_t *k)
+{
+    if (!bank_ready)
+        bank_resolve();
+#if FELUCCA_NB_LIST
+    if (n >= NLIST + up_count()) {
+        uint32_t r;
+        nb_list(&r, n - NLIST - up_count(), k);
+        return NB_LIST;
+    }
+#endif
+    if (n >= NLIST) {
+        *k = up_nth(n - NLIST);
+        return NENGINES;
+    }
+    if (n >= NBANK) {
+        *k = PRESET_INIT;
+        return bank_init[n - NBANK];
+    }
+    *k = bank_pi[bank_ix[n]];
+    return bank_eng(bank_ix[n]);
+}
+/* the whole list's name of a sound as the lists show it, below; the favorites' view of the list (core/favorites.c):
+ * with LIST FAV the list is the marked sounds only. preset_pos / preset_at / preset_go's index are the list as shown;
+ * preset_src maps it to the whole list's (preset_kind labels the whole list's) */
+static const char *preset_kind(uint32_t n) { return n < NBANK ? BANK_KIND[BANK[bank_ix[n]].kind] : n < NLIST ? "INIT" : "USER"; }
+/* the name of preset k of engine slot e as the lists show it */
+static const char *preset_name(uint32_t e, uint32_t k)
+{
+    return k == PRESET_INIT || !ENGINES[e]->npresets ? "INIT" : ENGINES[e]->presets[k % ENGINES[e]->npresets].name;
+}
+#if FELUCCA_FAVORITES
+/* list entry (e, k) of preset_all_at: marked? The engines' own collections (NB_LIST) have no mark */
+static int fav_entry(uint32_t e, uint32_t k)
+{
+    if (e == NENGINES)
+        return fav_user_has(k);
+    return e < NENGINES && fav_has(eng_uid(e), preset_name(e, k));
+}
+static uint32_t preset_pos(uint32_t *total)          /* list index of the selected track's preset; >= *total: not in the list */
+{
+    uint32_t all, cur = preset_all_pos(&all), i, n = 0, pos = 0xFFFFFFFFu;
+    if (!fav_list) {
+        *total = all;
+        return cur;
+    }
+    for (i = 0; i < all; i++) {
+        uint32_t k, e = preset_all_at(i, &k);
+        if (!fav_entry(e, k))
+            continue;
+        if (i == cur)
+            pos = n;
+        n++;
+    }
+    *total = n;
+    return pos == 0xFFFFFFFFu ? n : pos;
+}
+static uint32_t preset_src(uint32_t n)               /* list index n -> the whole list's (its length: no such entry) */
+{
+    uint32_t all, i;
+    if (!fav_list)
+        return n;
+    preset_all_pos(&all);
+    for (i = 0; i < all; i++) {
+        uint32_t k, e = preset_all_at(i, &k);
+        if (fav_entry(e, k) && !n--)
+            return i;
+    }
+    return all;
+}
+static uint32_t preset_at(uint32_t n, uint32_t *k) { return preset_all_at(preset_src(n), k); }
+/* the selected track's sound as a list entry (e = engine slot, or NENGINES: user preset k): 0 if it has none to mark
+ * (the drum track, the engines' own collections, a factory sound the list does not hold) */
+static int fav_cur(uint32_t *e, uint32_t *k)
+{
+    uint32_t all, i, u, ke, kk;
+    if (is_drum(TSEL))
+        return 0;
+#if FELUCCA_NB_LIST
+    {
+        uint32_t at, r, n = nb_list(&r, ~0u, &at);
+        if (r < n)
+            return 0;
+    }
+#endif
+    u = user_of(TSEL);
+    ke = u < UP_SLOTS ? (uint32_t)NENGINES : TSEL->eng_req % NENGINES;
+    kk = u < UP_SLOTS ? u : TSEL->preset;
+    preset_all_pos(&all);
+    for (i = 0; i < all; i++) {
+        uint32_t k2, e2 = preset_all_at(i, &k2);
+        if (e2 == ke && k2 == kk) {
+            *e = ke;
+            *k = kk;
+            return 1;
+        }
+    }
+    return 0;
+}
+#else
+#define preset_pos preset_all_pos
+#define preset_at preset_all_at
+#define preset_src(n) (n)
+#define fav_list 0u
+#endif

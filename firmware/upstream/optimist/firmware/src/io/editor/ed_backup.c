@@ -1,0 +1,796 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* Editor protocol: backup and restore of everything the FM-1 keeps in flash, object by object (included by
+ * editor.c; FELUCCA_FLASH; web/EDITOR_PROTOCOL.md "Backup and restore"). One registry, BK_OBJS: each stored
+ * area is an object with a 4-letter tag, a kind and the build switch it belongs to. A new area (the section
+ * log of FELUCCA_SECTIONS, say) is one more line; a kind other than these two needs its read and its write.
+ *   BK_ST   a storage.c object (A/B sector pair: projects, autosave, user presets, settings, the kit bank, the
+ *           drum records). Read: the current copy's payload. Written back through st_save: the other copy,
+ *           header last, read back; the bytes are those the firmware wrote, in their own format (magic,
+ *           version inside), so loading them runs the usual migrations.
+ *   BK_FM6  the FM6 user bank (0xD8000 / 0xD9000; dropped 2026-10-18: listed, never in a build)
+ *   BK_USR  a user sample slot, raw (its header and data; an older slot holding the FM6 user bank too). Read here;
+ *           written with the sample upload commands (11..13, SMP_BEGIN / WRITE / END: erase, data, header
+ *           last).
+ * Commands (a firmware without them does not answer 43):
+ *   43 BK_LIST    3 (version), first -> 3, n, switches (2 x 7 bit), project magic (4 ASCII), chunk (2 x 7 bit),
+ *                                     first, count, then per object first..first+count-1: tag (4 ASCII), kind,
+ *                                     flags (bit 0 in this build, 1 has data, 2 written by BK_BEGIN..COMMIT, 3 a
+ *                                     slot holding the FM6 bank), length (3 x 7 bit), CRC-32 (5 x 7 bit); the page
+ *                                     that ends the list (first + count = n) ends with bk_caps. The editor asks
+ *                                     again from first + count until it has n (a page: BK_PAGE objects, so the
+ *                                     list grows without the reply buffer, ed_out.h).
+ *                 1 or 2 (older editors) -> 2, then as 3 without first and count: the whole list in one reply,
+ *                                     or no reply when this build's list does not fit one (the editor then shows
+ *                                     no backup rather than a part of it)
+ *   44 BK_READ    i, off (3 x 7)   -> i, off, CRC-32 of the chunk (5 x 7), pack7 bytes (<= 256; fewer at the end)
+ *   45 BK_BEGIN   i, len (3 x 7), CRC-32 (5 x 7) -> i, rc
+ *   46 BK_DATA    i, off (3 x 7), CRC-32 (5 x 7), pack7 bytes (<= 256, in order) -> i, off (3 x 7), rc
+ *   47 BK_COMMIT  i [, 1]          -> i, rc (the object written: power-safe, the old copy stays until done; with the
+ *                                     second byte 1 (version 4) only checked as a COMMIT checks it, nothing written: a
+ *                                     restore first checks every storage object this way, so a set holding one the
+ *                                     firmware would not load (rc 8) is refused before anything is written)
+ *   48 BK_END     0 abort / 1 done -> rc; done: the FM-1 restarts once the reply is out, and loads it all
+ * rc: 0 ok, 1 arguments, 2 CRC (a chunk, or the whole object at COMMIT), 3 the transport plays, 4 no flash,
+ * 5 not in this build (never written blindly), 6 too long, 7 the storage write failed (the old copy stays),
+ * 8 not a valid object: the firmware would not load it (SLOOP 2.3; nothing written).
+ * A restore opens a session at its first BEGIN: whatever is only in RAM goes to flash first (live sections,
+ * song, the working project), then project.c's proj_tmp holds the object being received (proj_put and the
+ * kit bank refuse meanwhile; a session left for 10 s ends by itself). An object is written only by its
+ * COMMIT, after its CRC: a transfer cut short writes nothing. Done: no RAM copy goes back to flash (the
+ * .noinit slots are dropped), the FM-1 restarts. */
+#include "ed_reply.h"         /* (ed_b2..ed_b4, ed_b32) */
+#include "ed_out.h"
+enum { ED_BK_LIST = 43, ED_BK_READ, ED_BK_BEGIN, ED_BK_DATA, ED_BK_COMMIT, ED_BK_END };
+enum { BK_ST, BK_USR, BK_FM6, BK_SEC, BK_PRJ, BK_LOG, BK_SNP };   /* BK_SEC: a section's record (sections.c); BK_PRJ:
+                                                    * an older backup's project slot, written as that section; BK_LOG:
+                                                    * another record of the log (id: sec_log.c SEC_ID_SONG..); BK_SNP:
+                                                    * the snapshot area, raw (snap_store.c), written with cmds 54..57 */
+#if defined(SN_MAGIC) && FELUCCA_SNAPSHOTS                  /* (snap_store.c: the firmware; host tests without it: no SNAP) */
+#define BK_SNAP_ON 1
+#else
+#define BK_SNAP_ON 0
+#endif
+#define BK_VERSION 4u                         /* 2: BK_LIST ends with what the build holds (bk_caps); 3: paged;
+                                               * 4: BK_COMMIT's second byte 1 = check only (the editor checks every object first) */
+#define BK_CHUNK 256u
+/* the FM6 user bank (0xD8000 / 0xD9000) was dropped 2026-10-18: its object stays in the list so that an older backup
+ * (and an older editor's list) reads the same, but it is never in this build (rc 5: not written), nothing reads it */
+#define BK_FM6_ON 0
+#define BK_FM6_N 4096u
+#define fm6_bank_xip ((const uint8_t *)0)
+#define fm6_bank_save(b) ((void)(b), -1)
+#define fm6_bank_find() ((void)0)
+#define BK_XID 0xFFu                          /* BK_LOG id of XSTP: not a log id, the extras' pack (bk_xs_pack) */
+#define BK_PID 0xF0u                          /* BK_LOG ids of PTN1..PTN6: the patterns' packs (bk_pt_pack) */
+#define BK_FXID 0xEFu                         /* BK_LOG id of FXSL: the FX records' pack of before (u8 lengths, every record in
+                                               * one object): restored, never read (FXR1 FXR2 since 2026-10-14) */
+#define BK_FXID1 0xEDu                        /* BK_LOG ids of FXR1, FXR2: the FX records' packs, sections A..I, then J..P and
+                                               * the autosave (bk_fx_pack: u16 lengths; FXR_MAX outgrew one u8-length pack) */
+#define BK_FXID2 0xECu
+#define BK_DLID 0xEEu                         /* BK_LOG id of DLFO: the drum lane LFO records' pack of before (u8 lengths):
+                                               * restored, never read (DLF1 DLF2 since 2026-10-18) */
+#define BK_DLID1 0xEAu                        /* BK_LOG ids of DLF1, DLF2: the same records in two packs, u16 lengths (the
+                                               * lanes' LFO 2 and ENV2 took a record past 255 bytes) */
+#define BK_DLID2 0xE9u
+typedef struct {
+    char tag[4];
+    uint8_t kind, id, on;                     /* id: storage.c OBJ_* / USR slot; on: the build has it */
+} bk_obj_t;
+static const bk_obj_t BK_OBJS[] = {
+    {{'S', 'E', 'T', 'T'}, BK_ST, OBJ_SETTINGS, 1},
+    {{'D', 'L', 'N', 'S'}, BK_ST, OBJ_DLANES, FELUCCA_ANALOG2},   /* (before the projects: a restore writes in order) */
+#if SEC_LOGGED
+#define BK_S(n) {{'S', (char)('0' + (n) / 10), (char)('0' + (n) % 10), ' '}, BK_SEC, (n) - 1, (n) <= FELUCCA_SECTIONS}
+#define BK_P(n) {{'P', 'T', 'N', (char)('0' + (n))}, BK_LOG, BK_PID + (n) - 1, 1}
+    BK_P(1), BK_P(2), BK_P(3), BK_P(4), BK_P(5), BK_P(6),   /* (the patterns, before the scenes S01.. name them) */
+    BK_S(1), BK_S(2), BK_S(3), BK_S(4), BK_S(5), BK_S(6), BK_S(7), BK_S(8),
+    BK_S(9), BK_S(10), BK_S(11), BK_S(12), BK_S(13), BK_S(14), BK_S(15), BK_S(16),
+    {{'P', 'R', 'J', '1'}, BK_PRJ, 0, 1},                 /* (older backups: written into A..D, never read) */
+    {{'P', 'R', 'J', '2'}, BK_PRJ, 1, 1},
+    {{'P', 'R', 'J', '3'}, BK_PRJ, 2, 1},
+    {{'P', 'R', 'J', '4'}, BK_PRJ, 3, 1},
+#if FELUCCA_ARRANGER
+    {{'S', 'N', 'G', '1'}, BK_LOG, SEC_ID_SONG, 1},       /* (after SETT: the chain its tag names) */
+#endif
+#if FELUCCA_AUTO
+    {{'X', 'S', 'T', 'P'}, BK_LOG, BK_XID, 1},            /* (SLOOP 2.4's step extras of the sections and the autosave, one raw object) */
+#endif
+    {{'F', 'X', 'S', 'L'}, BK_LOG, BK_FXID, 1},           /* (the FX slots' records of the sections and the autosave, one raw
+                                                            * object: an older backup's, restored only) */
+    {{'F', 'X', 'R', '1'}, BK_LOG, BK_FXID1, 1},          /* (the same records in two packs: A..I, then J..P and AUTO) */
+    {{'F', 'X', 'R', '2'}, BK_LOG, BK_FXID2, 1},
+    {{'D', 'L', 'F', 'O'}, BK_LOG, BK_DLID, 1},           /* (the drum lanes' LFO records of the sections and the autosave, one
+                                                            * object: an older backup's, restored only) */
+    {{'D', 'L', 'F', '1'}, BK_LOG, BK_DLID1, 1},          /* (the same records in two packs: A..I, then J..P and AUTO) */
+    {{'D', 'L', 'F', '2'}, BK_LOG, BK_DLID2, 1},
+#else
+    {{'P', 'R', 'J', '1'}, BK_ST, OBJ_PROJECT0, 1},
+    {{'P', 'R', 'J', '2'}, BK_ST, OBJ_PROJECT0 + 1, 1},
+    {{'P', 'R', 'J', '3'}, BK_ST, OBJ_PROJECT0 + 2, 1},
+    {{'P', 'R', 'J', '4'}, BK_ST, OBJ_PROJECT0 + 3, 1},
+#endif
+    {{'A', 'U', 'T', 'O'}, BK_ST, OBJ_AUTOSAVE, 1},
+    {{'U', 'P', 'R', '1'}, BK_ST, OBJ_UPRESET0, 1},
+    {{'U', 'P', 'R', '2'}, BK_ST, OBJ_UPRESET0 + 1, 1},
+    {{'U', 'K', 'I', 'T'}, BK_ST, OBJ_UKIT, FELUCCA_DRUM_KITS},
+#if FELUCCA_UP_FM6 && FELUCCA_ENG_FM6
+    {{'U', 'P', 'F', '6'}, BK_ST, OBJ_UPFM6, 1},          /* (after UPR1 / UPR2: the voices of those records) */
+#endif
+    {{'F', 'M', '6', 'B'}, BK_FM6, 0, BK_FM6_ON},
+#if CZ_NUSER
+    {{'C', 'Z', 'B', 'K'}, BK_ST, OBJ_CZBANK, 1},         /* the CZ collection (nbank.c) */
+#endif
+    {{'U', 'S', 'R', '1'}, BK_USR, 0, 1},
+    {{'U', 'S', 'R', '2'}, BK_USR, 1, 1},
+    {{'U', 'S', 'R', '3'}, BK_USR, 2, 1},
+#if BK_SNAP_ON
+    {{'S', 'N', 'A', 'P'}, BK_SNP, 0, 1},                 /* (the editor restores each snapshot with SN_WRITE) */
+#endif
+    /* FELUCCA_SECTIONS: the section log plugs in here, e.g. {{'S', 'L', 'O', 'G'}, BK_ST, OBJ_SLOG, FELUCCA_SECTIONS} */
+};
+#define BK_N (sizeof BK_OBJS / sizeof BK_OBJS[0])
+/* BK_LIST's sizes (ed_out.h: a reply holds ED_PAYLOAD_N bytes, the rest is dropped): the head (version, n, switches,
+ * magic, chunk; v3 adds first and count), 14 bytes an object, bk_caps at the end of the list. A page keeps room for
+ * the caps, so any page may be the last; the objects go on in the next page (v3), never cut. */
+static const uint8_t bk_bits[] = FELUCCA_CFG_BITS;   /* the builder's items (BUILD, 49), bk_caps' last bytes */
+#define BK_CAPS_N (23u + 3u * SMP_USER_SLOTS + sizeof bk_bits)   /* (bk_caps, byte for byte) */
+#define BK_HEAD2_N 10u
+#define BK_HEAD3_N 12u
+#define BK_PAGE ((ED_PAYLOAD_N - BK_HEAD3_N - BK_CAPS_N) / 14u)   /* objects a v3 reply */
+#define BK_ONE2 (BK_HEAD2_N + BK_N * 14u + BK_CAPS_N <= ED_PAYLOAD_N)   /* the whole list fits one v2 reply */
+_Static_assert(BK_N <= 127u, "BK_LIST: n, first, count and BK_READ's index are one 7-bit byte");
+_Static_assert(sizeof bk_bits <= 127u, "bk_caps: the builder's items' length is one 7-bit byte");
+_Static_assert(ED_PAYLOAD_N >= BK_HEAD3_N + BK_CAPS_N + 8u * 14u, "BK_LIST: a page holds 8 objects or more");
+_Static_assert(sizeof proj_tmp >= ST_PAYLOAD_MAX, "a storage object is received into proj_tmp");
+#ifndef BK_FLUSH
+#define BK_FLUSH() persist_flush_now()        /* (host tests: their own) */
+#endif
+static struct {
+    uint32_t len, crc, got;                   /* the object being received: its length, CRC, bytes so far */
+    int8_t obj;                               /* its index, -1 none */
+    uint8_t reboot;                           /* BK_END done: main.c restarts 150 ms later (the reply out first) */
+    uint32_t reboot_ms;
+} bk = {0, 0, 0, -1, 0, 0};
+#define BK_BUF ((uint8_t *)(void *)&proj_tmp)
+
+/* the build switches the backup file records (the editor warns about objects a build does not have): bit 0
+ * flash, 1 ANALOG 2, 2 DRUM_EDIT, 3 DRUM_USR, 4 DRUM_KITS, 5 DRUM_SENDS (the lanes' sends: always, since 2026-10),
+ * 6 ARRANGER, 7 USB_AUDIO */
+#if defined(FELUCCA_ARRANGER) && FELUCCA_ARRANGER
+#define BK_SW_ARR 1u
+#else
+#define BK_SW_ARR 0u
+#endif
+#if defined(FELUCCA_USB_AUDIO) && FELUCCA_USB_AUDIO
+#define BK_SW_UA 1u
+#else
+#define BK_SW_UA 0u
+#endif
+static uint32_t bk_switches(void)
+{
+    return (uint32_t)(flash_ok != 0) | (uint32_t)FELUCCA_ANALOG2 << 1 | (uint32_t)FELUCCA_DRUM_EDIT << 2 |
+           (uint32_t)FELUCCA_DRUM_USR << 3 | (uint32_t)FELUCCA_DRUM_KITS << 4 | 1u << 5 |
+           BK_SW_ARR << 6 | BK_SW_UA << 7;
+}
+
+#if BK_SNAP_ON
+/* the snapshot area, raw: its length and CRC-32 (0: no snapshot in it); a chunk of it -> st_buf */
+static uint32_t bk_snp_info(uint32_t *crc)
+{
+    static uint32_t key, len, kcrc;                   /* (the last answer: BK_READ asks for every chunk) */
+    uint32_t k, o, c = 0xFFFFFFFFu, any = 0, now;
+    if (!sn.up)
+        sn_scan();
+    now = sn.seq * 2654435761u ^ sn_free_count() ^ (sn.slot[SN_BAK].seq << 8);
+    for (k = 0; k < SN_NSLOT; k++)
+        now = now * 31u + sn.slot[k].seq + sn.slot[k].state;
+    if (key && key == now) {
+        *crc = kcrc;
+        return len;
+    }
+    for (k = 0; k < SN_NSLOT; k++)
+        any |= sn.slot[k].state != SN_EMPTY;
+    if (!any)
+        return 0;
+    for (o = 0; o < SN_SECTORS * SN_SECT; o += BK_CHUNK) {
+        if (st_read(SN_BASE + o, st_buf, BK_CHUNK))
+            return 0;
+        c = st_crc_upd(c, st_buf, BK_CHUNK);
+    }
+    *crc = kcrc = ~c;
+    key = now;
+    return len = SN_SECTORS * SN_SECT;
+}
+static const uint8_t *bk_snp_chunk(uint32_t off, uint32_t n) { (void)st_read(SN_BASE + off, st_buf, n); return st_buf; }
+#define BK_SNP_BUF(i, off, n) BK_OBJS[i].kind == BK_SNP ? bk_snp_chunk(off, n) :
+#else
+#define BK_SNP_BUF(i, off, n)
+#endif
+
+#if SEC_LOGGED && FELUCCA_AUTO
+/* XSTP (stepx_log.c): the extras records (the automation past the motion form) of the sections (pending in RAM, else
+ * the log's) and the autosave as one object: per record u8 id (0..15 a section, 16 the autosave), u16 length, the
+ * log record as it is stored (key, the stored form). Written back whole at the commit, each as the log's record of its section; the key pairs it with the
+ * section record (S01..) or the autosave (AUTO) restored beside it. -> bytes in o (SEC_REC_MAX room), 0 none */
+static uint32_t bk_xs_pack(uint8_t *o)
+{
+    uint32_t id, n = 0;
+    for (id = 0; id <= 16u; id++) {
+        const uint8_t *r = sx_rbuf;
+        uint32_t rl = 0;
+        if (id < SEC_IDS && sec_pend_has(SEC_IDS + id)) {
+            r = sec_pend.data + sec_pend.off[SEC_IDS + id];
+            rl = sec_pend.len[SEC_IDS + id];
+        } else if (slg_has(SX_ID0 + id) && slg.alen[SX_ID0 + id] <= sizeof sx_rbuf) {
+            int g = slg_get(SX_ID0 + id, sx_rbuf);
+            rl = g > 0 ? (uint32_t)g : 0u;
+        }
+        if (rl <= 4u || n + 3u + rl > SEC_REC_MAX)
+            continue;
+        o[n++] = (uint8_t)id, o[n++] = (uint8_t)rl, o[n++] = (uint8_t)(rl >> 8);
+        memcpy(o + n, r, rl);
+        n += rl;
+    }
+    return n;
+}
+/* the pack b (n bytes) -> the log: 0 ok, 2 not one (nothing written), 7 not written (MEM FULL). The sections and the
+ * autosave it does not name lose their extras (the backup had none) */
+static uint32_t bk_xs_commit(const uint8_t *b, uint32_t n)
+{
+    auto_store_t *m;
+    uint32_t at, id, rl, seen = 0;
+    sec_stage_id = -1;                                 /* (the stage's store is the scratch for the check) */
+    if ((m = auto_for(&sec_stage_p, 1)) == 0)
+        return 2;
+    m->psum = 0;
+    for (at = 0; at < n; at += 3u + rl) {
+        id = b[at];
+        rl = at + 3u <= n ? (uint32_t)b[at + 1u] | (uint32_t)b[at + 2u] << 8 : 0u;
+        if (at + 3u > n || id > 16u || ((seen >> id) & 1u) || rl <= 4u || rl > sizeof sx_rbuf || at + 3u + rl > n ||
+            (auto_store_clear(m), !ax_decode(m, b + at + 3u + 4u, rl - 4u)))
+            return 2;
+        seen |= 1u << id;
+    }
+    for (id = 0; id <= 16u; id++) {
+        if (id < SEC_IDS)
+            sec_pend_del(SEC_IDS + id);
+        if (!((seen >> id) & 1u) && slg_has(SX_ID0 + id) && slg_put(SX_ID0 + id, sx_rbuf, 0, 1))
+            return 7;
+    }
+    for (at = 0; at < n; at += 3u + rl) {
+        id = b[at];
+        rl = (uint32_t)b[at + 1u] | (uint32_t)b[at + 2u] << 8;
+        memcpy(sx_rbuf, b + at + 3u, rl);
+        if (slg_put(SX_ID0 + id, sx_rbuf, rl, 1))
+            return 7;
+    }
+    return 0;
+}
+#endif
+
+#if SEC_LOGGED
+/* PTN1..PTN6 (pat.c): the patterns and their state (log ids 17, 24..87; pending in RAM, else the log's) as packs: per
+ * record u8 log id, u16 length, the record as it is stored; the records in id order, each pack as many as fit a
+ * section record's length. Pack j -> o, its length (0 none) */
+static uint32_t bk_pt_pack(uint32_t j, uint8_t *o)
+{
+    uint32_t id, rl, k, at = 0, n = 0, got = 0;
+    for (id = SEC_ID_PSTATE; id < SEC_ID_PAT0 + NTRK * PAT_N; id = id == SEC_ID_PSTATE ? SEC_ID_PAT0 : id + 1u) {
+        k = id - SEC_ID_PAT0;
+        rl = id < SEC_ID_PAT0 || !FELUCCA_PATTERNS || !sec_pend_has(SEC_PEND_PAT + k) ? slg_has(id) ? slg.alen[id] : 0u :
+             sec_pend.len[SEC_PEND_PAT + k];
+        if (!rl)
+            continue;
+        if (n + 3u + rl > SEC_REC_MAX)
+            at++, n = 0;
+        if (at > j)
+            break;
+        if (at == j) {
+            o[n] = (uint8_t)id, o[n + 1u] = (uint8_t)rl, o[n + 2u] = (uint8_t)(rl >> 8);
+            if ((id < SEC_ID_PAT0 ? (uint32_t)slg_get(id, o + n + 3u) : pat_get(k / PAT_N, k % PAT_N, o + n + 3u)) != rl)
+                return 0;
+            got = n + 3u + rl;
+        }
+        n += 3u + rl;
+    }
+    return got;
+}
+/* pack b (n bytes) -> the log: 0 ok, 2 not one (nothing written), 7 not written (MEM FULL) */
+static uint32_t bk_pt_commit(const uint8_t *b, uint32_t n)
+{
+    uint32_t at, id, rl;
+    sec_stage_id = -1;                                 /* (the stage's track 0: the check's scratch) */
+    for (at = 0; at < n; at += 3u + rl) {
+        id = b[at];
+        rl = at + 3u <= n ? (uint32_t)b[at + 1u] | (uint32_t)b[at + 2u] << 8 : 0u;
+        if (at + 3u > n || !rl || at + 3u + rl > n ||
+            (id < SEC_ID_PAT0 ? id != SEC_ID_PSTATE || rl != NTRK :
+             id >= SEC_ID_PAT0 + NTRK * PAT_N || !pat_decode(b + at + 3u, rl, (id - SEC_ID_PAT0) / PAT_N, &sec_stage_p.t[0], 0, 0)))
+            return 2;
+    }
+    for (at = 0; at < n; at += 3u + rl) {
+        id = b[at], rl = (uint32_t)b[at + 1u] | (uint32_t)b[at + 2u] << 8;
+#if FELUCCA_PATTERNS
+        if (id >= SEC_ID_PAT0)
+            sec_pend_del(SEC_PEND_PAT + id - SEC_ID_PAT0);
+#endif
+        if (slg_put(id, b + at + 3u, rl, 1))
+            return 7;
+    }
+    return 0;
+}
+/* FXR1, FXR2 (fx_rec_log.c): the FX records of the sections (pending in RAM, else the log's) and the autosave in two
+ * objects, ids lo..hi (FXR1 0..8, FXR2 9..16: 0..15 a section, 16 the autosave), as XSTP: per record u8 id, u16 length,
+ * the log record as it is stored (key, the stored form). Written back whole at the commit, paired by their key with
+ * S01.. and AUTO. FXSL, an older backup's: the same with u8 lengths, every id in one object (restored only) */
+#define BK_FX_SPLIT 9u
+_Static_assert((17u - BK_FX_SPLIT > BK_FX_SPLIT ? 17u - BK_FX_SPLIT : BK_FX_SPLIT) * (3u + sizeof fxr_rbuf) <= SEC_REC_MAX,
+               "FXR1 / FXR2: every FX record of a pack fits a section record's buffer");
+static uint32_t bk_fx_pack(uint8_t *o, uint32_t lo, uint32_t hi)
+{
+    uint32_t id, n = 0, rl;
+    for (id = lo; id <= hi; id++)
+        if ((rl = fxr_sec_get(id)) > 4u) {
+            o[n++] = (uint8_t)id, o[n++] = (uint8_t)rl, o[n++] = (uint8_t)(rl >> 8);
+            memcpy(o + n, fxr_rbuf, rl);
+            n += rl;
+        }
+    return n;
+}
+/* DLF1, DLF2 (dlfo_rec_log.c): the drum lanes' LFO records the same way as FXR1 FXR2 (ids lo..hi, u8 id, u16 length, the
+ * log record; 2026-10-18: the lanes' LFO 2 and ENV2 took a record past a byte's length). DLFO, an older backup's: u8
+ * lengths, every id in one object (restored only). An older firmware has no DLF1 DLF2: an editor restoring there skips
+ * them, and the sections load with every lane LFO off */
+_Static_assert((17u - BK_FX_SPLIT > BK_FX_SPLIT ? 17u - BK_FX_SPLIT : BK_FX_SPLIT) * (3u + sizeof dlr_rbuf) <= SEC_REC_MAX,
+               "DLF1 / DLF2: every LFO record of a pack fits a section record's buffer");
+static uint32_t bk_dl_pack(uint8_t *o, uint32_t lo, uint32_t hi)
+{
+    uint32_t id, n = 0, rl;
+    for (id = lo; id <= hi; id++)
+        if ((rl = dlr_sec_get(id)) > 4u) {
+            o[n++] = (uint8_t)id, o[n++] = (uint8_t)rl, o[n++] = (uint8_t)(rl >> 8);
+            memcpy(o + n, dlr_rbuf, rl);
+            n += rl;
+        }
+    return n;
+}
+static uint32_t bk_dl_commit(const uint8_t *b, uint32_t n, uint32_t lo, uint32_t hi, uint32_t hl)   /* (hl: 2 u8, 3 u16 lengths) */
+{
+    uint32_t at, id, rl, seen = 0;
+    for (at = 0; at < n; at += hl + rl) {
+        id = b[at];
+        rl = at + hl <= n ? b[at + 1u] | (hl == 3u ? (uint32_t)b[at + 2u] << 8 : 0u) : 0u;
+        if (rl <= 4u || id < lo || id > hi || ((seen >> id) & 1u) || rl > sizeof dlr_rbuf || at + hl + rl > n)
+            return 2;
+        seen |= 1u << id;
+    }
+    for (id = lo; id <= hi; id++)
+        if (!((seen >> id) & 1u) && dlr_sec_put(id, b, 0))
+            return 7;
+    for (at = 0; at < n; at += hl + rl) {
+        rl = b[at + 1u] | (hl == 3u ? (uint32_t)b[at + 2u] << 8 : 0u);
+        if (dlr_sec_put(b[at], b + at + hl, rl))
+            return 7;
+    }
+    return 0;
+}
+/* the pack b (n bytes) -> the log: 0 ok, 2 not one (nothing written), 7 not written. The sections and the autosave it
+ * does not name lose their FX records (the backup had none) */
+static uint32_t bk_fx_commit(const uint8_t *b, uint32_t n, uint32_t lo, uint32_t hi, uint32_t hl)   /* (hl: 2 u8, 3 u16 lengths) */
+{
+    uint32_t at, id, rl, seen = 0;
+    for (at = 0; at < n; at += hl + rl) {
+        id = b[at];
+        rl = at + hl <= n ? (uint32_t)b[at + 1u] | (hl == 3u ? (uint32_t)b[at + 2u] << 8 : 0u) : 0u;
+        if (rl <= 4u || id < lo || id > hi || ((seen >> id) & 1u) || rl > sizeof fxr_rbuf || at + hl + rl > n)
+            return 2;
+        seen |= 1u << id;
+    }
+    for (id = lo; id <= hi; id++)
+        if (!((seen >> id) & 1u) && fxr_sec_put(id, b, 0))
+            return 7;
+    for (at = 0; at < n; at += hl + rl) {
+        rl = (uint32_t)b[at + 1u] | (hl == 3u ? (uint32_t)b[at + 2u] << 8 : 0u);
+        if (fxr_sec_put(b[at], b + at + hl, rl))
+            return 7;
+    }
+    return 0;
+}
+#endif
+
+/* object i's length and CRC-32 (0 / 0: nothing stored); a storage object's payload is left in st_buf */
+static uint32_t bk_info(uint32_t i, uint32_t *crc)
+{
+    const bk_obj_t *o = &BK_OBJS[i];
+    *crc = 0;
+    if (!flash_ok)
+        return 0;
+#if BK_SNAP_ON
+    if (o->kind == BK_SNP)
+        return bk_snp_info(crc);
+#endif
+    if (o->kind == BK_FM6) {
+        if (!o->on || !fm6_bank_xip)
+            return 0;
+        *crc = st_crc32(fm6_bank_xip, BK_FM6_N);
+        return BK_FM6_N;
+    }
+#if SEC_LOGGED
+    if (o->kind >= BK_SEC && o->kind <= BK_LOG) {     /* (BK_SEC, BK_PRJ, BK_LOG: the bytes in sec_rbuf) */
+        int n = 0;
+        if (o->kind == BK_PRJ || (o->kind == BK_LOG && o->id == BK_FXID))
+            n = 0;                                    /* (written only: an older backup's slot, its FXSL) */
+#if FELUCCA_AUTO
+        else if (o->kind == BK_LOG && o->id == BK_XID)
+            n = (int)bk_xs_pack(sec_rbuf);
+#endif
+        else if (o->kind == BK_LOG && (o->id == BK_FXID1 || o->id == BK_FXID2))
+            n = (int)(o->id == BK_FXID1 ? bk_fx_pack(sec_rbuf, 0, BK_FX_SPLIT - 1u) : bk_fx_pack(sec_rbuf, BK_FX_SPLIT, 16));
+        else if (o->kind == BK_LOG && (o->id == BK_DLID1 || o->id == BK_DLID2))
+            n = (int)(o->id == BK_DLID1 ? bk_dl_pack(sec_rbuf, 0, BK_FX_SPLIT - 1u) : bk_dl_pack(sec_rbuf, BK_FX_SPLIT, 16));
+        else if (o->kind == BK_LOG && o->id == BK_DLID)
+            n = 0;                                     /* (DLFO: restored only, never written) */
+        else if (o->kind == BK_LOG && o->id >= BK_PID && o->id < BK_XID)
+            n = (int)bk_pt_pack(o->id - BK_PID, sec_rbuf);
+        else if (o->kind == BK_LOG)
+            n = slg_get(o->id, sec_rbuf);
+        else if (o->on && project_used(o->id)) {      /* (BK_SEC: pending in RAM, else the log's) */
+            if (sec_pend_has(o->id)) {
+                memcpy(sec_rbuf, sec_pend.data + sec_pend.off[o->id], sec_pend.len[o->id]);
+                n = sec_pend.len[o->id];
+            } else
+                n = slg_get(o->id, sec_rbuf);
+        }
+        if (n <= 0)
+            return 0;
+        *crc = st_crc32(sec_rbuf, (uint32_t)n);
+        return (uint32_t)n;
+    }
+#endif
+    if (o->kind == BK_ST) {
+        st_hdr_t h;
+        if (st_current(o->id, &h) < 0)
+            return 0;
+        *crc = h.crc;
+        return h.len;
+    } else {
+        const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(o->id);
+        uint32_t n = 0;
+        if (h->magic == SMP_USER_MAGIC && h->version == 1 && h->data_len <= SMP_USER_CAP(o->id) - SMP_USER_DATA)
+            n = SMP_USER_DATA + h->data_len;                    /* a sample set: header, its data */
+#ifdef FM6_MAGIC
+        else if (h->magic == FM6_MAGIC && h->data_len == BK_FM6_N)
+            n = FM6_BANK_OFF + BK_FM6_N;                     /* the FM6 user bank (fm6_store.c) */
+#endif
+        if (n)
+            *crc = st_crc32(smp_user_xip(o->id), n);
+        return n;
+    }
+}
+
+/* BK_LIST v2's end: what this build holds, for the editor's report before a restore (a backup from another build:
+ * what plays a stand-in, what does not fit, what is skipped). The engine, kit and sample-set masks are by stable
+ * UID (registry.h); a project naming an absent engine plays its fallback and keeps its settings (project.c) */
+#define BK7(v, k) (uint8_t)(((uint32_t)(v) >> (7u * (k))) & 127u)   /* group k of v's 7-bit groups */
+#define BK7X2(v) BK7(v, 0), BK7(v, 1)
+static const uint8_t BK_CAPS_K[] = {
+    BK7X2(__builtin_offsetof(project_t, t[0].engine)),        /* where a FUNB project names its engines, */
+    BK7X2(sizeof(proj_trk_t)),                                /* a track's size, the drum kit's place (t[3].p[PJ_E0]) */
+    BK7X2(__builtin_offsetof(project_t, t[TRK_DRUM].p[PJ_E0])),
+    BK7X2(__builtin_offsetof(project_t, t[0].p[PJ_E0])),      /* a part's SET / SRC (SAMPLE, GRAIN) */
+    BK7(PJ_NP, 0),                                            /* a section record's layout (sec_codec.c): values a */
+    BK7(PJ_E0, 0),                                            /* track, where EDIT starts, LEN's place */
+    BK7(P_SLEN, 0),
+    BK7(sizeof bk_bits, 0)                                    /* the builder's items (BUILD, 49) */
+};
+/* (noinline, as bk_commit_sec and bk_st_ok: inlined into ed_backup, each costs flash, 64 B, 48 B, 80 B) */
+static __attribute__((noinline)) void bk_caps(void)
+{
+    uint32_t i, m = 0;
+    uint64_t kits = 0;
+    for (i = 0; i < ENG_UID_N; i++)
+        m |= (uint32_t)eng_built(i) << i;
+    ed_b32(m, 2);                                             /* engines built, bit = UID */
+    for (i = 0; i < DRUM_KITS; i++)
+        kits |= (uint64_t)drum_kit_built(i) << i;
+    ed_b32((uint32_t)kits, 5);                                /* drum kits built, bit = kit UID (0..36) */
+    ed_b32((uint32_t)(kits >> 35), 1);
+    for (m = 0, i = 0; i < SMP_NSETS; i++)
+        m |= (uint32_t)(SMP_SETS[i].nz != 0) << i;
+    ed_b32(m, 2);                                             /* sample sets built, bit = set number */
+    ed_b(FELUCCA_SECTIONS);                                   /* project slots / song sections */
+    for (i = 0; i < SMP_USER_SLOTS; i++)
+        ed_b32(SMP_USER_CAP(i), 3);                           /* USR1..3 capacity, bytes */
+    ed_bs(BK_CAPS_K, sizeof BK_CAPS_K);                       /* (the build's constants: a table, not a call each) */
+    ed_bs(bk_bits, sizeof bk_bits);
+}
+
+#if SEC_LOGGED
+#define BK_SEC_BUF(i, off) BK_OBJS[i].kind == BK_SEC || BK_OBJS[i].kind == BK_LOG ? sec_rbuf + (off) :
+/* a section's record (BK_SEC), or an older backup's project slot (BK_PRJ, any FUN* format: imported, its drum
+ * record from DLNS restored before it), into the log: 0 ok, 2 not a section / project, 7 not written (MEM FULL) */
+static __attribute__((noinline)) uint32_t bk_commit_sec(uint32_t i)
+{
+    uint32_t id = BK_OBJS[i].id, n = bk.len;
+    if (BK_OBJS[i].kind != BK_PRJ && n > SEC_REC_MAX)
+        return 6;                                      /* (a log record never is: it would seal its sector) */
+#if FELUCCA_AUTO
+    if (BK_OBJS[i].kind == BK_LOG && id == BK_XID)
+        return bk_xs_commit(BK_BUF, n);
+#endif
+    if (BK_OBJS[i].kind == BK_LOG && id == BK_FXID)
+        return bk_fx_commit(BK_BUF, n, 0, 16, 2);      /* (an older backup's FXSL: every id, u8 lengths) */
+    if (BK_OBJS[i].kind == BK_LOG && id == BK_FXID1)
+        return bk_fx_commit(BK_BUF, n, 0, BK_FX_SPLIT - 1u, 3);
+    if (BK_OBJS[i].kind == BK_LOG && id == BK_FXID2)
+        return bk_fx_commit(BK_BUF, n, BK_FX_SPLIT, 16, 3);
+    if (BK_OBJS[i].kind == BK_LOG && id == BK_DLID)
+        return bk_dl_commit(BK_BUF, n, 0, 16, 2);      /* (an older backup's DLFO: every id, u8 lengths) */
+    if (BK_OBJS[i].kind == BK_LOG && id == BK_DLID1)
+        return bk_dl_commit(BK_BUF, n, 0, BK_FX_SPLIT - 1u, 3);
+    if (BK_OBJS[i].kind == BK_LOG && id == BK_DLID2)
+        return bk_dl_commit(BK_BUF, n, BK_FX_SPLIT, 16, 3);
+    if (BK_OBJS[i].kind == BK_LOG && id >= BK_PID && id < BK_XID)
+        return bk_pt_commit(BK_BUF, n);
+#if FELUCCA_ARRANGER
+    if (BK_OBJS[i].kind == BK_LOG)                     /* the song chain: count, loop, 2 spare, the parts */
+        return n < 4u || n != 4u + 2u * BK_BUF[0] || BK_BUF[0] > ARR_STEPS ? 2u : slg_put(id, BK_BUF, n, 1) ? 7u : 0u;
+#endif
+    if (BK_OBJS[i].kind == BK_SEC) {
+        if (!sec_decode(BK_BUF, n, &sec_stage_p, &sec_stage_d))
+            return 2;
+        memcpy(sec_rbuf, BK_BUF, n);
+    } else {
+        sec_stage_id = -1;
+        if (!proj_import(&sec_stage_p, BK_BUF, (int)n))
+            return 2;
+        memset(&sec_stage_d, 0, sizeof sec_stage_d);
+        if (sec_stage_p.dl_hash && !dls_find(id, sec_stage_p.dl_hash, &sec_stage_d))
+            sec_stage_p.dl_hash = 0, sec_stage_p.sum = proj_sum(&sec_stage_p);
+#if FELUCCA_AUTO
+        if (auto_for(&sec_stage_p, 0))
+            auto_for(&sec_stage_p, 0)->psum = 0;       /* (an older backup's slot has no motion: not the stage's) */
+#endif
+        n = sec_encode(&sec_stage_p, &sec_stage_d, sec_rbuf);
+    }
+    sec_stage_id = -1;                                 /* (the stage held it: the ISR must not take it) */
+    sec_pend_del(id);
+#if FELUCCA_AUTO
+    sec_pend_del(SEC_IDS + id);                        /* (its pending extras were the old record's) */
+#endif
+    sec_pend_del(SEC_PEND_FX + id);                    /* (and its pending FX record) */
+    sec_pend_del(SEC_PEND_DL + id);                    /* (and its pending LFO record) */
+    sec_gen++;
+    return slg_put(id, sec_rbuf, n, 1) ? 7u : 0u;
+}
+#else
+#define BK_SEC_BUF(i, off)
+static uint32_t bk_commit_sec(uint32_t i) { (void)i; return 1; }
+#endif
+
+/* The restore check (always built; after SLOOP 2.3's restore, isod89 d691ba7, GPL-3.0: each object checked at its commit as a load
+ * checks it): a storage object only if the firmware would load it. Today's formats in full (a project's size and sum,
+ * the settings' calibration a permutation, a bank's or kit bank's shape); an older project or settings format by its
+ * magic (the load converts it and checks it then). 1: it would load */
+#ifdef PERSIST_MAGIC                                  /* (project.c without PROJ_HOST: the host tests have no settings record) */
+static int bk_panel_ok(const uint8_t *q)              /* a panel_t as stored: ranges, a permutation (panel_init) */
+{
+    uint32_t i, b = 0, e = 0;
+    const uint8_t *btn = q + 4, *enc = btn + NB;
+    const int8_t *dir = (const int8_t *)(enc + NE);
+    for (i = 0; i < NB; i++) {
+        if (btn[i] >= 14u || (b >> btn[i]) & 1u)
+            return 0;
+        b |= 1u << btn[i];
+    }
+    for (i = 0; i < NE; i++) {
+        if (enc[i] >= 7u || (e >> enc[i]) & 1u || (dir[i] != 1 && dir[i] != -1))
+            return 0;
+        e |= 1u << enc[i];
+    }
+    return 1;
+}
+#endif
+static __attribute__((noinline)) int bk_st_ok(uint32_t obj, const uint8_t *b, uint32_t n)
+{
+    uint32_t m = n >= 4u ? (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24 : 0u;
+#ifdef PERSIST_MAGIC
+    if (obj == OBJ_SETTINGS) {
+        const persist_t *p = (const persist_t *)(const void *)b;
+        if (m == 0x50455231u || m == 0x50455232u || m == 0x50455233u) {   /* PER1..3: this build's or an older one */
+            if (m != PERSIST_MAGIC)
+                return 1;
+            return n <= sizeof *p && n >= __builtin_offsetof(persist_t, panel) + sizeof(panel_t) &&
+                   (p->panel.magic != PANEL_MAGIC || bk_panel_ok((const uint8_t *)&p->panel));
+        }
+        return 0;
+    }
+#endif
+    if (obj == OBJ_AUTOSAVE || (obj >= OBJ_PROJECT0 && obj < OBJ_PROJECT0 + 4u)) {
+        if (m == PROJ_MAGIC)
+            return n == sizeof(project_t) && proj_ok((const project_t *)(const void *)b);
+        return m >> 8 == 0x46554Eu;                      /* "FUN1".."FUNA": converted (and checked) when loaded */
+    }
+#ifdef UP_BANK_MAGIC
+    if (obj == OBJ_UPRESET0 || obj == OBJ_UPRESET0 + 1u) {
+        const up_bank_t *k = (const up_bank_t *)(const void *)b;
+        const up_bank2_t *k2 = (const up_bank2_t *)(const void *)b;   /* (UPB2 / UPB1 of before: converted at boot) */
+        return (n == sizeof *k && k->magic == UP_BANK_MAGIC && k->rsize == sizeof(up_rec_t) && k->nslot == UP_PER_BANK) ||
+               (n == sizeof *k2 && (k2->magic == UP_BANK_MAGIC_V2 || (UP_FROM_V1 && k2->magic == 0x31425055u)) &&
+                k2->rsize == sizeof(up_rec2_t) && k2->nslot == UP_PER_BANK);
+    }
+#endif
+#if FELUCCA_UP_FM6 && FELUCCA_ENG_FM6 && defined(UPF_MAGIC)   /* (upreset.c: the firmware; host tests without it) */
+    if (obj == OBJ_UPFM6)
+        return n == sizeof(upf_t) && m == UPF_MAGIC;
+#endif
+#if FELUCCA_DRUM_KITS
+    if (obj == OBJ_UKIT) {
+        const ukit_bank_t *k = (const ukit_bank_t *)(const void *)b;
+        return k->n == UK_N && n == sizeof *k && m == UK_MAGIC && k->rsize == sizeof(ukit_t);   /* (DKB4 only: drum_kits.c) */
+    }
+#endif
+#if FELUCCA_ANALOG2
+    if (obj == OBJ_DLANES) {
+        const dls_t *k = (const dls_t *)(const void *)b;
+        return n == sizeof *k && m == DLS_MAGIC && k->esize == sizeof(dls_ent_t) && k->n == DLS_N;
+    }
+#endif
+    return 1;
+}
+#define BK_ST_OK(i) (BK_OBJS[i].kind != BK_ST || bk_st_ok(BK_OBJS[i].id, BK_BUF, bk.len))
+
+static void bk_close(void)
+{
+    bk.obj = -1;
+    proj_tmp_lent = 0;
+}
+
+/* a backup / restore command; 0 = not one of them: no reply */
+static int ed_backup(uint32_t cmd, const uint8_t *a, uint32_t na)
+{
+    uint32_t i, off, n, crc, rc = 0, dry = 0;
+    if (cmd < ED_BK_LIST || cmd > ED_BK_END)
+        return 0;
+    if (proj_tmp_lent)
+        proj_tmp_t0 = fm1_ms;                                 /* (the session goes on) */
+    switch (cmd) {
+    case ED_BK_LIST: {
+        uint32_t first = 0, end = BK_N;
+        if (na < 1u || a[0] < 1u)
+            return 0;
+        if (a[0] < 3u && !BK_ONE2)
+            return 0;                                         /* (an older editor: the whole list, or none) */
+        if (a[0] >= 3u) {
+            first = na >= 2u && a[1] < BK_N ? a[1] : BK_N;    /* (past the end: no object, the caps) */
+            end = BK_N - first > BK_PAGE ? first + BK_PAGE : BK_N;
+        }
+        ed_b2(a[0] >= 3u ? BK_VERSION : 2u, BK_N);
+        ed_b32(bk_switches(), 2);
+        {
+            static const uint8_t K[] = {BK7(PROJ_MAGIC >> 24, 0), BK7(PROJ_MAGIC >> 16, 0), BK7(PROJ_MAGIC >> 8, 0),
+                                        BK7(PROJ_MAGIC, 0), BK7X2(BK_CHUNK)};   /* "FUNB", the chunk */
+            ed_bs(K, sizeof K);
+        }
+        if (a[0] >= 3u)
+            ed_b2(first, end - first);
+        for (i = first; i < end; i++) {
+            const bk_obj_t *o = &BK_OBJS[i];
+            uint32_t len = bk_info(i, &crc);
+            ed_bs((const uint8_t *)o->tag, 4);
+            ed_b2(o->kind, (o->on ? 1u : 0u) | (len ? 2u : 0u) | (o->kind != BK_USR && o->kind != BK_SNP ? 4u : 0u) |
+                  (o->kind == BK_USR && len && ((const smp_user_hdr_t *)smp_user_xip(o->id))->magic != SMP_USER_MAGIC ? 8u : 0u));
+                                                              /* (8: the slot holds the FM6 user bank) */
+            ed_b32(len, 3);
+            ed_b32(crc, 5);
+        }
+        if (end == BK_N)
+            bk_caps();                                        /* (the page that ends the list) */
+        return 1;
+    }
+    case ED_BK_READ: {
+        if (na < 4u || a[0] >= BK_N)
+            return 0;
+        i = a[0];
+        off = ed_r32(a + 1, 3);
+        n = bk_info(i, &crc);
+        n = off < n ? (n - off > BK_CHUNK ? BK_CHUNK : n - off) : 0u;
+        {
+            const uint8_t *p = BK_OBJS[i].kind == BK_ST ? st_buf + off : BK_SEC_BUF(i, off) BK_SNP_BUF(i, off, n)
+                               BK_OBJS[i].kind == BK_FM6 ? fm6_bank_xip + off : smp_user_xip(BK_OBJS[i].id) + off;
+            ed_b(i);
+            ed_b32(off, 3);
+            ed_b32(st_crc32(p, n), 5);
+            ed_pack7(p, n);
+        }
+        return 1;
+    }
+    case ED_BK_BEGIN:
+        if (na < 9u || a[0] >= BK_N)
+            return 0;
+        i = a[0];
+        n = ed_r32(a + 1, 3);
+        if (!flash_ok)
+            rc = 4;
+        else if (BK_OBJS[i].kind == BK_USR || BK_OBJS[i].kind == BK_SNP || !n)
+            rc = 1;
+        else if (!BK_OBJS[i].on)
+            rc = 5;
+        else if (n > (BK_OBJS[i].kind == BK_FM6 ? BK_FM6_N : BK_OBJS[i].kind >= BK_SEC ? (uint32_t)sizeof proj_tmp : ST_PAYLOAD_MAX) ||
+                 (BK_OBJS[i].kind == BK_FM6 && n != BK_FM6_N))
+            rc = 6;
+        else if (song.playing || transport_req)
+            rc = 3;
+        else {
+            if (!proj_tmp_lent) {                              /* a new session: RAM-only work into flash first */
+                BK_FLUSH();
+                proj_tmp_lent = 1;
+                proj_tmp_t0 = fm1_ms;
+            }
+            bk.obj = (int8_t)i;
+            bk.len = n;
+            bk.crc = ed_r32(a + 4, 5);
+            bk.got = 0;
+        }
+        break;                                                 /* (-> i, rc) */
+    case ED_BK_DATA:
+        if (na < 10u || a[0] >= BK_N)
+            return 0;
+        i = a[0];
+        off = ed_r32(a + 1, 3);
+        if (!proj_tmp_lent || bk.obj != (int8_t)i || off != bk.got)
+            rc = 1;
+        else {
+            n = ed_unpack7(a + 9, na - 9u, BK_BUF + off, bk.len - off < BK_CHUNK ? bk.len - off : BK_CHUNK);
+            if (!n)
+                rc = 1;
+            else if (st_crc32(BK_BUF + off, n) != ed_r32(a + 4, 5))
+                rc = 2;                                        /* (the editor sends it again) */
+            else
+                bk.got += n;
+        }
+        ed_b(i);
+        ed_b32(off, 3);
+        ed_b(rc);
+        return 1;
+    case ED_BK_COMMIT:
+        if (na < 1u || a[0] >= BK_N)
+            return 0;
+        i = a[0];
+        dry = na >= 2u && a[1] == 1u;                          /* (version 4: 1 = check only, write nothing) */
+        if (!proj_tmp_lent || bk.obj != (int8_t)i)
+            rc = 1;
+        else if (song.playing || transport_req)
+            rc = 3;
+        else if (bk.got != bk.len || st_crc32(BK_BUF, bk.len) != bk.crc)
+            rc = 2;
+        else if (!BK_ST_OK(i))
+            rc = 8;                                            /* the firmware would not load it: not written */
+        else if (dry)
+            rc = 0;                                            /* a check only: the object stays unwritten */
+        else if (BK_OBJS[i].kind >= BK_SEC)
+            rc = bk_commit_sec(i);
+        else if (BK_OBJS[i].kind == BK_FM6 ? fm6_bank_save(BK_BUF) != 0 : st_save(BK_OBJS[i].id, BK_BUF, bk.len) != 0)
+            rc = 7;
+        if (BK_OBJS[i].kind == BK_FM6 && !dry)
+            fm6_bank_find();                                   /* (VOICE U01..U32: the bank as written) */
+        bk.obj = -1;
+        break;                                                 /* (-> i, rc) */
+    case ED_BK_END:
+        if (na < 1u)
+            return 0;
+        if (a[0] == 1u && proj_tmp_lent) {
+            proj_slots_drop();                                 /* (no RAM copy goes back over what was restored) */
+            bk.reboot = 1;
+            bk.reboot_ms = fm1_ms;
+        }
+        bk_close();
+        ed_b(0);
+        return 1;
+    default:
+        return 0;
+    }
+    ed_b2(i, rc);                                             /* (BK_BEGIN, BK_COMMIT) */
+    return 1;
+}
+#define ED_BACKUP_FN ed_backup,             /* (editor.c: its table of commands) */
