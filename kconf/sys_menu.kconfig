@@ -1,0 +1,82 @@
+menu "Settings Menu"
+
+config SYS_MENU
+    bool "Settings menu (long-HOME)"
+    default y
+    depends on INPUT
+    help
+      Tabbed settings menu accessible via long-press HOME button.
+      Menu items are populated by enabled subsystems below.
+      Each UI lineage (Felucca, Melodee) renders the menu in its
+      own visual style via the cfm1_sys_menu adapter.
+
+# --- Persistence backend ---
+
+choice
+    prompt "Settings persistence backend"
+    depends on SYS_MENU
+    default SETTINGS_FMLAB
+    help
+      How user settings (USB mode, MIDI channel, etc.) are stored
+      across power cycles. Each backend uses a different flash layout.
+
+config SETTINGS_FMLAB
+    bool "Single-sector CRC32 (FM Lab)"
+    help
+      One 4 KiB flash sector at SETTINGS_AT. Header: [magic][length][CRC32],
+      then the settings bytes. Append-only growth: a shorter record from an
+      older firmware loads what it has, new fields keep their defaults.
+      Erase takes ~50 ms with interrupts off; save is deferred while audio
+      plays. Ported from FM Lab (platform.c).
+
+config SETTINGS_FELUCCA
+    bool "A/B sector with st_save (Felucca/SLOOP) [not implemented]"
+    help
+      Dual-sector alternating write via st_save(OBJ_SETTINGS). Power-cut
+      safe: one sector is always valid. Used by upstream Felucca, SLOOP,
+      Melodee, and Optimist. Requires the Felucca storage driver.
+      NOT YET IMPLEMENTED: selecting this will fail to build.
+
+config SETTINGS_NONE
+    bool "RAM only (no persistence)"
+    help
+      Settings live in RAM and reset to defaults on every power cycle.
+      Useful for development and testing without flash wear.
+
+endchoice
+
+config SETTINGS_AT
+    hex "Flash address for settings sector"
+    default 0xFC000
+    depends on SETTINGS_FMLAB
+    help
+      Start address of the 4 KiB flash sector used for settings storage.
+      Default 0xFC000 matches all upstream firmwares (Felucca, SLOOP,
+      Melodee, Optimist, FM Lab).
+
+# --- Individual menu items ---
+# Each depends on SYS_MENU + its subsystem.
+
+config SYS_MENU_USB_MODE
+    bool "USB mode setting (DEVICE / HOST)"
+    default y
+    depends on SYS_MENU && USB && USB_HOST
+    help
+      Lets the user lock USB role to DEVICE (MIDI) or HOST (flash drive).
+      Without USB_HOST, device mode is the only option: no setting needed.
+
+config SYS_MENU_MIDI_CH
+    bool "MIDI channel setting"
+    default y
+    depends on SYS_MENU && USB
+    help
+      Select the MIDI receive channel (1-16) from the settings menu.
+
+config SYS_MENU_BLE
+    bool "Bluetooth on/off setting"
+    default y
+    depends on SYS_MENU && BLE
+    help
+      Enable or disable BLE radio from the settings menu.
+
+endmenu

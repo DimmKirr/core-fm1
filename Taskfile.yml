@@ -57,7 +57,7 @@ tasks:
       FM1_WEB_DIR: '{{env "FM1_WEB_DIR" | default (printf "%s/.fm1-emulator/web" .HOME)}}'
       PLAYWRIGHT_BROWSERS_PATH: '{{env "PLAYWRIGHT_BROWSERS_PATH" | default (printf "%s/.cache/ms-playwright" .HOME)}}'
     cmds:
-      - uv run python -m pytest tests/e2e_boot_test.py -v {{.CLI_ARGS}}
+      - uv run python -m pytest tests/e2e_boot_test.py tests/e2e_components_test.py tests/e2e_usb_safety_test.py tests/e2e_audio_test.py tests/e2e_audio_engines_test.py -v {{.CLI_ARGS}}
 
   emulator:build:
     desc: Build WASM from a local fm1-emu checkout (requires the Rust WASM target)
@@ -70,26 +70,109 @@ tasks:
 
   flash:
     desc: Flash firmware to FM-1 over USB-MIDI
+    vars:
+      FIRMWARE: '{{.FIRMWARE | default "build/core-fm1.fwsc"}}'
     preconditions:
-      - sh: test -f build/core-fm1.fwsc
-        msg: "build/core-fm1.fwsc not found. Run 'task build' first."
+      - sh: test -f {{.FIRMWARE}}
+        msg: "{{.FIRMWARE}} not found. Run 'task build' first."
     cmds:
-      - uv run --group flash python firmware/upstream/felucca/tools/fm1_install.py build/core-fm1.fwsc --force {{.CLI_ARGS}}
+      - cmd: |
+          test -f build/core-fm1.version && echo "version: $(cat build/core-fm1.version)" || true
+      - uv run --group flash python tools/fm1_install.py {{.FIRMWARE}} --force {{.CLI_ARGS}}
 
-  unbrick:soft:
-    desc: Restore firmware via USB ROM boot mode (soft-bricked device)
+  flash:uboot:
+    desc: Flash firmware via UBOOT mode (hold OCT+/- for 5s, then run this)
+    vars:
+      FIRMWARE: '{{.FIRMWARE | default "build/core-fm1.fwsc"}}'
     preconditions:
-      - sh: test -f build/core-fm1.fwsc
-        msg: "build/core-fm1.fwsc not found. Run 'task build' first."
+      - sh: test -f {{.FIRMWARE}}
+        msg: "{{.FIRMWARE}} not found. Run 'task build' first."
+    cmds:
+      - cmd: |
+          test -f build/core-fm1.version && echo "version: $(cat build/core-fm1.version)" || true
+      - uv sync --group uboot
+      - sudo uv run --group uboot python tools/fm1_uboot_flash.py {{.FIRMWARE}} {{.CLI_ARGS}}
+
+  flash:debug:
+    desc: Debug flash issues - list MIDI devices and retry update loader detection
+    cmds:
+      - cmd: |
+          echo "=== MIDI devices ==="
+          uv run --group flash python -c "
+          import rtmidi
+          mi = rtmidi.MidiIn()
+          mo = rtmidi.MidiOut()
+          print('IN: ', mi.get_ports())
+          print('OUT:', mo.get_ports())
+          "
+          echo ""
+          echo "=== Looking for FM-1 or Update Loader (10s) ==="
+          uv run --group flash python -c "
+          import rtmidi, time
+          for i in range(20):
+              mi = rtmidi.MidiIn()
+              ports = mi.get_ports()
+              for p in ports:
+                  if 'FM-1' in p or 'Felucca' in p or 'Update' in p:
+                      print(f'  found: {p}')
+              if not any('FM-1' in p or 'Felucca' in p or 'Update' in p for p in ports):
+                  print(f'  [{i*0.5:.1f}s] no FM-1 device')
+              time.sleep(0.5)
+          "
+          echo ""
+          echo "If 'Felucca Update' appeared, run: task flash"
+          echo "If only 'FM-1' appeared, the device is in normal mode."
+          echo "If nothing appeared, check USB cable."
+
+  recovery:download-stock-firmware:
+    desc: Download official M-VAVE FM-1 stock firmware V15 (.fwsc)
+    vars:
+      STOCK_FWSC: '{{.ROOT_DIR}}/build/mvave-fm1-original-v15.fwsc'
+    status:
+      - test -f '{{.STOCK_FWSC}}'
+    cmds:
+      - mkdir -p build
+      - curl -fL -o '{{.STOCK_FWSC}}' https://github.com/m-vave/fm1_open/raw/main/sdk/firmware/FM-1_015.fwsc
+      - echo "Downloaded stock V15 firmware to {{.STOCK_FWSC}}"
+
+  recovery:transporter:rpi:flash:
+    desc: Flash Transporter firmware onto a Raspberry Pi Pico (hold BOOTSEL, plug in, then run this)
+    vars:
+      RECOVERY_DIR: '{{.ROOT_DIR}}/.scratch/examples/Transporter/pico-fork/recovery'
+    dir: '{{.RECOVERY_DIR}}'
+    preconditions:
+      - sh: test -f '{{.RECOVERY_DIR}}/fm1_transporter_recover.py'
+        msg: "Recovery script not found. Run: git clone --depth 1 https://github.com/Nicodesy06/FM1Trasmitter-for-pico .scratch/examples/Transporter/pico-fork"
+    cmds:
+      - uv run --group unbrick python fm1_transporter_recover.py setup --board pico_rp2040
+      - uv run --group unbrick python fm1_transporter_recover.py flash-board --board pico_rp2040 {{.CLI_ARGS}}
+
+  recovery:transporter:fm1:unbrick:
+    desc: Recover a hard-bricked FM-1 via Transporter (Pico wired to FM-1, no USB presence)
+    deps: [recovery:download-stock-firmware]
+    vars:
+      RECOVERY_DIR: '{{.ROOT_DIR}}/.scratch/examples/Transporter/pico-fork/recovery'
+      STOCK_FWSC: '{{.ROOT_DIR}}/build/mvave-fm1-original-v15.fwsc'
+    dir: '{{.RECOVERY_DIR}}'
+    preconditions:
+      - sh: test -f '{{.RECOVERY_DIR}}/fm1_transporter_recover.py'
+        msg: "Recovery script not found. Run: git clone --depth 1 https://github.com/Nicodesy06/FM1Trasmitter-for-pico .scratch/examples/Transporter/pico-fork"
+    cmds:
+      - uv run --group unbrick python fm1_transporter_recover.py recover --board pico_rp2040 --v15 '{{.STOCK_FWSC}}' '{{.STOCK_FWSC}}' {{.CLI_ARGS}}
+
+  recovery:transporter:fm1:unbrick-soft:
+    desc: Restore firmware via USB ROM boot mode (soft-bricked device)
+    deps: [recovery:download-stock-firmware]
     vars:
       UNBRICKER_DIR: '{{env "UNBRICKER_DIR" | default (printf "%s/.fm1-toolchain/unbricker" .HOME)}}'
+      STOCK_FWSC: '{{.ROOT_DIR}}/build/mvave-fm1-original-v15.fwsc'
     cmds:
       - |
         if [ ! -d "{{.UNBRICKER_DIR}}" ]; then
           echo "Cloning MvaveFM1Unbricker..."
           git clone --depth 1 https://github.com/Quixotic7/MvaveFM1Unbricker "{{.UNBRICKER_DIR}}"
         fi
-      - uv run --group unbrick python "{{.UNBRICKER_DIR}}/fm1_unbrick.py" restore build/core-fm1.fwsc {{.CLI_ARGS}}
+      - uv run --group unbrick python "{{.UNBRICKER_DIR}}/fm1_unbrick.py" restore '{{.STOCK_FWSC}}' {{.CLI_ARGS}}
 
   config:
     desc: Run menuconfig (ncurses) to configure the build

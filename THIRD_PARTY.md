@@ -47,10 +47,35 @@ and applicable notices. Apache-2.0 is compatible with GPL-3.0; retaining these
 notices does not change core-fm1's project license. See the
 [Apache Software Foundation's compatibility explanation](https://apache.org/licenses/GPL-compatibility.html).
 
+## Upstream firmware subtrees
+
+Community firmware source trees embedded via `git subtree add` (no squash, full
+history preserved). Each subtree is pinned to a specific tag or commit. Update
+with `git subtree pull --prefix=<path> <url> <ref>`.
+
+| Subtree | Source | Ref | License | Use |
+|---------|--------|-----|---------|-----|
+| [`firmware/upstream/felucca/`](firmware/upstream/felucca/) | [hugelton/Felucca](https://github.com/hugelton/Felucca) | v1.6.1 | GPL-3.0 | UI renderer (`gfx.c`, `lcd.c`), audio core reference, sequencer reference |
+| [`firmware/upstream/felucca-engines/`](firmware/upstream/felucca-engines/) | [hugelton/Felucca-Engines](https://github.com/hugelton/Felucca-Engines) | c46e008 | MIT | ANALOG, NOISE, LOFI, TRIO, WHEEL engines; `dsp.c` DSP helpers; `felucca_engine.h` vtable |
+| [`firmware/upstream/melodee/`](firmware/upstream/melodee/) | [keremimo/melodee](https://github.com/keremimo/melodee) | v1.4.5 | GPL-3.0 | CZ, SID, PROPHET, FORMANT + 7 more engines; extended `dsp.c`; FPU-optimized audio core reference |
+| [`firmware/upstream/sloop/`](firmware/upstream/sloop/) | [isod89/sloop-fm1](https://github.com/isod89/sloop-fm1) | v2.8 | GPL-3.0 | DRAWBAR, GRAIN, SAMPLE, SLICE engines; arranger/scene system reference |
+| [`firmware/upstream/fmlab/`](firmware/upstream/fmlab/) | [jsmith13/fm_lab](https://github.com/jsmith13/fm_lab) | v1.1.0 | GPL-3.0 | Q23 24-bit audio pipeline; DX7 engine; 2x oversampling; FDN reverb; TPDF dithering |
+
+The Felucca-Engines subtree is a separate repository from the main Felucca
+subtree because upstream Felucca references it as a git submodule (MIT-licensed
+engines kept separate from the GPL-3.0 firmware). The subtree commit `c46e008`
+matches the submodule pointer in Felucca v1.6.1.
+
+core-fm1 includes upstream source via `#include` directives (unity build), not
+by copying. Engine source files are included conditionally from the subtree
+paths (e.g. `#include "upstream/felucca-engines/src/eng_noise.c"`), gated by
+Kconfig symbols. See [docs/PORTING.md](docs/PORTING.md) for the adapter pattern.
+
 ## Included in the source tree
 
 | Component | Local path | Source and license | Use |
 | --- | --- | --- | --- |
+| FatFs R0.15 (stubs) | [`firmware/vendor/fatfs/`](firmware/vendor/fatfs/) | [1-clause BSD (FatFs license)](http://elm-chan.org/fsw/ff/doc/appnote.html#license) | FAT32 filesystem for USB mass storage; read-only config, no exFAT |
 | setup-fm1-emulator control helpers | [tests/fm1_controls.py](tests/fm1_controls.py) | [MIT-licensed upstream example](https://github.com/DimmKirr/setup-fm1-emulator/blob/9d0fdd259343edbe29f1e4a3bfea85c7739f5d3c/examples/e2e_firmware_ui_test.py), [local license](LICENSES/MIT.txt) | Named encoder, button, and note controls for E2E tests; not included in firmware |
 
 The port retains the example's Kerem Kilic (Ellic Studio) copyright and the

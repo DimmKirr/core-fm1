@@ -156,7 +156,7 @@ static uint32_t stub_memeq(const uint8_t *a, const char *b, uint32_t n)
  * the package's ota.bin from its byte 0x20 (the inner head with the load address, the LZ4 blocks build.py ldr_wrap
  * made). The checks of ota_stage that the flash copy allows (the package's outer body CRC is not kept in flash),
  * and the block chain from end to end, so an erased or cut-off staging area is not handed to the SPL. Only our
- * loader passes (crt0_ldr.S's "FELUCCA-LOADER-1"): the official one rewrites the head and the stub with it. */
+ * loader passes (crt0_ldr.S's "COREFM1-LOADER-1"): the official one rewrites the head and the stub with it. */
 static uint32_t stub_loader_check(const uint8_t *ld)
 {
     uint32_t len, isize, p, end, total = 0, i, own = 0;
@@ -171,7 +171,7 @@ static uint32_t stub_loader_check(const uint8_t *ld)
         !isize || isize > 0x14000u)
         return STUB_LD_INNER;
     for (i = 0x48; i + 16u <= 0x48u + 64u && !own; i++)
-        own = stub_memeq(ld + i, "FELUCCA-LOADER-1", 16);
+        own = stub_memeq(ld + i, "COREFM1-LOADER-1", 16);
     if (!own)
         return STUB_LD_NOT_OURS;
     for (p = 0x40, end = 0x20u + len; p + 8u <= end;) {

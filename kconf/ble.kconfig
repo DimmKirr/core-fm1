@@ -1,0 +1,53 @@
+menu "BLE"
+
+config BLE
+    bool "Bluetooth Low Energy"
+    default n
+    help
+      The Optimist BLE stack: peripheral and optional central roles,
+      BLE-MIDI transport, device scanning, bonding.
+
+config BLE_MIDI
+    bool "BLE MIDI transport"
+    depends on BLE
+    default y
+
+config BLE_CENTRAL
+    bool "Central role (scanner, connecting out)"
+    depends on BLE
+    default n
+    select BLE_BOND
+
+config BLE_HID
+    bool "HID over GATT client (Xbox controller)"
+    depends on BLE_CENTRAL
+    default n
+
+config BLE_BOND
+    bool "Bonding (SMP + LL encryption)"
+    depends on BLE
+    default n
+
+config BLE_DIAG
+    bool "BLE diagnostics"
+    depends on BLE
+    default n
+
+config BLE_FILE_TRANSFER
+    bool "File Transfer GATT service"
+    depends on BLE
+    default y if BLE
+    help
+      Adds a GATT service for listing and receiving files (firmware, presets,
+      wavetables) from a phone over BLE. The phone reads a file listing
+      characteristic and uses write characteristics for chunked transfer.
+
+config BLE_STUB
+    bool "Stub HW driver (testing/emulator)"
+    depends on BLE
+    default n
+    help
+      Use the no-op baseband driver instead of the AC791N radio.
+      For emulator builds and host testing.
+
+endmenu

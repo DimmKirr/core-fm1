@@ -6,7 +6,6 @@ static const cfm1_page_t *fsh_pages[CFM1_MAX_PAGES];
 static uint32_t fsh_npage;
 static uint32_t fsh_cur;
 static uint32_t fsh_dirty;
-static uint32_t fsh_splash_frames;
 static void fsh_splash_render(void);
 
 static void fsh_register(const cfm1_page_t *page)
@@ -39,27 +38,44 @@ static void fsh_prev(void)
         fsh_set_page((fsh_cur + fsh_npage - 1) % fsh_npage);
 }
 
+/* Fill only the BG gaps between layout regions, matching upstream Felucca's
+ * draw_frame(): header, cards, graph, and footer cover the rest. */
+static void fsh_draw_frame(void)
+{
+    /* gap between header and cards row */
+    lcd_fill(0, H_HEAD, 240, Y_CARDS - H_HEAD, T_BG);
+    /* gaps beside the four card columns */
+    {
+        uint32_t i;
+        lcd_fill(0, Y_CARDS, (uint32_t)CARD_X(0), CARD_H, T_BG);
+        for (i = 0; i < 4u; i++) {
+            uint32_t x = (uint32_t)(CARD_X(i) + CARD_W);
+            uint32_t w = i < 3u ? (uint32_t)CARD_X(i + 1u) - x : 240u - x;
+            lcd_fill(x, Y_CARDS, w, CARD_H, T_BG);
+        }
+    }
+    /* gap between cards and graph */
+    lcd_fill(0, Y_CARDS + CARD_H, 240, Y_GRAPH - (Y_CARDS + CARD_H), T_BG);
+    /* gap between graph and footer */
+    lcd_fill(0, Y_FOOT, 240, 0, T_BG);
+}
+
 static void fsh_draw(void)
 {
-    if (fsh_splash_frames) {
-        fsh_splash_render();
-        fsh_splash_frames--;
-        if (!fsh_splash_frames)
-            fsh_dirty = 1;
-        return;
-    }
-
     const cfm1_page_t *p = fsh_npage ? fsh_pages[fsh_cur] : 0;
     if (!p)
         return;
 
-    if (fsh_dirty) {
-        lcd_fill(0, 0, 240, 240, T_BG);
-        fsh_dirty = 0;
-    }
+    if (p->status)
+        p->status();
 
+    if (!fsh_dirty)
+        return;
+
+    fsh_draw_frame();
     if (p->draw)
         p->draw();
+    fsh_dirty = 0;
 }
 
 static void fsh_knob(uint32_t id, int32_t clicks)
@@ -67,7 +83,7 @@ static void fsh_knob(uint32_t id, int32_t clicks)
     const cfm1_page_t *p = fsh_npage ? fsh_pages[fsh_cur] : 0;
     if (p && p->knob && p->knob(id, clicks))
         return;
-    if (id == 0) {
+    if (id == ENC_SELECT && cfm1_controls.select_default == CTL_SELECT_PAGE) {
         if (clicks > 0) fsh_next();
         else if (clicks < 0) fsh_prev();
     }
@@ -89,6 +105,7 @@ static uint32_t fsh_find_page(const char *name)
 
 static void fsh_button(uint32_t id, uint32_t down)
 {
+    if (id >= BTN_COUNT) return;
     if (down) {
         fsh_btn_held = id + 1;
         fsh_btn_us = fm1_micros();
@@ -96,25 +113,16 @@ static void fsh_button(uint32_t id, uint32_t down)
     if (!down && fsh_btn_held == id + 1) {
         uint32_t held_us = fm1_micros() - fsh_btn_us;
         fsh_btn_held = 0;
-        if (id == 8 && held_us > 500000u) {
-            fsh_set_page(fsh_find_page("ABOUT"));
+        if (held_us > cfm1_controls.hold_us && cfm1_controls.btn_hold[id]) {
+            fsh_set_page(fsh_find_page(cfm1_controls.btn_hold[id]));
             return;
         }
     }
     const cfm1_page_t *p = fsh_npage ? fsh_pages[fsh_cur] : 0;
     if (p && p->button && p->button(id, down))
         return;
-    if (!down) {
-        switch (id) {
-        case 8:  fsh_set_page(fsh_find_page("HOME"));  break;
-        case 2:  fsh_set_page(fsh_find_page("FX"));    break;
-        case 3:  fsh_set_page(fsh_find_page("SCL"));   break;
-        case 4:  fsh_set_page(fsh_find_page("ENV"));   break;
-        case 5:  fsh_set_page(fsh_find_page("LFO"));   break;
-        case 6:  fsh_set_page(fsh_find_page("EDIT"));  break;
-        case 10: fsh_set_page(fsh_find_page("ARP"));   break;
-        case 11: fsh_set_page(fsh_find_page("SEQ"));   break;
-        }
+    if (!down && cfm1_controls.btn_tap[id]) {
+        fsh_set_page(fsh_find_page(cfm1_controls.btn_tap[id]));
     }
 }
 
@@ -169,8 +177,10 @@ static void fsh_splash(void)
 #ifdef CONFIG_SPLASH_NONE
     (void)0;
 #else
+    uint32_t ms;
     fsh_splash_render();
-    fsh_splash_frames = 10;
+    for (ms = 0; ms < 400u; ms += 10u)
+        fm1_delay_ms(10);
 #endif
 }
 

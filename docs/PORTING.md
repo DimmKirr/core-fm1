@@ -185,6 +185,143 @@ Dependencies: `fe_tables.h` (generated), `dsp.c` (MIT helpers: `clamp`, `mulq15`
 
 Config: `CONFIG_ENGINE_NOISE=y` in the defconfig. No `CONFIG_AUDIO` required: the engine renders through the adapter types and appears in the `ENGINES[]` registry for the UI.
 
+### ANALOG engine (worked example)
+
+The ANALOG engine was ported from Felucca (MIT, ~500 lines). Same process as NOISE: copy source to `firmware/src/audio/engines/eng_analog.c`, add `CONFIG_ENGINE_ANALOG` in `kconf/engines.kconfig`, add conditional `#include` in `engines.c`, register in `ENGINES[]`.
+
+Dependencies: same as NOISE (`fe_tables.h`, `dsp.c`, SVF_G table). ANALOG also uses `PITCH_OCT[]` and `SINE[]` from the generated tables for its oscillator.
+
+The engine's `.edit[]` array defines 8 parameter descriptors (CUT, RES, CUT2, KTR, OSC, SUB, PW, BND) with `.def` defaults, `.min`/`.max` ranges, `.label`, `.unit`, and `.fmt`. The `.knob[]` array maps the 4 physical encoders to parameter indices. These are read by the UI page to display labels, values, and gauge bars without any engine-specific code in the UI.
+
+### Engine switching
+
+Engine switching is a **UI action**, not a subsystem or module. It is triggered by the SELECT encoder on the HOME page and goes through the adapter layer.
+
+The adapter function `cfm1_engine_select()` lives in `voice.c` and handles IRQ-safe switching:
+
+```c
+static void cfm1_engine_select(track_t *t, uint32_t ei)
+{
+    const engine_t *e;
+    uint32_t i;
+    if (ei >= NENGINES) ei = 0;
+    e = ENGINES[ei];
+    fm1_irq_off();
+    trk_all_off(t);
+    t->eng_req = (uint8_t)ei;
+    t->engine  = (uint8_t)ei;
+    t->preset  = 0;
+    for (i = 0; i < 8u; i++)
+        t->p[P_E0 + i] = e->edit[i].def;
+    fm1_irq_on();
+}
+```
+
+This mirrors upstream Felucca's `set_engine_of()` (`ui.c:1385`). The IRQ guard ensures the audio ISR sees either the old engine with its parameters or the new engine with its own defaults, never a half-updated state.
+
+The UI page (`page_home.c`) calls `cfm1_engine_select(t, ei)` on encoder 0 rotation:
+
+```c
+if (id == 0 && NENGINES > 1u) {
+    track_t *t = &trk[song.sel];
+    int32_t e = (int32_t)t->eng_req + clicks;
+    if (e < 0) e = (int32_t)NENGINES - 1;
+    if (e >= (int32_t)NENGINES) e = 0;
+    cfm1_engine_select(t, (uint32_t)e);
+    fsh_dirty = 1;
+    return 1;
+}
+```
+
+This wraps the engine index, so rotating past the last engine goes back to the first. The UI page never directly writes `t->engine` or `t->eng_req`: it always goes through the adapter function.
+
+### End-to-end audio: what we fixed wiring NOISE
+
+Getting the NOISE engine to produce audio in the emulator required wiring four subsystems beyond the engine itself. Each fix was small, but all four were needed before any sound came out.
+
+#### 1. Voice allocator (`audio/voice.c`)
+
+The stub voice allocator was a no-op. Replaced with a working round-robin allocator:
+- `trk_note_on`: finds a free voice (or steals the oldest), sets note/vel/gate/active/age/pitch16, calls `engine->note_on(t, v)`
+- `trk_note_off`: finds matching active voice, clears gate/active
+- `engine_block`: iterates active voices, calls `engine->render` into a per-voice buffer, sums into L/R mix buffers
+
+The voice allocator renders mono per-voice, then adds to both L/R channels. The `vmod_t` passed to render must have `pitch16`, `inc` (from `pitch_inc()`), and `amp0`/`amp1` set to non-zero values or the engine output is silent.
+
+#### 2. Audio core (`audio/core/audio.c`)
+
+The audio core implements the I2S DMA double-buffer ISR:
+- `fm1_alnk0_irq()`: checks `fm1_audio_pending()`, calls `mix_block()`, interleaves L/R into DMA buffer with `<< OUT_SHIFT` (Q15 to 24-bit)
+- `audio_init()`: zeros the DMA buffer, inits tracks with `params_init()`, calls `fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3)`
+
+The ISR function must be non-static (external linkage) because the assembly wrapper in `fm1_isr.S` calls it by symbol.
+
+#### 3. IRQ enable (the silent killer)
+
+`fm1_irq_enable_all()` was never called in `core_fm1.c`. Without it, the CPU ignores all interrupts: the ALNK0 DMA ISR never fires, so the audio buffer stays zero-filled. Melodee calls this in `main.c` after all subsystems are initialized. We added it right after `audio_init()`.
+
+This produced zero audio output with no compiler warnings, no linker errors, and no runtime crashes. The firmware ran, the LCD displayed correctly, the engine was registered, but the DMA buffer was never filled. Always check that `fm1_irq_enable_all()` is called before the main loop.
+
+#### 4. ISR timing globals
+
+The assembly ISR wrapper (`fm1_isr.S`) reads/writes `fm1_audio_irq_start_ticks` and `fm1_audio_irq_elapsed_ticks` for diagnostics. These must be non-static `uint32_t` globals in the C translation unit. Without them, the linker fails with undefined references.
+
+#### 5. Adapter ordering
+
+`cfm1_midi.h` provides a stub `midi_out_event()` guarded by `#ifndef CFM1_USB_MIDI`. The USB MIDI module (`midi/usb.c`) defines the real one. But `CFM1_USB_MIDI` was defined _after_ the adapter include, so both definitions were emitted, causing a redefinition error. Fix: define `CFM1_USB_MIDI` before the adapter includes.
+
+#### 6. Page key handler return type
+
+The `cfm1_page_t.key` field expects `int (*)(uint32_t, uint32_t)`. The `fhome_key` handler was declared `void`. JieLi clang 4.0.1 treats this as an error with `-Wincompatible-pointer-types`. Fix: change return type to `int`, return 1.
+
+#### Signal chain (verified working)
+
+```
+main loop -> fm1_input_scan() -> note edge detection
+  -> fsh_key(note, vel) [Felucca shell]
+    -> page->key(note, vel) [fhome_key]
+      -> trk_note_on(track, note, vel) [voice allocator]
+        -> engine->note_on(track, voice) [NOISE]
+
+ISR (fires every 128 samples @ 44.1kHz):
+  isr_alnk0 [assembly wrapper, fm1_isr.S]
+    -> fm1_alnk0_irq() [audio.c]
+      -> mix_block()
+        -> engine_block(track, buf_l, buf_r, n) [voice.c]
+          -> engine->render(track, voice, buf, n, &vmod) [NOISE]
+      -> interleave L/R into DMA buffer
+      -> fm1_audio_ack_half()
+```
+
+#### E2E verification
+
+`tests/e2e_audio_engines_test.py` verifies both engines from a **single `felucca_mock` firmware** (both `CONFIG_ENGINE_ANALOG` and `CONFIG_ENGINE_NOISE` enabled):
+
+- **TestAnalogEngine**: boots, plays C4-G4 on the default engine (ANALOG at index 0), records WAV
+- **TestNoiseEngine**: boots the same firmware, switches to NOISE via `ctrl.rotate_encoder('select', direction=1, steps=1)`, plays C4-G4, records WAV
+
+Both tests capture audio via in-browser ScriptProcessorNode. Silence baseline RMS is 0.0. Playing RMS differs between engines (ANALOG ~0.029, NOISE ~0.084), confirming distinct synthesis.
+
+WAV files and screenshots are saved to `tests/results/<timestamp>-e2e_audio_engines_test/`.
+
+#### Emulator encoder timing
+
+The fm1-emu emulator simulates quadrature encoder signals at GPIO level: `enc_state[]` cycles through GRAY code states at 2ms intervals per transition. A single encoder click produces 4 state transitions over ~8ms.
+
+The firmware's main loop scans inputs once per frame. If the frame delay is a single `fm1_delay_ms(10)`, the firmware polls GPIO only once every ~11ms, which means it misses all intermediate quadrature states and sees only the rest position. The encoder appears to not work.
+
+Fix: split the frame delay into 10x 1ms intervals with `fm1_input_scan()` between each:
+
+```c
+uint32_t f;
+for (f = 0; f < 10u; f++) {
+    fm1_delay_ms(1);
+    fm1_input_scan();
+}
+```
+
+This gives the quadrature decoder enough samples to detect transitions. On real hardware, the frame timing is faster and this issue does not occur.
+
 ### Effects (pick one lineage)
 
 Each effects chain implementation is selected via Kconfig radio choice. The adapter (`cfm1_fx.h`) defines the chain interface.

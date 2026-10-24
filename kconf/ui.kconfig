@@ -36,6 +36,30 @@ config UI_CORE
 endchoice
 
 choice
+    prompt "Control model"
+    default CONTROLS_FELUCCA
+
+config CONTROLS_FELUCCA
+    bool "Felucca"
+    help
+      Felucca button layout: direct page navigation, SELECT steps pages,
+      HOME hold opens ABOUT. GLO opens DEBUG when debug log is enabled.
+
+config CONTROLS_MELODEE
+    bool "Melodee"
+    help
+      Melodee button layout: SELECT adjusts BPM, GLO opens MIXER,
+      SAVE opens SAVE page, HOME hold opens MENU.
+
+config CONTROLS_SLOOP
+    bool "SLOOP"
+    help
+      SLOOP button layout: SELECT adjusts BPM, GLO opens MIXER,
+      0.7s hold threshold, HOME hold opens MENU.
+
+endchoice
+
+choice
     prompt "Splash screen"
     default SPLASH_LOGO
 

@@ -5,7 +5,7 @@
 /* M-UPGRADE entry: "step 1 lite".
  *
  * The updater talks SysEx (F0 pack7(00 59 cmd len24 body chk) F7):
- *   cmd 0x11  handshake -> we answer our package identity (MELODEE_ID)
+ *   cmd 0x11  handshake -> we answer our package identity (CFM1_LOADER_ID)
  *   F0 22 24 35 7F F7  upgrade -> ota_session(): pull parts of the package
  *     with cmd 0x30 read requests, check them, stage the package's update
  *     loader at 0xE0000 (outside Melodee's store), ask 0xE0000000 ("success"),
@@ -134,7 +134,7 @@ static int ota_send_msg(uint32_t cmd, const uint8_t *body, uint32_t n)   /* n <=
 
 static void ota_reply_identity(void)
 {
-    static const char ID[] = MELODEE_ID;         /* == the package marker string */
+    static const char ID[] = CFM1_LOADER_ID;         /* == the package marker string */
     uint8_t id[27];
     uint32_t i;
     for (i = 0; i < sizeof id; i++)
@@ -286,7 +286,7 @@ static int ota_stage(void)                       /* steps 1..6; 0 = host said su
         return -7;
     official = ota_rd16(b) == OTA_LDR_HCRC && ota_rd16(b + 2) == OTA_LDR_DCRC && len == OTA_LDR_LEN;
     for (i = 0x48, own = 0; i + 16u <= 0x48u + 64u && !own; i++)    /* first LZ4 literals: crt0_ldr.S */
-        own = ota_memeq(b + i, (const uint8_t *)"FELUCCA-LOADER-1", 16) && ota_rd32(b + 0x20 + 4) <= 0x14000u;
+        own = ota_memeq(b + i, (const uint8_t *)"COREFM1-LOADER-1", 16) && ota_rd32(b + 0x20 + 4) <= 0x14000u;
     if (!official && !own)
         return -7;
     if (official) {                    /* the official loader writes the head: it must equal ours */
@@ -365,7 +365,7 @@ static int ota_session(void)
     ota_wr16(parm + 4, 0x5A01u);
     ota_wr16(parm + 6, 0x5441u);
     for (i = 0; i < 12u; i++)
-        parm[8 + i] = (uint8_t)"ota-FM-1_015"[i];    /* the loader's own USB identity */
+        parm[8 + i] = (uint8_t)"ota-FM-1_900"[i];    /* the loader's own USB identity */
     ota_wr32(parm + 72, OTA_AREA);
     ota_wr16(parm, ota_crc16(parm + 2, 78, 0));
 #if MELODEE_OTA_DRYRUN
@@ -409,7 +409,7 @@ static uint32_t ota_staged(void)
         !isize || isize > 0x14000u)
         return 0;
     for (i = 0x48; i + 16u <= 0x48u + 64u && !own; i++)
-        own = (uint32_t)ota_memeq(h + i, (const uint8_t *)"FELUCCA-LOADER-1", 16);
+        own = (uint32_t)ota_memeq(h + i, (const uint8_t *)"COREFM1-LOADER-1", 16);
     if (!own)
         return 0;
     for (p = 0x40, end = 0x20u + len; p + 8u <= end;) {

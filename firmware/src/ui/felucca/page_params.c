@@ -37,6 +37,21 @@ static void fparams_draw_page(const fparams_def_t *def)
     fui_draw_foot(eng ? eng->name : "---", "ACID", def->name);
 }
 
+static int fparams_knob(const fparams_def_t *def, uint32_t id, int32_t clicks)
+{
+    if (id >= 1 && id <= 4) {
+        track_t *t = &trk[song.sel];
+        uint32_t pid = def->params[id - 1];
+        int16_t v = t->p[pid] + (int16_t)(clicks * 4);
+        if (v < 0) v = 0;
+        if (v > 127) v = 127;
+        t->p[pid] = v;
+        fsh_dirty = 1;
+        return 1;
+    }
+    return 0;
+}
+
 /* ENV page: ADSR envelope */
 static const fparams_def_t fenv_def = {
     "ENV", "ENVELOPE",
@@ -46,8 +61,9 @@ static const fparams_def_t fenv_def = {
     {ICON_ATTACK, ICON_DECAY, ICON_SUSTAIN, ICON_RELEASE},
 };
 static void fenv_draw(void) { fparams_draw_page(&fenv_def); }
+static int fenv_knob(uint32_t id, int32_t clicks) { return fparams_knob(&fenv_def, id, clicks); }
 static const cfm1_page_t FPAGE_ENV = {
-    .name = "ENV", .title = "ENVELOPE", .draw = fenv_draw,
+    .name = "ENV", .title = "ENVELOPE", .draw = fenv_draw, .knob = fenv_knob,
 };
 
 /* LFO page */
@@ -59,8 +75,9 @@ static const fparams_def_t flfo_def = {
     {ICON_LFO_WAVE, ICON_RATE, ICON_SHAPE, ICON_TIME},
 };
 static void flfo_draw(void) { fparams_draw_page(&flfo_def); }
+static int flfo_knob(uint32_t id, int32_t clicks) { return fparams_knob(&flfo_def, id, clicks); }
 static const cfm1_page_t FPAGE_LFO = {
-    .name = "LFO", .title = "LFO", .draw = flfo_draw,
+    .name = "LFO", .title = "LFO", .draw = flfo_draw, .knob = flfo_knob,
 };
 
 /* FX page: send levels */
@@ -72,8 +89,9 @@ static const fparams_def_t ffx_def = {
     {ICON_DIST, ICON_CHORUS, ICON_DELAY, ICON_REVERB},
 };
 static void ffx_draw(void) { fparams_draw_page(&ffx_def); }
+static int ffx_knob(uint32_t id, int32_t clicks) { return fparams_knob(&ffx_def, id, clicks); }
 static const cfm1_page_t FPAGE_FX = {
-    .name = "FX", .title = "EFFECTS", .draw = ffx_draw,
+    .name = "FX", .title = "EFFECTS", .draw = ffx_draw, .knob = ffx_knob,
 };
 
 /* SCL page: scale and tuning */
@@ -85,8 +103,9 @@ static const fparams_def_t fscl_def = {
     {ICON_PITCH, ICON_SCALE, ICON_OCTAVE, ICON_TRANSPOSE},
 };
 static void fscl_draw(void) { fparams_draw_page(&fscl_def); }
+static int fscl_knob(uint32_t id, int32_t clicks) { return fparams_knob(&fscl_def, id, clicks); }
 static const cfm1_page_t FPAGE_SCL = {
-    .name = "SCL", .title = "SCALE", .draw = fscl_draw,
+    .name = "SCL", .title = "SCALE", .draw = fscl_draw, .knob = fscl_knob,
 };
 
 /* EDIT page: engine params (reads from engine_t.edit[]) */
@@ -152,8 +171,9 @@ static const fparams_def_t farp_def = {
     {ICON_ARP, ICON_RATE, ICON_OCTAVE, ICON_GATE},
 };
 static void farp_draw(void) { fparams_draw_page(&farp_def); }
+static int farp_knob(uint32_t id, int32_t clicks) { return fparams_knob(&farp_def, id, clicks); }
 static const cfm1_page_t FPAGE_ARP = {
-    .name = "ARP", .title = "ARPEGGIO", .draw = farp_draw,
+    .name = "ARP", .title = "ARPEGGIO", .draw = farp_draw, .knob = farp_knob,
 };
 
 /* VOICE page: mono, hold, glide, unison */
@@ -165,6 +185,7 @@ static const fparams_def_t fvoice_def = {
     {ICON_VOICE, ICON_HOLD, ICON_GLIDE, ICON_OCTAVE},
 };
 static void fvoice_draw(void) { fparams_draw_page(&fvoice_def); }
+static int fvoice_knob(uint32_t id, int32_t clicks) { return fparams_knob(&fvoice_def, id, clicks); }
 static const cfm1_page_t FPAGE_VOICE = {
-    .name = "VOICE", .title = "VOICE", .draw = fvoice_draw,
+    .name = "VOICE", .title = "VOICE", .draw = fvoice_draw, .knob = fvoice_knob,
 };

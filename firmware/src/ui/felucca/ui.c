@@ -24,4 +24,16 @@
 #include "ui/felucca/page_seq.c"
 #include "ui/felucca/page_mixer.c"
 #include "ui/felucca/page_about.c"
+#ifdef CONFIG_UDISK
+#include "ui/felucca/page_files.c"
+#endif
+#ifdef CONFIG_BLE
+#include "ui/felucca/page_ble.c"
+#endif
+#ifdef CONFIG_DEBUG_LOG
+#include "ui/felucca/page_debug.c"
+#endif
+#ifdef CONFIG_SYS_MENU
+#include "ui/felucca/page_sys.c"
+#endif
 #include "ui/felucca/pages.c"

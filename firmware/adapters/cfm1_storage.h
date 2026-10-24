@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: MIT */
-/* Storage adapter: project save/load, user presets. */
+/* Storage adapter: project save/load, user presets.
+ * Stubs are active only when no storage lineage is configured. */
 #ifndef CFM1_STORAGE_H
 #define CFM1_STORAGE_H
 #include <stdint.h>
+
+#if !defined(CONFIG_STORAGE_MELODEE) && !defined(CONFIG_STORAGE_FELUCCA) && !defined(CONFIG_STORAGE_SLOOP)
 
 /* --- projects --- */
 
@@ -36,5 +39,11 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k) { (void)e; (void)k; b[
 static void up_ui_named(uint32_t op, uint32_t k, const char *name, uint32_t cat)
     { (void)op; (void)k; (void)name; (void)cat; }
 static uint32_t up_cat(uint32_t k) { (void)k; return 0; }
+
+static void storage_init(void) {}
+static void settings_load(void) {}
+static void settings_save(void) {}
+
+#endif
 
 #endif /* CFM1_STORAGE_H */

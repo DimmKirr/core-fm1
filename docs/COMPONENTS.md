@@ -4,29 +4,32 @@
 
 | Term | Meaning | Kconfig pattern | Example |
 |------|---------|-----------------|---------|
-| **Subsystem** | Architectural grouping with its own lifecycle | `CONFIG_AUDIO`, `CONFIG_BLE` | Audio, HAL, UI, BLE |
+| **Subsystem** | Architectural grouping with its own lifecycle | `CONFIG_AUDIO`, `CONFIG_USB` | Audio, HAL, USB, UI |
 | **Module** | Functional slot within a subsystem | `CONFIG_ENGINE_FM6`, `CONFIG_SEQ_*` | FM6 engine, Effects, Sequencer |
 | **Lineage** | Firmware-specific implementation of a module | `CONFIG_*_FELUCCA`, `CONFIG_*_MELODEE` | Melodee FX, Felucca Sequencer |
 
-## Subsystems
+## Subsystem dependency graph
 
 ```mermaid
 graph TB
-    UI["UI"]
-    AUDIO["Audio"]
-    SEQ["Sequencer"]
-    MIDI["MIDI"]
-    STORAGE["Storage"]
-    BLE["BLE"]
-    BOOT["Boot"]
-    SCALES["Scales"]
-    HAL["HAL"]
+    UI["UI<br/><small>screen, menus, events</small>"]
+    AUDIO["Audio<br/><small>voices, render, DMA</small>"]
+    SEQ["Sequencer<br/><small>steps, patterns, song</small>"]
+    MIDI["MIDI Routing<br/><small>channels, clock, thru</small>"]
+    USB["USB<br/><small>MIDI, SysEx, UBOOT</small>"]
+    STORAGE["Storage<br/><small>flash, projects, presets</small>"]
+    BLE["BLE<br/><small>GATT, link layer</small>"]
+    BOOT["Boot<br/><small>loader, OTA, recovery</small>"]
+    SCALES["Scales<br/><small>tuning, quantize</small>"]
+    HAL["HAL<br/><small>registers, peripherals</small>"]
 
     UI --> AUDIO
     UI --> STORAGE
     SEQ --> AUDIO
     MIDI --> AUDIO
+    MIDI -.->|"routing needs<br/>transport"| USB
     MIDI -.-> BLE
+    USB --> HAL
     AUDIO --> HAL
     BLE --> HAL
     STORAGE --> HAL
@@ -34,24 +37,96 @@ graph TB
     SCALES
 ```
 
+## Unity build inclusion order
+
+Shows the `#include` order in `core_fm1.c`. Every `.c` is compiled into a single translation unit; all functions are `static`.
+
+```mermaid
+graph TD
+    subgraph "1. HAL (header-only)"
+        CC["fm1_cc.h"]
+        TIME["fm1_time.h"]
+        SYS["fm1_sys*.h"]
+        LCD["fm1_lcd_hw*.h"]
+        GUARD["fm1_guard*.h"]
+        GPIO["fm1_gpio.h"]
+        IRQ["fm1_irq.h"]
+        POWER["fm1_power.h"]
+        AUDIO_HW["fm1_audio.h + fm1_adc.h"]
+        INPUT_HW["fm1_input*.h"]
+        FLASH_HW["fm1_flash*.h"]
+        UART_HW["fm1_uart*.h"]
+        USB_HW["fm1_usb*.h"]
+        MC_HW["fm1_multicore*.h"]
+    end
+
+    subgraph "2. Runtime"
+        LIBC["libc.c"]
+        LCD_DRV["lcd.c driver"]
+        FONT["font5x7 + boot_text"]
+        LOGO["boot_logo.c"]
+        MANIFEST["manifest.h"]
+    end
+
+    subgraph "2b. CFM1_USB_MIDI define"
+        USB_FLAG["#define CFM1_USB_MIDI<br/><small>before adapters, gates midi stub</small>"]
+    end
+
+    subgraph "3. Adapters"
+        A_AUDIO["cfm1_audio.h"]
+        A_SEQ["cfm1_seq.h"]
+        A_FX["cfm1_fx.h"]
+        A_MIDI["cfm1_midi.h"]
+        A_STOR["cfm1_storage.h"]
+        A_MOD["cfm1_mod.h"]
+        A_PAGE["cfm1_page.h"]
+    end
+
+    subgraph "4. Engine plugins"
+        FE_TAB["fe_tables.h"]
+        DSP["dsp.c"]
+        ENG["engines.c"]
+    end
+
+    subgraph "5. USB driver + OTA"
+        USB_DRV["midi/usb.c<br/><small>MIDI IN/OUT, SysEx, UBOOT</small>"]
+        OTA_ADAPT["cfm1_ota.h<br/><small>flash hooks (CONFIG_OTA)</small>"]
+        OTA_CORE["boot/ota.c<br/><small>M-UPGRADE protocol</small>"]
+    end
+
+    subgraph "5b. ISR timing globals"
+        ISR_TIMING["fm1_audio_irq_start_ticks<br/>fm1_audio_irq_elapsed_ticks<br/><small>non-static, used by fm1_isr.S</small>"]
+    end
+
+    subgraph "6. Audio core"
+        PARAMS["params.c"]
+        VOICE["voice.c"]
+        CORE_AUDIO["audio.c<br/><small>DMA ISR + mix_block</small>"]
+        FX["effects/fx.c"]
+    end
+
+    subgraph "7. UI"
+        GFX["gfx.c"]
+        SHELL["ui shell + pages"]
+    end
+
+    subgraph "8. Main loop"
+        MAIN["fm1_main()"]
+    end
+```
+
 ## HAL
 
 Registers and low-level hardware access. Header-only. No logic, no state.
 
 ### Common (always included)
-- cc, time, gpio, xip, adc
 
-### Variant (pick one per slot)
-- sys
-- irq
-- lcd
-- input
-- guard
-- flash
-- uart
-- usb
-- timer
-- multicore
+- `fm1_cc.h` (compiler intrinsics)
+- `fm1_time.h` (tick counter, delays, watchdog)
+- `fm1_gpio.h` (pin mux, read/write)
+- `fm1_irq.h` (interrupt controller)
+
+### Variant (pick one per slot via Kconfig)
 
 | Variant slot | Felucca | SLOOP | Melodee |
 |---|---|---|---|
@@ -67,57 +142,116 @@ Registers and low-level hardware access. Header-only. No logic, no state.
 | multicore | yes | yes | yes |
 
 ### Extensions (optional)
+
 - **Melodee**: cache, clock, power, eq, led_pwm
 - **Optimist**: ble_rf
 - **Felucca**: led_anim
 
+## USB
+
+USB MIDI device class with SysEx protocol. Compiled independently of the audio core so that every firmware config can be reflashed over USB.
+
+Enabled by `CONFIG_USB`. Always on in all defconfigs.
+
+### What it provides
+
+- USB enumeration (EP0 control, EP1 bulk MIDI)
+- MIDI IN/OUT ring buffers
+- SysEx assembly and dispatch
+- **UBOOT soft key** (`F0 22 24 35 7D F7`): triggers bootloader entry for reflashing
+- Optional CDC-ACM serial (`MELODEE_CDC`)
+- Optional USB Audio class (`CONFIG_USB_AUDIO`, Melodee only)
+- Optional OTA update over SysEx (`MELODEE_OTA`)
+
+### Data flow
+
+```mermaid
+sequenceDiagram
+    participant Host as Host (DAW/Flasher)
+    participant EP0 as USB EP0
+    participant EP1 as USB EP1
+    participant Ring as MIDI Ring
+    participant Main as Main Loop
+
+    Host->>EP0: SET_CONFIGURATION
+    EP0-->>Host: ACK (enumerated)
+
+    Host->>EP1: MIDI note/CC
+    EP1->>Ring: midi_in_push()
+    Main->>Ring: midi_in_pop()
+
+    Host->>EP1: SysEx F0 22 24 35 7D F7
+    EP1->>Main: usb.uboot_req = 1
+    Main->>Main: usb_detach() + fm1_enter_uboot()
+```
+
+### Integration in the main loop
+
+```c
+// startup
+usb_start();
+
+// main loop
+usb_poll();
+usb_retry(fm1_ms);
+if (usb.uboot_req) {
+    usb_detach();
+    fm1_delay_ms(30);
+    fm1_enter_uboot();
+}
+```
+
+### Source
+
+- HAL: `firmware/hal/fm1_usb.h` (register-level, USB0 peripheral)
+- Driver: `firmware/src/midi/usb.c` (~1000 lines, Melodee lineage)
+- Adapter guard: `firmware/adapters/cfm1_midi.h` (`CFM1_USB_MIDI` flag avoids stub conflict)
+
 ## Audio
 
-Voice allocator, render pipeline, DMA half-buffer, mixer.
-Enabled by `CONFIG_AUDIO`. Optionally uses `CONFIG_DUAL_CORE`.
+Voice allocator, render pipeline, DMA half-buffer (128 samples @ 44.1kHz stereo), mixer. The signal chain: main loop input scan -> page key handler -> voice allocator (`trk_note_on`) -> engine `note_on` -> DMA ISR calls `mix_block` -> engine `render` per voice -> I2S output.
+
+Enabled by `CONFIG_AUDIO`. Requires `fm1_irq_enable_all()` after `audio_init()` or the ALNK0 DMA ISR never fires. Optionally uses `CONFIG_DUAL_CORE` for render on core 1.
 
 ### Audio Core (pick one)
-- **Felucca**: 8+6 voices
-- **SLOOP**
-- **Melodee**: 18 budget units, FPU
 
-### Engines (pick any)
+- **Felucca**: 8+6 voices (14 total)
+- **SLOOP**: inherited from Felucca
+- **Melodee**: 18 budget units, FPU, per-voice cost (used by `felucca_mock` and `minimal` defconfigs)
+
+### Engines (pick any combination)
+
+Engines implement the `engine_t` vtable. Each compiles in/out independently via `CONFIG_ENGINE_*`.
 
 #### Multiple lineages
-- **FM6**: Felucca | Melodee (FPU, MARK I/MODERN/OPL)
+
+- **FM6**: Felucca | Melodee (FPU, MARK I/MODERN/OPL modes)
 - **Drum**: Felucca (GM) | SLOOP | Melodee (808/909/SID)
 
-#### Felucca
-- Analog
-- Digital
-- Phase
-- Sample
-- Granular
-- LoFi
-- Trio
-- Tonewheel
-- Formant
-- Physical
-- Noise
+#### Felucca only
 
-#### Melodee
-- Prophet-5
-- CZ-1
-- SID
+Analog (ported), Digital, Phase, Sample, Granular, LoFi, Trio, Tonewheel, Formant, Physical, Noise (ported)
+
+#### Melodee only
+
+Prophet-5, CZ-1, SID
 
 ### Effects (pick one)
+
 - **Felucca**
 - **SLOOP**
 - **Melodee**
 
 ### Modulation (optional)
+
 - 4-slot matrix
 
 ## Sequencer
 
 Step sequencer, pattern management, recording. Depends on Audio.
 
-### Sequencer (pick one)
+### Implementation (pick one)
+
 - **Felucca**: 64-step, chords, ties, live loop
 - **SLOOP**: arranger, scenes
 - **Melodee**: 64-step, 8 banks, 1024 notes, recording, undo, motion, song
@@ -125,18 +259,23 @@ Step sequencer, pattern management, recording. Depends on Audio.
 ## MIDI
 
 Routing, clock sync, transport control.
-Enabled by `CONFIG_MIDI_UART` (TRS) and/or `CONFIG_USB` (USB).
+
+Requires at least one transport: `CONFIG_MIDI_UART` (TRS) or `CONFIG_USB`.
 
 ### Routing (pick one)
+
 - **Felucca**
 - **SLOOP**
-- **Melodee**: multi-ch, MPC pads, clock sources
+- **Melodee**: multi-channel, MPC pads, clock sources
 
-### Transports (enable any)
-- UART (TRS)
-- USB MIDI
-- BLE MIDI
-- USB Audio (Melodee only, stereo/4-track)
+### Transports
+
+| Transport | Kconfig | Notes |
+|-----------|---------|-------|
+| UART (TRS DIN) | `CONFIG_MIDI_UART` | 31.25 kbaud |
+| USB MIDI | `CONFIG_USB` | Class-compliant, SysEx |
+| BLE MIDI | `CONFIG_BLE` | Via Optimist BLE stack |
+| USB Audio | `CONFIG_USB_AUDIO` | Melodee only, stereo/4-track capture |
 
 ## BLE
 
@@ -144,11 +283,13 @@ Bluetooth Low Energy protocol stack. Depends on HAL (radio registers).
 Enables BLE MIDI transport in the MIDI subsystem.
 
 ### BLE Stack (Optimist)
+
 - Link Layer
 - Host (L2CAP, ATT, SMP)
 - GATT
 
 ### BT Classic (Optimist)
+
 - BR/EDR (L2CAP, LMP, AVDTP)
 
 ## UI
@@ -157,16 +298,19 @@ Screen rendering, event dispatch, menu system.
 Enabled by `CONFIG_INPUT`.
 
 ### UI Framework (pick one)
-- **Felucca**
+
+- **Felucca**: page-based shell with encoder/button dispatch
 - **SLOOP**
 - **Melodee**: Rubik font, track colors, 8 palettes, partial updates
+- **Core**: minimal bitmap-font shell (default when no lineage UI is selected)
 
 ## Storage
 
 Flash storage, project save/load, presets.
 Enabled by `CONFIG_FLASH`.
 
-### Storage (pick one)
+### Implementation (pick one)
+
 - **Felucca**
 - **SLOOP**
 - **Melodee**: FBKG format, 384 presets, migration, backup/restore
@@ -175,7 +319,8 @@ Enabled by `CONFIG_FLASH`.
 
 Scale selection, key quantization, tuning.
 
-### Scales (pick one)
+### Implementation (pick one)
+
 - **Felucca**: 16 scales, white-key QNT
 - **Melodee**: 70 scales incl. 54 microtonal, concert pitch 400-480Hz
 
@@ -183,16 +328,98 @@ Scale selection, key quantization, tuning.
 
 Startup, loader, OTA update mechanism.
 
-### Boot (pick one)
+### Implementation (pick one)
+
 - **Felucca**: stock DFU
 - **SLOOP**: stock DFU
 - **Melodee**: M-UPGRADE SysEx OTA, boot protection, safe-recovery
 
+## OTA
+
+M-UPGRADE SysEx firmware update protocol. The running firmware reads the package from the host over USB-MIDI SysEx, stages the update loader in a dedicated flash area (0xE0000, 20 KiB), then reboots into it. The loader writes the new firmware and restarts.
+
+Enabled by `CONFIG_OTA`. Depends on `CONFIG_BOOT_MELODEE` and `CONFIG_FLASH`.
+
+### Protocol flow
+
+```mermaid
+sequenceDiagram
+    participant Host as Host (fm1_install.py)
+    participant FW as Running Firmware
+    participant Loader as Update Loader
+
+    Host->>FW: HS_QUERY (identity handshake)
+    FW-->>Host: FM-1_900 (package identity)
+    Host->>FW: UPGRADE (F0 22 24 35 7F F7)
+    FW->>FW: ota_session(): read package via SysEx
+    loop Check phase (1148 reads typical)
+        FW-->>Host: read request (addr, len)
+        Host->>FW: response (data)
+    end
+    FW-->>Host: FINISH_CHECK
+    FW->>FW: Stage loader, write UPDATA_PARM, reset
+    Note over FW,Loader: Device reboots into loader
+    Host->>Loader: UPGRADE
+    loop Write phase
+        Loader-->>Host: read request
+        Host->>Loader: response
+    end
+    Loader-->>Host: FINISH_WRITE
+    Note over Loader: Loader writes firmware, restarts
+```
+
+### Source
+
+- Protocol core: `firmware/src/boot/ota.c` (Melodee lineage, portable)
+- Hardware hooks: `firmware/adapters/cfm1_ota.h` (flash ops, clock, progress display, commit)
+- Wire transport: `firmware/src/midi/usb.c` (`ota_wire_send`, `ota_frame_get`, gated by `MELODEE_OTA`)
+- Host tool: `firmware/upstream/felucca/tools/fm1_install.py`
+
+## Adapters
+
+Thin compatibility headers (`cfm1_*.h`) that let subsystems from different lineages plug into core-fm1. Each adapter defines the contract (types, vtable, signatures) that both sides conform to.
+
+```mermaid
+graph LR
+    subgraph "Producers"
+        ENG_F["Felucca Engine"]
+        ENG_M["Melodee Engine"]
+    end
+    subgraph "Adapter"
+        EP["cfm1_engine.h"]
+    end
+    subgraph "Consumers"
+        AC_F["Felucca Audio Core"]
+        AC_M["Melodee Audio Core"]
+    end
+
+    ENG_F --> EP
+    ENG_M --> EP
+    EP --> AC_F
+    EP --> AC_M
+```
+
+| Adapter | Header | Enables |
+|---------|--------|---------|
+| Audio Core | `cfm1_audio.h` | Common audio types and voice interface |
+| Engine Plugin | `cfm1_engine.h` | Any engine on any audio core |
+| Effects Chain | `cfm1_fx.h` | Swap FX implementations |
+| Sequencer | `cfm1_seq.h` | Swap sequencer implementations |
+| Storage | `cfm1_storage.h` | Tagged-blob project format |
+| MIDI Routing | `cfm1_midi.h` | Swap MIDI implementations (`CFM1_USB_MIDI` gates stub) |
+| Modulation | `cfm1_mod.h` | Swap modulation matrix implementations |
+| Page/UI | `cfm1_page.h` | Page vtable for UI shell dispatch |
+| OTA Update | `cfm1_ota.h` | Flash ops, clock, progress, commit hooks for `ota.c` |
+
 ## Defconfig presets
 
-| Preset | Description | Buildable |
-|--------|-------------|-----------|
-| `minimal` | LCD boot splash only, no subsystems | yes |
-| `felucca` | Pure Felucca: all Felucca lineage | not yet |
-| `melodee` | Pure Melodee: all Melodee lineage | not yet |
-| `sloop` | Pure SLOOP: SLOOP + inherited Felucca lineage | not yet |
+| Preset | Audio | USB | Engines | UI | Seq | MIDI Route | Buildable |
+|--------|-------|-----|---------|-----|-----|------------|-----------|
+| `minimal` | Melodee core + FX | yes | none | none | Melodee | Melodee | yes |
+| `core` | none | yes | none | Core shell | Melodee | Melodee | yes |
+| `felucca_mock` | Melodee core + FX | yes | Analog, Noise | Felucca | Melodee | Melodee | yes (audio verified) |
+| `felucca` | Felucca | yes | all Felucca | Felucca | Felucca | Felucca | not yet |
+| `melodee` | Melodee | yes | all Melodee | Melodee | Melodee | Melodee | not yet |
+| `sloop` | SLOOP | yes | Felucca set | SLOOP | SLOOP | SLOOP | not yet |
+
+All presets have `CONFIG_USB=y` so the device is always reflashable over USB.

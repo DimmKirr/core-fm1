@@ -21,5 +21,9 @@ source "kconf/audio.kconfig"
 source "kconf/midi.kconfig"
 source "kconf/ui.kconfig"
 source "kconf/storage.kconfig"
+source "kconf/udisk.kconfig"
+source "kconf/ble.kconfig"
+source "kconf/debug.kconfig"
+source "kconf/sys_menu.kconfig"
 
 endmenu

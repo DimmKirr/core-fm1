@@ -1,5 +1,9 @@
+# melodee: full Melodee firmware rebuild.
+# All Melodee engines, effects, sequencer, UI, storage, and scales.
+# Not yet buildable: requires remaining Melodee source integration.
 CONFIG_FIRMWARE_NAME="core-fm1"
-# HAL
+
+# HAL (Melodee variant: all peripheral registers + cache, clock, power)
 CONFIG_HAL_SYS_MELODEE=y
 CONFIG_HAL_IRQ_MELODEE=y
 CONFIG_HAL_LCD_MELODEE=y
@@ -13,13 +17,16 @@ CONFIG_HAL_MULTICORE_MELODEE=y
 CONFIG_HAL_MELODEE_CACHE=y
 CONFIG_HAL_MELODEE_CLOCK=y
 CONFIG_HAL_MELODEE_POWER=y
-# Boot
+
+# Boot (Melodee: M-UPGRADE SysEx OTA, safe-recovery)
 CONFIG_BOOT_MELODEE=y
-# Audio
+
+# Audio (Melodee core: 18 budget units, FPU, dual-core render)
 CONFIG_AUDIO=y
 CONFIG_DUAL_CORE=y
 CONFIG_AUDIO_CORE_MELODEE=y
-# Engines
+
+# Engines (Melodee set: FM6, Drum, Prophet-5, CZ-1, SID)
 CONFIG_ENGINE_FM6=y
 CONFIG_ENGINE_FM6_MELODEE=y
 CONFIG_ENGINE_DRUM=y
@@ -27,21 +34,40 @@ CONFIG_ENGINE_DRUM_MELODEE=y
 CONFIG_ENGINE_PROPHET=y
 CONFIG_ENGINE_CZ1=y
 CONFIG_ENGINE_SID=y
-CONFIG_MODULATION=y
-# Effects
+
+# Effects (Melodee: chorus, delay, reverb, EQ)
 CONFIG_EFFECTS_MELODEE=y
-# Sequencer
+
+# Modulation (Melodee: 4 slots per track, 11 sources, 21 destinations)
+CONFIG_MODULATION=y
+CONFIG_MOD_MELODEE=y
+
+# Mixer (Melodee: per-track level, pan, FX sends, DC blocker)
+CONFIG_MIX=y
+
+# Sequencer (Melodee: 64-step, 8 banks, 1024 notes, recording, undo, motion, song)
 CONFIG_SEQ_MELODEE=y
-# MIDI
+
+# MIDI (Melodee multi-channel routing, UART + USB + USB Audio transports)
 CONFIG_MIDI_UART=y
 CONFIG_USB=y
 CONFIG_MIDI_MELODEE=y
 CONFIG_USB_AUDIO=y
-# UI
+
+# Editor (Melodee: SysEx web editor protocol)
+CONFIG_EDITOR=y
+
+# Console (Melodee: CDC serial diagnostics)
+CONFIG_CONSOLE=y
+
+# UI (Melodee: Rubik font, track colors, 8 palettes, partial updates)
 CONFIG_INPUT=y
 CONFIG_UI_MELODEE=y
-# Storage
+CONFIG_CONTROLS_MELODEE=y
+
+# Storage (Melodee: FBKG format, 384 presets, migration, backup/restore)
 CONFIG_FLASH=y
 CONFIG_STORAGE_MELODEE=y
-# Scales
+
+# Scales (Melodee: 70 scales incl. 54 microtonal, concert pitch 400-480Hz)
 CONFIG_SCALES_MELODEE=y

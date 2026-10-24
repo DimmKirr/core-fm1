@@ -1,5 +1,9 @@
+# sloop: full SLOOP (2nd-gen) firmware rebuild.
+# Inherits Felucca engine set, adds SLOOP arranger/scenes sequencer.
+# Not yet buildable: requires remaining SLOOP source integration.
 CONFIG_FIRMWARE_NAME="core-fm1"
-# HAL (SLOOP-specific where available, shared variants otherwise)
+
+# HAL (SLOOP-specific where available, shared Felucca/Melodee otherwise)
 CONFIG_HAL_SYS_SLOOP=y
 CONFIG_HAL_IRQ_SLOOP=y
 CONFIG_HAL_LCD_MELODEE=y
@@ -10,13 +14,16 @@ CONFIG_HAL_UART_FELUCCA=y
 CONFIG_HAL_USB_FELUCCA=y
 CONFIG_HAL_TIMER_FELUCCA=y
 CONFIG_HAL_MULTICORE_SLOOP=y
-# Boot
+
+# Boot (SLOOP: stock DFU loader)
 CONFIG_BOOT_SLOOP=y
-# Audio
+
+# Audio (SLOOP core: inherited from Felucca, dual-core render)
 CONFIG_AUDIO=y
 CONFIG_DUAL_CORE=y
 CONFIG_AUDIO_CORE_SLOOP=y
-# Engines (SLOOP inherits Felucca engine set)
+
+# Engines (Felucca set: 15 engines + modulation, SLOOP drum variant)
 CONFIG_ENGINE_FM6=y
 CONFIG_ENGINE_FM6_FELUCCA=y
 CONFIG_ENGINE_DRUM=y
@@ -33,19 +40,26 @@ CONFIG_ENGINE_FORMANT=y
 CONFIG_ENGINE_PHYSICAL=y
 CONFIG_ENGINE_NOISE=y
 CONFIG_MODULATION=y
-# Effects
+
+# Effects (SLOOP variant)
 CONFIG_EFFECTS_SLOOP=y
-# Sequencer
+
+# Sequencer (SLOOP: arranger, scenes)
 CONFIG_SEQ_SLOOP=y
-# MIDI
+
+# MIDI (SLOOP routing, UART + USB transports)
 CONFIG_MIDI_UART=y
 CONFIG_USB=y
 CONFIG_MIDI_SLOOP=y
-# UI
+
+# UI (SLOOP page shell)
 CONFIG_INPUT=y
 CONFIG_UI_SLOOP=y
-# Storage
+CONFIG_CONTROLS_SLOOP=y
+
+# Storage (SLOOP: flash presets and projects)
 CONFIG_FLASH=y
 CONFIG_STORAGE_SLOOP=y
-# Scales (SLOOP uses Felucca scales)
+
+# Scales (uses Felucca: 16 scales, white-key quantize)
 CONFIG_SCALES_FELUCCA=y

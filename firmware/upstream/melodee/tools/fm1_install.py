@@ -118,6 +118,9 @@ class Identity:
     def loader(self):
         return self.model.lower().startswith("ota-")
 
+    def loader_by_name(self, port_name):
+        return self.loader or "update" in port_name.lower()
+
 
 def parse_identity(pkt):
     if len(pkt) < 2 or pkt[0] != 0xF0 or pkt[-1] != 0xF7:
@@ -284,17 +287,22 @@ class Updater:
             except Exception:
                 continue
             ident = handshake(link, 2)
-            if ident and (want is None or want(ident)):
+            if ident and (want is None or want(ident, name)):
                 return Device(link, ident, name)
             link.close()
         return None
 
     def wait_for(self, want, secs):
         end = time.monotonic() + secs
+        shown = set()
         while time.monotonic() < end:
             dev = self.find(want, only_port=False)
             if dev:
                 return dev
+            names = set(self.backend.input_names())
+            if names != shown:
+                print(f"  MIDI ports: {', '.join(sorted(names)) if names else '(none)'}", flush=True)
+                shown = names
             time.sleep(DELAY["retry"])
         return None
 
@@ -341,7 +349,7 @@ class Updater:
                                f"{served} requests; nothing was written")
         step("loader")
         time.sleep(DELAY["loader"])
-        ota = self.wait_for(lambda i: i.loader, DELAY["wait_loader"])
+        ota = self.wait_for(lambda i, name: i.loader_by_name(name), DELAY["wait_loader"])
         if not ota:
             raise InstallError("noloader", "the update loader did not appear. Replug the USB cable and "
                                            "run the install again: the FM-1 stays in update mode until it is done")
@@ -367,7 +375,7 @@ class Updater:
     def verify(self, product, step):
         step("reboot")
         time.sleep(DELAY["reboot"])
-        back = self.wait_for(lambda i: not i.loader, DELAY["wait_reboot"])
+        back = self.wait_for(lambda i, name: not i.loader_by_name(name), DELAY["wait_reboot"])
         if not back:
             raise InstallError("noreturn", "the FM-1 did not come back: power-cycle it")
         back.link.close()
@@ -383,7 +391,7 @@ class Updater:
             dev.link.close()
             raise InstallError("model", f"the device is {dev.id.text}, the package is for {product}")
         own_loader(dev, loader)
-        ota = dev if dev.id.loader else self.check(dev, image, step, loader)
+        ota = dev if dev.id.loader_by_name(dev.name) else self.check(dev, image, step, loader)
         self.write(ota, image, step)
         return self.verify(product, step)
 
@@ -456,7 +464,8 @@ def run(a, backend, out, ask):
     if not dev:
         raise not_found(up)
     own_loader(dev, loader)
-    print(f"device:  {dev.id.text}  ({dev.name})" + ("  in update mode: the write will be finished" if dev.id.loader else ""),
+    in_update = dev.id.loader_by_name(dev.name)
+    print(f"device:  {dev.id.text}  ({dev.name})" + ("  in update mode: the write will be finished" if in_update else ""),
           file=out)
     if not a.yes and not ask("Install? Do not unplug the FM-1 while writing. [y/N] "):
         dev.link.close()

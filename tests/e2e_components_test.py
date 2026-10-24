@@ -15,47 +15,23 @@ Results saved to tests/results/<timestamp>-e2e_components_test/:
   <defconfig>-*.log      — emulator logs
 """
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from e2e_fixtures import E2ETestCase, _run_timestamp, RESULTS_DIR
+from e2e_fixtures import E2ETestCase, _run_timestamp, RESULTS_DIR, e2e_genconfig, e2e_build
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / 'build'
 FWSC = BUILD / 'core-fm1.fwsc'
-MANIFEST = BUILD / 'gen' / 'manifest.json'
 MARKER = b'<<CFM1>>'
 
 TEST_RESULTS = RESULTS_DIR / f'{_run_timestamp}-e2e_components_test'
 
 
-def genconfig(defconfig):
-    r = subprocess.run(
-        [sys.executable, str(ROOT / 'tools' / 'genconfig.py'),
-         '--defconfig', defconfig],
-        capture_output=True, text=True, cwd=str(ROOT), timeout=60)
-    if r.returncode != 0:
-        raise RuntimeError(f'genconfig failed:\n{r.stderr}')
-    return r
-
-
-def build_firmware(defconfig):
-    r = subprocess.run(
-        [sys.executable, str(ROOT / 'tools' / 'build.py'),
-         '--defconfig', defconfig],
-        capture_output=True, text=True, cwd=str(ROOT), timeout=300)
-    TEST_RESULTS.mkdir(parents=True, exist_ok=True)
-    (TEST_RESULTS / 'build.log').write_text(
-        f'--- stdout ---\n{r.stdout}\n--- stderr ---\n{r.stderr}\n'
-        f'--- exit {r.returncode} ---\n')
-    return r
-
-
-def read_manifest():
-    return sorted(json.loads(MANIFEST.read_text())['components'])
+def read_manifest(gen_dir):
+    return sorted(json.loads((gen_dir / 'manifest.json').read_text())['components'])
 
 
 def find_manifest_in_binary():
@@ -85,9 +61,12 @@ MINIMAL = sorted([
     'audio',
     'audio-core:melodee',
     'boot:melodee',
+    'controls:felucca',
     'effects:melodee',
+    'midi:melodee',
     'scales:melodee',
     'seq:melodee',
+    'usb',
 ])
 
 
@@ -97,12 +76,13 @@ class TestMinimalComponents(E2ETestCase):
     DEFCONFIG = 'minimal'
     EXPECTED = MINIMAL
     _build_ok = False
+    _gen_dir = None
 
     @classmethod
     def setUpClass(cls):
         TEST_RESULTS.mkdir(parents=True, exist_ok=True)
-        genconfig(cls.DEFCONFIG)
-        r = build_firmware(cls.DEFCONFIG)
+        cls._gen_dir = e2e_genconfig(cls.DEFCONFIG, TEST_RESULTS)
+        r, _ = e2e_build(cls.DEFCONFIG, TEST_RESULTS, gen_dir=cls._gen_dir)
         cls._build_ok = r.returncode == 0
         try:
             super().setUpClass()
@@ -111,7 +91,7 @@ class TestMinimalComponents(E2ETestCase):
 
     def test_01_manifest_matches(self):
         """genconfig manifest.json lists the expected components."""
-        actual = read_manifest()
+        actual = read_manifest(self._gen_dir)
         save_result('manifest.json',
                     {'defconfig': self.DEFCONFIG, 'expected': self.EXPECTED,
                      'actual': actual, 'pass': actual == self.EXPECTED})

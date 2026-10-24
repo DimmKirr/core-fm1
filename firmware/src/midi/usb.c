@@ -193,17 +193,12 @@ static const uint8_t CFG_DESC[] = {
 };
 typedef char cfg_len_ok[sizeof CFG_DESC == CFG_LEN ? 1 : -1];
 static const uint8_t STR0[4] = {4, 3, 0x09, 0x04};
-static const uint8_t STR1[] = {26, 3, 'E', 0, 'l', 0, 'l', 0, 'i', 0, 'c', 0, ' ', 0, 'S', 0, 't', 0, 'u', 0, 'd', 0,
-                               'i', 0, 'o', 0};
-/* Keep FM-1 in the USB name: macOS may retain this MIDI port name after a
- * firmware switch, and other installers recognise the hardware family. */
+static const uint8_t STR1[] = {20, 3, 'C', 0, 'o', 0, 'r', 0, 'e', 0, ' ', 0, 'F', 0, 'M', 0, '1', 0, };
 #ifdef MELODEE_LOADER
-static const uint8_t STR2[] = {40, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0,
-                               'F', 0, 'M', 0, '-', 0, '1', 0, ' ', 0, 'U', 0, 'p', 0,
-                               'd', 0, 'a', 0, 't', 0, 'e', 0};
+static const uint8_t STR2[] = {32, 3, 'C', 0, 'o', 0, 'r', 0, 'e', 0, ' ', 0, 'F', 0, 'M', 0, '1', 0,
+                               ' ', 0, 'U', 0, 'p', 0, 'd', 0, 'a', 0, 't', 0, 'e', 0};
 #else
-static const uint8_t STR2[] = {26, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0,
-                               'F', 0, 'M', 0, '-', 0, '1', 0};
+static const uint8_t STR2[] = {20, 3, 'C', 0, 'o', 0, 'r', 0, 'e', 0, ' ', 0, 'F', 0, 'M', 0, '1', 0};
 #endif
 #if MELODEE_USB_AUDIO                                   /* audio uses the product name (STR2) */
 static uint8_t ua_cfg[sizeof CFG_DESC];                 /* the configuration as sent (usb_audio.c ua_cfg_build) */
@@ -460,6 +455,14 @@ static void ep0_service(void)
         ua_hw_stop();
 #endif
         usb.config = s[2];
+#ifndef MELODEE_LOADER
+        if (usb.config) {
+            cfm1_log("USB: device attached.");
+            cfm1_log_hex("USB: id: ", DEV_DESC + 8, 4);
+        } else {
+            cfm1_log("USB: device detached.");
+        }
+#endif
         if (usb.config == 1u)
             ep1_config();
         else
@@ -548,6 +551,73 @@ stall:
     sie_wr(S_CSR0, 0x60);
 }
 
+/* Identity handshake: fm1_install.py sends F0 00 32 45 00 00 00 40 7F F7
+ * (Felucca OTA cmd 0x11). We reply with our package identity so the
+ * installer can find us. The response is pre-built at compile time. */
+static const uint8_t HS_QUERY[] = {0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7};
+
+#ifndef CFM1_PACKAGE_ID
+#define CFM1_PACKAGE_ID "FM-1_900"
+#endif
+
+static void hs_reply_identity(void)
+{
+    static const char ID[] = CFM1_PACKAGE_ID;
+    uint8_t msg[34], wire[48];
+    uint32_t i, s = 0, wn, wi;
+
+    msg[0] = 0x00; msg[1] = 0x59; msg[2] = 0x11;
+    msg[3] = 27; msg[4] = 0; msg[5] = 0;
+    for (i = 0; i < 27u; i++) {
+        msg[6 + i] = i < sizeof ID - 1u ? (uint8_t)ID[i] : 0;
+        s += msg[6 + i];
+    }
+    msg[33] = (uint8_t)~s;
+
+    /* pack7 */
+    wire[0] = 0xF0;
+    wn = 1;
+    {
+        uint32_t acc = 0, nb = 0;
+        for (i = 0; i < 34u; i++) {
+            acc |= (uint32_t)msg[i] << nb;
+            nb += 8u;
+            while (nb >= 7u) {
+                wire[wn++] = (uint8_t)(acc & 0x7Fu);
+                acc >>= 7u;
+                nb -= 7u;
+            }
+        }
+        if (nb)
+            wire[wn++] = (uint8_t)(acc & 0x7Fu);
+    }
+    wire[wn++] = 0xF7;
+
+    /* push USB-MIDI event packets into midi_out_q */
+    for (wi = 0; wi < wn; ) {
+        uint32_t remain = wn - wi, k, cin, pkt;
+        uint8_t b0, b1, b2;
+        if (remain >= 3u && wire[wi + 2u] != 0xF7u)
+            { cin = 4u; k = 3u; }
+        else if (remain >= 3u)
+            { cin = 7u; k = 3u; }
+        else if (remain == 2u)
+            { cin = 6u; k = 2u; }
+        else
+            { cin = 5u; k = 1u; }
+        b0 = wire[wi];
+        b1 = k > 1u ? wire[wi + 1u] : 0u;
+        b2 = k > 2u ? wire[wi + 2u] : 0u;
+        pkt = cin | ((uint32_t)b0 << 8u) | ((uint32_t)b1 << 16u) | ((uint32_t)b2 << 24u);
+        if (mo_w - mo_r < MQ) {
+            midi_out_q[mo_w % MQ] = pkt;
+            RING_PUBLISH();
+            mo_w++;
+        }
+        wi += k;
+    }
+}
+
 /* SysEx assembly: only short commands matter here */
 static void sysex_byte(uint8_t b)
 {
@@ -588,11 +658,26 @@ static void sysex_byte(uint8_t b)
     if (usb.sx_len < sizeof usb.sysex)
         usb.sysex[usb.sx_len++] = b;
     if (b == 0xF7) {
+#ifndef MELODEE_LOADER
+        {
+            uint32_t show = usb.sx_len < 8u ? usb.sx_len : 8u;
+            cfm1_log_hex("SX< ", usb.sysex, show);
+            if (usb.sx_len > 8u)
+                cfm1_log_int("  ..len ", (int32_t)usb.sx_len);
+        }
+#endif
         uint32_t i, ok = usb.sx_len == 6u;
         for (i = 0; ok && i < 6u; i++)
             ok = usb.sysex[i] == UBOOT_KEY[i];
         if (ok)
             usb.uboot_req = 1;
+        else if (usb.sx_len == sizeof HS_QUERY) {
+            uint32_t hm = 1u;
+            for (i = 0; hm && i < sizeof HS_QUERY; i++)
+                hm = usb.sysex[i] == HS_QUERY[i];
+            if (hm)
+                hs_reply_identity();
+        }
 #if MELODEE_OTA
         else if (usb.sx_len == 6u && usb.sysex[1] == 0x22 && usb.sysex[2] == 0x24 && usb.sysex[3] == 0x35 &&
                  usb.sysex[4] == 0x7F)
@@ -639,6 +724,12 @@ static void midi_in_event(uint32_t pkt)
     }
     if (cin >= 8u && cin <= 0xEu && (st >> 4) == cin && !((pkt >> 16) & 0x80u) &&
         ((cin == 0xCu || cin == 0xDu) || !(pkt & 0x80000000u))) {
+#ifndef MELODEE_LOADER
+        {
+            uint8_t hx[3] = {(uint8_t)st, (uint8_t)(pkt >> 16), (uint8_t)(pkt >> 24)};
+            cfm1_log_hex("MI< ", hx, cin == 0xCu || cin == 0xDu ? 2u : 3u);
+        }
+#endif
         midi_enqueue(pkt, 1u);
     }
 }
@@ -860,11 +951,23 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
 #endif
     if (iu & 0x01u) {                                   /* suspend: the bus went idle */
         usb.suspends++;
+#ifndef MELODEE_LOADER
+        if (!usb.suspended)
+            cfm1_log("USB: suspend");
+#endif
         usb.suspended = 1;
     }
-    if (iu & 0x02u)                                     /* resume */
+    if (iu & 0x02u) {                                   /* resume */
+#ifndef MELODEE_LOADER
+        if (usb.suspended)
+            cfm1_log("USB: resume");
+#endif
         usb.suspended = 0;
+    }
     if (iu & 0x04u) {                                   /* bus reset */
+#ifndef MELODEE_LOADER
+        cfm1_log_int("USB: reset #", (int32_t)(usb.resets + 1));
+#endif
 #if MELODEE_USB_AUDIO
         ua_hw_stop();
         ua_host_volume_reset();

@@ -20,4 +20,19 @@ config MODULATION
     bool "Modulation matrix (4-slot per track)"
     default n
 
+choice
+    prompt "Modulation lineage"
+    depends on MODULATION
+    default MOD_MELODEE
+
+config MOD_MELODEE
+    bool "Melodee (11 sources, 21 destinations)"
+
+endchoice
+
+config MIX
+    bool "Stereo mixer (per-track level, pan, FX sends)"
+    depends on AUDIO
+    default n
+
 endmenu

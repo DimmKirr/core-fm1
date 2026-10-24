@@ -49,6 +49,8 @@ COMPONENT_SYMBOLS = {
     'MIDI_FELUCCA': 'midi:felucca',
     'MIDI_SLOOP': 'midi:sloop',
     'MIDI_MELODEE': 'midi:melodee',
+    'USB_HOST': 'usb-host',
+    'UDISK': 'udisk',
     'USB_AUDIO': 'usb-audio',
     'INPUT': 'input',
     'UI_FELUCCA': 'ui:felucca',
@@ -61,6 +63,21 @@ COMPONENT_SYMBOLS = {
     'BOOT_FELUCCA': 'boot:felucca',
     'BOOT_SLOOP': 'boot:sloop',
     'BOOT_MELODEE': 'boot:melodee',
+    'OTA': 'ota',
+    'BLE': 'ble',
+    'BLE_MIDI': 'ble-midi',
+    'BLE_CENTRAL': 'ble-central',
+    'BLE_HID': 'ble-hid',
+    'BLE_BOND': 'ble-bond',
+    'BLE_FILE_TRANSFER': 'ble-ft',
+    'MOD_MELODEE': 'mod:melodee',
+    'MIX': 'mix',
+    'EDITOR': 'editor',
+    'CONSOLE': 'console',
+    'DEBUG_LOG': 'debug-log',
+    'CONTROLS_FELUCCA': 'controls:felucca',
+    'CONTROLS_MELODEE': 'controls:melodee',
+    'CONTROLS_SLOOP': 'controls:sloop',
 }
 
 
@@ -89,6 +106,7 @@ def write_manifest(kconf, out_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--defconfig', help='load configs/<NAME>_defconfig')
+    ap.add_argument('--outdir', help='write config.h and manifest here (default: build/gen)')
     args = ap.parse_args()
 
     os.environ['srctree'] = str(ROOT)
@@ -103,10 +121,13 @@ def main():
     elif config.exists():
         kconf.load_config(str(config))
 
-    out = ROOT / 'build' / 'gen'
+    out = Path(args.outdir) if args.outdir else ROOT / 'build' / 'gen'
     out.mkdir(parents=True, exist_ok=True)
     kconf.write_autoconf(str(out / 'config.h'))
-    kconf.write_config(str(config))
+    if args.outdir:
+        kconf.write_config(str(out / '.config'))
+    elif not args.defconfig:
+        kconf.write_config(str(config))
     components = write_manifest(kconf, out)
     print(f'genconfig: wrote {out / "config.h"}')
     print(f'genconfig: manifest ({len(components)} components): {", ".join(components)}')

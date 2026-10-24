@@ -1,5 +1,9 @@
+# felucca: full Felucca (1st-gen) firmware rebuild.
+# All Felucca engines, effects, sequencer, UI, storage, and scales.
+# Not yet buildable: requires remaining Felucca source integration.
 CONFIG_FIRMWARE_NAME="core-fm1"
-# HAL
+
+# HAL (Felucca variant: all peripheral registers)
 CONFIG_HAL_SYS_FELUCCA=y
 CONFIG_HAL_IRQ_FELUCCA=y
 CONFIG_HAL_LCD_FELUCCA=y
@@ -10,13 +14,16 @@ CONFIG_HAL_UART_FELUCCA=y
 CONFIG_HAL_USB_FELUCCA=y
 CONFIG_HAL_TIMER_FELUCCA=y
 CONFIG_HAL_MULTICORE_FELUCCA=y
-# Boot
+
+# Boot (Felucca: stock DFU loader)
 CONFIG_BOOT_FELUCCA=y
-# Audio
+
+# Audio (Felucca core: 8+6 voices, dual-core render)
 CONFIG_AUDIO=y
 CONFIG_DUAL_CORE=y
 CONFIG_AUDIO_CORE_FELUCCA=y
-# Engines
+
+# Engines (full Felucca set: 15 engines + modulation matrix)
 CONFIG_ENGINE_FM6=y
 CONFIG_ENGINE_FM6_FELUCCA=y
 CONFIG_ENGINE_DRUM=y
@@ -33,19 +40,38 @@ CONFIG_ENGINE_FORMANT=y
 CONFIG_ENGINE_PHYSICAL=y
 CONFIG_ENGINE_NOISE=y
 CONFIG_MODULATION=y
-# Effects
+
+# Effects (Felucca: chorus, delay, reverb)
 CONFIG_EFFECTS_FELUCCA=y
-# Sequencer
+
+# Sequencer (Felucca: 64-step, chords, ties, live loop)
 CONFIG_SEQ_FELUCCA=y
-# MIDI
+
+# MIDI (Felucca routing, UART + USB transports)
 CONFIG_MIDI_UART=y
 CONFIG_USB=y
 CONFIG_MIDI_FELUCCA=y
-# UI
+
+# UI (Felucca page shell with encoder/button dispatch)
 CONFIG_INPUT=y
 CONFIG_UI_FELUCCA=y
-# Storage
+
+# Storage (Felucca: flash presets and projects)
 CONFIG_FLASH=y
 CONFIG_STORAGE_FELUCCA=y
-# Scales
+
+# BLE (Optimist stack: peripheral + central, BLE-MIDI, Xbox HID)
+CONFIG_BLE=y
+CONFIG_BLE_MIDI=y
+CONFIG_BLE_CENTRAL=y
+CONFIG_BLE_HID=y
+CONFIG_BLE_BOND=y
+
+# Settings menu (long-HOME, FM Lab persistence)
+CONFIG_SYS_MENU=y
+CONFIG_SETTINGS_FMLAB=y
+CONFIG_SYS_MENU_MIDI_CH=y
+CONFIG_SYS_MENU_BLE=y
+
+# Scales (Felucca: 16 scales, white-key quantize)
 CONFIG_SCALES_FELUCCA=y

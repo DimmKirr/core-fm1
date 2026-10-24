@@ -14,6 +14,32 @@
 #define CTL    32          /* samples per control tick */
 #define BLOCK  128         /* DMA half-buffer: 128 stereo samples @ 44.1kHz */
 
+/* --- audio pipeline precision --- */
+
+#ifdef CONFIG_AUDIO_24BIT
+#define AUDIO_Q       23
+#define AUDIO_AMP_ONE 8388607           /* Q23 full scale */
+#define AUDIO_SAT_MAX 8388607
+#define AUDIO_SAT_MIN (-8388607)
+#ifndef CONFIG_AUDIO_24BIT_HEADROOM
+#define CONFIG_AUDIO_24BIT_HEADROOM 1
+#endif
+#define AUDIO_OUT_SHIFT CONFIG_AUDIO_24BIT_HEADROOM
+static inline int32_t audio_sat(int32_t x)
+{
+    return x > AUDIO_SAT_MAX ? AUDIO_SAT_MAX
+         : x < AUDIO_SAT_MIN ? AUDIO_SAT_MIN : x;
+}
+#else
+#define AUDIO_Q       15
+#define AUDIO_AMP_ONE 32767             /* Q15 full scale */
+#define AUDIO_OUT_SHIFT 7               /* Q15 << 7 = Q22 in 24-bit DAC word */
+static inline int32_t audio_sat(int32_t x)
+{
+    return x > 32767 ? 32767 : x < -32767 ? -32767 : x;
+}
+#endif
+
 /* engine params are always the last 8 in the P_* enum */
 #include "cfm1_engine.h"
 
@@ -35,6 +61,8 @@ enum {
     P_M4SRC, P_M4DST, P_M4AMT,
     /* FX sends (common across lineages) */
     P_DIST, P_CHOR, P_DLY, P_REV,
+    /* per-engine track params (Felucca 1.5: ANALOG filter type) */
+    P_FTYPE,
     /* engine params (always last 8) */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
@@ -79,8 +107,12 @@ typedef struct track {
 
 typedef struct {
     uint32_t bpm;
+    uint32_t tick;
+    uint32_t len;
+    uint32_t master_q12;
     uint8_t playing;
     uint8_t recording;
+    uint8_t rec;
     uint8_t sel;
 } song_t;
 

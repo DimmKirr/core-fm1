@@ -128,6 +128,35 @@ class FM1Controls:
             self.page.keyboard.up(key)
             self.page.wait_for_timeout(delay_ms)
 
+    def set_master_volume(self, value, delay_ms=200):
+        """Set master pot to an absolute value (0-1023). 0=silent, 1023=max.
+
+        The emulator's setPot is module-scoped, so we slam the pot to 0
+        via a large scroll-down, then scroll up to the desired value.
+        Each scroll unit moves the pot by deltaY * 0.5.
+        """
+        value = max(0, min(1023, int(value)))
+        x, y = _KNOB_POSITIONS['master']
+        self._focus_panel()
+        self.page.locator('canvas#panel').evaluate('''(canvas, [x, y, val]) => {
+            const r = canvas.getBoundingClientRect();
+            const cx = r.left + r.width * x / canvas.width;
+            const cy = r.top + r.height * y / canvas.height;
+            // slam to 0
+            canvas.dispatchEvent(new WheelEvent('wheel', {
+                clientX: cx, clientY: cy,
+                deltaY: 4096, bubbles: true, cancelable: true
+            }));
+            // scroll up to desired value
+            if (val > 0) {
+                canvas.dispatchEvent(new WheelEvent('wheel', {
+                    clientX: cx, clientY: cy,
+                    deltaY: -val * 2, bubbles: true, cancelable: true
+                }));
+            }
+        }''', [x, y, value])
+        self.page.wait_for_timeout(delay_ms)
+
     def play_note(self, note, hold_ms=300, delay_ms=100):
         """Play a named note (C4..F5) on the emulator's piano keyboard."""
         key = _NOTE_KEYS.get(note.lower())

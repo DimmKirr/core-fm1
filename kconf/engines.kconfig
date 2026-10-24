@@ -11,15 +11,19 @@ comment "Multi-lineage (require full audio core)"
 config ENGINE_FM6
     bool "FM6 (DX7 6-op FM)"
     depends on AUDIO
+    select ENGINES
     default n
 
 choice
     prompt "FM6 lineage"
     depends on ENGINE_FM6
-    default ENGINE_FM6_MELODEE
+    default ENGINE_FM6_FMLAB
+
+config ENGINE_FM6_FMLAB
+    bool "FM Lab (integer Q24, 20 factory voices)"
 
 config ENGINE_FM6_FELUCCA
-    bool "Felucca"
+    bool "Felucca (integer Q24, 8 factory voices)"
 
 config ENGINE_FM6_MELODEE
     bool "Melodee (FPU, MARK I/MODERN/OPL)"

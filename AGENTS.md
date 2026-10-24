@@ -8,10 +8,11 @@ core-fm1 is a modular firmware framework for the M-VAVE FM-1 synthesizer (JieLi 
 
 ## Build System
 
-Kconfiglib-based configuration. All commands go through [Taskfile](https://taskfile.dev):
+Kconfiglib-based configuration. All commands go through [Taskfile](https://taskfile.dev), which wraps the JieLi toolchain env vars (`JIELI_TOOLCHAIN`, `AC79_SDK`) automatically:
 
 ```
 task build                              # download toolchain + compile firmware
+task build -- --defconfig felucca_noise # build a specific defconfig
 task config                             # interactive menuconfig
 task config:defconfig -- melodee        # load a preset defconfig
 task config:generate                    # .config -> build/gen/config.h
@@ -19,6 +20,8 @@ task test                               # run all tests (unit + e2e)
 task test:unit                          # Python unit tests only
 task test:e2e                           # emulator + Playwright e2e tests
 ```
+
+**Important:** always use `task build` (not `python tools/build.py` directly) because the Taskfile sets required env vars for the JieLi toolchain. If calling `build.py` directly, you must set `JIELI_TOOLCHAIN` and `AC79_SDK`.
 
 Defconfig profiles live in `configs/`: `melodee_defconfig`, `felucca_defconfig`, `sloop_defconfig`, `minimal_defconfig`.
 
@@ -84,7 +87,7 @@ docs/plans/                 # implementation plans
 
 ## Toolchain
 
-- **Compiler**: JieLi clang 4.0.1 for pi32v2 (proprietary target, runs in Docker)
+- **Compiler**: JieLi clang 4.0.1 for pi32v2 (proprietary target, x86-64 binary). Runs natively on x86-64 Linux, via `qemu-x86_64` on aarch64 Linux (requires x86-64 glibc/libstdc++ in the nix store), or via Docker (`JIELI_DOCKER=1`).
 - **Target**: AC791N dual-core MCU, bare-metal, no OS
 - **Audio**: 44.1kHz stereo, 128-sample half-buffer DMA, I2S codec
 - **Flash**: SPI NOR for storage, projects, presets, OTA
@@ -92,14 +95,52 @@ docs/plans/                 # implementation plans
 
 ## Working with Engines
 
-Engines implement the `engine_t` vtable (defined in `felucca_engine.h`, MIT licensed). Required fields: `note_on`, `render`. Optional: `amp`, `block`, `done`, `desc`, `keys`, `alloc`, `legato`, `mono_key`, `post`, `cap`, `units`, `preset_make`. Felucca engines set extra optional fields to NULL/0.
+Engines implement the `engine_t` vtable (defined in `firmware/adapters/cfm1_engine.h`, MIT licensed). Required fields: `note_on`, `render`. Optional: `amp`, `block`, `done`, `desc`, `keys`, `alloc`, `legato`, `mono_key`, `post`, `cap`, `units`, `preset_make`. Felucca engines set extra optional fields to NULL/0.
+
+The registry is `firmware/src/audio/engines/engines.c`: each engine `#include`s its source under a `CONFIG_ENGINE_*` guard, then adds its `ENG_*` to the `ENGINES[]` array.
+
+### Engine source locations
+
+**In core-fm1 (ready to compile):**
+
+| Engine | Source | Vtable | Notes |
+|--------|--------|--------|-------|
+| FM6 FMLab | `firmware/src/audio/engines/fm6/fm6_fmlab.c` | `ENG_FM6` | Integer Q24, 20 factory voices |
+| Analog | `firmware/upstream/felucca-engines/src/eng_analog.c` | `ENG_ANALOG` | MIT, SVF filter, 7 waveforms |
+| Noise | `firmware/upstream/felucca-engines/src/eng_noise.c` | `ENG_NOISE` | MIT |
+| Stub | `firmware/src/audio/engines/eng_stub.c` | `ENG_STUB` | Silent, UI testing |
+
+**In upstream repos (need porting/wiring):**
+
+| Engine | Source | Vtable | Blockers |
+|--------|--------|--------|----------|
+| FM6 Melodee | `firmware/upstream/melodee/firmware/src/eng_fm6.c` | `ENG_FM6` | FPU paths, `eng_fm6_rom.h`, `fm6_store.c` |
+| Drum Melodee | `firmware/upstream/melodee/firmware/src/eng_drum.c` | `ENG_DRUM` | Includes `drum_808.c`, `drum_sid.c`, `x0x/drum909.c`; defines `NLANE` locally |
+| Prophet | `firmware/upstream/melodee/firmware/src/eng_trio.c` (misleading name) | `ENG_PROPHET` | `prophet_patch.c`, `prophet_user.c`, `prophet_edit.h` |
+| CZ-1 | `firmware/upstream/melodee/firmware/src/eng_cz.c` | `ENG_CZ` | `cz_patch.h`, `cz_panel.h`, `cz_edit.h`, `cz_store.c`, `cz_native.c`, `cz_bank.c` |
+| SID | `firmware/upstream/melodee/firmware/src/eng_sid.c` | `ENG_SID` | Uses `eng_idx()` (not in core-fm1), Melodee dsp paths |
+| Trio | `firmware/upstream/felucca-engines/src/eng_trio.c` | `ENG_TRIO` | MIT, likely ready |
+| LoFi | `firmware/upstream/felucca-engines/src/eng_lofi.c` | `ENG_LOFI` | MIT, likely ready |
+| Wheel | `firmware/upstream/felucca-engines/src/eng_wheel.c` | `ENG_WHEEL` | MIT |
+| Formant | `firmware/upstream/melodee/firmware/src/eng_formant.c` | ? | Melodee |
+| Phase | `firmware/upstream/melodee/firmware/src/eng_phase.c` | ? | Melodee |
+| Physical | `firmware/upstream/melodee/firmware/src/eng_phys.c` | ? | `phys_dsp.c`, `phys_symp.c` |
+
+**Felucca-engines repo** (`firmware/upstream/felucca-engines/src/`): MIT-licensed standalone engines. These use `felucca_engine.h` (compatible with `cfm1_engine.h`) and `dsp.c` helpers. Most can be wired directly.
+
+**Melodee upstream** (`firmware/upstream/melodee/firmware/src/eng_*.c`): GPL engines that live inside Melodee's unity build. They often depend on Melodee-specific globals (`eng_idx()`, `drum_track()`, Melodee `dsp.c`). Each needs dependency analysis before wiring.
+
+**DSP helpers**: `firmware/src/audio/engines/dsp.c` (core-fm1's shared DSP: `tsvf_t`, `clamp`, `pitch_inc`, polyBLEP). Felucca-engines share a compatible `dsp.c` in their repo. Melodee's `dsp.c` is a superset with FPU paths.
 
 ## Reference Firmwares
 
-Source code for the three lineages lives outside this repo:
-- Melodee: `/Users/dmitry/dev/dimmkirr/melodee`
-- Felucca: check `.scratch/examples/felucca/`
-- SLOOP: check `.scratch/examples/sloop/`
+Source code for the three lineages is subtree-merged into this repo:
+- Melodee: `firmware/upstream/melodee/` (also at `/Users/dmitry/dev/dimmkirr/melodee`)
+- Felucca engines: `firmware/upstream/felucca-engines/`
+- SLOOP: `firmware/upstream/sloop/`
+- FMLab: `firmware/upstream/fmlab/`
+- Optimist (BLE): `firmware/upstream/optimist/`
+- Felucca full firmware: `.scratch/examples/felucca/` (research copy, not subtree)
 
 Research data: `.scratch/fw-test.json` (firmware catalog), `.scratch/kconfig-subsystems.json` (layer analysis), `.scratch/GLUE.md` (contract specs).
 

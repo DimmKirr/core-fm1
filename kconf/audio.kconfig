@@ -25,4 +25,35 @@ config AUDIO_CORE_MELODEE
 
 endchoice
 
+config AUDIO_24BIT
+    bool "24-bit internal pipeline (Q23)"
+    default n
+    depends on AUDIO
+    help
+      Use Q23 (24-bit) precision for the internal audio pipeline instead
+      of Q15 (16-bit). The DAC always receives 24-bit words; this option
+      controls how many of those bits carry signal. With Q23, quiet tails
+      fade smoothly into noise instead of quantizing into 16-bit steps.
+
+if AUDIO_24BIT
+
+config AUDIO_24BIT_HEADROOM
+    int "Output headroom shift (bits)"
+    default 1
+    range 0 4
+    help
+      Right-shift applied after Q23 master volume, before the DMA buffer.
+      1 = -6 dBFS ceiling (FMLab default, safest for polyphonic mix).
+      0 = full 24-bit range, clips sooner with many voices.
+
+config AUDIO_24BIT_DC_BLOCK
+    bool "DC blocking filter"
+    default n
+    help
+      One-pole DC blocker on the master output, matching FMLab's pipeline.
+      Removes DC offset that can accumulate in Q23 from asymmetric
+      waveforms and effects.
+
+endif
+
 endmenu

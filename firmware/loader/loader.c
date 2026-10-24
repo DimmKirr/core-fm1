@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Melodee update loader (device side). Runs from RAM, started by the SPL from
+/* Core FM1 update loader (device side). Runs from RAM, started by the SPL from
  * an update record, with interrupts off: USB is polled from the main loop.
- * It is a USB-MIDI device "Melodee Update" (1209:0002) that answers the
+ * It is a USB-MIDI device "Core FM1 Update" (1209:0002) that answers the
  * M-UPGRADE update protocol as "ota-FM-1_900" (hosts look for "ota-"), and
  * writes the app area only (ldr_core.c). The UBOOT soft key works here too.
  * Single compilation unit. */
@@ -13,7 +13,7 @@
 #define MELODEE_OTA 1
 #define MELODEE_OTA_DRYRUN 0
 #define MELODEE_USB_PID 0x0002
-#define MELODEE_ID "ota-FM-1_900"
+#define CFM1_LOADER_ID "ota-FM-1_900"
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
 #include "fm1_time.h"
 #include "fm1_sys.h"

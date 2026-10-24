@@ -1,4 +1,8 @@
+# core: bare-bones shell with no audio, no input, no storage.
+# Tests that the boot path, LCD, and USB work without any synth subsystems.
 CONFIG_FIRMWARE_NAME="core-fm1"
+
+# HAL (Melodee variant: cache, clock, power management)
 CONFIG_HAL_SYS_MELODEE=y
 CONFIG_HAL_IRQ_MELODEE=y
 CONFIG_HAL_LCD_MELODEE=y
@@ -6,10 +10,16 @@ CONFIG_HAL_GUARD_MELODEE=y
 CONFIG_HAL_MELODEE_CACHE=y
 CONFIG_HAL_MELODEE_CLOCK=y
 CONFIG_HAL_MELODEE_POWER=y
+
+# UI (core shell: minimal bitmap-font page framework, no physical controls)
 CONFIG_UI_CORE=y
+
+# Disabled subsystems
 # CONFIG_AUDIO is not set
 # CONFIG_INPUT is not set
 # CONFIG_FLASH is not set
 # CONFIG_MIDI_UART is not set
-# CONFIG_USB is not set
 # CONFIG_DUAL_CORE is not set
+
+# USB (mandatory: keeps the device reflashable via SysEx UBOOT key)
+CONFIG_USB=y

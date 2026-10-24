@@ -57,8 +57,8 @@ def test_dry_run_needs_no_toolchain(tmp_path, monkeypatch, capsys):
 
 def test_unimplemented_subsystem_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(build, 'GEN', tmp_path)
-    (tmp_path / 'config.h').write_text('#define CONFIG_AUDIO 1\n')
-    with pytest.raises(SystemExit, match='Not integrated yet: AUDIO'):
+    (tmp_path / 'config.h').write_text('#define CONFIG_MIDI_UART 1\n')
+    with pytest.raises(SystemExit, match='Not integrated yet: MIDI_UART'):
         build.build(dry_run=True)
 
 

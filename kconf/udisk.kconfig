@@ -1,0 +1,19 @@
+menu "USB Disk"
+
+config USB_HOST
+    bool "USB host controller"
+    depends on USB
+    default n
+    help
+      Enable USB host mode on the AC791N OTG controller.
+      Requires a powered USB-C OTG hub (no on-board VBUS boost).
+
+config UDISK
+    bool "USB mass storage (UDisk)"
+    depends on USB_HOST
+    default y
+    help
+      USB mass storage class with FAT32 filesystem.
+      Provides file browsing via the FILES page.
+
+endmenu

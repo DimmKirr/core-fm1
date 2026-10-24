@@ -30,7 +30,7 @@ import lz4blk
 ROOT = Path(__file__).resolve().parents[1]
 FW = ROOT / 'firmware'
 OUT = ROOT / 'build'
-GEN = OUT / 'gen'
+GEN = Path(os.environ['CFM1_GEN_DIR']) if 'CFM1_GEN_DIR' in os.environ else OUT / 'gen'
 
 DOCKER_IMAGE = os.environ.get('JIELI_DOCKER_IMAGE', 'debian:bookworm-slim')
 
@@ -233,6 +233,7 @@ def package():
     fwsc = fm1pkg_make.ufw(fm1pkg_make.flash_image(app, fm1pkg_make.KEY), ota, 'FM-1_900')
     path = OUT / 'core-fm1.fwsc'
     path.write_bytes(fwsc)
+    (OUT / 'core-fm1.version').write_text(_firmware_version())
     print(f'package: {path.relative_to(ROOT)} ({len(fwsc)} bytes)')
 
 
@@ -293,7 +294,8 @@ def gen_engine_tables():
 def build(dry_run=False):
     flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/adapters',
              '-Ifirmware/src', '-Ifirmware', '-Ibuild/gen',
-             '-Ifirmware/upstream/felucca/build/gen']
+             '-Ifirmware/upstream/felucca/build/gen',
+             '-Ifirmware/upstream/optimist/firmware/src/ble']
 
     config_h = GEN / 'config.h'
     if not config_h.exists():
@@ -306,7 +308,7 @@ def build(dry_run=False):
         gen_felucca_ui()
     if 'ENGINES' in enabled:
         gen_engine_tables()
-    pending = enabled & {'AUDIO', 'FLASH', 'MIDI_UART', 'USB', 'DUAL_CORE'}
+    pending = enabled & {'MIDI_UART', 'DUAL_CORE'}
     unsupported = {s for s in enabled if s.startswith('HAL_') and
                    s.endswith(('_FELUCCA', '_SLOOP'))}
     if pending or unsupported:
@@ -364,6 +366,22 @@ def build(dry_run=False):
 
     objs = [str(OUT / (Path(name).stem + '.o')) for name, _ in asm_srcs]
     objs.append(str(OUT / 'core_fm1.o'))
+
+    if 'USB_HOST' in enabled:
+        sdk = Path(os.environ.get('AC79_SDK', Path.home() / '.fm1-toolchain' / 'AC79_SDK'))
+        cpu_a = sdk / 'cpu' / 'wl82' / 'liba' / 'cpu.a'
+        if cpu_a.exists():
+            bc_obj = OUT / 'usb_sdk.bc'
+            native_obj = OUT / 'usb_sdk.o'
+            subprocess.run(['ar', 'x', str(cpu_a), 'usb.c.o',
+                           f'--output={OUT}'], check=True)
+            (OUT / 'usb.c.o').rename(bc_obj)
+            tc('cc', '-target', 'pi32v2', '-mcpu=r3', '-Os',
+               '-ffunction-sections', '-fdata-sections',
+               '-c', str(bc_obj), '-o', str(native_obj))
+            objs.append(str(native_obj))
+            print(f'build: compiled usb_sdk.o from cpu.a bitcode')
+
     elf = OUT / 'core_fm1.elf'
     tc('pi32v2/bin/ld', '--gc-sections', '-T', str(FW / 'app.ld'), *objs,
        '-o', str(elf))
@@ -409,7 +427,8 @@ def main():
     ap.add_argument('--dry-run', action='store_true')
     args = ap.parse_args()
 
-    genconfig(args.defconfig)
+    if 'CFM1_GEN_DIR' not in os.environ:
+        genconfig(args.defconfig)
     if args.genconfig_only:
         return
 

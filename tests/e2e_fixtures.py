@@ -10,8 +10,12 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
+import subprocess
+import sys
+
 from fm1_controls import FM1Controls
 
+ROOT = Path(__file__).resolve().parents[1]
 EMU_DIR = Path(os.environ.get('FM1_WEB_DIR', Path.home() / '.fm1-emulator' / 'web'))
 RESULTS_DIR = Path(__file__).resolve().parent / 'results'
 CHROMIUM_PATH = os.environ.get('CHROMIUM_PATH') or shutil.which('chromium')
@@ -42,6 +46,40 @@ def _find_free_port():
 
 
 _run_timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%SZ')
+
+
+def e2e_genconfig(defconfig, results_dir):
+    """Run genconfig with --outdir into the test results directory.
+
+    Returns the gen_dir path containing .config, config.h, manifest.json.
+    """
+    gen_dir = results_dir / 'config'
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run(
+        [sys.executable, str(ROOT / 'tools' / 'genconfig.py'),
+         '--defconfig', defconfig, '--outdir', str(gen_dir)],
+        capture_output=True, text=True, cwd=str(ROOT), timeout=60)
+    if r.returncode != 0:
+        raise RuntimeError(f'genconfig failed:\n{r.stderr}')
+    return gen_dir
+
+
+def e2e_build(defconfig, results_dir, gen_dir=None):
+    """Run genconfig + build, storing config in results_dir/config/.
+
+    Returns (subprocess result, gen_dir path).
+    """
+    if gen_dir is None:
+        gen_dir = e2e_genconfig(defconfig, results_dir)
+    env = {**os.environ, 'CFM1_GEN_DIR': str(gen_dir)}
+    r = subprocess.run(
+        [sys.executable, str(ROOT / 'tools' / 'build.py'),
+         '--defconfig', defconfig],
+        capture_output=True, text=True, cwd=str(ROOT), timeout=300, env=env)
+    (results_dir / 'build.log').write_text(
+        f'--- stdout ---\n{r.stdout}\n--- stderr ---\n{r.stderr}\n'
+        f'--- exit {r.returncode} ---\n')
+    return r, gen_dir
 
 
 class E2ETestCase(unittest.TestCase):

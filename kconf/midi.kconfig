@@ -33,4 +33,20 @@ config USB_AUDIO
     help
       Stereo or 4-track capture. Melodee only.
 
+config EDITOR
+    bool "SysEx web editor protocol"
+    depends on USB
+    default n
+    help
+      The F0 7D 46 4C editor protocol for the browser-based
+      parameter editor and preset manager.
+
+config CONSOLE
+    bool "CDC serial console"
+    depends on USB
+    default n
+    help
+      Read-only diagnostics on the CDC-ACM virtual serial port.
+      Mutually exclusive with USB Audio (shares the CDC endpoint).
+
 endmenu

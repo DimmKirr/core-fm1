@@ -1,0 +1,52 @@
+# felucca_noise: Noise engine only, for isolated E2E audio testing.
+# Identical to felucca_mock but with only CONFIG_ENGINE_NOISE.
+CONFIG_FIRMWARE_NAME="felucca-noise"
+
+# HAL (Melodee variant: cache, clock, power management)
+CONFIG_HAL_SYS_MELODEE=y
+CONFIG_HAL_IRQ_MELODEE=y
+CONFIG_HAL_LCD_MELODEE=y
+CONFIG_HAL_INPUT_MELODEE=y
+CONFIG_HAL_GUARD_MELODEE=y
+CONFIG_HAL_USB_MELODEE=y
+CONFIG_HAL_TIMER_MELODEE=y
+CONFIG_HAL_MELODEE_CACHE=y
+CONFIG_HAL_MELODEE_CLOCK=y
+CONFIG_HAL_MELODEE_POWER=y
+
+# Audio (Melodee core + effects, single-core)
+CONFIG_AUDIO=y
+CONFIG_AUDIO_CORE_MELODEE=y
+CONFIG_EFFECTS_MELODEE=y
+
+# Engines (noise only)
+CONFIG_ENGINE_NOISE=y
+
+# UI (Felucca page shell with physical input)
+CONFIG_INPUT=y
+CONFIG_UI_FELUCCA=y
+
+# Disabled subsystems
+# CONFIG_FLASH is not set
+# CONFIG_MIDI_UART is not set
+# CONFIG_DUAL_CORE is not set
+
+# USB (mandatory: keeps the device reflashable via SysEx UBOOT key)
+CONFIG_USB=y
+CONFIG_USB_HOST=y
+
+# BLE (stub driver for emulator testing)
+CONFIG_BLE=y
+CONFIG_BLE_MIDI=y
+CONFIG_BLE_STUB=y
+
+# Settings menu (long-HOME, FM Lab persistence, USB mode + MIDI ch + BLE)
+CONFIG_SYS_MENU=y
+CONFIG_SETTINGS_FMLAB=y
+CONFIG_SYS_MENU_USB_MODE=y
+CONFIG_SYS_MENU_MIDI_CH=y
+CONFIG_SYS_MENU_BLE=y
+
+# Debug mode (ring buffer + DEBUG page)
+CONFIG_DEBUG=y
+CONFIG_DEBUG_LOG=y

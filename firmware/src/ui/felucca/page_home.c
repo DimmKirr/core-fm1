@@ -71,6 +71,15 @@ static void fhome_draw(void)
 
 static int fhome_knob(uint32_t id, int32_t clicks)
 {
+    if (id == 0 && NENGINES > 1u) {
+        track_t *t = &trk[song.sel];
+        int32_t e = (int32_t)t->eng_req + clicks;
+        if (e < 0) e = (int32_t)NENGINES - 1;
+        if (e >= (int32_t)NENGINES) e = 0;
+        cfm1_engine_select(t, (uint32_t)e);
+        fsh_dirty = 1;
+        return 1;
+    }
     if (id == 1) {
         int32_t s = (int32_t)song.sel + clicks;
         if (s < 0) s = 0;
@@ -96,10 +105,25 @@ static int fhome_knob(uint32_t id, int32_t clicks)
     return 0;
 }
 
+#ifdef CONFIG_AUDIO
+static int fhome_key(uint32_t note, uint32_t vel)
+{
+    track_t *t = &trk[song.sel];
+    if (vel)
+        trk_note_on(t, note, vel);
+    else
+        trk_note_off(t, note);
+    return 1;
+}
+#endif
+
 static const cfm1_page_t FPAGE_HOME = {
     .name  = "HOME",
     .title = "HOME",
     .flags = PAGEF_HOME,
     .draw  = fhome_draw,
     .knob  = fhome_knob,
+#ifdef CONFIG_AUDIO
+    .key   = fhome_key,
+#endif
 };

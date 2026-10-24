@@ -276,10 +276,15 @@ class Updater:
 
     def wait_for(self, want, secs):
         end = time.monotonic() + secs
+        shown = set()
         while time.monotonic() < end:
             dev = self.find(want, only_port=False)
             if dev:
                 return dev
+            names = set(self.backend.input_names())
+            if names != shown:
+                print(f"  MIDI ports: {', '.join(sorted(names)) if names else '(none)'}", flush=True)
+                shown = names
             time.sleep(DELAY["retry"])
         return None
 
