@@ -109,6 +109,102 @@ hash comparison.
 | Full page sweep (all registered pages) | `e2e_ui_controls_test.py::TestFullPageSweep` |
 | Engine audio output | `e2e_audio_engines_test.py` |
 | Master volume | `e2e_audio_engines_test.py::TestMasterVolume` |
+| Cross-engine level balance | `e2e_audio_engines_test.py::TestAudioLevelNormalization` |
+| Engine select volume stability | `e2e_audio_engines_test.py::TestEngineSelectVolumeConsistency` |
+
+## Audio testing
+
+E2E audio tests capture audio from the emulator's WebAudio output, save WAV
+files, and measure RMS levels. No hardware or speakers needed.
+
+### Infrastructure
+
+The JS hook in `e2e_audio_engines_test.py` patches `AudioContext` at
+construction time to insert a `ScriptProcessor` recorder and an `AnalyserNode`
+between the emulator's output and `AudioContext.destination`. Three JS snippets
+drive it:
+
+| Snippet | What it does |
+|---------|-------------|
+| `JS_HOOK_AUDIO_CONTEXT` | Inject before firmware boot. Patches `new AudioContext` to attach recorder + analyser |
+| `JS_START_RECORDING` | Begin capturing PCM chunks (call before playing notes) |
+| `JS_STOP_AND_EXPORT_WAV` | Stop recording, encode chunks as a 16-bit stereo WAV, return base64 |
+| `JS_READ_RMS` | Read live RMS + peak from the analyser (no recording needed) |
+
+The `save_wav()` and `wav_rms()` helpers decode the base64 WAV and compute
+host-side RMS for assertions.
+
+### Writing an audio test
+
+```python
+class TestMyAudio(E2ETestCase):
+    DEFCONFIG = 'core_fm1_dev'
+
+    def test_something_sounds_right(self):
+        page = self.new_emu_page()
+        page.evaluate(JS_HOOK_AUDIO_CONTEXT)       # must be before boot
+        # ... boot firmware, wait for ready ...
+        ctrl = self.controls(page)
+        ctrl.set_master_volume(512)                 # set a known level
+        page.wait_for_timeout(500)                  # let IIR settle
+
+        page.evaluate(JS_START_RECORDING)
+        ctrl.play_note('c4', hold_ms=300)
+        page.wait_for_timeout(300)
+        wav = page.evaluate(JS_STOP_AND_EXPORT_WAV)
+
+        path = TEST_RESULTS / 'my-test.wav'
+        save_wav(wav['base64'], path)
+        rms = wav_rms(path)
+        self.assertGreater(rms, 0.001, 'No audio')
+```
+
+### Effective audio test patterns
+
+**Set master volume explicitly.** The emulator boots with pot=900 (~88%).
+Always call `ctrl.set_master_volume(value)` and wait 500ms for the firmware's
+IIR filter to settle. Use a low value (e.g. 307 = 30%) when testing for
+volume consistency bugs: problems that are masked at 88% become obvious at 30%.
+
+**Record a baseline before changing state.** The strongest audio tests follow
+this structure: record at state A, change something, record at state B, change
+back, record at state A again. Compare A-before vs A-after. This catches
+state corruption that single-measurement tests miss entirely.
+
+**Don't re-set volume between recordings.** When testing whether an action
+(engine switch, preset change) corrupts volume, set master volume once after
+boot and never touch it again. Re-setting it between steps masks the very bug
+you're looking for.
+
+**Use silence recordings to isolate layers.** If a level changes, record
+silence (no notes) across the same steps. If silence RMS stays at zero, the
+master volume path is clean and the bug is in the engine/voice layer. This
+eliminates an entire subsystem from the investigation in one test run.
+
+**Fresh page per engine for cross-engine comparison.** When comparing RMS
+levels between engines, boot a fresh emulator page for each engine. Shared
+pages accumulate state (filter coefficients, voice history) that skews
+measurements.
+
+**RMS tolerance guidelines:**
+
+| Comparison | Tolerance | Rationale |
+|-----------|-----------|-----------|
+| Same engine, same params, round-trip | 3 dB (0.707x–1.414x) | State should be identical |
+| Different engines, same volume | 12 dB (0.25x–4x) | Synthesis methods have inherent level differences |
+| Volume scaling (half vs full) | Directional only | `rms_full > rms_half` is sufficient |
+
+### Audio test inventory
+
+| Test class | What it verifies |
+|-----------|-----------------|
+| `TestAudioLitmus` | JS audio capture works (440 Hz oscillator, no firmware) |
+| `TestNoiseEngine` | Noise engine produces audio |
+| `TestAnalogEngine` | Analog engine produces audio |
+| `TestFM6Engine` | FM6 engine produces audio |
+| `TestMasterVolume` | Volume at pot 0/10/512/1023 scales monotonically |
+| `TestAudioLevelNormalization` | All engines audible, cross-engine levels within 12 dB, master volume scales output |
+| `TestEngineSelectVolumeConsistency` | Engine select round-trip (analog→noise→analog) preserves audio level at 30% volume |
 
 ### Known gaps
 
