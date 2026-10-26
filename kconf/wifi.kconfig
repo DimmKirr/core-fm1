@@ -1,0 +1,26 @@
+menu "WiFi"
+
+config WIFI
+    bool "WiFi (802.11 b/g/n STA)"
+    default n
+    depends on !BLE
+    help
+      GPL-3.0 WiFi STA driver for the AC791N WL82 radio.
+      Mutually exclusive with BLE in this version.
+
+config WIFI_LWIP
+    bool "lwIP TCP/IP stack"
+    depends on WIFI
+    default y
+
+config WIFI_WPA
+    bool "WPA2-PSK authentication"
+    depends on WIFI
+    default y
+
+config WIFI_MIDI
+    bool "MIDI over WiFi (rtpMIDI/OSC)"
+    depends on WIFI && WIFI_LWIP
+    default n
+
+endmenu

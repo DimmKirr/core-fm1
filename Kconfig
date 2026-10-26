@@ -23,6 +23,8 @@ source "kconf/ui.kconfig"
 source "kconf/storage.kconfig"
 source "kconf/udisk.kconfig"
 source "kconf/ble.kconfig"
+source "kconf/wifi.kconfig"
+source "kconf/cdp.kconfig"
 source "kconf/debug.kconfig"
 source "kconf/sys_menu.kconfig"
 
