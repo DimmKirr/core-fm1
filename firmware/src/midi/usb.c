@@ -757,6 +757,12 @@ static void sysex_byte(uint8_t b)
                  usb.sysex[3] == 0x4Cu && usb.sysex[4] == 0x7Fu)
             settings_reset_req = 1;
 #endif
+#ifdef CFM1_BLE_STUB
+        else if (usb.sx_len >= 4u &&
+                 usb.sysex[1] == 0x7Du && usb.sysex[2] == 0x42u &&
+                 usb.sysex[3] == 0x4Cu)
+            ble_hw_stub_set_peer(usb.sysex, usb.sx_len);
+#endif
         else if (usb.sx_len == sizeof HS_QUERY) {
             uint32_t hm = 1u;
             for (i = 0; hm && i < sizeof HS_QUERY; i++)
