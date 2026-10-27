@@ -77,6 +77,9 @@ static const cfm1_controls_t cfm1_controls = {
 #else
         [BTN_HOME]  = "ABOUT",
 #endif
+#ifdef CONFIG_BLE
+        [BTN_GLO]   = "BLE",
+#endif
     },
     .hold_us = 500000u,
     .select_default = CTL_SELECT_PAGE,
