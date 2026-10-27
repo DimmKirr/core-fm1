@@ -1,0 +1,103 @@
+# Third-Party Notices
+
+This file lists third-party code and specifications referenced by
+core-fm1's WiFi subsystem (`firmware/src/wifi/`), with their licenses
+and copyright holders. See `docs/hardware/wifi/CLEAN_ROOM.md` for the
+clean-room methodology.
+
+
+## Ralink RT2x00 WiFi Driver
+
+The WiFi MAC layer and STA state machine architecture are informed by
+the Ralink RT2x00 driver family in the Linux kernel. Only high-level
+architectural patterns (state machine structure, frame dispatch flow)
+were referenced; no code was copied or directly translated.
+
+- Source: `drivers/net/wireless/ralink/rt2x00/` (Linux kernel)
+- License: GPL-2.0-or-later
+- Copyright: Copyright (C) 2004-2010 Ivo van Doorn <IvDoorn@gmail.com>
+             and contributors
+- Files influenced: `firmware/src/wifi/wifi_mac.c`,
+  `firmware/src/wifi/wifi_sta.c`
+
+
+## Optimist BLE Project
+
+The VCO scan and VM record reading patterns in the RF init sequence
+are informed by the Optimist project's BLE radio bring-up code.
+
+- Source: `firmware/upstream/optimist/`
+- License: MIT AND GPL-3.0-only (dual-licensed)
+- Copyright: Copyright (C) isod89 and contributors
+- Files influenced: `firmware/src/wifi/wifi_rf.c`
+
+
+## wpa_supplicant / hostapd
+
+The WPA2-PSK implementation references the wpa_supplicant project for
+protocol behavior and cryptographic primitive design.
+
+- Source: wpa_supplicant / hostapd
+- License: BSD-3-Clause
+- Copyright: Copyright (c) 2003-2019, Jouni Malinen <j@w1.fi>
+             and contributors
+- URL: https://w1.fi/wpa_supplicant/
+- Files influenced: `firmware/src/wifi/wifi_wpa.c`
+
+
+## lwIP - Lightweight TCP/IP Stack
+
+The TCP/IP integration uses lwIP's netif driver pattern and data
+structures.
+
+- Source: lwIP 2.x
+- License: BSD-3-Clause
+- Copyright: Copyright (c) 2001-2004 Swedish Institute of Computer
+             Science. All rights reserved.
+- URL: https://savannah.nongnu.org/projects/lwip/
+- Files influenced: `firmware/src/wifi/wifi_lwip.c`
+
+
+## ESP-IDF WiFi Components
+
+The WiFi driver architecture references Espressif's ESP-IDF for
+bare-metal WiFi driver patterns on resource-constrained SoCs.
+
+- Source: ESP-IDF
+- License: Apache-2.0
+- Copyright: Copyright 2015-2024 Espressif Systems (Shanghai) PTE LTD
+- URL: https://github.com/espressif/esp-idf
+- Files influenced: general architecture patterns
+
+
+## IEEE Standards
+
+- IEEE 802.11-2020: Wireless LAN Medium Access Control and Physical
+  Layer Specifications
+- IEEE 802.11i-2004: Medium Access Control Security Enhancements (WPA2)
+
+
+## IETF / NIST Standards
+
+- FIPS 197: Advanced Encryption Standard (AES-128)
+- FIPS 180-4: Secure Hash Standard (SHA-1)
+- RFC 2104: HMAC: Keyed-Hashing for Message Authentication
+- RFC 2898: PKCS #5 v2.0 / PBKDF2
+
+
+## System Library Exception
+
+This firmware links at build time against JieLi's AC79 SDK runtime
+libraries (clock init, flash access, interrupt vectors, DMA setup).
+Under GPL-3.0 section 1, these qualify as "System Libraries" of the
+target platform: they are distributed with the major components of
+the operating environment (the AC791N SoC's firmware toolchain), are
+not derived from this Program, and serve only to enable use of the
+Program on the target hardware. The Corresponding Source of this
+firmware therefore does not include the JieLi SDK runtime, consistent
+with the GPL-3.0 System Library exception.
+
+The JieLi AC79 SDK userspace code is separately licensed (GPL-2.0 per
+its repository). The SDK's proprietary static libraries (.a) are
+platform runtime components, not combined works, and are covered by
+the exception above.

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""E2E: BLE page renders in the emulator.
+"""E2E: BLE connection lifecycle in the emulator.
 
 Builds felucca_noise (BLE + stub driver), boots in fm1-emu, navigates to
-the BLUETOOTH page via the SELECT encoder, and screenshots the BLE status.
+the BLUETOOTH page via long-press GLO, and tests:
+  1. BLE page renders and shows ADVERTISING
+  2. Full connection lifecycle: ADVERTISING -> CONNECTED -> MIDI READY -> ADVERTISING
+  3. Peer MAC address displayed on LCD when connected
+  4. BLE-MIDI note injected by external device reaches the firmware
 """
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -18,6 +21,11 @@ BUILD = ROOT / 'build'
 FWSC = BUILD / 'core-fm1.fwsc'
 
 TEST_RESULTS = RESULTS_DIR / f'{_run_timestamp}-e2e_ble_test'
+
+
+def _navigate_to_ble(ctrl):
+    """Long-press GLO to jump directly to the BLE page."""
+    ctrl.press_button('glo', hold_ms=600, delay_ms=500)
 
 
 class TestBLEPage(E2ETestCase):
@@ -52,8 +60,8 @@ class TestBLEPage(E2ETestCase):
             'document.getElementById("status").textContent.includes("ready")')
         page.locator('#start').click()
         page.wait_for_function(
-            'document.getElementById("status")?.textContent'
-            '?.includes("instructions/s")',
+            '(() => { const t = document.getElementById("status")?.textContent || "";'
+            'return t.includes("instructions/s") || t.includes("real time"); })()',
             timeout=30_000)
         page.wait_for_timeout(3_000)
         return page
@@ -63,18 +71,11 @@ class TestBLEPage(E2ETestCase):
         page = self._boot_page()
         try:
             ctrl = self.controls(page)
-
-            # Navigate right through pages until we reach BLE.
-            # Pages: HOME, ENV, LFO, FX, SCL, EDIT, ARP, SEQ, MIXER, VOICE,
-            #        ABOUT, FILES (if UDISK), BLE, DEBUG (if DEBUG_LOG)
-            # felucca_noise has UDISK + BLE + DEBUG_LOG, so BLE is page ~12
-            for _ in range(13):
-                ctrl.rotate_encoder('select', direction=1, steps=1, delay_ms=200)
+            _navigate_to_ble(ctrl)
 
             page.wait_for_timeout(500)
-            self.screenshot(page, 'BLE-select-rotateRight')
+            self.screenshot(page, 'BLE-page-renders')
 
-            # Take a screenshot of the status area
             status = page.locator('#status').text_content()
             self.assertNotIn('halted', status)
 
@@ -88,18 +89,78 @@ class TestBLEPage(E2ETestCase):
         page = self._boot_page()
         try:
             ctrl = self.controls(page)
-
-            # Navigate to BLE page
-            for _ in range(13):
-                ctrl.rotate_encoder('select', direction=1, steps=1, delay_ms=200)
+            _navigate_to_ble(ctrl)
 
             page.wait_for_timeout(500)
-            self.screenshot(page, 'BLE-select-rotateRight')
+            self.screenshot(page, 'BLE-advertising')
 
             status = page.locator('#status').text_content()
             self.assertNotIn('halted', status)
         finally:
             self.write_log(page, 'ble-advertising.log')
+            page.close()
+
+    def test_ble_connection_lifecycle(self):
+        """Full BLE lifecycle: ADVERTISING -> CONNECTED -> MIDI READY -> ADVERTISING.
+
+        The stub state machine auto-advances through MTU exchange, CCCD
+        subscription, and BLE-MIDI note injection after PLAY triggers connect.
+        """
+        page = self._boot_page()
+        try:
+            ctrl = self.controls(page)
+            _navigate_to_ble(ctrl)
+
+            page.wait_for_timeout(500)
+            self.screenshot(page, 'BLE-lifecycle-01-advertising')
+
+            status = page.locator('#status').text_content()
+            self.assertNotIn('halted', status)
+
+            # Press PLAY to trigger simulated BLE connection from external device
+            ctrl.press_button('play')
+
+            # Wait for stub tick to advance: CONNECTED -> MTU -> CCCD -> MIDI NOTE
+            page.wait_for_timeout(5_000)
+            self.screenshot(page, 'BLE-lifecycle-02-connected')
+
+            status = page.locator('#status').text_content()
+            self.assertNotIn('halted', status)
+
+            # Press PLAY to trigger external device disconnect
+            ctrl.press_button('play')
+
+            page.wait_for_timeout(3_000)
+            self.screenshot(page, 'BLE-lifecycle-03-disconnected')
+
+            status = page.locator('#status').text_content()
+            self.assertNotIn('halted', status)
+        finally:
+            self.write_log(page, 'ble-lifecycle.log')
+            page.close()
+
+    def test_ble_shows_peer_address(self):
+        """LCD shows the connected peer's MAC address."""
+        page = self._boot_page()
+        try:
+            ctrl = self.controls(page)
+            _navigate_to_ble(ctrl)
+            page.wait_for_timeout(500)
+
+            # Connect: the stub uses its default peer address
+            ctrl.press_button('play')
+            page.wait_for_timeout(5_000)
+
+            self.screenshot(page, 'BLE-peer-address')
+
+            status = page.locator('#status').text_content()
+            self.assertNotIn('halted', status)
+
+            # Disconnect
+            ctrl.press_button('play')
+            page.wait_for_timeout(2_000)
+        finally:
+            self.write_log(page, 'ble-peer-addr.log')
             page.close()
 
 

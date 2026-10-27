@@ -57,7 +57,7 @@ tasks:
       FM1_WEB_DIR: '{{env "FM1_WEB_DIR" | default (printf "%s/.fm1-emulator/web" .HOME)}}'
       PLAYWRIGHT_BROWSERS_PATH: '{{env "PLAYWRIGHT_BROWSERS_PATH" | default (printf "%s/.cache/ms-playwright" .HOME)}}'
     cmds:
-      - uv run python -m pytest tests/e2e_boot_test.py tests/e2e_components_test.py tests/e2e_usb_safety_test.py tests/e2e_audio_test.py tests/e2e_audio_engines_test.py -v {{.CLI_ARGS}}
+      - uv run python -m pytest tests/e2e_boot_test.py tests/e2e_components_test.py tests/e2e_usb_safety_test.py tests/e2e_audio_test.py tests/e2e_audio_engines_test.py tests/e2e_ble_test.py -v {{.CLI_ARGS}}
 
   emulator:build:
     desc: Build WASM from a local fm1-emu checkout (requires the Rust WASM target)

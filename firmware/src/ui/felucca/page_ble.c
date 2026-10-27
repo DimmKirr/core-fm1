@@ -42,6 +42,30 @@ static void fble_draw_info(void)
         row++;
     }
 
+    /* peer address (when connected) */
+    if (ble_connected()) {
+        uint8_t own[6], peer[6];
+        ble_ll_addrs(own, peer);
+        char mac[18];
+        {
+            uint32_t j;
+            static const char hex[] = "0123456789ABCDEF";
+            for (j = 0; j < 6u; j++) {
+                uint32_t off = j * 3u;
+                mac[off]     = hex[peer[5u - j] >> 4];
+                mac[off + 1] = hex[peer[5u - j] & 0x0F];
+                mac[off + 2] = j < 5u ? ':' : '\0';
+            }
+            mac[17] = '\0';
+        }
+        {
+            int32_t y = (int32_t)row * FBLE_ROW_H;
+            cv_text_fit(FBLE_X_PAD, y + 2, &AF_S, "PEER", T_DIM, T_BG, 60);
+            cv_text_fit(70, y + 2, &AF_S, mac, T_THEME, T_BG, 166);
+            row++;
+        }
+    }
+
     /* MIDI status */
     {
         int32_t y = (int32_t)row * FBLE_ROW_H;
@@ -166,6 +190,21 @@ static void fble_enter(void)
     fble_scroll = 0;
 }
 
+#ifdef CFM1_BLE_STUB
+static int fble_button(uint32_t id, uint32_t down)
+{
+    if (!down && id == BTN_PLAY) {
+        if (ble_connected())
+            ble_hw_stub_disconnect();
+        else
+            ble_hw_stub_connect();
+        fsh_dirty = 1;
+        return 1;
+    }
+    return 0;
+}
+#endif
+
 static const cfm1_page_t FPAGE_BLE = {
     .name   = "BLE",
     .title  = "BLUETOOTH",
@@ -174,5 +213,8 @@ static const cfm1_page_t FPAGE_BLE = {
     .draw   = fble_draw,
 #if BLE_CENTRAL
     .knob   = fble_knob,
+#endif
+#ifdef CFM1_BLE_STUB
+    .button = fble_button,
 #endif
 };
