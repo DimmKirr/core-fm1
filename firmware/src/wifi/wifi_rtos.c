@@ -1,255 +1,299 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* WiFi RTOS shim: Linux kernel API emulation on bare-metal.
- * sk_buff pool, spinlock (IRQ disable), tasklet (deferred work), timer.
- * Clean-room from .scratch/examples/wifi/RTOS_SHIM_MAP.md. */
+/* Clean-room RTOS shim from docs/hardware/wifi/SPECSHEET.md §8.
+ * No vendor code, IR or disassembly.
+ *
+ * Bare-metal shim for the OS abstractions the MAC layer expects:
+ * frame buffer pool, IRQ lock, deferred work queue, link state, heap.
+ * Behavioral contracts from the hardware fact sheet; all names are
+ * project-original. */
 
-/* ---- sk_buff pool ---- */
+/* ---- configuration ---- */
 
-#define WIFI_SKB_POOL_SIZE  32
-#define WIFI_SKB_BUF_SIZE   1600
+#define WIFI_BUF_POOL_COUNT 16
+#define WIFI_BUF_SIZE       1600
+#define WIFI_BUF_HEADROOM   128
+#define WIFI_DEFER_MAX      8
+#define WIFI_HEAP_SIZE      4096
 
-struct sk_buff {
-    uint8_t  data_buf[WIFI_SKB_BUF_SIZE];
-    uint8_t *data;
+/* ---- wifi_buf: fixed-pool frame buffer allocator ---- */
+
+struct wifi_buf {
+    uint8_t  raw[WIFI_BUF_SIZE];
     uint8_t *head;
+    uint8_t *data;
     uint8_t *tail;
     uint8_t *end;
     uint32_t len;
-    uint8_t  in_use;
+    uint16_t protocol;
+    uint8_t  allocated;
+    uint8_t  cloned;
 };
 
-static struct sk_buff skb_pool[WIFI_SKB_POOL_SIZE];
+static struct wifi_buf wifi_buf_pool[WIFI_BUF_POOL_COUNT];
 
-static struct sk_buff *alloc_skb(uint32_t size, uint32_t flags)
+static struct wifi_buf *wifi_buf_alloc(uint32_t size, uint32_t flags)
 {
-    (void)flags;
-    for (int i = 0; i < WIFI_SKB_POOL_SIZE; i++) {
-        if (!skb_pool[i].in_use) {
-            struct sk_buff *skb = &skb_pool[i];
-            skb->in_use = 1;
-            skb->head = skb->data_buf;
-            skb->data = skb->data_buf + 128; /* headroom */
-            skb->tail = skb->data;
-            skb->end  = skb->data_buf + WIFI_SKB_BUF_SIZE;
-            skb->len  = 0;
-            return skb;
+    uint32_t i;
+    (void)size; (void)flags;
+    for (i = 0; i < WIFI_BUF_POOL_COUNT; i++) {
+        if (!wifi_buf_pool[i].allocated) {
+            struct wifi_buf *b = &wifi_buf_pool[i];
+            b->allocated = 1;
+            b->cloned = 0;
+            b->head = b->raw;
+            b->end = b->raw + WIFI_BUF_SIZE;
+            b->data = b->raw + WIFI_BUF_HEADROOM;
+            b->tail = b->data;
+            b->len = 0;
+            b->protocol = 0;
+            return b;
         }
     }
-    return (struct sk_buff *)0;
+    return (struct wifi_buf *)0;
 }
 
-static struct sk_buff *dev_alloc_skb(uint32_t size)
+static struct wifi_buf *wifi_buf_alloc_rx(uint32_t size)
 {
-    return alloc_skb(size, 0);
+    return wifi_buf_alloc(size, 0);
 }
 
-static void kfree_skb(struct sk_buff *skb)
+static void wifi_buf_free(struct wifi_buf *b)
 {
-    if (skb) skb->in_use = 0;
+    if (b)
+        b->allocated = 0;
 }
 
-static struct sk_buff *skb_clone(struct sk_buff *skb, uint32_t flags)
+static void wifi_buf_memcpy(uint8_t *dst, const uint8_t *src, uint32_t n)
 {
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        dst[i] = src[i];
+}
+
+static struct wifi_buf *wifi_buf_clone(struct wifi_buf *b, uint32_t flags)
+{
+    struct wifi_buf *n;
+    uint32_t off;
     (void)flags;
-    struct sk_buff *n = alloc_skb(skb->len, 0);
-    if (!n) return (struct sk_buff *)0;
-    uint32_t off = (uint32_t)(skb->data - skb->head);
+    if (!b)
+        return (struct wifi_buf *)0;
+    n = wifi_buf_alloc(b->len, 0);
+    if (!n)
+        return (struct wifi_buf *)0;
+    off = (uint32_t)(b->data - b->head);
     n->data = n->head + off;
-    n->len = skb->len;
-    n->tail = n->data + skb->len;
-    for (uint32_t i = 0; i < skb->len; i++)
-        n->data[i] = skb->data[i];
+    n->tail = n->data + b->len;
+    n->len = b->len;
+    n->protocol = b->protocol;
+    n->cloned = 1;
+    wifi_buf_memcpy(n->data, b->data, b->len);
     return n;
 }
 
-static uint8_t *skb_push(struct sk_buff *skb, uint32_t len)
+static struct wifi_buf *wifi_buf_copy(struct wifi_buf *b, uint32_t flags)
 {
-    skb->data -= len;
-    skb->len  += len;
-    return skb->data;
+    return wifi_buf_clone(b, flags);
 }
 
-static void skb_trim(struct sk_buff *skb, uint32_t len)
+static uint8_t *wifi_buf_push(struct wifi_buf *b, uint32_t len)
 {
-    if (len < skb->len) {
-        skb->len  = len;
-        skb->tail = skb->data + len;
-    }
+    b->data -= len;
+    b->len += len;
+    return b->data;
 }
 
-static uint8_t *skb_put(struct sk_buff *skb, uint32_t len)
+static uint8_t *wifi_buf_pull(struct wifi_buf *b, uint32_t len)
 {
-    uint8_t *p = skb->tail;
-    skb->tail += len;
-    skb->len  += len;
+    if (len > b->len)
+        return (uint8_t *)0;
+    b->data += len;
+    b->len -= len;
+    return b->data;
+}
+
+static uint8_t *wifi_buf_put(struct wifi_buf *b, uint32_t len)
+{
+    uint8_t *p = b->tail;
+    b->tail += len;
+    b->len += len;
     return p;
 }
 
-static void skb_reserve(struct sk_buff *skb, uint32_t len)
+static void wifi_buf_trim(struct wifi_buf *b, uint32_t len)
 {
-    skb->data += len;
-    skb->tail += len;
+    if (len < b->len) {
+        b->len = len;
+        b->tail = b->data + len;
+    }
 }
 
-/* ---- spinlock (IRQ disable/enable) ---- */
+static void wifi_buf_reserve(struct wifi_buf *b, uint32_t len)
+{
+    b->data += len;
+    b->tail += len;
+}
 
-typedef uint32_t spinlock_t;
+/* ---- wifi_lock: IRQ disable/enable on bare metal ---- */
 
-static void spin_lock_init(spinlock_t *lock)
+typedef uint32_t wifi_lock_t;
+
+static void wifi_lock_init(wifi_lock_t *lock)
 {
     *lock = 0;
 }
 
-static uint32_t spin_lock_irqsave(spinlock_t *lock)
+static uint32_t wifi_lock_irq(wifi_lock_t *lock)
+{
+    uint32_t flags = fm1_icfg() & 0x200u;
+    fm1_irq_off();
+    (void)lock;
+    return flags;
+}
+
+static void wifi_unlock_irq(wifi_lock_t *lock, uint32_t flags)
 {
     (void)lock;
-    /* bare-metal: disable interrupts, return previous state */
-    /* TODO: wire to fm1_irq.h cli/sti when building on target */
-    return 0;
+    if (flags)
+        fm1_irq_on();
 }
 
-static void spin_unlock_irqrestore(spinlock_t *lock, uint32_t flags)
-{
-    (void)lock; (void)flags;
-    /* bare-metal: restore interrupt state */
-}
+/* ---- wifi_defer: deferred work queue, drained in wifi_poll ---- */
 
-static void spin_lock_free(spinlock_t *lock)
-{
-    (void)lock;
-}
+typedef void (*wifi_defer_fn_t)(unsigned long);
 
-/* ---- tasklet (deferred work) ---- */
-
-#define WIFI_TASKLET_MAX    16
-
-typedef void (*tasklet_fn)(unsigned long);
-
-struct tasklet_struct {
-    tasklet_fn func;
+struct wifi_defer {
+    wifi_defer_fn_t func;
     unsigned long data;
     uint8_t pending;
     uint8_t active;
 };
 
-static struct tasklet_struct wifi_tasklets[WIFI_TASKLET_MAX];
-static int wifi_tasklet_count;
+static struct wifi_defer wifi_defers[WIFI_DEFER_MAX];
+static uint32_t wifi_defer_count;
 
-static void tasklet_init(struct tasklet_struct *t, tasklet_fn func, unsigned long data)
+static void wifi_defer_init(struct wifi_defer *d, wifi_defer_fn_t func, unsigned long data)
 {
-    t->func = func;
-    t->data = data;
-    t->pending = 0;
-    t->active = 1;
-    if (wifi_tasklet_count < WIFI_TASKLET_MAX)
-        wifi_tasklets[wifi_tasklet_count++] = *t;
+    d->func = func;
+    d->data = data;
+    d->pending = 0;
+    d->active = 1;
+    if (wifi_defer_count < WIFI_DEFER_MAX) {
+        wifi_defers[wifi_defer_count] = *d;
+        wifi_defer_count++;
+    }
 }
 
-static void tasklet_hi_schedule(struct tasklet_struct *t)
+static void wifi_defer_schedule(struct wifi_defer *d)
 {
-    t->pending = 1;
+    d->pending = 1;
 }
 
-static void tasklet_kill(struct tasklet_struct *t)
+static void wifi_defer_cancel(struct wifi_defer *d)
 {
-    t->active = 0;
-    t->pending = 0;
+    d->active = 0;
+    d->pending = 0;
 }
 
-static void wifi_tasklet_poll(void)
+static void wifi_defer_poll(void)
 {
-    for (int i = 0; i < wifi_tasklet_count; i++) {
-        struct tasklet_struct *t = &wifi_tasklets[i];
-        if (t->pending && t->active) {
-            t->pending = 0;
-            t->func(t->data);
+    uint32_t i;
+    for (i = 0; i < wifi_defer_count; i++) {
+        struct wifi_defer *d = &wifi_defers[i];
+        if (d->pending && d->active) {
+            d->pending = 0;
+            d->func(d->data);
         }
     }
 }
 
-/* ---- netif carrier state ---- */
+/* ---- link state and TX flow control ---- */
 
-static uint8_t wifi_carrier_on_flag;
+static uint8_t wifi_carrier_state;
+static uint8_t wifi_queue_active;
 
-static void netif_carrier_on(void *dev)
+static void wifi_link_up(void *dev)   { (void)dev; wifi_carrier_state = 1; }
+static void wifi_link_down(void *dev) { (void)dev; wifi_carrier_state = 0; }
+static int  wifi_link_ok(void *dev)   { (void)dev; return wifi_carrier_state; }
+
+static void wifi_tx_start(void *dev) { (void)dev; wifi_queue_active = 1; }
+static void wifi_tx_stop(void *dev)  { (void)dev; wifi_queue_active = 0; }
+static void wifi_tx_wake(void *dev)  { (void)dev; wifi_queue_active = 1; }
+
+static int wifi_rx_deliver(struct wifi_buf *b)
 {
-    (void)dev;
-    wifi_carrier_on_flag = 1;
-}
-
-static void netif_carrier_off(void *dev)
-{
-    (void)dev;
-    wifi_carrier_on_flag = 0;
-}
-
-static int netif_carrier_ok(void *dev)
-{
-    (void)dev;
-    return wifi_carrier_on_flag;
-}
-
-static void netif_start_queue(void *dev) { (void)dev; }
-static void netif_stop_queue(void *dev)  { (void)dev; }
-static void netif_wake_queue(void *dev)  { (void)dev; }
-
-static int netif_rx(struct sk_buff *skb)
-{
-    /* forward to lwIP netif_input: wired in wifi_lwip.c */
-    (void)skb;
+    (void)b;
     return 0;
 }
 
-/* ---- timer ---- */
+/* ---- heap: bump allocator for small MAC-layer allocations ---- */
 
-#define WIFI_TIMER_MAX 16
+static uint8_t wifi_heap[WIFI_HEAP_SIZE] __attribute__((aligned(4)));
+static uint32_t wifi_heap_ptr;
+
+static void *wifi_heap_alloc(uint32_t size)
+{
+    uint32_t aligned = (size + 3u) & ~3u;
+    uint32_t p;
+    if (wifi_heap_ptr + aligned > WIFI_HEAP_SIZE)
+        return (void *)0;
+    p = wifi_heap_ptr;
+    wifi_heap_ptr += aligned;
+    return &wifi_heap[p];
+}
+
+static void wifi_heap_free(void *p)
+{
+    (void)p; /* bump allocator: no individual free */
+}
+
+/* ---- timer stubs ---- */
+
+#define WIFI_TIMER_MAX 8
 
 struct wifi_timer {
     void (*func)(unsigned long);
     unsigned long data;
-    uint32_t expires_ms;
+    uint32_t expire_us;
     uint8_t active;
 };
 
 static struct wifi_timer wifi_timers[WIFI_TIMER_MAX];
 
-static void wifi_timer_add(struct wifi_timer *t, uint32_t ms, void (*func)(unsigned long), unsigned long data)
+static void wifi_timer_set(struct wifi_timer *t, uint32_t ms,
+                           void (*func)(unsigned long), unsigned long data)
 {
     t->func = func;
     t->data = data;
-    t->expires_ms = ms; /* caller must add current time */
+    t->expire_us = fm1_micros() + ms * 1000u;
     t->active = 1;
 }
 
-static void wifi_timer_del(struct wifi_timer *t)
+static void wifi_timer_cancel(struct wifi_timer *t)
 {
     t->active = 0;
 }
 
-/* ---- memory ---- */
-
-static void *vmalloc(uint32_t size)
+static void wifi_timer_poll(void)
 {
-    /* bare-metal: fall back to sk_buff pool or static allocation */
-    (void)size;
-    return (void *)0; /* TODO: wire to pool allocator */
+    uint32_t i, now = fm1_micros();
+    for (i = 0; i < WIFI_TIMER_MAX; i++) {
+        struct wifi_timer *t = &wifi_timers[i];
+        if (t->active && (int32_t)(now - t->expire_us) >= 0) {
+            t->active = 0;
+            t->func(t->data);
+        }
+    }
 }
 
-static void kfree(void *p)
+static void wifi_rtos_init(void)
 {
-    (void)p;
-}
-
-/* ---- wait ---- */
-
-static int wait_event_interruptible(void *wq, int condition)
-{
-    (void)wq;
-    /* bare-metal: poll until condition is true */
-    return condition ? 0 : -1;
-}
-
-static void wake_up(void *wq)
-{
-    (void)wq;
+    uint32_t i;
+    for (i = 0; i < WIFI_BUF_POOL_COUNT; i++)
+        wifi_buf_pool[i].allocated = 0;
+    wifi_defer_count = 0;
+    wifi_carrier_state = 0;
+    wifi_queue_active = 0;
+    wifi_heap_ptr = 0;
+    for (i = 0; i < WIFI_TIMER_MAX; i++)
+        wifi_timers[i].active = 0;
 }

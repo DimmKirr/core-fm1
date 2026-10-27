@@ -1,29 +1,39 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* FM-1 (AC791N / WL82) WiFi internal SDIO bus registers.
- * On-chip interconnect between CPU and WiFi MAC/BBP, not an external card.
- * Addresses from decompiled IR (.scratch/examples/wifi/SDIO_PROTOCOL.md). */
+/* Clean-room implementation from docs/hardware/wifi/SPECSHEET.md and SDIO Simplified Specification.
+ * No vendor code, IR or disassembly. */
+/* AC791N / WL82 internal SDIO bus and MAC/BBP register definitions.
+ * The SDIO here is an on-chip interconnect between the CPU and the WiFi
+ * MAC/BBP block, not an external card slot. */
 #pragma once
 #include <stdint.h>
 
-#define FM1_WF_SDIO_REG(a) (*(volatile uint32_t *)(uintptr_t)(a))
+/* ---- SDIO controller (0x50000 range) ---- */
 
-/* SDIO controller registers (0x50000 range, discovered in IR) */
-#define FM1_WF_SDIO_BASE    FM1_WF_SDIO_REG(0x50000u)
-#define FM1_WF_SDIO_04      FM1_WF_SDIO_REG(0x50004u)
-#define FM1_WF_SDIO_DATA    FM1_WF_SDIO_REG(0x50008u)
-#define FM1_WF_SDIO_STATUS  FM1_WF_SDIO_REG(0x5000Cu)
+#define FM1_SDIO_BASE     (*(volatile uint32_t *)0x50000u)
+#define FM1_SDIO_08       (*(volatile uint32_t *)0x50008u)   /* data / command */
+#define FM1_SDIO_STATUS   (*(volatile uint32_t *)0x5000Cu)   /* status / response */
 
-/* CMD52: single-byte read/write (IO_RW_DIRECT) */
-static inline uint8_t fm1_wf_sdio_cmd52_read(uint8_t fn, uint32_t addr)
-{
-    (void)fn;
-    /* CMD52 read: fn | addr | 0 (read). Full protocol in wifi_sdio.c. */
-    (void)addr;
-    return 0; /* stub: real implementation in wifi_sdio.c */
-}
+/* SDIO CMD52 (IO_RW_DIRECT): single-byte transfer
+ * CMD53 (IO_RW_EXTENDED): multi-byte / block DMA transfer */
+#define FM1_SDIO_CMD52    52u
+#define FM1_SDIO_CMD53    53u
 
-static inline void fm1_wf_sdio_cmd52_write(uint8_t fn, uint32_t addr, uint8_t val)
-{
-    (void)fn; (void)addr; (void)val;
-    /* stub: real implementation in wifi_sdio.c */
-}
+/* ---- MAC registers (0x30000-0x31FFF) ---- */
+
+#ifndef FM1_MAC_308
+#define FM1_MAC_308       (*(volatile uint32_t *)0x30308u)
+#endif
+#ifndef FM1_MAC_30C
+#define FM1_MAC_30C       (*(volatile uint32_t *)0x3030Cu)
+#endif
+#ifndef FM1_RF_CFG0
+#define FM1_RF_CFG0       (*(volatile uint32_t *)0x30F00u)
+#endif
+#ifndef FM1_RF_CFG1
+#define FM1_RF_CFG1       (*(volatile uint32_t *)0x30F04u)
+#endif
+
+/* BBP indirect port (may already be defined by fm1_wifi_rf.h or fm1_ble_rf.h) */
+#ifndef FM1_BBP_PORT
+#define FM1_BBP_PORT      (*(volatile uint32_t *)0x3101Cu)
+#endif

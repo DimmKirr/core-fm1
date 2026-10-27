@@ -1,306 +1,273 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* WiFi internal SDIO bus driver: on-chip interconnect between CPU and WiFi MAC/BBP.
- * Reverse-engineered from .scratch/examples/wifi/ir/wl_rf_common/wl_sdio*.c.ll.
- * Protocol: .scratch/examples/wifi/SDIO_PROTOCOL.md. */
+/* Clean-room SDIO bus driver for AC791N (WL82) internal WiFi interconnect.
+ * From docs/hardware/wifi/SPECSHEET.md SDIO internal bus section and the SDIO
+ * Simplified Specification v3.00 for CMD52/CMD53 protocol.
+ * No vendor code, IR or disassembly. */
 
-#include "../hal/fm1_wifi_sdio.h"
-#include "../hal/fm1_wifi_rf.h"
+/* ---- constants ---- */
 
-/* ---- bus state ---- */
+/* SDIO controller registers (on-chip, from fact sheet §7.1) */
+#define WIFI_SDIO_BASE     (*(volatile uint32_t *)0x50000u)
+#define WIFI_SDIO_DATA     (*(volatile uint32_t *)0x50008u)
+#define WIFI_SDIO_STATUS   (*(volatile uint32_t *)0x5000Cu)
 
-static uint8_t wifi_sdio_initialized;
+#define WIFI_SDIO_POLLS    10000u   /* busy-wait ceiling */
 
-/* ---- host controller state (from wl_sdio_host.c.ll) ---- */
+/* SDIO status bit fields are unknown per fact sheet §7.1.
+ * TODO: determine from emulator observation.  For now, poll
+ * a non-zero status word as "busy" (conservative). */
 
-struct sdio_host_state {
-    const char *name;
-    uint32_t flags;
-    spinlock_t mutex[3];
-};
+/* SDIO commands per Simplified Spec */
+#define SDIO_CMD52         52u    /* IO_RW_DIRECT: single byte */
+#define SDIO_CMD53         53u    /* IO_RW_EXTENDED: multi-byte / block */
 
-static struct sdio_host_state sdio_host;
+/* CMD52 argument bits (SDIO Simplified Spec 5.1) */
+#define CMD52_WRITE        (1u << 31)
+#define CMD52_FN_SHIFT     28
+#define CMD52_RAW          (1u << 27)   /* read-after-write */
+#define CMD52_ADDR_SHIFT   9
 
-/* ---- delay helpers ---- */
+/* CMD53 argument bits (SDIO Simplified Spec 5.3) */
+#define CMD53_WRITE        (1u << 31)
+#define CMD53_FN_SHIFT     28
+#define CMD53_BLOCK        (1u << 27)   /* block mode */
+#define CMD53_INCR         (1u << 26)   /* incrementing address */
+#define CMD53_ADDR_SHIFT   9
 
-static void wf_udelay(uint32_t us)
+/* ---- internal state ---- */
+
+static struct {
+    uint8_t  initialized;
+    uint8_t  error_count;
+    uint16_t block_size;    /* negotiated block size for CMD53 */
+} wifi_sdio_state;
+
+/* ---- low-level bus operations ---- */
+
+/* Wait for the internal SDIO controller to become idle.
+ * Bit fields unknown: treat any non-zero status as busy (conservative). */
+static int wifi_sdio_wait(void)
 {
-    volatile uint32_t n = us * 10;
-    while (n--) ;
-}
-
-static void wf_mdelay(uint32_t ms)
-{
-    for (uint32_t i = 0; i < ms; i++)
-        wf_udelay(1000);
-}
-
-/* ---- clock/reset init (from wl_sdio.c.ll wf_clk_rst_init) ---- */
-
-static void wf_clk_rst_init(void)
-{
-    /* clear clock gate bits 14-15 in system register 0x10010 */
-    FM1_RF_REG(0x10010u) &= ~((1u << 14) | (1u << 15));
-
-    /* zero all clock registers */
-    FM1_WF_CLK0 = 0;
-    FM1_WF_CLK1 = 0;
-    FM1_WF_CLK2 = 0;
-    FM1_WF_CLK3 = 0;
-    FM1_WF_CLK4 = 0;
-
-    /* progressive clock enable sequence with delays */
-    FM1_WF_CLK0 = (1u << 8) | (1u << 6) | (1u << 0); /* 256 + 64 + 1 = 0x141 */
-    wf_udelay(10);
-
-    FM1_WF_CLK0 |= (1u << 2); /* bit 2: +4 */
-    wf_udelay(10);
-
-    FM1_WF_CLK0 |= (1u << 3); /* bit 3: +8 */
-    wf_udelay(10);
-
-    FM1_WF_CLK0 |= (1u << 1); /* bit 1: +2 */
-    wf_udelay(50);
-
-    /* configure reset register */
-    FM1_WF_RST = (1u << 0) | (1u << 1);
-}
-
-/* ---- host controller init (from wl_sdio_host.c.ll sdio_host_init) ---- */
-
-static void sdio_host_init(void)
-{
-    if (!sdio_host.name) {
-        sdio_host.name = "wl";
-        sdio_host.flags = 0;
-        spin_lock_init(&sdio_host.mutex[0]);
-        spin_lock_init(&sdio_host.mutex[1]);
-        spin_lock_init(&sdio_host.mutex[2]);
+    uint32_t i;
+    for (i = 0; i < WIFI_SDIO_POLLS; i++) {
+        if (WIFI_SDIO_STATUS == 0u)
+            return 0;
     }
-    sdio_host.flags |= (1u << 3); /* IRQ flag */
+    wifi_sdio_state.error_count++;
+    return -1;
 }
 
-/* ---- host mutex (from wl_sdio_host.c.ll) ---- */
+/* CMD52: IO_RW_DIRECT -- single-byte read/write (SDIO Simplified Spec 5.1).
+ * This is an internal bus command: the CPU writes the command argument to the
+ * controller base register and the hardware sequences the internal SDIO. */
 
-static void mmc_claim_host(void)
+static uint8_t wifi_sdio_cmd52_read(uint8_t fn, uint32_t addr)
 {
-    spin_lock_irqsave(&sdio_host.mutex[2]);
+    uint32_t arg;
+
+    if (wifi_sdio_wait())
+        return 0;
+
+    /* CMD52 read: R/W=0, fn, register address */
+    arg = ((uint32_t)(fn & 7u) << CMD52_FN_SHIFT) |
+          ((addr & 0x1FFFFu) << CMD52_ADDR_SHIFT);
+
+    WIFI_SDIO_BASE = (SDIO_CMD52 << 24) | arg;
+
+    if (wifi_sdio_wait())
+        return 0;
+
+    return (uint8_t)(WIFI_SDIO_DATA & 0xFFu);
 }
 
-static void mmc_release_host(void)
+static int wifi_sdio_cmd52_write(uint8_t fn, uint32_t addr, uint8_t val)
 {
-    spin_unlock_irqrestore(&sdio_host.mutex[2], 0);
-}
+    uint32_t arg;
 
-/* ---- IRQ flag (from wl_sdio_host.c.ll sdio_cap_irq) ---- */
-
-static int sdio_cap_irq(void)
-{
-    return (sdio_host.flags & (1u << 3)) != 0;
-}
-
-/* ---- bus enumeration command helper ---- */
-
-static int sdio_host_send_command(uint32_t arg, uint32_t cmd)
-{
-    /* internal SDIO: write arg/cmd to MAC control registers */
-    FM1_WF_MAC_CFG0 = arg;
-    FM1_WF_MAC_CFG1 = cmd;
-
-    /* poll for command completion (bit 24) */
-    volatile uint32_t timeout = 100000;
-    while (!(FM1_WF_MAC_CFG1 & (1u << 24)) && --timeout)
-        ;
-    return timeout ? 0 : -1;
-}
-
-/* ---- SDIO enumeration (from wl_sdio.c.ll wl30_sdio_enum) ---- */
-
-static int wl30_sdio_enum(void)
-{
-    int ret;
-
-    /* CMD0-like reset, CMD5 voltage negotiation, CMD3 address assignment */
-    ret = sdio_host_send_command(520093696u,  17669u);
-    if (ret < 0) return ret;
-    ret = sdio_host_send_command(520093696u,  17669u);
-    if (ret < 0) return ret;
-    ret = sdio_host_send_command(0u,          17157u);
-    if (ret < 0) return ret;
-    ret = sdio_host_send_command(65536u,      18177u);
-    if (ret < 0) return ret;
-
-    /* CMD52-style register configuration via send_command path */
-    ret = sdio_host_send_command(0x88000BFFu, 29701u); /* -2013264641 = 0x88000BFF */
-    if (ret < 0) return ret;
-    ret = sdio_host_send_command(0x88000F02u, 29701u); /* -2013262334 = 0x88000F02 */
-    if (ret < 0) return ret;
-    ret = sdio_host_send_command(0x88000C03u, 29701u); /* -2013263869 = 0x88000C03 */
-    if (ret < 0) return ret;
-
-    /* I/O block size configuration */
-    ret = sdio_host_send_command(0x98002200u, 29701u); /* -1744822272 = 0x98002200 */
-    if (ret < 0) return ret;
-    ret = sdio_host_send_command(0x98002400u, 29701u); /* -1744821760 = 0x98002400 */
-    if (ret < 0) return ret;
-    ret = sdio_host_send_command(0x98002600u, 29701u); /* -1744821248 = 0x98002600 */
-    if (ret < 0) return ret;
-    ret = sdio_host_send_command(0x98002800u, 29701u); /* -1744820736 = 0x98002800 */
-    if (ret < 0) return ret;
-
-    return 0;
-}
-
-/* ---- DMA init (from wl_sdio.c.ll wdma_init) ---- */
-
-static void wdma_init(void)
-{
-    uint32_t cfg1 = FM1_WF_MAC_CFG1;
-    cfg1 |= (1u << 8) | (1u << 9);   /* enable DMA TX/RX channels */
-    FM1_WF_MAC_CFG1 = cfg1;
-
-    uint32_t cfg0 = FM1_WF_MAC_CFG0;
-    cfg0 |= (1u << 0) | (1u << 4);   /* DMA engine enable + burst mode */
-    FM1_WF_MAC_CFG0 = cfg0;
-}
-
-/* ---- CMD52: single-byte read/write via direct MAC register access ---- */
-
-static uint8_t wl30_mmc_io_rw_direct_read(uint8_t fn, uint32_t addr)
-{
-    (void)fn;
-    return (uint8_t)FM1_WF_MAC_REG(addr);
-}
-
-static void wl30_mmc_io_rw_direct_write(uint8_t fn, uint32_t addr, uint8_t val)
-{
-    (void)fn;
-    FM1_WF_MAC_REG(addr) = val;
-}
-
-/* ---- CMD53: block DMA transfer (from wl_sdio.c.ll wl30_mmc_io_rw_extended) ---- */
-
-static int wl30_mmc_io_rw_extended(uint8_t fn, uint32_t addr, uint8_t *buf, uint32_t len, int write)
-{
-    (void)fn; (void)addr;
-    if (!buf || len == 0) return -1;
-
-    mmc_claim_host();
-
-    if (write) {
-        /* TX DMA: set bit 10 of MAC_CFG1 to start TX */
-        FM1_WF_MAC_CFG1 |= (1u << 10);
-
-        /* write source address and length */
-        FM1_WF_MAC_10 = (uint32_t)(uintptr_t)buf;
-        FM1_WF_MAC_14 = (0u << 31) | len;  /* incr=0, length */
-
-        /* poll bit 20 for TX completion */
-        volatile uint32_t timeout = 1000000;
-        while (!(FM1_WF_MAC_CFG1 & (1u << 20)) && --timeout)
-            ;
-        FM1_WF_MAC_CFG1 &= ~(1u << 10); /* clear TX start */
-
-        mmc_release_host();
-        return timeout ? 0 : -1;
-    }
-
-    /* RX DMA: set bit 11 of MAC_CFG1 to start RX */
-    FM1_WF_MAC_CFG1 |= (1u << 11);
-
-    /* write destination address and length */
-    FM1_WF_MAC_18 = (uint32_t)(uintptr_t)buf;
-    FM1_WF_MAC_1C = len;
-
-    /* poll bit 21 for RX header completion */
-    volatile uint32_t timeout = 1000000;
-    while (!(FM1_WF_MAC_CFG1 & (1u << 21)) && --timeout)
-        ;
-
-    if (!timeout) {
-        FM1_WF_MAC_CFG1 &= ~(1u << 11);
-        mmc_release_host();
+    if (wifi_sdio_wait())
         return -1;
+
+    /* CMD52 write: R/W=1, fn, register address, data */
+    arg = CMD52_WRITE |
+          ((uint32_t)(fn & 7u) << CMD52_FN_SHIFT) |
+          ((addr & 0x1FFFFu) << CMD52_ADDR_SHIFT) |
+          val;
+
+    WIFI_SDIO_BASE = (SDIO_CMD52 << 24) | arg;
+
+    return wifi_sdio_wait();
+}
+
+/* CMD53: IO_RW_EXTENDED -- multi-byte/block transfer (SDIO Simplified Spec 5.3).
+ * For DMA transfers on the internal bus. */
+
+static int wifi_sdio_cmd53_read(uint8_t fn, uint32_t addr, uint8_t *dst,
+                                uint32_t len, int incr)
+{
+    uint32_t arg, i;
+    uint32_t count;
+
+    if (!dst || !len)
+        return -1;
+
+    if (wifi_sdio_wait())
+        return -1;
+
+    /* Determine byte/block mode */
+    if (wifi_sdio_state.block_size && len >= wifi_sdio_state.block_size) {
+        /* block mode */
+        count = (len + wifi_sdio_state.block_size - 1u) / wifi_sdio_state.block_size;
+        arg = ((uint32_t)(fn & 7u) << CMD53_FN_SHIFT) |
+              CMD53_BLOCK |
+              (incr ? CMD53_INCR : 0u) |
+              ((addr & 0x1FFFFu) << CMD53_ADDR_SHIFT) |
+              (count & 0x1FFu);
+    } else {
+        /* byte mode */
+        arg = ((uint32_t)(fn & 7u) << CMD53_FN_SHIFT) |
+              (incr ? CMD53_INCR : 0u) |
+              ((addr & 0x1FFFFu) << CMD53_ADDR_SHIFT) |
+              (len & 0x1FFu);
     }
 
-    /* read byte-swapped length from MAC_1C for actual payload */
-    uint32_t rx_len = FM1_WF_MAC_1C;
-    uint32_t actual = ((rx_len >> 8) & 0xFF) | ((rx_len & 0xFF) << 8);
-    if (actual > len) actual = len;
+    WIFI_SDIO_BASE = (SDIO_CMD53 << 24) | arg;
 
-    /* second DMA burst for actual data (reuse same buffer) */
-    FM1_WF_MAC_18 = (uint32_t)(uintptr_t)buf;
-    FM1_WF_MAC_1C = actual;
+    if (wifi_sdio_wait())
+        return -1;
 
-    timeout = 1000000;
-    while (!(FM1_WF_MAC_CFG1 & (1u << 21)) && --timeout)
-        ;
-    FM1_WF_MAC_CFG1 &= ~(1u << 11); /* clear RX start */
-
-    mmc_release_host();
-    return timeout ? (int)actual : -1;
-}
-
-/* ---- PA enable (from wl_sdio.c.ll wifi_hw_pa_enable) ---- */
-
-static void wifi_hw_pa_enable(void)
-{
-    /* GPIO port A: clear bits 1-2 of data/pull-up, then set for output */
-    FM1_WF_SDIO_DATA  &= ~((1u << 1) | (1u << 2)); /* 0x50008: clear PA data */
-    FM1_WF_SDIO_STATUS |= (1u << 1) | (1u << 2);   /* 0x5000C: enable pull-up */
-    FM1_WF_SDIO_BASE  &= ~((1u << 1) | (1u << 2)); /* 0x50000: set as output */
-
-    /* control register: enable PA pins */
-    FM1_WF_CTL_08 |= (1u << 0) | (1u << 1) | (1u << 8);
-}
-
-/* ---- TX/RX data bridge ---- */
-
-static int wifi_sdio_tx(uint8_t *data, uint32_t len)
-{
-    return wl30_mmc_io_rw_extended(1, 0, data, len, 1);
-}
-
-static int wifi_sdio_rx(uint8_t *buf, uint32_t len)
-{
-    return wl30_mmc_io_rw_extended(1, 0, buf, len, 0);
-}
-
-/* ---- IRQ handler (from wl_sdio.c.ll sdio_irq_thread concept) ---- */
-
-static volatile uint8_t wifi_sdio_irq_pending;
-
-static void wifi_sdio_irq_handler(void)
-{
-    wifi_sdio_irq_pending = 1;
-}
-
-static void wifi_sdio_poll_irq(void)
-{
-    if (!wifi_sdio_irq_pending) return;
-    wifi_sdio_irq_pending = 0;
-
-    if (!sdio_cap_irq()) return;
-
-    /* RX: read frame into buffer */
-    static uint8_t rx_buf[1600];
-    int n = wifi_sdio_rx(rx_buf, sizeof(rx_buf));
-    if (n > 0) {
-        wifi_mac_rx(rx_buf, (uint32_t)n);
+    /* Read data from the data register.  The internal DMA may present
+     * data word-aligned; we read 32 bits at a time and extract bytes. */
+    for (i = 0; i < len; i += 4u) {
+        uint32_t w = WIFI_SDIO_DATA;
+        uint32_t remaining = len - i;
+        dst[i] = (uint8_t)(w & 0xFFu);
+        if (remaining > 1u) dst[i + 1] = (uint8_t)((w >> 8) & 0xFFu);
+        if (remaining > 2u) dst[i + 2] = (uint8_t)((w >> 16) & 0xFFu);
+        if (remaining > 3u) dst[i + 3] = (uint8_t)((w >> 24) & 0xFFu);
     }
-}
 
-/* ---- init ---- */
-
-static int wifi_sdio_init(void)
-{
-    wf_clk_rst_init();
-    sdio_host_init();
-
-    int ret = wl30_sdio_enum();
-    if (ret < 0) return ret;
-
-    wdma_init();
-    wifi_hw_pa_enable();
-    wifi_sdio_initialized = 1;
     return 0;
+}
+
+static int wifi_sdio_cmd53_write(uint8_t fn, uint32_t addr, const uint8_t *src,
+                                 uint32_t len, int incr)
+{
+    uint32_t arg, i;
+    uint32_t count;
+
+    if (!src || !len)
+        return -1;
+
+    if (wifi_sdio_wait())
+        return -1;
+
+    /* Write data to the data register first (the controller latches it) */
+    for (i = 0; i < len; i += 4u) {
+        uint32_t w = (uint32_t)src[i];
+        if (i + 1u < len) w |= (uint32_t)src[i + 1] << 8;
+        if (i + 2u < len) w |= (uint32_t)src[i + 2] << 16;
+        if (i + 3u < len) w |= (uint32_t)src[i + 3] << 24;
+        WIFI_SDIO_DATA = w;
+    }
+
+    if (wifi_sdio_state.block_size && len >= wifi_sdio_state.block_size) {
+        count = (len + wifi_sdio_state.block_size - 1u) / wifi_sdio_state.block_size;
+        arg = CMD53_WRITE |
+              ((uint32_t)(fn & 7u) << CMD53_FN_SHIFT) |
+              CMD53_BLOCK |
+              (incr ? CMD53_INCR : 0u) |
+              ((addr & 0x1FFFFu) << CMD53_ADDR_SHIFT) |
+              (count & 0x1FFu);
+    } else {
+        arg = CMD53_WRITE |
+              ((uint32_t)(fn & 7u) << CMD53_FN_SHIFT) |
+              (incr ? CMD53_INCR : 0u) |
+              ((addr & 0x1FFFFu) << CMD53_ADDR_SHIFT) |
+              (len & 0x1FFu);
+    }
+
+    WIFI_SDIO_BASE = (SDIO_CMD53 << 24) | arg;
+
+    return wifi_sdio_wait();
+}
+
+/* ---- bus claim/release (bare-metal: just IRQ disable/enable) ---- */
+
+static uint32_t wifi_sdio_saved_ie;
+
+static void wifi_sdio_claim(void)
+{
+    wifi_sdio_saved_ie = fm1_icfg() & 0x200u;
+    fm1_irq_off();
+}
+
+static void wifi_sdio_release(void)
+{
+    if (wifi_sdio_saved_ie)
+        fm1_irq_on();
+}
+
+/* ---- SDIO initialization ---- */
+
+/* Init order from fact sheet: clock/reset via 0x14040-0x1405C,
+ * SDIO enumeration, DMA init, PA enable, then RF init. */
+static void wifi_sdio_init(void)
+{
+    uint32_t i;
+
+    for (i = 0; i < sizeof(wifi_sdio_state); i++)
+        ((uint8_t *)&wifi_sdio_state)[i] = 0;
+
+    /* Step 1: WiFi clock and reset (also done in wifi_rf_group3, but
+     * SDIO needs them before any bus transaction) */
+    FM1_WL_CLK0 |= 0x01u;     /* enable WiFi subsystem clock */
+    FM1_WL_CLK4 |= 0x01u;     /* SDIO clock enable */
+    fm1_delay_us(50);
+
+    FM1_WL_RST = 0x00u;       /* assert reset */
+    fm1_delay_us(10);
+    FM1_WL_RST = 0x01u;       /* de-assert */
+    fm1_delay_us(100);
+
+    /* Step 2: SDIO enumeration (Simplified Spec 3.1.2).
+     * For the internal bus, CMD52 to CCCR (fn=0) configures the
+     * IO function and sets the block size. */
+
+    /* Enable function 1 (WiFi) via CCCR I/O Enable (0x02) */
+    wifi_sdio_cmd52_write(0, 0x02u, 0x02u);   /* enable fn1 */
+    fm1_delay_us(10);
+
+    /* Wait for function ready via CCCR I/O Ready (0x03) */
+    for (i = 0; i < 100u; i++) {
+        if (wifi_sdio_cmd52_read(0, 0x03u) & 0x02u)
+            break;
+        fm1_delay_us(100);
+    }
+
+    /* Set block size for function 1 via FBR (0x110-0x111) */
+    wifi_sdio_state.block_size = 256;
+    wifi_sdio_cmd52_write(0, 0x110u, (uint8_t)(wifi_sdio_state.block_size & 0xFFu));
+    wifi_sdio_cmd52_write(0, 0x111u, (uint8_t)(wifi_sdio_state.block_size >> 8));
+
+    /* Enable bus-level interrupts via CCCR Int Enable (0x04) */
+    wifi_sdio_cmd52_write(0, 0x04u, 0x03u);   /* master + fn1 */
+
+    /* Step 3: DMA configuration.  The internal SDIO controller has
+     * its own DMA for CMD53 block transfers. */
+    /* TODO: DMA ring buffer setup for TX/RX.  The DMA registers are
+     * in the 0x50000 range but their exact layout beyond base/data/status
+     * must be determined from emulator observation. */
+
+    wifi_sdio_state.initialized = 1;
+}
+
+/* ---- IRQ handling (stub for bare-metal polling) ---- */
+
+/* Check SDIO status.  In the polled architecture (no RTOS), this is
+ * called from wifi_poll() in the main loop.
+ * Status bit fields are unknown: returns raw status word.
+ * TODO: map bits once observed in emulator. */
+static uint32_t wifi_sdio_poll_irq(void)
+{
+    return WIFI_SDIO_STATUS;
 }

@@ -663,6 +663,10 @@ static void cfm1_ble_sync(void) {}
 
 #ifdef CONFIG_WIFI
 #include "../adapters/cfm1_wifi.h"
+#include "fm1_wifi_rf.h"
+#include "fm1_wifi_sdio.h"
+#include "fm1_wifi_bbp.h"
+#include "wifi_rf_tables.h"
 #include "wifi/wifi_rtos.c"
 #include "wifi/wifi_rf.c"
 #include "wifi/wifi_sdio.c"
@@ -672,13 +676,6 @@ static void cfm1_ble_sync(void) {}
 #include "wifi/wifi_wpa.c"
 #include "wifi/wifi_lwip.c"
 #include "wifi/wifi_api.c"
-#ifdef CONFIG_CDP
-#include "wifi/wifi_tcp.c"
-#include "cdp/cdp_ws.c"
-#include "cdp/cdp_json.c"
-#include "cdp/cdp_fm1.c"
-#include "cdp/cdp_server.c"
-#endif
 #endif /* CONFIG_WIFI */
 
 /* --- audio subsystem --- */
@@ -1101,10 +1098,6 @@ static void fm1_main(void)
 #ifdef CONFIG_WIFI
     wifi_init();
     cfm1_log("wifi: init");
-#ifdef CONFIG_CDP
-    cdp_init();
-    cfm1_log("cdp: listening on port 9222");
-#endif
 #endif
 
     fm1_irq_enable_all();
@@ -1210,9 +1203,6 @@ static void fm1_main(void)
 #endif
 #ifdef CONFIG_WIFI
         wifi_poll();
-#ifdef CONFIG_CDP
-        cdp_poll();
-#endif
 #endif
 #if defined(CONFIG_UI_FELUCCA)
         fsh_draw();
