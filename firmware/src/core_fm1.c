@@ -544,7 +544,7 @@ static struct ble_scan_tab ble_scan_tab;
 #endif
 /* baseband driver */
 #ifdef CFM1_BLE_STUB
-#include "../upstream/optimist/firmware/src/ble/ble_hw_stub.c"
+#include "ble/ble_hw_stub_sim.c"
 #else
 #define BLE_HW_WL82 1
 #include "../upstream/optimist/firmware/src/ble/ble_vm.c"
@@ -643,6 +643,9 @@ static void cfm1_ble_sync(void)
         cfm1_log(want ? "ble: enabling adv" : "ble: disabling adv");
         ble_enable(want);
     }
+#ifdef CFM1_BLE_STUB
+    ble_hw_stub_tick();
+#endif
     if (cfm1_log_ms - cfm1_ble_hb_ms > 5000u) {
         cfm1_ble_hb_ms = cfm1_log_ms;
         cfm1_log_int("ble:hb conn=", ble_connected());
@@ -655,6 +658,25 @@ static void cfm1_ble_sync(void) {}
 #endif
 
 #endif /* CONFIG_BLE */
+
+/* --- WiFi subsystem (GPL-3.0 clean-room driver) --- */
+
+#ifdef CONFIG_WIFI
+#include "../adapters/cfm1_wifi.h"
+#include "fm1_wifi_rf.h"
+#include "fm1_wifi_sdio.h"
+#include "fm1_wifi_bbp.h"
+#include "wifi_rf_tables.h"
+#include "wifi/wifi_rtos.c"
+#include "wifi/wifi_rf.c"
+#include "wifi/wifi_sdio.c"
+#include "wifi/wifi_mac.c"
+#include "wifi/wifi_sta.c"
+#include "wifi/wifi_data.c"
+#include "wifi/wifi_wpa.c"
+#include "wifi/wifi_lwip.c"
+#include "wifi/wifi_api.c"
+#endif /* CONFIG_WIFI */
 
 /* --- audio subsystem --- */
 
@@ -1073,6 +1095,11 @@ static void fm1_main(void)
     }
     cfm1_log("input: timer5 10kHz");
 #endif
+#ifdef CONFIG_WIFI
+    wifi_init();
+    cfm1_log("wifi: init");
+#endif
+
     fm1_irq_enable_all();
     cfm1_log("irq: enabled");
     cfm1_log("boot complete");
@@ -1167,6 +1194,15 @@ static void fm1_main(void)
 #endif
 #ifdef CONFIG_BLE
         cfm1_ble_sync();
+#ifdef CFM1_BLE_STUB
+        if (bsim_ui_dirty) {
+            bsim_ui_dirty = 0;
+            fsh_dirty = 1;
+        }
+#endif
+#endif
+#ifdef CONFIG_WIFI
+        wifi_poll();
 #endif
 #if defined(CONFIG_UI_FELUCCA)
         fsh_draw();
