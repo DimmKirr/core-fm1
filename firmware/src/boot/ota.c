@@ -32,7 +32,7 @@
 #define OTA_LDR_LEN 0x4DE1u
 #define OTA_FRAME_MAX 640u                       /* 512-B response = 605 wire bytes */
 #ifndef OTA_SCRATCH                              /* 2 KiB of work space while staging (melodee.c: the project staging) */
-static uint8_t ota_scratch[0x800];
+static uint8_t ota_scratch[0x800] __attribute__((section(".pool")));
 #define OTA_SCRATCH ota_scratch
 #endif
 

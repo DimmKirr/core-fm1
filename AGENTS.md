@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-core-fm1 is a modular firmware framework for the M-VAVE FM-1 synthesizer (JieLi AC791N SoC, pi32v2 architecture). It unifies code from three community firmware lineages: **Felucca** (hugelton), **Melodee** (keremimo), and **SLOOP** (isod89) into a single configurable source tree. All firmwares are GPL-3.0; engine interfaces are MIT.
+core-fm1 is a modular firmware framework for the M-VAVE FM-1 synthesizer (JieLi AC791N SoC, pi32v2 architecture). It unifies code from three community firmware upstreams: **Felucca** (hugelton), **Melodee** (keremimo), and **SLOOP** (isod89) into a single configurable source tree. All firmwares are GPL-3.0; engine interfaces are MIT.
 
 ## Build System
 
@@ -35,23 +35,26 @@ All three firmwares compile as a **single translation unit** (unity build): one 
 
 See [docs/COMPONENTS.md](docs/COMPONENTS.md) for full component map with diagrams.
 
-- **Subsystem**: architectural grouping with its own lifecycle (HAL, Audio, MIDI, UI, BLE, etc.)
-- **Module**: functional slot within a subsystem (Engines, Effects, Sequencer, Routing, etc.)
-- **Lineage**: firmware-specific implementation of a module (Felucca FX, Melodee Sequencer, etc.)
+- **Module**: domain grouping (Audio, UI, MIDI, USB, WiFi, BLE, HAL, Storage, Boot, Debug)
+- **Component**: a specific thing within a module (FM6, Shell, Weather, Effects, OTA)
+- **Upstream**: whose code a component was ported from (Felucca, Melodee, SLOOP, Optimist, FMLab; omit if native to core-fm1)
 
-### Subsystems (bottom to top)
+### Modules (bottom to top)
 
 1. **HAL** (header-only, register-level): `fm1_*.h` files for AC791N peripherals. Identical files shared; diverged files selected via Kconfig radio choices.
-2. **Audio**: voice allocator, render pipeline, DMA half-buffer (128 samples @ 44.1kHz stereo). Contains modules for Audio Core, Engines, Effects, and Modulation. Three Audio Core lineages: Felucca (14 voices), SLOOP, Melodee (18 voice budget units, FPU).
+2. **Audio**: voice allocator, render pipeline, DMA half-buffer (128 samples @ 44.1kHz stereo). Contains components for Core, Engines, Effects, Sequencer, Scales, and Modulation. Three Core upstreams: Felucca (14 voices), SLOOP, Melodee (18 voice budget units, FPU).
 3. **Engine Plugin** (`engine_t` vtable): the cleanest boundary. `note_on`, `render`, `amp`, `block`, `done` + optional fields. Melodee's 14-field superset is canonical. Engines compile in/out independently.
-4. **Sequencer, MIDI, UI, Storage, Scales, Boot**: each a subsystem with lineage-specific implementations selected via Kconfig radio choices. UI stays bundled with its firmware lineage (too many direct global reads to mix).
-5. **BLE**: optional subsystem (Optimist lineage) for Bluetooth Low Energy; depends on HAL, enables BLE MIDI transport.
+4. **MIDI, UI, Storage, Boot**: each a module with upstream-specific component implementations selected via Kconfig radio choices.
+5. **USB**: device driver, USB Audio, host controller, mass storage.
+6. **BLE**: optional module (Optimist upstream) for Bluetooth Low Energy; depends on HAL, enables BLE MIDI transport.
+7. **WiFi**: STA driver, lwIP, WPA, weather client, CDP server.
+8. **Debug**: log buffer.
 
-### Adapters (defined in `.scratch/GLUE.md`)
+### Contracts (defined in `.scratch/GLUE.md`)
 
-Thin compatibility headers (`cfm1_*.h`) that let subsystems from different firmware lineages plug into core-fm1. Each adapter defines the contract (types, vtable, signatures) that both sides conform to.
+Thin compatibility headers (`cfm1_*.h`) that let components from different upstreams plug into core-fm1. Each contract defines the interface (types, vtable, signatures) that both sides conform to.
 
-| Adapter | Header | Enables |
+| Contract | Header | Enables |
 |---------|--------|---------|
 | Note Dispatch | `cfm1_note_dispatch.h` | Mix any sequencer with any audio core |
 | Engine Plugin | `cfm1_engine.h` | Any engine on any audio core |
@@ -59,6 +62,7 @@ Thin compatibility headers (`cfm1_*.h`) that let subsystems from different firmw
 | Storage | `cfm1_storage.h` | Tagged-blob project format |
 | MIDI Routing | `cfm1_midi.h` | Swap MIDI implementations |
 | Scales/Tuning | `cfm1_scales.h` | Swap scale sets |
+| Debug DAP | `cfm1_debug.h` | NOINIT byte ring + USB SysEx debug protocol |
 
 ### The P_COUNT Problem
 
@@ -68,8 +72,8 @@ Each firmware defines different parameter counts and IDs. core-fm1 defines a `P_
 
 ```
 Kconfig                     # root Kconfig (sources kconf/*.kconfig)
-kconf/                      # per-subsystem Kconfig menus (not kconfig/ due to macOS case-insensitive FS)
-configs/                    # saved defconfigs per firmware lineage
+kconf/                      # per-module Kconfig menus (not kconfig/ due to macOS case-insensitive FS)
+configs/                    # saved defconfigs per upstream preset
 firmware/
   hal/                      # HAL headers (common + per-variant)
   src/                      # source tree (future: populated from reference firmwares)
@@ -80,6 +84,8 @@ tools/
   menuconfig.py             # Kconfiglib TUI wrapper
   build_core.py             # config-driven build driver (dry-run for now)
   build.py                  # full build entry point (genconfig + compile)
+  hbdeploy.py               # fm1-dock SysEx transport library (vendored)
+  fm1log.py                 # USB debug log reader (uses hbdeploy.py)
 docs/plans/                 # implementation plans
 .scratch/                   # research data, examples, analysis (not shipped)
 .product/                   # product specs and architecture docs
@@ -134,7 +140,7 @@ The registry is `firmware/src/audio/engines/engines.c`: each engine `#include`s 
 
 ## Reference Firmwares
 
-Source code for the three lineages is subtree-merged into this repo:
+Source code for the three upstreams is subtree-merged into this repo:
 - Melodee: `firmware/upstream/melodee/` (also at `/Users/dmitry/dev/dimmkirr/melodee`)
 - Felucca engines: `firmware/upstream/felucca-engines/`
 - SLOOP: `firmware/upstream/sloop/`
@@ -157,7 +163,7 @@ Python tests cover configuration, packaging, and emulator control helpers:
 task test:unit                    # Python unit tests (genconfig, defconfigs, tooling)
 ```
 
-Test files live in `tests/`. Three lineage preset tests skip until their
+Test files live in `tests/`. Three upstream preset tests skip until their
 defconfigs are implemented.
 
 ### E2E tests (emulator + Playwright)
@@ -196,6 +202,6 @@ as a prerelease. Failed verification never publishes a versioned release.
 
 - Unity build: all `.c` files are `#include`d into one translation unit. All functions are `static`.
 - HAL is header-only: register macros, no `.c` files.
-- Kconfig symbols use `CONFIG_` prefix. Engine symbols: `CONFIG_ENGINE_*`. HAL variants: `CONFIG_HAL_*_FELUCCA/SLOOP/MELODEE`.
+- Kconfig symbols use `CONFIG_` prefix. Engine symbols: `CONFIG_ENGINE_*`. HAL upstream variants: `CONFIG_HAL_*_FELUCCA/SLOOP/MELODEE`.
 - Voice budget is a shared resource pool. Engine cost is measured in VBUDGET units (Prophet: 2-3, FM6: 2, CZ-1: 1, etc.).
 - License boundary: engine interface (`felucca_engine.h`) is MIT. Engine implementations and firmware code are GPL-3.0.

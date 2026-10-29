@@ -72,6 +72,14 @@ def e2e_build(defconfig, results_dir, gen_dir=None):
     if gen_dir is None:
         gen_dir = e2e_genconfig(defconfig, results_dir)
     env = {**os.environ, 'CFM1_GEN_DIR': str(gen_dir)}
+    if 'JIELI_TOOLCHAIN' not in env:
+        tc = Path.home() / '.fm1-toolchain' / 'toolchain'
+        if tc.is_dir():
+            env['JIELI_TOOLCHAIN'] = str(tc)
+    if 'AC79_SDK' not in env:
+        sdk = Path.home() / '.fm1-toolchain' / 'AC79_SDK'
+        if sdk.is_dir():
+            env['AC79_SDK'] = str(sdk)
     r = subprocess.run(
         [sys.executable, str(ROOT / 'tools' / 'build.py'),
          '--defconfig', defconfig],

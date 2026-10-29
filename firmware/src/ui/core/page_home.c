@@ -45,7 +45,7 @@ static int home_knob(uint32_t id, int32_t clicks)
         if (s < 0) s = 0;
         if (s >= (int32_t)NTRK) s = NTRK - 1;
         song.sel = (uint8_t)s;
-        shell_dirty = 1;
+        nav_dirty = 1;
         return 1;
     }
     return 0;
@@ -60,6 +60,7 @@ static int home_button(uint32_t id, uint32_t down)
 static const cfm1_page_t PAGE_HOME = {
     .name  = "HOME",
     .title = "HOME",
+    .view  = VIEW_HOME,
     .flags = PAGEF_HOME,
     .enter  = home_enter,
     .leave  = home_leave,

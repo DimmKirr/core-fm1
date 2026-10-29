@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* Modulation adapter: source/destination names and icons for UI.
- * Stubs are active only when no modulation lineage is configured. */
+ * Stubs are active only when no modulation upstream is configured. */
 #ifndef CFM1_MOD_H
 #define CFM1_MOD_H
 #include <stdint.h>

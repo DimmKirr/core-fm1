@@ -82,6 +82,7 @@ static void wifi_rf_vm_read(void)
     uint8_t hdr[4];
 
     wifi_rf_vm.have = 0;
+    cfm1_log("wifi: rf vm scan");
 
     for (area_idx = 0; area_idx < 2u; area_idx++) {
         flash = (const volatile uint8_t *)(uintptr_t)(0x01000000u + areas[area_idx]);
@@ -135,6 +136,7 @@ static void wifi_rf_vm_read(void)
         if (inner != stored)
             wifi_rf_vm.have &= (uint8_t)~0x08u;
     }
+    cfm1_log_int("wifi: rf vm have=", (int32_t)wifi_rf_vm.have);
 }
 
 /* ---- low-level RF-die SPI (shared protocol with BLE, from fact sheet) ---- */
@@ -246,6 +248,8 @@ static void wifi_rf_vco_scan(void)
             break;
         }
     }
+    cfm1_log_int("wifi: rf vco found=", wifi_rf_stat.vco_found);
+    cfm1_log_int("wifi: rf vco band=", wifi_rf_stat.vco_band);
 }
 
 /* ---- group helpers for the 14-group RF init sequence ---- */
@@ -541,29 +545,32 @@ static void wifi_rf_group14_bt_block(void)
 static void wifi_rf_init(void)
 {
     uint32_t i;
+    cfm1_log("wifi: rf init");
 
     for (i = 0; i < sizeof(wifi_rf_stat); i++)
         ((uint8_t *)&wifi_rf_stat)[i] = 0;
 
     wifi_rf_vm_read();
 
-    /* 14-group init sequence (docs/hardware/wifi/SPECSHEET.md) */
+    /* Group 1: WiFi-specific system clocks */
     wifi_rf_group1_clocks();
-    wifi_rf_group2_analog_word();
-    wifi_rf_group3_clock_reset();
-    wifi_rf_group4_bbp_first_load();
-    wifi_rf_group5_xtal_trim();
-    wifi_rf_group6_analog_init();
-    wifi_rf_group7_vco_scan();
-    wifi_rf_group8_post_scan();
-    wifi_rf_group9_pa_trims();
-    wifi_rf_group10_bbp_second();
-    wifi_rf_group11_lut();
-    wifi_rf_group12_final_analog();
-    wifi_rf_group13_vm108();
-    wifi_rf_group14_bt_block();
+
+    /* Groups 2-13: shared analog block init via the BLE RF bytecode
+     * interpreter.  The ble_rf_prog[] bytecode (captured from stock V15)
+     * contains the complete 34K-write sequence for the shared radio:
+     * analog ramp, BBP loads, crystal trim, VCO scan, LUT, VM trims.
+     * Pass our WiFi VM records so the interpreter applies the correct
+     * calibration data from flash. */
+    fm1_ble_rf_run(
+        (wifi_rf_vm.have & 0x01u) ? wifi_rf_vm.x106 : 0,
+        (wifi_rf_vm.have & 0x02u) ? wifi_rf_vm.x107 : 0,
+        (wifi_rf_vm.have & 0x04u) ? wifi_rf_vm.x108 : 0,
+        (wifi_rf_vm.have & 0x08u) ? wifi_rf_vm.x187 : 0);
+
+    /* Group 14 (BT coexistence) skipped: WiFi-only operation */
 
     wifi_rf_stat.ran = 1;
+    cfm1_log("wifi: rf init done");
 }
 
 /* ---- channel control ---- */
@@ -573,25 +580,38 @@ static void wifi_rf_init(void)
  * BBP channel-dependent parameters. */
 static void wifi_rf_set_channel(uint8_t channel)
 {
+    uint32_t freq, fine;
+
     if (channel < 1 || channel > 14)
         return;
 
+    cfm1_log_int("wifi: rf ch=", channel);
     wifi_rf_stat.channel = channel;
+    freq = wifi_rf_chan_freq[channel - 1u];
 
-    /* The channel change requires:
-     * 1. Set RFPRIO to scanning (17) during the switch
-     * 2. Program the VCO/PLL for the new frequency via LUT entries
-     * 3. Wait for PLL lock
-     * 4. Update BBP channel-dependent parameters (bandwidth, etc.)
-     * 5. Restore RFPRIO
-     *
-     * TODO: the PLL register sequence for channel change.  The LUT
-     * entries per channel and VCO fine-tuning values must be determined
-     * from emulator traces of the stock firmware's channel-switch path.
-     * Channel 1 = 2412 MHz, spacing = 5 MHz (ch14 = 2484 MHz). */
+    /* 1. set RFPRIO to scanning (17) via BBP register 0x5E */
+    wifi_rf_bbp(0x5Eu, FM1_RFPRIO_SCAN, 0);
 
-    (void)wifi_rf_chan_freq;
-    (void)wifi_rf_bbp_win_rd;
+    /* 2. program VCO fine-tune for the target channel frequency.
+     * The RF init's VCO scan locked at a base frequency (~2440 MHz).
+     * Each VCO fine step covers ~1 MHz (from SPECSHEET §4.1 VCO range).
+     * We offset from the center of the band (2440 MHz). */
+    fine = FM1_WL_VCO_FINE;
+    fine = (fine & ~0xFFFFu) | (uint32_t)(freq - 2400u);
+    FM1_WL_VCO_FINE = fine;
+
+    /* 3. pulse VCO enable to re-lock PLL at new frequency */
+    FM1_WL_VCO_EN &= ~(1u << 24);
+    fm1_delay_us(WIFI_RF_VCO_EDGE_US);
+    FM1_WL_VCO_EN |= (1u << 24);
+    fm1_delay_us(WIFI_RF_VCO_SETTLE_US);
+
+    /* 4. write channel index to BBP register 0x6A (channel-dependent
+     * parameters: AGC, filter bandwidth for 20 MHz channel) */
+    wifi_rf_bbp(0x6Au, channel, 0);
+
+    /* 5. restore RFPRIO to idle (26) */
+    wifi_rf_bbp(0x5Eu, FM1_RFPRIO_IDLE, 0);
 }
 
 /* ---- TX power control ---- */

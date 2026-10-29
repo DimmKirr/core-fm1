@@ -1,0 +1,507 @@
+# WiFi hardware analysis: probes and debug tools.
+# Analyst-side tasks for the cleanroom process.
+# Results go into SPECSHEET.md as [M:t] / [M:hw] tagged facts.
+#
+# Usage:
+#   task debug:wifi:state          # live device: print WiFi state
+#   task debug:wifi:probe:dma      # emulator: trace DMA register init
+#   task debug:wifi:probe:int      # emulator: trace interrupt register usage
+#   task debug:wifi:probe:mac-ctrl # emulator: trace MAC_SYS_CTRL writes
+#   task debug:wifi:probe:desc     # emulator: dump DMA descriptor memory
+#   task debug:wifi:probe:all      # emulator: run all probes
+version: '3'
+
+vars:
+  PROBE_DIR: '{{.ROOT_DIR}}/.scratch/probes/wifi'
+  EMU_TRACE: '{{.ROOT_DIR}}/.scratch/examples/wifi'
+  REG_MAP: '{{.EMU_TRACE}}/register_map.json'
+  RT2800_H: '{{.EMU_TRACE}}/rt2x00-linux/drivers/net/wireless/ralink/rt2x00/rt2800.h'
+
+tasks:
+  state:
+    desc: Print WiFi subsystem state from FM-1 (live device over USB-MIDI)
+    silent: true
+    cmds:
+      - uv run --quiet --with python-rtmidi python tools/fm1log.py --wifi {{.CLI_ARGS}}
+
+  probe:all:
+    desc: Run all WiFi static analysis probes (no hardware needed)
+    cmds:
+      - task: probe:dma
+      - task: probe:int
+      - task: probe:mac-ctrl
+      - task: probe:desc
+      - task: probe:wpdma-cfg
+      - task: probe:low-range
+
+  probe:hw:
+    desc: Read WiFi hardware probe results from a live FM-1 device
+    silent: true
+    cmds:
+      - uv run --quiet --with python-rtmidi python tools/fm1log.py --probes {{.CLI_ARGS}}
+
+  probe:hw:build:
+    desc: Build the probe firmware (wifi_clean_room_probes defconfig)
+    cmds:
+      - task build -- --defconfig wifi_clean_room_probes
+
+  probe:hw:flash:
+    desc: Build, flash, and read probe results from FM-1
+    cmds:
+      - task build -- --defconfig wifi_clean_room_probes
+      - task flash
+      - cmd: echo "Waiting 5s for device to boot and run probes..."
+      - cmd: sleep 5
+      - task: probe:hw
+
+  probe:dma:
+    desc: "Probe: trace DMA register init writes at 0x0200-0x0298 [§7.8]"
+    silent: true
+    cmds:
+      - mkdir -p '{{.PROBE_DIR}}'
+      - |
+        cat > '{{.PROBE_DIR}}/probe_dma_init.py' << 'PYEOF'
+        #!/usr/bin/env python3
+        """Probe: extract DMA register (0x0200-0x0298) init values from vendor MMIO data.
+
+        Analyst-side probe. Reads register_map.json and cross-references against
+        RT2800 register defines from rt2800.h.
+
+        Output: ordered list of DMA register writes with RT2800 names and values.
+        Results tagged [M:s, IP:RT2x00] for the SPECSHEET."""
+        import json, re, sys, os
+
+        reg_map_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
+            "REG_MAP", ".scratch/examples/wifi/register_map.json")
+        rt2800_path = sys.argv[2] if len(sys.argv) > 2 else os.environ.get(
+            "RT2800_H", ".scratch/examples/wifi/rt2x00-linux/drivers/net/wireless/ralink/rt2x00/rt2800.h")
+
+        # Parse RT2800 defines
+        rt2800 = {}
+        with open(rt2800_path) as f:
+            for line in f:
+                m = re.match(r'#define\s+(\w+)\s+0x([0-9A-Fa-f]+)', line)
+                if m:
+                    name, addr = m.group(1), int(m.group(2), 16)
+                    if 0x0200 <= addr <= 0x02FF:
+                        rt2800[addr] = name
+
+        # Load vendor register map
+        with open(reg_map_path) as f:
+            data = json.load(f)
+
+        um = data.get("unknown_mmio", {})
+
+        print("=== DMA Register Probe (0x0200-0x0298) ===")
+        print(f"{'Address':>8}  {'RT2800 Name':<24}  {'Vendor libs'}")
+        print("-" * 70)
+
+        matched = 0
+        for addr in sorted(rt2800.keys()):
+            addr_str = f"0x{addr:05X}"
+            name = rt2800[addr]
+            entry = um.get(addr_str, um.get(f"0x00{addr:03X}", None))
+            if entry:
+                libs = ", ".join(entry.get("libraries", []))
+                status = "MATCH"
+                matched += 1
+            else:
+                libs = "(not found in vendor)"
+                status = "MISS "
+            print(f"  {addr_str}  {name:<24}  [{status}]  {libs}")
+
+        total = len(rt2800)
+        print(f"\n{matched}/{total} RT2800 DMA registers found in vendor binary")
+
+        # Also show vendor addresses in 0x0200-0x02FF NOT in RT2800
+        extra = []
+        for addr_str, entry in um.items():
+            addr = int(addr_str, 16)
+            if 0x0200 <= addr <= 0x02FF and addr not in rt2800:
+                extra.append((addr, entry))
+        if extra:
+            print(f"\n=== Extra vendor addresses in DMA range (not in RT2800) ===")
+            for addr, entry in sorted(extra):
+                libs = ", ".join(entry.get("libraries", []))
+                print(f"  0x{addr:05X}  {libs}")
+        PYEOF
+      - uv run --quiet python '{{.PROBE_DIR}}/probe_dma_init.py' '{{.REG_MAP}}' '{{.RT2800_H}}'
+
+  probe:int:
+    desc: "Probe: analyze interrupt register usage patterns [§7.8]"
+    silent: true
+    cmds:
+      - mkdir -p '{{.PROBE_DIR}}'
+      - |
+        cat > '{{.PROBE_DIR}}/probe_int_regs.py' << 'PYEOF'
+        #!/usr/bin/env python3
+        """Probe: analyze INT_SOURCE_CSR / INT_MASK_CSR usage in vendor binary.
+
+        Cross-references RT2800 interrupt bit definitions against vendor register
+        accesses. Identifies which interrupt sources the vendor driver uses.
+
+        Needs emulator WiFi MMIO trace for definitive bit values [M:t].
+        This probe works from static analysis [M:s] + RT2800 reference [IP:RT2x00]."""
+        import json, re, sys, os
+
+        rt2800_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
+            "RT2800_H", ".scratch/examples/wifi/rt2x00-linux/drivers/net/wireless/ralink/rt2x00/rt2800.h")
+
+        # Parse RT2800 interrupt bit defines
+        int_bits = {}
+        in_int_section = False
+        with open(rt2800_path) as f:
+            for line in f:
+                if 'INT_SOURCE_CSR' in line and '#define' in line:
+                    in_int_section = True
+                if in_int_section:
+                    m = re.match(r'#define\s+(INT_SOURCE_CSR_\w+|INT_MASK_CSR_\w+)\s+0x([0-9A-Fa-f]+)', line)
+                    if m:
+                        int_bits[m.group(1)] = int(m.group(2), 16)
+                    # Stop after a blank line or non-define
+                    if in_int_section and line.strip() == '' and len(int_bits) > 3:
+                        break
+
+        print("=== RT2800 Interrupt Bit Definitions ===")
+        print("These are the PUBLIC RT2800 interrupt bits [IP:RT2x00].")
+        print("AC791N confirmation requires emulator trace with WiFi active [M:t].\n")
+
+        # Parse all INT-related defines more broadly
+        int_defines = {}
+        with open(rt2800_path) as f:
+            for line in f:
+                m = re.match(r'#define\s+(INT_\w+)\s+0x([0-9A-Fa-f]+)', line)
+                if m:
+                    int_defines[m.group(1)] = int(m.group(2), 16)
+
+        for name, val in sorted(int_defines.items(), key=lambda x: x[1]):
+            print(f"  {name:<40}  0x{val:08X}")
+
+        print(f"\nTotal interrupt-related defines: {len(int_defines)}")
+        print("\n--- PROBE RESULT ---")
+        print("Status: PARTIAL (static analysis only)")
+        print("Next step: run vendor WiFi firmware in emulator with MMIO trace on")
+        print("  0x0200 (INT_SOURCE_CSR) and 0x0204 (INT_MASK_CSR)")
+        print("  to capture actual interrupt bit patterns during scan/connect.")
+        PYEOF
+      - uv run --quiet python '{{.PROBE_DIR}}/probe_int_regs.py' '{{.RT2800_H}}'
+
+  probe:mac-ctrl:
+    desc: "Probe: trace MAC_SYS_CTRL (0x31004) register writes [§7.8]"
+    silent: true
+    cmds:
+      - mkdir -p '{{.PROBE_DIR}}'
+      - |
+        cat > '{{.PROBE_DIR}}/probe_mac_ctrl.py' << 'PYEOF'
+        #!/usr/bin/env python3
+        """Probe: cross-reference MAC control registers (0x30000+) against RT2800.
+
+        Maps known SPECSHEET MAC addresses to their RT2800 equivalents using
+        the 0x30000 base offset hypothesis.
+
+        Output: mapping table for SPECSHEET §7.2 confirmation."""
+        import re, sys, os
+
+        rt2800_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
+            "RT2800_H", ".scratch/examples/wifi/rt2x00-linux/drivers/net/wireless/ralink/rt2x00/rt2800.h")
+
+        # Known SPECSHEET MAC addresses (from §4.3)
+        specsheet = {
+            0x30308: "MAC_308",
+            0x3030C: "MAC_30C",
+            0x30F00: "RF_CFG0",
+            0x30F04: "RF_CFG1",
+            0x30F10: "MAC_F10",
+            0x30F14: "MAC_F14",
+            0x30F18: "MAC_F18",
+            0x30F1C: "MAC_F1C",
+            0x31004: "MAC_1004",
+            0x3101C: "BBP_PORT",
+            0x31100: "MAC_1100",
+            0x31104: "MAC_1104",
+            0x31330: "MAC_1330",
+            0x31334: "MAC_1334",
+            0x31338: "MAC_1338",
+            0x3133C: "MAC_133C",
+            0x31340: "MAC_1340",
+            0x31344: "MAC_1344",
+            0x31348: "MAC_1348",
+        }
+
+        # Parse ALL RT2800 defines
+        rt2800 = {}
+        with open(rt2800_path) as f:
+            for line in f:
+                m = re.match(r'#define\s+(\w+)\s+0x([0-9A-Fa-f]+)', line)
+                if m:
+                    name, addr = m.group(1), int(m.group(2), 16)
+                    if 0x0300 <= addr <= 0x1FFF:
+                        rt2800[addr] = name
+
+        print("=== MAC Control Register Mapping (0x30000 + RT2800 offset) ===\n")
+        print(f"{'SPECSHEET':>8}  {'Offset':>8}  {'SPECSHEET name':<14}  {'RT2800 match':<30}  Tag")
+        print("-" * 90)
+
+        matched = 0
+        for addr in sorted(specsheet.keys()):
+            offset = addr - 0x30000
+            ss_name = specsheet[addr]
+            rt_name = rt2800.get(offset, None)
+            if rt_name:
+                tag = "M:t, IP:RT2x00"
+                matched += 1
+            else:
+                rt_name = "(no exact RT2800 match)"
+                tag = "M:t"
+                # Try nearby addresses
+                for delta in range(-4, 5, 4):
+                    near = rt2800.get(offset + delta, None)
+                    if near:
+                        rt_name += f" (near: {near} @ 0x{offset+delta:04X})"
+                        break
+            print(f"  0x{addr:05X}  0x{offset:04X}  {ss_name:<14}  {rt_name:<30}  [{tag}]")
+
+        print(f"\n{matched}/{len(specsheet)} SPECSHEET MAC registers match RT2800 defines")
+        print("\n--- Key matches for SPECSHEET update ---")
+
+        key_regs = {0x1004: "MAC_SYS_CTRL", 0x101C: "BBP_CSR_CFG",
+                    0x1100: "BCN_TIME_CFG or TBTT_SYNC_CFG",
+                    0x1330: "TX_RTY_CFG or similar"}
+        for off, desc in key_regs.items():
+            rt_name = rt2800.get(off, "?")
+            print(f"  0x{0x30000+off:05X} = 0x30000 + 0x{off:04X} = RT2800 {rt_name} ({desc})")
+        PYEOF
+      - uv run --quiet python '{{.PROBE_DIR}}/probe_mac_ctrl.py' '{{.RT2800_H}}'
+
+  probe:desc:
+    desc: "Probe: document RT2800 DMA descriptor format [§7.8]"
+    silent: true
+    cmds:
+      - mkdir -p '{{.PROBE_DIR}}'
+      - |
+        cat > '{{.PROBE_DIR}}/probe_dma_desc.py' << 'PYEOF'
+        #!/usr/bin/env python3
+        """Probe: extract DMA descriptor format from RT2800 public headers.
+
+        The RT2800 TX/RX descriptor format is public (GPL-2.0+ Linux driver).
+        This probe extracts the format as a reference for confirming the AC791N
+        uses the same layout.
+
+        Output: descriptor word layouts for SPECSHEET §7.5.
+        Confirmation needs emulator trace of vendor DMA init [M:t]."""
+        import re, sys, os
+
+        rt2800_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
+            "RT2800_H", ".scratch/examples/wifi/rt2x00-linux/drivers/net/wireless/ralink/rt2x00/rt2800.h")
+
+        # We need rt2800lib.h or the txd/rxd struct definitions
+        # They might be in rt2800.h or a companion file
+        rt2x00_dir = os.path.dirname(rt2800_path)
+
+        print("=== RT2800 DMA Descriptor Format [IP:RT2x00] ===\n")
+
+        # Check for descriptor-related defines in rt2800.h
+        desc_defines = {}
+        txwi_defines = {}
+        rxwi_defines = {}
+        with open(rt2800_path) as f:
+            for line in f:
+                m = re.match(r'#define\s+(TXD_\w+|RXD_\w+|TXWI_\w+|RXWI_\w+)\s+0x([0-9A-Fa-f]+)', line)
+                if m:
+                    name, val = m.group(1), int(m.group(2), 16)
+                    if name.startswith('TXD_'):
+                        desc_defines[name] = val
+                    elif name.startswith('RXD_'):
+                        desc_defines[name] = val
+                    elif name.startswith('TXWI_'):
+                        txwi_defines[name] = val
+                    elif name.startswith('RXWI_'):
+                        rxwi_defines[name] = val
+
+        if desc_defines:
+            print("TX/RX Descriptor defines:")
+            for name, val in sorted(desc_defines.items()):
+                print(f"  {name:<40}  0x{val:08X}")
+        else:
+            print("No TXD_/RXD_ defines in rt2800.h")
+
+        # Check rt2x00queue.h for the descriptor structure
+        queue_h = os.path.join(rt2x00_dir, "rt2x00queue.h")
+        if os.path.exists(queue_h):
+            print(f"\nFound {queue_h}")
+            # Extract TXD/TXWI struct comments
+            with open(queue_h) as f:
+                content = f.read()
+            # Look for descriptor word definitions
+            for pattern in [r'(TXD_W\d+_\w+)', r'(RXD_W\d+_\w+)', r'(TXWI_W\d+_\w+)', r'(RXWI_W\d+_\w+)']:
+                matches = re.findall(pattern, content)
+                if matches:
+                    print(f"\n{pattern.split('_')[0].strip('(')} fields ({len(matches)}):")
+                    for m in sorted(set(matches)):
+                        print(f"  {m}")
+
+        if txwi_defines:
+            print("\nTXWI (TX Wireless Info) defines:")
+            for name, val in sorted(txwi_defines.items()):
+                print(f"  {name:<40}  0x{val:08X}")
+
+        if rxwi_defines:
+            print("\nRXWI (RX Wireless Info) defines:")
+            for name, val in sorted(rxwi_defines.items()):
+                print(f"  {name:<40}  0x{val:08X}")
+
+        print("\n--- PROBE RESULT ---")
+        print("Status: reference extracted from public RT2800 headers")
+        print("Next step: trace vendor DMA init in emulator to confirm descriptor layout")
+        print("  1. Find TX_BASE_PTR0 value written to 0x0230")
+        print("  2. Dump memory at that address after DMA init")
+        print("  3. Compare layout against RT2800 TXD/TXWI format")
+        PYEOF
+      - uv run --quiet python '{{.PROBE_DIR}}/probe_dma_desc.py' '{{.RT2800_H}}'
+
+  probe:wpdma-cfg:
+    desc: "Probe: analyze WPDMA_GLO_CFG (0x0208) bit fields [§7.8]"
+    silent: true
+    cmds:
+      - mkdir -p '{{.PROBE_DIR}}'
+      - |
+        cat > '{{.PROBE_DIR}}/probe_wpdma_cfg.py' << 'PYEOF'
+        #!/usr/bin/env python3
+        """Probe: extract WPDMA_GLO_CFG bit field definitions from RT2800.
+
+        WPDMA_GLO_CFG at 0x0208 controls the DMA engine enable/disable.
+        This probe extracts the public RT2800 bit definitions.
+
+        Output: bit field map for SPECSHEET §7.1 annotation."""
+        import re, sys, os
+
+        rt2800_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
+            "RT2800_H", ".scratch/examples/wifi/rt2x00-linux/drivers/net/wireless/ralink/rt2x00/rt2800.h")
+
+        print("=== WPDMA_GLO_CFG (0x0208) Bit Fields [IP:RT2x00] ===\n")
+
+        wpdma_bits = {}
+        with open(rt2800_path) as f:
+            for line in f:
+                m = re.match(r'#define\s+(WPDMA_GLO_CFG_\w+)\s+0x([0-9A-Fa-f]+)', line)
+                if m:
+                    wpdma_bits[m.group(1)] = int(m.group(2), 16)
+
+        if wpdma_bits:
+            for name, val in sorted(wpdma_bits.items(), key=lambda x: x[1]):
+                # Decode bit position from field mask
+                if val:
+                    lsb = (val & -val).bit_length() - 1
+                    width = bin(val >> lsb).count('1')
+                    if width == 1:
+                        pos = f"bit {lsb}"
+                    else:
+                        pos = f"bits [{lsb+width-1}:{lsb}]"
+                else:
+                    pos = "0"
+                print(f"  {name:<45}  0x{val:08X}  ({pos})")
+        else:
+            print("No WPDMA_GLO_CFG_ bit defines found in rt2800.h")
+            print("Check for field macros with different naming convention.")
+
+        # Also check for related DMA config registers
+        print("\n=== Related DMA config registers ===")
+        dma_regs = {}
+        with open(rt2800_path) as f:
+            for line in f:
+                m = re.match(r'#define\s+(WPDMA_\w+|PBF_\w+|USB_DMA_\w+)\s+0x([0-9A-Fa-f]+)', line)
+                if m:
+                    name, val = m.group(1), int(m.group(2), 16)
+                    if 0x0200 <= val <= 0x0400:
+                        dma_regs[name] = val
+
+        for name, val in sorted(dma_regs.items(), key=lambda x: x[1]):
+            print(f"  {name:<40}  0x{val:04X}")
+
+        print("\n--- PROBE RESULT ---")
+        print("Status: reference extracted from public RT2800 headers")
+        print("Confirmation: trace vendor writes to 0x0208 in emulator,")
+        print("  compare written values against these bit field masks.")
+        PYEOF
+      - uv run --quiet python '{{.PROBE_DIR}}/probe_wpdma_cfg.py' '{{.RT2800_H}}'
+
+  probe:low-range:
+    desc: "Probe: analyze mystery 0x0001-0x01FF range used by vendor WiFi libs"
+    silent: true
+    cmds:
+      - mkdir -p '{{.PROBE_DIR}}'
+      - |
+        cat > '{{.PROBE_DIR}}/probe_low_range.py' << 'PYEOF'
+        #!/usr/bin/env python3
+        """Probe: analyze the 0x0001-0x01FF address range used by vendor WiFi libs.
+
+        109 addresses in this range are accessed by wl_wifi, wl_wifi_sta, wl_wifi_ap,
+        and hostapd_and_wpasupplicant. These could be:
+          a) Function table indices (not MMIO)
+          b) RT2800 registers below the DMA range (MAC/SYS config)
+          c) JieLi-specific low-address peripherals
+
+        This probe cross-references against RT2800 defines in 0x0000-0x01FF."""
+        import json, re, sys, os
+
+        reg_map_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
+            "REG_MAP", ".scratch/examples/wifi/register_map.json")
+        rt2800_path = sys.argv[2] if len(sys.argv) > 2 else os.environ.get(
+            "RT2800_H", ".scratch/examples/wifi/rt2x00-linux/drivers/net/wireless/ralink/rt2x00/rt2800.h")
+
+        # RT2800 defines in low range
+        rt2800_low = {}
+        with open(rt2800_path) as f:
+            for line in f:
+                m = re.match(r'#define\s+(\w+)\s+0x([0-9A-Fa-f]+)', line)
+                if m:
+                    name, addr = m.group(1), int(m.group(2), 16)
+                    if addr <= 0x01FF:
+                        rt2800_low[addr] = name
+
+        with open(reg_map_path) as f:
+            data = json.load(f)
+        um = data["unknown_mmio"]
+
+        print("=== Low Range Analysis: 0x0001-0x01FF ===\n")
+
+        # Categorize vendor addresses
+        vendor_addrs = {}
+        for addr_str, entry in um.items():
+            addr = int(addr_str, 16)
+            if 1 <= addr <= 0x01FF:
+                libs = entry.get("libraries", [])
+                wifi_libs = [l for l in libs if 'wifi' in l.lower() or 'hostapd' in l.lower() or 'wl_' in l.lower()]
+                if wifi_libs:
+                    vendor_addrs[addr] = {"libs": wifi_libs, "all_libs": libs}
+
+        # Group by address range
+        ranges = {
+            "0x0001-0x0010 (tiny, likely indices)": (0x0001, 0x0010),
+            "0x0014-0x00FF (low config?)":          (0x0014, 0x00FF),
+            "0x0100-0x01FF (RT2800 SYS/MAC?)":      (0x0100, 0x01FF),
+        }
+
+        for label, (lo, hi) in ranges.items():
+            addrs_in_range = {a: v for a, v in vendor_addrs.items() if lo <= a <= hi}
+            print(f"\n--- {label}: {len(addrs_in_range)} addresses ---")
+
+            for addr in sorted(addrs_in_range.keys()):
+                rt_name = rt2800_low.get(addr, "")
+                libs = ", ".join(addrs_in_range[addr]["libs"])
+                marker = f" = RT2800 {rt_name}" if rt_name else ""
+                print(f"  0x{addr:05X}  {libs}{marker}")
+
+        # Summary
+        rt_matches = sum(1 for a in vendor_addrs if a in rt2800_low)
+        print(f"\n=== Summary ===")
+        print(f"Total vendor WiFi addresses in 0x0001-0x01FF: {len(vendor_addrs)}")
+        print(f"RT2800 matches: {rt_matches}")
+        print(f"Unmatched: {len(vendor_addrs) - rt_matches}")
+        print(f"\nHypotheses:")
+        print(f"  1. Addresses 0x0001-0x0010 may be function indices, not MMIO [I]")
+        print(f"  2. Addresses 0x0014-0x00FF may be JieLi-specific MAC config [I]")
+        print(f"  3. Addresses matching RT2800 are additional MAC registers [IP:RT2x00]")
+        print(f"\nNext step: emulator trace with WiFi active to see actual R/W on these addresses.")
+        PYEOF
+      - uv run --quiet python '{{.PROBE_DIR}}/probe_low_range.py' '{{.REG_MAP}}' '{{.RT2800_H}}'

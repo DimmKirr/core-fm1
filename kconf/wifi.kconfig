@@ -1,5 +1,8 @@
+# @module WIFI --> BLE "mutex"
+
 menu "WiFi"
 
+# kc2mm:label "STA"
 config WIFI
     bool "WiFi (802.11 b/g/n STA)"
     default n
@@ -13,14 +16,37 @@ config WIFI_LWIP
     depends on WIFI
     default y
 
+# kc2mm:label "WPA"
 config WIFI_WPA
     bool "WPA2-PSK authentication"
     depends on WIFI
     default y
 
+config WIFI_PASSWORD
+    string "Prebaked WiFi password"
+    depends on WIFI && WIFI_WPA
+    default ""
+    help
+      WPA2-PSK password used by the WiFi config page when connecting
+      to an encrypted AP. Baked into the firmware at compile time.
+      Leave empty to disable auto-connect for encrypted networks.
+
+# kc2mm:label "MIDI"
 config WIFI_MIDI
     bool "MIDI over WiFi (rtpMIDI/OSC)"
     depends on WIFI && WIFI_LWIP
     default n
+
+# kc2mm:hide
+config WIFI_PROBES
+    bool "WiFi hardware probes (cleanroom analyst)"
+    # depends on !WIFI && !BLE  # temporarily removed for crash isolation
+    depends on DEBUG_LOG && DEBUG_DAP
+    default n
+    help
+      Minimal firmware for probing WiFi MAC/DMA registers on real hardware.
+      Analyst-designed, results tagged [M:hw] for the SPECSHEET.
+      Boots normally, inits WiFi clocks, reads register addresses, logs
+      results over USB SysEx (DAP). No WiFi data path, no SDIO, no WPA.
 
 endmenu

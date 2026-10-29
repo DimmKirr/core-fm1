@@ -179,7 +179,7 @@ These are outside the editor range and do not conflict.
 ## ID conflicts (72-81)
 
 IDs 72+ diverge between Felucca and Melodee. core-fm1 needs both
-command sets since it supports engines from both lineages. Proposed
+command sets since it supports engines from both upstreams. Proposed
 resolution for the superset:
 
 | Range | Assignment |

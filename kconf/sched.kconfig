@@ -1,0 +1,23 @@
+menu "Scheduler"
+
+config SCHED
+    bool "Cooperative scheduler"
+    default y
+    help
+      Round-robin cooperative scheduler. Tasks yield voluntarily.
+      Without this, firmware runs the traditional monolithic main loop.
+
+config SCHED_MAX_TASKS
+    int "Maximum task slots"
+    default 6
+    depends on SCHED
+
+config SCHED_STACK_CANARY
+    bool "Stack canary checks"
+    default y
+    depends on SCHED
+    help
+      Paint task stacks with 0xDEADBEEF and check bottom 8 bytes
+      on every context switch. Detects stack overflow.
+
+endmenu

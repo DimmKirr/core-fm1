@@ -8,6 +8,7 @@ build/
 .scratch/
 tests/results/
 .venv/
+.venv.bak/
 .pytest_cache/
 .task/
 

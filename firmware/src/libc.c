@@ -55,6 +55,35 @@ int memcmp(const void *a, const void *b, unsigned n)
     return 0;
 }
 
+void *memmove(void *d, const void *s, unsigned n)
+{
+    unsigned char *dp = d;
+    const unsigned char *sp = s;
+    if (dp < sp) {
+        while (n--) *dp++ = *sp++;
+    } else {
+        dp += n; sp += n;
+        while (n--) *--dp = *--sp;
+    }
+    return d;
+}
+
+unsigned strlen(const char *s)
+{
+    unsigned n = 0;
+    while (s[n]) n++;
+    return n;
+}
+
+int strncmp(const char *a, const char *b, unsigned n)
+{
+    for (; n; n--, a++, b++) {
+        if (*a != *b) return (unsigned char)*a - (unsigned char)*b;
+        if (!*a) return 0;
+    }
+    return 0;
+}
+
 /* Seeded FNV-1a over bytes, shared by history and persistent checksums. */
 static uint32_t fnv(uint32_t h, const void *p, uint32_t n)
 {

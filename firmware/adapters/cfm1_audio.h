@@ -43,7 +43,7 @@ static inline int32_t audio_sat(int32_t x)
 /* engine params are always the last 8 in the P_* enum */
 #include "cfm1_engine.h"
 
-/* --- parameter IDs (superset of all lineages) --- */
+/* --- parameter IDs (superset of all upstreams) --- */
 
 enum {
     P_LEVEL, P_PAN, P_TUNE, P_FINE,
@@ -59,7 +59,7 @@ enum {
     P_M2SRC, P_M2DST, P_M2AMT,
     P_M3SRC, P_M3DST, P_M3AMT,
     P_M4SRC, P_M4DST, P_M4AMT,
-    /* FX sends (common across lineages) */
+    /* FX sends (common across upstreams) */
     P_DIST, P_CHOR, P_DLY, P_REV,
     /* per-engine track params (Felucca 1.5: ANALOG filter type) */
     P_FTYPE,

@@ -1,3 +1,10 @@
+# @module MIDI : UART Transport · Routing
+# @module MIDI : Editor · Console
+# @module MIDI -> AUDIO
+# @module MIDI --> BLE "transport"
+# @module USB : Device Driver · USB Audio
+# @module USB : Host Controller
+
 menu "MIDI"
 
 config MIDI_UART

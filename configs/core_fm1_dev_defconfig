@@ -7,7 +7,7 @@ CONFIG_FIRMWARE_VERSION="v0.0.0"
 CONFIG_ENGINES=y
 
 #
-# Multi-lineage (require full audio core)
+# Multi-upstream (require full audio core)
 #
 CONFIG_ENGINE_FM6=y
 CONFIG_ENGINE_FM6_FMLAB=y
@@ -121,7 +121,7 @@ CONFIG_OTA=y
 # end of Boot
 
 #
-# Audio Core
+# Audio
 #
 CONFIG_AUDIO=y
 # CONFIG_DUAL_CORE is not set
@@ -129,7 +129,7 @@ CONFIG_AUDIO=y
 # CONFIG_AUDIO_CORE_SLOOP is not set
 CONFIG_AUDIO_CORE_MELODEE=y
 # CONFIG_AUDIO_24BIT is not set
-# end of Audio Core
+# end of Audio
 
 #
 # MIDI
@@ -170,30 +170,41 @@ CONFIG_STORAGE_MELODEE=y
 # end of Storage
 
 #
-# USB Disk
+# UDisk
 #
 CONFIG_USB_HOST=y
 CONFIG_UDISK=y
-# end of USB Disk
+# end of UDisk
 
 #
 # BLE
 #
-CONFIG_BLE=y
-CONFIG_BLE_MIDI=y
-CONFIG_BLE_CENTRAL=y
-# CONFIG_BLE_HID is not set
-CONFIG_BLE_BOND=y
-# CONFIG_BLE_DIAG is not set
-CONFIG_BLE_FILE_TRANSFER=y
-# CONFIG_BLE_STUB is not set
+# CONFIG_BLE is not set
 # end of BLE
+
+#
+# WiFi
+#
+CONFIG_WIFI=y
+CONFIG_WIFI_LWIP=y
+CONFIG_WIFI_WPA=y
+CONFIG_WIFI_PASSWORD=""
+# CONFIG_WIFI_MIDI is not set
+# CONFIG_WIFI_PROBES is not set
+# end of WiFi
+
+#
+# CDP
+#
+# CONFIG_CDP is not set
+# end of CDP
 
 #
 # Debug
 #
 CONFIG_DEBUG=y
 CONFIG_DEBUG_LOG=y
+CONFIG_DEBUG_DAP=y
 # end of Debug
 
 #
@@ -206,6 +217,13 @@ CONFIG_SETTINGS_FMLAB=y
 CONFIG_SETTINGS_AT=0xFC000
 CONFIG_SYS_MENU_USB_MODE=y
 CONFIG_SYS_MENU_MIDI_CH=y
-CONFIG_SYS_MENU_BLE=y
 # end of Settings Menu
+
+#
+# Scheduler
+#
+CONFIG_SCHED=y
+CONFIG_SCHED_MAX_TASKS=6
+CONFIG_SCHED_STACK_CANARY=y
+# end of Scheduler
 # end of System

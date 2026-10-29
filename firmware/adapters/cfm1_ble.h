@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-/* BLE adapter: stubs when the BLE subsystem is off. */
+/* BLE adapter: stubs when the BLE module is off. */
 #ifndef CFM1_BLE_H
 #define CFM1_BLE_H
 #include <stdint.h>

@@ -1,3 +1,4 @@
+# kc2mm:ignore
 menu "Effects"
     depends on AUDIO
 
@@ -21,7 +22,7 @@ config MODULATION
     default n
 
 choice
-    prompt "Modulation lineage"
+    prompt "Modulation upstream"
     depends on MODULATION
     default MOD_MELODEE
 

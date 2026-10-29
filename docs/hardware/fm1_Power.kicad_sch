@@ -948,7 +948,91 @@
             (effects
               (font
                 (size 1.27 1.27))))))
-      (embedded_fonts no)))
+      (embedded_fonts no))
+    (symbol "FM1:SW_SLIDE"
+      (pin_numbers hide)
+      (pin_names
+        (offset 0))
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "SW"
+        (at 0 3.81 0)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Value" "SW_SLIDE"
+        (at 0 -3.81 0)
+        (effects
+          (font
+            (size 1.27 1.27))))
+      (property "Footprint" ""
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27))
+          (hide yes)))
+      (property "Datasheet" "~"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27))
+          (hide yes)))
+      (property "Description" "SPST slide switch (power on/off)"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27))
+          (hide yes)))
+      (symbol "SW_SLIDE_0_1"
+        (circle
+          (center -2.54 0)
+          (radius 0.508)
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type none)))
+        (circle
+          (center 2.54 0)
+          (radius 0.508)
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type none)))
+        (polyline
+          (pts
+            (xy -2.032 0)
+            (xy 2.032 1.016))
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type none))))
+      (symbol "SW_SLIDE_1_1"
+        (pin passive line
+          (at -5.08 0 0)
+          (length 2.54)
+          (name "1"
+            (effects
+              (font
+                (size 0.889 0.889))))
+          (number "1"
+            (effects
+              (font
+                (size 0.889 0.889)))))
+        (pin passive line
+          (at 5.08 0 180)
+          (length 2.54)
+          (name "2"
+            (effects
+              (font
+                (size 0.889 0.889))))
+          (number "2"
+            (effects
+              (font
+                (size 0.889 0.889))))))))
   (symbol
     (lib_id "FM1:USB_C")
     (at 486.25 190.5 0)
@@ -7434,4 +7518,74 @@
       (font
         (size 1.27 1.27))
       (justify right))
-    (uuid 2056e54c-96e2-5037-9262-b97f2c79dbbc)))
+    (uuid 2056e54c-96e2-5037-9262-b97f2c79dbbc))
+  (symbol
+    (lib_id "FM1:SW_SLIDE")
+    (at 504.19 181.61 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (fields_autoplaced yes)
+    (uuid c3f1a2b7-8e45-5d91-b6c3-9a1f7e3d2c84)
+    (property "Reference" "SW1"
+      (at 504.19 175.26 0)
+      (effects
+        (font
+          (size 1.27 1.27))))
+    (property "Value" "Power ON/OFF"
+      (at 504.19 177.8 0)
+      (effects
+        (font
+          (size 1.27 1.27))))
+    (property "Footprint" ""
+      (at 504.19 181.61 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (hide yes)))
+    (property "Datasheet" "~"
+      (at 504.19 181.61 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (hide yes)))
+    (property "Description" "SPST slide switch, power on/off, next to USB-C"
+      (at 504.19 181.61 0)
+      (effects
+        (font
+          (size 1.27 1.27))
+        (hide yes)))
+    (pin "1"
+      (uuid a1b2c3d4-e5f6-5a7b-8c9d-0e1f2a3b4c5d))
+    (pin "2"
+      (uuid d5e6f7a8-b9c0-5d1e-2f3a-4b5c6d7e8f90))
+    (instances
+      (project "fm1"
+        (path "/02fe9bed-ec48-4209-a61f-4a171077059d/0a67be3d-bce1-5e00-9aef-d7627a86d243"
+          (reference "SW1")
+          (unit 1)))))
+  (global_label "VBAT"
+    (shape bidirectional)
+    (at 499.11 181.61 180)
+    (effects
+      (font
+        (size 1.27 1.27))
+      (justify right))
+    (uuid f1a2b3c4-d5e6-5f7a-8b9c-0d1e2f3a4b5c))
+  (global_label "VSYS"
+    (shape bidirectional)
+    (at 509.27 181.61 0)
+    (effects
+      (font
+        (size 1.27 1.27))
+      (justify left))
+    (uuid a5b6c7d8-e9f0-5a1b-2c3d-4e5f6a7b8c9d))
+  (text "Power slide switch (SPST)\nNext to USB-C connector\nHard power on/off"
+    (exclude_from_sim no)
+    (at 497.0 170.0 0)
+    (effects
+      (font
+        (size 1.27 1.27))
+      (justify left))))

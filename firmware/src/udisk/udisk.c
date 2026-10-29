@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* UDisk subsystem: mounts FAT32 from USB mass storage, provides directory
+/* UDisk component: mounts FAT32 from USB mass storage, provides directory
  * listing for the file browser page. */
 
 static FATFS udisk_fs;

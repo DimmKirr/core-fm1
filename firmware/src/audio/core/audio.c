@@ -22,6 +22,8 @@ static void mix_block(void)
 
 void fm1_alnk0_irq(void)
 {
+    if (fm1_audio_irq_elapsed_ticks > AUDIO_DEADLINE_TICKS)
+        audio_deadline_misses++;
     uint8_t p = fm1_audio_pending();
     fm1_audio_ack_aux(p);
     if (p & FM1_AUDIO_HALF) {

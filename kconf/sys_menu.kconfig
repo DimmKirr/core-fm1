@@ -1,3 +1,4 @@
+# kc2mm:ignore
 menu "Settings Menu"
 
 config SYS_MENU
@@ -6,8 +7,8 @@ config SYS_MENU
     depends on INPUT
     help
       Tabbed settings menu accessible via long-press HOME button.
-      Menu items are populated by enabled subsystems below.
-      Each UI lineage (Felucca, Melodee) renders the menu in its
+      Menu items are populated by enabled modules below.
+      Each UI upstream (Felucca, Melodee) renders the menu in its
       own visual style via the cfm1_sys_menu adapter.
 
 # --- Persistence backend ---
@@ -55,7 +56,7 @@ config SETTINGS_AT
       Melodee, Optimist, FM Lab).
 
 # --- Individual menu items ---
-# Each depends on SYS_MENU + its subsystem.
+# Each depends on SYS_MENU + its module.
 
 config SYS_MENU_USB_MODE
     bool "USB mode setting (DEVICE / HOST)"

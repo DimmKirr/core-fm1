@@ -1,16 +1,18 @@
-menu "Audio Core"
+menu "Audio"
 
 config AUDIO
-    bool "Enable audio subsystem"
+    bool "Enable audio module"
     default n
 
+# kc2mm:hide
 config DUAL_CORE
     bool "Dual-core voice dispatch"
     default n
     depends on AUDIO
 
+# kc2mm:label "Core"
 choice
-    prompt "Audio core lineage"
+    prompt "Audio core upstream"
     depends on AUDIO
     default AUDIO_CORE_MELODEE
 
@@ -25,6 +27,7 @@ config AUDIO_CORE_MELODEE
 
 endchoice
 
+# kc2mm:hide
 config AUDIO_24BIT
     bool "24-bit internal pipeline (Q23)"
     default n
@@ -46,6 +49,7 @@ config AUDIO_24BIT_HEADROOM
       1 = -6 dBFS ceiling (FMLab default, safest for polyphonic mix).
       0 = full 24-bit range, clips sooner with many voices.
 
+# kc2mm:hide
 config AUDIO_24BIT_DC_BLOCK
     bool "DC blocking filter"
     default n

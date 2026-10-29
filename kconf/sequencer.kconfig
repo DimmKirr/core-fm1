@@ -1,7 +1,9 @@
+# kc2mm:ignore
 menu "Sequencer"
 
 choice
     prompt "Sequencer implementation"
+    depends on AUDIO
     default SEQ_MELODEE
 
 config SEQ_FELUCCA

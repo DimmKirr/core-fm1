@@ -5,6 +5,11 @@ includes:
     taskfile: https://raw.githubusercontent.com/DimmKirr/setup-fm1-toolchain/v1/Taskfile.yml
   fm1-emulator:
     taskfile: https://raw.githubusercontent.com/DimmKirr/setup-fm1-emulator/v1/Taskfile.yml
+    vars:
+      FM1_VERSION: v0.3.0
+  debug:wifi:
+    taskfile: docs/hardware/wifi/Taskfile.yml
+    dir: '{{.ROOT_DIR}}'
 
 tasks:
   build:
@@ -28,12 +33,12 @@ tasks:
       - build/core-fm1.fwsc
     method: checksum
     cmds:
-      - uv run python tools/build.py {{.CLI_ARGS}}
+      - uv run --quiet python tools/build.py {{.CLI_ARGS}}
 
   build:dry-run:
     desc: Show what would be compiled without building
     cmds:
-      - uv run python tools/build.py --dry-run
+      - uv run --quiet python tools/build.py --dry-run
 
   test:
     desc: Run all tests (unit + e2e)
@@ -44,7 +49,7 @@ tasks:
   test:unit:
     desc: Run Python unit tests (genconfig, defconfigs, tooling)
     cmds:
-      - uv run python -m pytest tests/ -v --ignore-glob="tests/e2e_*"
+      - uv run --quiet python -m pytest tests/ -v --ignore-glob="tests/e2e_*"
 
   test:e2e:
     desc: Run E2E tests via fm1-emu emulator + Playwright
@@ -57,7 +62,7 @@ tasks:
       FM1_WEB_DIR: '{{env "FM1_WEB_DIR" | default (printf "%s/.fm1-emulator/web" .HOME)}}'
       PLAYWRIGHT_BROWSERS_PATH: '{{env "PLAYWRIGHT_BROWSERS_PATH" | default (printf "%s/.cache/ms-playwright" .HOME)}}'
     cmds:
-      - uv run python -m pytest tests/e2e_boot_test.py tests/e2e_components_test.py tests/e2e_usb_safety_test.py tests/e2e_audio_test.py tests/e2e_audio_engines_test.py tests/e2e_ble_test.py -v {{.CLI_ARGS}}
+      - uv run --quiet python -m pytest tests/e2e_boot_test.py tests/e2e_components_test.py tests/e2e_usb_safety_test.py tests/e2e_audio_test.py tests/e2e_audio_engines_test.py tests/e2e_ble_test.py tests/e2e_weather_test.py -v {{.CLI_ARGS}}
 
   emulator:build:
     desc: Build WASM from a local fm1-emu checkout (requires the Rust WASM target)
@@ -69,19 +74,53 @@ tasks:
       - bash '{{.EMU_SOURCE}}/web/build.sh' '{{.HOME}}/.fm1-emulator/web'
 
   flash:
-    desc: Flash firmware to FM-1 over USB-MIDI
+    desc: Flash firmware to FM-1 over USB-MIDI (DEBUG=true for post-flash log follow)
+    silent: true
     vars:
       FIRMWARE: '{{.FIRMWARE | default "build/core-fm1.fwsc"}}'
+      DEBUG: '{{.DEBUG | default "true"}}'
+      AUTO_APPROVE: '{{.AUTO_APPROVE | default "true"}}'
     preconditions:
       - sh: test -f {{.FIRMWARE}}
         msg: "{{.FIRMWARE}} not found. Run 'task build' first."
     cmds:
       - cmd: |
           test -f build/core-fm1.version && echo "version: $(cat build/core-fm1.version)" || true
-      - uv run --group flash python tools/fm1_install.py {{.FIRMWARE}} --force {{.CLI_ARGS}}
+      - uv run --quiet --group flash python tools/fm1_install.py {{.FIRMWARE}} --force {{if eq .AUTO_APPROVE "true"}}--yes {{end}}{{.CLI_ARGS}}
+      - cmd: |
+          if [ "{{.DEBUG}}" = "true" ]; then
+            mkdir -p .scratch/debug
+            LOG=".scratch/debug/boot.log"
+            {
+              echo ""
+              echo "=== POST-FLASH DEBUG ==="
+              sleep 2
+              for i in 1 2 3 4 5; do
+                echo "--- attempt $i ---"
+                uv run --quiet --with python-rtmidi python tools/fm1log.py --hello 2>&1 && break
+                sleep 2
+              done
+              echo ""
+              echo "=== LOG (follow, Ctrl-C to stop) ==="
+              uv run --quiet --with python-rtmidi python tools/fm1log.py --follow 2>&1 || true
+              echo ""
+              echo "=== POST-CRASH RECOVERY ==="
+              echo "Waiting for device to reboot..."
+              sleep 5
+              for i in 1 2 3 4 5; do
+                echo "--- crash-log attempt $i ---"
+                uv run --quiet --with python-rtmidi python tools/fm1log.py --hello 2>&1 && break
+                sleep 2
+              done
+              echo ""
+              echo "=== CRASH LOG ==="
+              uv run --quiet --with python-rtmidi python tools/fm1log.py 2>&1 || true
+            } 2>&1 | tee "$LOG"
+          fi
 
   flash:uboot:
     desc: Flash firmware via UBOOT mode (hold OCT+/- for 5s, then run this)
+    silent: true
     vars:
       FIRMWARE: '{{.FIRMWARE | default "build/core-fm1.fwsc"}}'
     preconditions:
@@ -90,15 +129,15 @@ tasks:
     cmds:
       - cmd: |
           test -f build/core-fm1.version && echo "version: $(cat build/core-fm1.version)" || true
-      - uv sync --group uboot
-      - sudo uv run --group uboot python tools/fm1_uboot_flash.py {{.FIRMWARE}} {{.CLI_ARGS}}
+      - uv sync --quiet --group uboot
+      - sudo uv run --quiet --group uboot python tools/fm1_uboot_flash.py {{.FIRMWARE}} {{.CLI_ARGS}}
 
   flash:debug:
     desc: Debug flash issues - list MIDI devices and retry update loader detection
     cmds:
       - cmd: |
           echo "=== MIDI devices ==="
-          uv run --group flash python -c "
+          uv run --quiet --group flash python -c "
           import rtmidi
           mi = rtmidi.MidiIn()
           mo = rtmidi.MidiOut()
@@ -107,7 +146,7 @@ tasks:
           "
           echo ""
           echo "=== Looking for FM-1 or Update Loader (10s) ==="
-          uv run --group flash python -c "
+          uv run --quiet --group flash python -c "
           import rtmidi, time
           for i in range(20):
               mi = rtmidi.MidiIn()
@@ -144,8 +183,8 @@ tasks:
       - sh: test -f '{{.RECOVERY_DIR}}/fm1_transporter_recover.py'
         msg: "Recovery script not found. Run: git clone --depth 1 https://github.com/Nicodesy06/FM1Trasmitter-for-pico .scratch/examples/Transporter/pico-fork"
     cmds:
-      - uv run --group unbrick python fm1_transporter_recover.py setup --board pico_rp2040
-      - uv run --group unbrick python fm1_transporter_recover.py flash-board --board pico_rp2040 {{.CLI_ARGS}}
+      - uv run --quiet --group unbrick python fm1_transporter_recover.py setup --board pico_rp2040
+      - uv run --quiet --group unbrick python fm1_transporter_recover.py flash-board --board pico_rp2040 {{.CLI_ARGS}}
 
   recovery:transporter:fm1:unbrick:
     desc: Recover a hard-bricked FM-1 via Transporter (Pico wired to FM-1, no USB presence)
@@ -158,7 +197,7 @@ tasks:
       - sh: test -f '{{.RECOVERY_DIR}}/fm1_transporter_recover.py'
         msg: "Recovery script not found. Run: git clone --depth 1 https://github.com/Nicodesy06/FM1Trasmitter-for-pico .scratch/examples/Transporter/pico-fork"
     cmds:
-      - uv run --group unbrick python fm1_transporter_recover.py recover --board pico_rp2040 --v15 '{{.STOCK_FWSC}}' '{{.STOCK_FWSC}}' {{.CLI_ARGS}}
+      - uv run --quiet --group unbrick python fm1_transporter_recover.py recover --board pico_rp2040 --v15 '{{.STOCK_FWSC}}' '{{.STOCK_FWSC}}' {{.CLI_ARGS}}
 
   recovery:transporter:fm1:unbrick-soft:
     desc: Restore firmware via USB ROM boot mode (soft-bricked device)
@@ -172,29 +211,60 @@ tasks:
           echo "Cloning MvaveFM1Unbricker..."
           git clone --depth 1 https://github.com/Quixotic7/MvaveFM1Unbricker "{{.UNBRICKER_DIR}}"
         fi
-      - uv run --group unbrick python "{{.UNBRICKER_DIR}}/fm1_unbrick.py" restore '{{.STOCK_FWSC}}' {{.CLI_ARGS}}
+      - uv run --quiet --group unbrick python "{{.UNBRICKER_DIR}}/fm1_unbrick.py" restore '{{.STOCK_FWSC}}' {{.CLI_ARGS}}
 
   logs:
-    desc: Dump debug log from FM-1 over USB MIDI SysEx
+    desc: Tail debug log from FM-1 over USB MIDI SysEx (DAP protocol)
+    silent: true
     cmds:
-      - uv run --group flash python tools/fm1_log_dump.py {{.CLI_ARGS}}
+      - uv run --quiet --with python-rtmidi python tools/fm1log.py --follow {{.CLI_ARGS}}
+
+  logs:dump:
+    desc: Dump current debug log buffer and exit
+    silent: true
+    cmds:
+      - uv run --quiet --with python-rtmidi python tools/fm1log.py {{.CLI_ARGS}}
+
+  logs:hello:
+    desc: Print FM-1 device status (crash record, render stats, log position)
+    silent: true
+    cmds:
+      - uv run --quiet --with python-rtmidi python tools/fm1log.py --hello {{.CLI_ARGS}}
 
   settings:reset:
     desc: Reset FM-1 settings to defaults (erases saved settings, device reboots)
+    silent: true
     cmds:
-      - uv run --group flash python tools/fm1_settings_reset.py {{.CLI_ARGS}}
+      - uv run --quiet --group flash python tools/fm1_settings_reset.py {{.CLI_ARGS}}
+
+  docs:
+    desc: Regenerate all generated documentation
+    cmds:
+      - task: docs:module-diagram
+
+  docs:module-diagram:
+    desc: Regenerate the module dependency diagram in docs/COMPONENTS.md
+    sources:
+      - kconf/*.kconfig
+    cmds:
+      - uv run --quiet kc2mm inject docs/COMPONENTS.md --kconf-dir kconf
+
+  docs:check:
+    desc: Verify generated docs match their sources (for CI)
+    cmds:
+      - uv run --quiet kc2mm inject --check docs/COMPONENTS.md --kconf-dir kconf
 
   config:
     desc: Run menuconfig (ncurses) to configure the build
     cmds:
-      - uv run python tools/menuconfig.py
+      - uv run --quiet python tools/menuconfig.py
 
   config:defconfig:
     desc: Load a named defconfig (e.g. task config:defconfig -- melodee)
     cmds:
-      - uv run python tools/genconfig.py --defconfig {{.CLI_ARGS}}
+      - uv run --quiet python tools/genconfig.py --defconfig {{.CLI_ARGS}}
 
   config:generate:
     desc: Generate build/gen/config.h from current .config
     cmds:
-      - uv run python tools/genconfig.py
+      - uv run --quiet python tools/genconfig.py

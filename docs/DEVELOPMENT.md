@@ -56,10 +56,12 @@ task flash:uboot
 ```
 
 Entering UBOOT mode:
-1. Power off the FM-1 (unplug USB).
-2. Hold **OCT+** and **OCT-** simultaneously.
-3. Plug USB in while holding both buttons.
-4. Keep holding for ~5 seconds until the host detects a new USB device
+1. Slide the power switch to **OFF**.
+2. Connect USB cable to the host (if not already connected).
+3. Hold **OCT-** only (do NOT hold OCT+; both buttons together is
+   the calibration gesture and will not trigger rescue).
+4. Slide the power switch to **ON** while holding OCT-.
+5. Keep holding for ~5 seconds until the host detects a new USB device
    (VID `4C4A`, PID `8057`, product "WL80UBOOT1.00").
 
 The script:
@@ -82,9 +84,9 @@ Troubleshooting:
 - **"No backend available"**: libusb is not found. Install it or check that
   the nix store path is reachable.
 - **"Access denied"**: run with `sudo task flash:uboot` (macOS).
-- **Device not found**: ensure the FM-1 is in UBOOT mode (hold OCT+/-
-  during plug-in). Check `lsusb` or `system_profiler SPUSBDataType` for
-  VID `4C4A`.
+- **Device not found**: ensure the FM-1 is in UBOOT mode (hold OCT-
+  only while sliding power on). Check `lsusb` or `system_profiler SPUSBDataType`
+  for VID `4C4A`.
 
 ### Choosing a method
 

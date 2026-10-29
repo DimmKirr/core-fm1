@@ -36,3 +36,13 @@ def test_wpa_has_pmk_derivation():
         pytest.skip('wifi_wpa.c not yet implemented')
     text = WPA_C.read_text()
     assert 'pbkdf2' in text.lower() or 'pmk' in text.lower()
+
+
+def test_pbkdf2_yields_during_inner_loop():
+    """PBKDF2 inner loop must yield periodically for scheduler cooperation."""
+    src = (ROOT / 'firmware' / 'src' / 'wifi' / 'wifi_wpa.c').read_text()
+    fn_start = src.index('wifi_pbkdf2_sha1(')
+    fn_end = src.index('\n}', fn_start) + 2
+    fn = src[fn_start:fn_end]
+    assert 'yield()' in fn, \
+        'wifi_pbkdf2_sha1 must yield inside the iteration loop'

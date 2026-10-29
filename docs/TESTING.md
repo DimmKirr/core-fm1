@@ -92,7 +92,8 @@ hash comparison.
 | `e2e_sys_menu_test.py` | SYS page opens, tab switching, value cycling, HOME return | HOME (long-press), ALGO encoder, SELECT encoder |
 | `e2e_debug_log_test.py` | DEBUG page renders boot log, scroll works | GLO button, SELECT encoder |
 | `e2e_stuck_notes_test.py` | Notes don't stick after engine switch or page change | SELECT encoder, notes |
-| `e2e_ble_test.py` | BLE subsystem integration | (varies) |
+| `e2e_sched_test.py` | Scheduler stability: boot+UI, audio+nav, rapid page stress, extended run | FX, HOME, SEQ, ENV, LFO, SCL, EDIT buttons, SELECT/K1/K2 encoders, notes |
+| `e2e_ble_test.py` | BLE module integration | (varies) |
 
 ### Coverage summary
 
@@ -111,6 +112,7 @@ hash comparison.
 | Master volume | `e2e_audio_engines_test.py::TestMasterVolume` |
 | Cross-engine level balance | `e2e_audio_engines_test.py::TestAudioLevelNormalization` |
 | Engine select volume stability | `e2e_audio_engines_test.py::TestEngineSelectVolumeConsistency` |
+| Scheduler multi-task stability | `e2e_sched_test.py::SchedAcceptanceTest` (boot, audio+nav, stress, extended) |
 
 ## Audio testing
 
@@ -179,7 +181,7 @@ you're looking for.
 **Use silence recordings to isolate layers.** If a level changes, record
 silence (no notes) across the same steps. If silence RMS stays at zero, the
 master volume path is clean and the bug is in the engine/voice layer. This
-eliminates an entire subsystem from the investigation in one test run.
+eliminates an entire module from the investigation in one test run.
 
 **Fresh page per engine for cross-engine comparison.** When comparing RMS
 levels between engines, boot a fresh emulator page for each engine. Shared

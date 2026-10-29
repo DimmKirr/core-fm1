@@ -1,20 +1,20 @@
-# Porting Subsystems & Modules
+# Porting Components
 
-How firmware lineage code gets ported to core-fm1, subsystem by subsystem.
+How upstream code gets ported to core-fm1, module by module.
 
 ## Strategy: mock first, wire later
 
-Every subsystem follows the same three-phase approach:
+Every module follows the same three-phase approach:
 
-1. **Adapter contracts** - define the types and globals the subsystem reads/writes (`cfm1_*.h`)
-2. **Mock data behind adapters** - populate those types with realistic defaults so dependent code compiles and renders without real hardware subsystems
-3. **Wire real subsystems** - enable the Kconfig symbol, mock stubs get skipped, real implementations populate the same globals
+1. **Adapter contracts** - define the types and globals the component reads/writes (`cfm1_*.h`)
+2. **Mock data behind adapters** - populate those types with realistic defaults so dependent code compiles and renders without real hardware modules
+3. **Wire real components** - enable the Kconfig symbol, mock stubs get skipped, real implementations populate the same globals
 
 Code ported in phase 2 never changes in phase 3. It only reads from adapter-defined types.
 
 ## Adapter layer
 
-Adapters live in `firmware/adapters/cfm1_*.h`. Each one defines types, globals, constants, and mock data (when the real subsystem is off).
+Adapters live in `firmware/adapters/cfm1_*.h`. Each one defines types, globals, constants, and mock data (when the real module is off).
 
 ```
 cfm1_audio.h    - track/song/engine types, P_* enum, mock engine + init
@@ -62,7 +62,7 @@ Kconfig: `CONFIG_UI_FELUCCA`, `CONFIG_UI_MELODEE`, `CONFIG_UI_SLOOP`, `CONFIG_UI
 | Drawing | `draw.c` | Header/card/footer layout primitives |
 | Icons | `fui_icons.c` | Track cushions, icon font rendering |
 | Renderer | `gfx.c` | Canvas primitives (`cv_begin`, `cv_blit`, `cv_text_*`) |
-| Boot logo | `ui/core/boot_logo.c` | RLE-compressed logo decoder, shared across all UI lineages |
+| Boot logo | `ui/core/boot_logo.c` | RLE-compressed logo decoder, shared across all UI upstreams |
 | Splash | Kconfig `SPLASH_LOGO` / `SPLASH_NONE` | Selectable splash screen style |
 
 ### Boot logo component
@@ -138,15 +138,15 @@ CONFIG_UI_FELUCCA=y
 
 To wire real audio, enable `CONFIG_AUDIO=y`. The `#ifndef CONFIG_AUDIO` guard in `cfm1_audio.h` removes the mock engine and init function.
 
-### Porting a different UI lineage
+### Porting a different UI upstream
 
 1. Include their renderer (gfx equivalent)
 2. Create adapter stubs with realistic mock data
 3. Write pages that read from the adapter types
-4. Build with the lineage's UI Kconfig + mocked subsystems
-5. Wire real subsystems one at a time
+4. Build with the upstream's UI Kconfig + mocked modules
+5. Wire real modules one at a time
 
-The adapter contract is the same across all lineages.
+The adapter contract is the same across all upstreams.
 
 ---
 
@@ -156,7 +156,7 @@ Voice allocator, render pipeline, DMA half-buffer, mixer.
 
 Kconfig: `CONFIG_AUDIO`. Optionally uses `CONFIG_DUAL_CORE`.
 
-### Audio Core (pick one lineage)
+### Audio Core (pick one upstream)
 
 - **Felucca**: 8+6 voices, fixed allocation
 - **SLOOP**: voice pool shared across layers
@@ -195,7 +195,7 @@ The engine's `.edit[]` array defines 8 parameter descriptors (CUT, RES, CUT2, KT
 
 ### Engine switching
 
-Engine switching is a **UI action**, not a subsystem or module. It is triggered by the SELECT encoder on the HOME page and goes through the adapter layer.
+Engine switching is a **UI action**, not a module-level action. It is triggered by the SELECT encoder on the HOME page and goes through the adapter layer.
 
 The adapter function `cfm1_engine_select()` lives in `voice.c` and handles IRQ-safe switching:
 
@@ -237,7 +237,7 @@ This wraps the engine index, so rotating past the last engine goes back to the f
 
 ### End-to-end audio: what we fixed wiring NOISE
 
-Getting the NOISE engine to produce audio in the emulator required wiring four subsystems beyond the engine itself. Each fix was small, but all four were needed before any sound came out.
+Getting the NOISE engine to produce audio in the emulator required wiring four modules beyond the engine itself. Each fix was small, but all four were needed before any sound came out.
 
 #### 1. Voice allocator (`audio/voice.c`)
 
@@ -258,7 +258,7 @@ The ISR function must be non-static (external linkage) because the assembly wrap
 
 #### 3. IRQ enable (the silent killer)
 
-`fm1_irq_enable_all()` was never called in `core_fm1.c`. Without it, the CPU ignores all interrupts: the ALNK0 DMA ISR never fires, so the audio buffer stays zero-filled. Melodee calls this in `main.c` after all subsystems are initialized. We added it right after `audio_init()`.
+`fm1_irq_enable_all()` was never called in `core_fm1.c`. Without it, the CPU ignores all interrupts: the ALNK0 DMA ISR never fires, so the audio buffer stays zero-filled. Melodee calls this in `main.c` after all modules are initialized. We added it right after `audio_init()`.
 
 This produced zero audio output with no compiler warnings, no linker errors, and no runtime crashes. The firmware ran, the LCD displayed correctly, the engine was registered, but the DMA buffer was never filled. Always check that `fm1_irq_enable_all()` is called before the main loop.
 
@@ -322,7 +322,7 @@ for (f = 0; f < 10u; f++) {
 
 This gives the quadrature decoder enough samples to detect transitions. On real hardware, the frame timing is faster and this issue does not occur.
 
-### Effects (pick one lineage)
+### Effects (pick one upstream)
 
 Each effects chain implementation is selected via Kconfig radio choice. The adapter (`cfm1_fx.h`) defines the chain interface.
 
@@ -361,7 +361,7 @@ Routing, clock sync, transport control.
 
 Kconfig: `CONFIG_MIDI_UART` (TRS), `CONFIG_USB` (USB).
 
-### Routing (pick one lineage)
+### Routing (pick one upstream)
 
 - **Felucca**: basic routing
 - **SLOOP**: basic routing
@@ -394,7 +394,7 @@ Kconfig: `CONFIG_FLASH`.
 
 ### Porting
 
-The storage adapter (`cfm1_storage.h`) defines the tagged-blob project format interface. Each lineage implements the concrete serialization.
+The storage adapter (`cfm1_storage.h`) defines the tagged-blob project format interface. Each upstream implements the concrete serialization.
 
 ---
 
@@ -429,7 +429,7 @@ LCD is not available until `fm1_main()` calls `lcd_init()`. The boot logo appear
 
 ### OTA
 
-All three lineages share the M-UPGRADE SysEx protocol for USB-MIDI OTA updates. Single app area, no dual-bank.
+All three upstreams share the M-UPGRADE SysEx protocol for USB-MIDI OTA updates. Single app area, no dual-bank.
 
 ### Lineages
 
@@ -445,7 +445,7 @@ Bluetooth Low Energy protocol stack. Depends on HAL (radio registers).
 
 Kconfig: `CONFIG_BLE`.
 
-### Optimist lineage
+### Optimist upstream
 
 - Link Layer
 - Host (L2CAP, ATT, SMP)
@@ -487,4 +487,4 @@ cc, time, gpio, xip, adc
 
 ### Porting a HAL variant
 
-HAL files are header-only register macros. Porting means creating `fm1_<slot>_<lineage>.h` with the same function signatures as the existing variant. Kconfig radio choice selects which header gets included.
+HAL files are header-only register macros. Porting means creating `fm1_<slot>_<upstream>.h` with the same function signatures as the existing variant. Kconfig radio choice selects which header gets included.

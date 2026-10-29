@@ -339,6 +339,10 @@ static void wifi_pbkdf2_sha1(const uint8_t *pass, uint32_t pass_len,
             wifi_hmac_sha1(pass, pass_len, u, WIFI_SHA1_DIGEST, u);
             for (k = 0; k < WIFI_SHA1_DIGEST; k++)
                 t[k] ^= u[k];
+#ifdef CONFIG_SCHED
+            if ((j & 63u) == 0)
+                yield();
+#endif
         }
 
         copy = dk_len - pos;
@@ -622,6 +626,7 @@ static int wifi_wpa_rx_msg1(uint8_t *eapol, uint32_t len,
                                  KI_VER_HMAC_SHA1 | KI_PAIRWISE | KI_MIC,
                                  16, wifi_wpa.snonce, NULL, 0);
     wifi_wpa.step = 2;
+    cfm1_log("wifi: wpa msg1 -> msg2 sent");
     return *tx_len ? 0 : -1;
 }
 
@@ -640,8 +645,10 @@ static int wifi_wpa_rx_msg3(uint8_t *eapol, uint32_t len,
     if (!(ki & KI_ACK) || !(ki & KI_MIC) || !(ki & KI_INSTALL) || !(ki & KI_SECURE))
         return -1;
 
-    if (!wifi_wpa_verify_mic(eapol, len))
+    if (!wifi_wpa_verify_mic(eapol, len)) {
+        cfm1_log("wifi: wpa msg3 mic FAIL");
         return -1;
+    }
 
     for (i = 0; i < WPA_REPLAY_LEN; i++)
         wifi_wpa.replay[i] = eapol[EAPOL_REPLAY + i];
@@ -654,6 +661,7 @@ static int wifi_wpa_rx_msg3(uint8_t *eapol, uint32_t len,
                                  KI_VER_HMAC_SHA1 | KI_PAIRWISE | KI_MIC | KI_SECURE,
                                  16, NULL, NULL, 0);
     wifi_wpa.step = 4;
+    cfm1_log("wifi: wpa msg3 -> msg4 sent, tk installed");
     return *tx_len ? 0 : -1;
 }
 
@@ -697,13 +705,16 @@ static void wifi_wpa_init(const uint8_t *pass, uint32_t pass_len,
         wifi_wpa.aa[i] = ap_mac[i];
     }
 
+    cfm1_log("wifi: wpa pmk deriving");
     wifi_pbkdf2_sha1(pass, pass_len, ssid, ssid_len,
                      4096u, WPA_PMK_LEN, wifi_wpa.pmk);
+    cfm1_log("wifi: wpa init done");
 }
 
 static void wifi_wpa_reset(void)
 {
     uint32_t i;
+    cfm1_log("wifi: wpa reset");
     for (i = 0; i < WPA_PMK_LEN; i++) wifi_wpa.pmk[i] = 0;
     for (i = 0; i < WPA_PTK_LEN; i++) wifi_wpa.ptk[i] = 0;
     wifi_wpa.tk_valid = 0;
@@ -905,6 +916,61 @@ static const uint8_t *wifi_wpa_get_tk(void)
 static uint64_t wifi_wpa_next_pn(void)
 {
     return wifi_wpa.tx_pn++;
+}
+
+static int wifi_wpa_has_ptk(void)
+{
+    return wifi_wpa.tk_valid;
+}
+
+static void wifi_wpa_ccmp_hdr(uint8_t *frame)
+{
+    uint64_t pn = wifi_wpa_next_pn();
+    frame[0] = (uint8_t)(pn);
+    frame[1] = (uint8_t)(pn >> 8);
+    frame[2] = 0;
+    frame[3] = 0x20;  /* ExtIV bit */
+    frame[4] = (uint8_t)(pn >> 16);
+    frame[5] = (uint8_t)(pn >> 24);
+    frame[6] = (uint8_t)(pn >> 32);
+    frame[7] = (uint8_t)(pn >> 40);
+}
+
+static uint64_t wifi_wpa_read_pn(const uint8_t *ccmp_hdr)
+{
+    return (uint64_t)ccmp_hdr[0]
+         | ((uint64_t)ccmp_hdr[1] << 8)
+         | ((uint64_t)ccmp_hdr[4] << 16)
+         | ((uint64_t)ccmp_hdr[5] << 24)
+         | ((uint64_t)ccmp_hdr[6] << 32)
+         | ((uint64_t)ccmp_hdr[7] << 40);
+}
+
+static int wifi_wpa_ccmp_encrypt(uint8_t *frame, uint32_t hdr_len,
+                                  uint8_t *payload, uint32_t data_len,
+                                  uint8_t *mic_out)
+{
+    const uint8_t *tk = wifi_wpa_get_tk();
+    uint64_t pn;
+    uint32_t out_len;
+    if (!tk) return -1;
+    pn = wifi_wpa_read_pn(frame + hdr_len);
+    out_len = wifi_ccmp_encrypt(frame, hdr_len, payload, data_len, tk, pn);
+    (void)mic_out;
+    (void)out_len;
+    return 0;
+}
+
+static int wifi_wpa_ccmp_decrypt(uint8_t *frame, uint32_t hdr_len,
+                                  uint8_t *payload, uint32_t data_len,
+                                  uint8_t *mic_in)
+{
+    const uint8_t *tk = wifi_wpa_get_tk();
+    uint64_t pn;
+    if (!tk) return -1;
+    pn = wifi_wpa_read_pn(frame + hdr_len);
+    (void)mic_in;
+    return wifi_ccmp_decrypt(frame, hdr_len, payload, data_len + 8u, tk, pn);
 }
 
 #endif /* CONFIG_WIFI_WPA */

@@ -23,7 +23,7 @@ one firmware image configured for your instrument.
 The aim is to configure **any compatible combination of supported modules**
 from one source tree:
 
-- **Mix your engines.** Combine synthesis engines across firmware lineages in
+- **Mix your engines.** Combine synthesis engines across firmware upstreams in
   the same build, with a shared engine interface.
 - **Choose your workflow.** Select audio, effects, sequencer, MIDI, and storage
   implementations as their integration becomes available.
@@ -32,7 +32,7 @@ from one source tree:
 
 These are the integration goals. Combinations must fit the FM-1's memory and
 processing budget and satisfy module dependencies. UI code stays coupled to
-its firmware lineage until those dependencies are separated.
+its firmware upstream until those dependencies are separated.
 
 Kconfig provides the configuration menus and generates the C definitions used
 by the build. Modules are selected when compiling the firmware. Today, only
@@ -72,7 +72,7 @@ mise exec -- task test:e2e
 The E2E suite builds the firmware and checks it in the browser emulator.
 See [Testing](docs/TESTING.md) for Chromium setup, test coverage, and screenshots.
 
-Help integrate an engine or subsystem, define its compatibility requirements,
+Help integrate an engine or module, define its compatibility requirements,
 or add tests for a supported combination. Include the configuration and test
 results with your contribution, and retain upstream credits and license notices.
 Start with the [configuration](Kconfig), [firmware entry point](firmware/src/core_fm1.c),

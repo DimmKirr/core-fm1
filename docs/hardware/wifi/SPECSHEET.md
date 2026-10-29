@@ -2,8 +2,8 @@
 
 Written 2026-10-25 by the clean-room reader for the GPL-3.0 Wi-Fi driver on the JieLi AC791N (WL82)
 radio. **The implementers must not read vendor code, vendor IR or vendor disassembly.** They work from
-this sheet, the IEEE 802.11 standard, the SDIO Simplified Specification, and permitted open-source
-references (Ralink RT2x00 GPL-2.0+, lwIP 2.x BSD, wpa_supplicant BSD, ESP-IDF Apache 2.0).
+this sheet, the IEEE 802.11 standard, and permitted open-source references (Ralink RT2x00
+GPL-2.0+, lwIP 2.x BSD, wpa_supplicant BSD, ESP-IDF Apache 2.0).
 
 This sheet contains facts only: addresses, bit fields, values, sequences, timing, interrupts, bus
 protocols and observed behaviour. It contains no vendor code or pseudo-code. Long vendor tables (BBP
@@ -12,20 +12,51 @@ init, RF-die LUT, AGC) are described by location, size and capture method, not t
 Update 2026-10-26: added SDIO internal bus protocol (§7), RTOS shim API contract (§8), BBP programming
 detail (§6), BLE/WiFi coexistence (§9), and evidence tags on all facts.
 
+Update 2026-10-28: **ERRATA** §7 rewritten. The 0x50000 addresses are GPIO Port A, not SDIO. The
+AC791N WiFi MAC uses direct memory-mapped registers, not an SDIO bus. Added RT2800 IP ancestry
+evidence, DMA/interrupt register map (§7.1), MAC register addressing (§7.2). Added [IP:RT2x00] tag.
+
+Update 2026-10-28 (hardware probes v15-v18): **[M:hw]** First real-hardware register probes on FM-1.
+Key findings: (1) `0x50000` confirmed as GPIO, not SDIO [M:hw]. (2) DMA range `0x0200`-`0x0210`
+is open bus on AC791N: write-readback returns zero [M:hw]. (3) **WL_CTL0 (`0x14000`) is the bus
+gate** for the `0x30000`+ MAC register space: MAC reads fault when WL_CTL0=0, succeed when written
+[M:hw]. (4) MAC_SYS_CTRL (`0x31004`) confirmed readable, returns `0x0C` (TX_EN + RX_EN) [M:hw].
+(5) Full wireless control block scanned `0x14000`-`0x140A0` with 13 non-zero registers identified
+[M:hw]. §4.2 and §7 updated accordingly.
+
+Update 2026-10-28 (hardware probes v19-v22): **[M:hw]** MAC space mapping and DMA hunt.
+Key findings: (1) MAC register space `0x30000`-`0x31800` confirmed alive with multiple non-zero
+registers [M:hw v19-v20]. (2) `0x30200` returns `0x0BAD0BAD` sentinel (decoded but unimplemented)
+[M:hw v19]. (3) Chip version at `0x31000` = `0x00300100` [M:hw v19]. (4) BBP port `0x3101C` =
+`0x0008D000` confirmed on real hardware [M:hw v19]. (5) 18-address DMA hunt found two non-zero
+ranges: `0x34200` (SRAM, high-entropy) and **`0x40200` (DMA candidate)** [M:hw v21-v22].
+(6) `0x40000` block: base zeros, non-zero at RT2800 DMA offsets (`+0x200`=`0x809803B5`,
+`+0x204`=`0x1`, `+0x208`=`0xF1FE`) [M:hw v22]. (7) Indirect access via `0x14090`/`0x14080`
+disproven: `0x14080` always returns `0x800` regardless of `0x14090` value [M:hw v22].
+§7.1, §7.3, §7.8 updated.
+
 ---
 
 ## 0. Sources, tags and caveats
 
-**Tags.** Every fact carries one tag:
+**Tags.** Every fact carries one or more tags:
 
-| Tag       | Meaning                                                                                       |
-|-----------|-----------------------------------------------------------------------------------------------|
-| **[M:t]** | measured: an emulator MMIO trace of stock V15 or SDK demo (order, values, timing)             |
-| **[M:d]** | measured: a RAM or flash image taken from the emulator after the reference firmware ran       |
-| **[M:s]** | value seen: a constant, address or field offset read from the vendor binary or its debug info |
-| **[I]**   | inferred from names, structure or consistency; plausible, not proven                          |
+| Tag              | Meaning                                                                                       |
+|------------------|-----------------------------------------------------------------------------------------------|
+| **[M:t]**        | measured: an emulator MMIO trace of stock V15 or SDK demo (order, values, timing)             |
+| **[M:d]**        | measured: a RAM or flash image taken from the emulator after the reference firmware ran       |
+| **[M:hw]**       | measured: real FM-1 hardware observation (register probe via custom firmware)                  |
+| **[M:s]**        | value seen: a constant, address or field offset read from the vendor binary or its debug info |
+| **[IP:RT2x00]**  | derived from identified IP ancestor: Ralink RT2x00 family (see AC791N_IP_ANCESTRY.md §3)     |
+| **[I]**          | inferred from names, structure or consistency; plausible, not proven                          |
 
 Several facts are [M] for the *value* and [I] for the *meaning*; the text says which.
+
+**IP ancestry.** The WiFi MAC/BBP descends from the Ralink RT2x00 family (Level 2+ ancestry,
+high confidence). Evidence: BBP indirect access protocol, RF-die SPI, host interface register
+layout all match RT2800. The Linux RT2x00 driver (`drivers/net/wireless/ralink/rt2x00/rt2800.h`,
+GPL-2.0+) is a Tier 1 architectural reference. See `docs/hardware/AC791N_IP_ANCESTRY.md` §3 for
+the full evidence chain. Facts derived from RT2800 public documentation are tagged [IP:RT2x00].
 
 **Reference firmwares (oracles).**
 
@@ -49,7 +80,10 @@ the BBP calibration results, or the RF-die read-back. So:
   on such a read (calibration results) shows the model, not a real FM-1;
 - no WiFi data transfer happens in the emulator. MAC/STA facts come from the vendor binary [M:s]/[I].
 
-Nothing in this sheet ran on hardware unless tagged [M:hw].
+Facts tagged [M:hw] were measured on real FM-1 hardware using the `wifi_clean_room_probes` firmware
+(probes v9-v18, 2026-10-28). The probe firmware boots the device, enables WiFi clocks, reads/writes
+specific register addresses, and reports results over USB SysEx (DAP protocol). All other facts are
+from the emulator [M:t] or vendor binary analysis [M:s].
 
 ---
 
@@ -190,23 +224,46 @@ The shared radio front-end. Initialized during both WiFi and BLE startup [M:t].
 | `0x11968` | WL_CAL_START  | [28] start measurement; [0] filter cal start                     | Calibration trigger                                                                                  | M:t, M:s       |
 | `0x11978` | WL_CAL_STROBE | [17] comparator low; [18] comparator high; [15:8] filter result  | VCO comparator readout and filter calibration result                                                 | M:t, M:s       |
 
-### 4.2 Wireless control block: `0x14000-0x14064`
+### 4.2 Wireless control block: `0x14000-0x140A0`
 
-System-level wireless control: radio enables, clock gating, and the RF-die SPI interface [M:t].
+System-level wireless control: bus gating, clock gating, reset, and the RF-die SPI interface [M:t, M:hw].
 
-| Address   | Name       | Bits                                                                     | Function                                                                                      | Tag      |
-|-----------|------------|--------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|----------|
-| `0x14000` | WL_CTL0    |                                                                          | Wireless system control                                                                       | M:t      |
-| `0x14008` | WL_CTL8    |                                                                          | WiFi control (written during clock/reset init)                                                | M:s      |
-| `0x14028` | RFSPI_CTL  | [22:20] busy; [16] start; [15:8] address; [7:0] command; [4] kick toggle | RF-die SPI control port. Commands: 0xE = LUT word 0 write, 0xD = LUT word 1 write, 0x6 = read | M:t, M:s |
-| `0x1402C` | RFSPI_DATA | [31:0]                                                                   | RF-die SPI data (written before CTL)                                                          | M:t      |
-| `0x14034` | RFSPI_WAIT |                                                                          | Written 0 while polling busy (purpose unclear)                                                | M:t, I   |
-| `0x14040` | WL_CLK0    |                                                                          | WiFi clock control                                                                            | M:t, M:s |
-| `0x14044` | WL_CLK1    |                                                                          | WiFi clock control                                                                            | M:t, M:s |
-| `0x14048` | WL_CLK2    |                                                                          | WiFi clock control                                                                            | M:t, M:s |
-| `0x1404C` | WL_CLK3    |                                                                          | WiFi clock control                                                                            | M:t, M:s |
-| `0x14050` | WL_CLK4    |                                                                          | WiFi clock control                                                                            | M:t, M:s |
-| `0x1405C` | WL_RST     |                                                                          | WiFi reset control (written 3-5 times during init)                                            | M:t, M:s |
+**Bus gate discovery [M:hw]:** WL_CTL0 (`0x14000`) gates the `0x30000`+ MAC register address space.
+When WL_CTL0 is zero (default after reset), any read to `0x30000`+ causes a bus fault (confirmed:
+probe v13 crashed on `0x31004` read with WL_CTL0=0). Writing `0xFFFF` to WL_CTL0 (reads back
+`0xF103`) enables MAC register access (confirmed: probe v18 read `0x31004`=`0x0C` after gate).
+WL_CTL8 (`0x14008`) is also fully writable (`0xFFFF` sticks) and may participate in gating [M:hw].
+
+Full hardware scan of `0x14000`-`0x140A0` (probes v17, v18). Registers reading non-zero after WiFi
+clock/reset init are marked; zero-reading addresses between non-zero ones may be reserved or
+mode-dependent [M:hw].
+
+| Address   | Name       | HW value     | Bits                                                                     | Function                                                                                      | Tag           |
+|-----------|------------|--------------|--------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|---------------|
+| `0x14000` | WL_CTL0    | `0x00000000` | [15:0] writable; write `0xFFFF` reads `0xF103`; write `0xBEEF` reads `0xB003` | **MAC bus gate.** Must be written non-zero before accessing `0x30000`+ registers. Bit field semantics unknown beyond gating function | M:t, M:hw |
+| `0x14004` |            | `0x00000000` |                                                                          | Unknown (reads zero) [M:hw]                                                                   | M:hw          |
+| `0x14008` | WL_CTL8    | `0x00000000` | [15:0] fully writable; write `0xFFFF` reads `0xFFFF`                     | WiFi control. May participate in bus gating. Written during clock/reset init                   | M:s, M:hw     |
+| `0x1400C` | WL_ID      | `0x5B000000` |                                                                          | Unknown. Stable non-zero value across boots; possibly chip/block version ID                    | M:hw, I       |
+| `0x14010`-`0x14024` |  | `0x00000000` |                                                                          | Zero (7 registers) [M:hw]                                                                     | M:hw          |
+| `0x14028` | RFSPI_CTL  | `0x00010000` | [22:20] busy; [16] start; [15:8] address; [7:0] command; [4] kick toggle | RF-die SPI control port. Reads `0x10000` (start bit set) at rest. Commands: 0xE = LUT word 0 write, 0xD = LUT word 1 write, 0x6 = read | M:t, M:s, M:hw |
+| `0x1402C` | RFSPI_DATA | `0x00000000` | [31:0]                                                                   | RF-die SPI data (written before CTL)                                                          | M:t, M:hw     |
+| `0x14030`-`0x1403C` |  | `0x00000000` |                                                                          | Zero (4 registers, includes RFSPI_WAIT at `0x14034`) [M:hw]                                   | M:hw          |
+| `0x14040` | WL_CLK0    | `0x0000014F` |                                                                          | WiFi clock control. Non-zero at boot (set by WiFi driver or BLE RF init)                      | M:t, M:s, M:hw |
+| `0x14044` | WL_CLK1    | `0x00000000` |                                                                          | WiFi clock control                                                                            | M:t, M:s, M:hw |
+| `0x14048` | WL_CLK2    | `0x00000000` |                                                                          | WiFi clock control                                                                            | M:t, M:s, M:hw |
+| `0x1404C` | WL_CLK3    | `0x01000000` |                                                                          | WiFi clock control                                                                            | M:t, M:s, M:hw |
+| `0x14050` | WL_CLK4    | `0x00480001` |                                                                          | WiFi clock control (bit 0: SDIO/bus clock enable)                                             | M:t, M:s, M:hw |
+| `0x14054` | WL_CFG54   | `0x82FF82FF` |                                                                          | Unknown. Symmetric 16-bit halves; possibly calibration mask or filter config                   | M:hw, I       |
+| `0x14058` | WL_CFG58   | `0x00FF82FF` |                                                                          | Unknown. Similar pattern to `0x14054`; upper half differs                                     | M:hw, I       |
+| `0x1405C` | WL_RST     | `0x00000001` | [0] reset state: 0=asserted, 1=de-asserted                              | WiFi reset control. Sequence: write 0 (assert), delay 10 us, write 1 (de-assert), delay 100 us | M:t, M:s, M:hw |
+| `0x14060` | WL_CFG60   | `0x00480000` |                                                                          | Unknown. Upper bits match WL_CLK4 pattern; possibly related clock/power config                 | M:hw, I       |
+| `0x14064`-`0x1407C` |  | `0x00000000` |                                                                          | Zero (7 registers) [M:hw]                                                                     | M:hw          |
+| `0x14080` | WL_CFG80   | `0x00000800` |                                                                          | Unknown                                                                                       | M:hw          |
+| `0x14084` | WL_CFG84   | `0x0000000E` |                                                                          | Unknown                                                                                       | M:hw          |
+| `0x14088` | WL_CFG88   | `0x000001FF` |                                                                          | Unknown. 9 low bits set; possibly a mask or channel bitmap                                    | M:hw, I       |
+| `0x1408C` |            | `0x00000000` |                                                                          | Zero [M:hw]                                                                                   | M:hw          |
+| `0x14090` | WL_CFG90   | `0x0000234C` |                                                                          | Unknown                                                                                       | M:hw          |
+| `0x14094`-`0x140A0` |  | `0x00000000` |                                                                          | Zero (4 registers) [M:hw]. End of scanned range; registers beyond `0x140A0` untested          | M:hw          |
 
 ### 4.3 Wi-Fi MAC / BBP window: `0x30000-0x31FFF`
 
@@ -222,7 +279,7 @@ The Wi-Fi MAC and baseband processor (BBP) register space [M:t].
 | `0x30F14` | MAC_F14  | MAC configuration                                                            | M:s      |
 | `0x30F18` | MAC_F18  | MAC configuration                                                            | M:s      |
 | `0x30F1C` | MAC_F1C  | MAC configuration                                                            | M:s      |
-| `0x31004` | MAC_1004 | MAC configuration                                                            | M:t      |
+| `0x31004` | MAC_SYS_CTRL | MAC system control. HW probe: `0x0000000C` (bits 2+3 = TX_EN + RX_EN per RT2800). **Requires WL_CTL0 bus gate** | M:t, M:hw, IP:RT2x00 |
 | `0x3101C` | BBP_PORT | BBP indirect access port: [17] start, [16] read, [15:8] register, [7:0] data | M:t, M:s |
 | `0x31100` | MAC_1100 | MAC configuration                                                            | M:t      |
 | `0x31104` | MAC_1104 | MAC configuration                                                            | M:t      |
@@ -331,61 +388,184 @@ are BBP transactions [M:t]:
 
 ---
 
-## 7. SDIO internal bus protocol
+## 7. CPU-to-WiFi MAC register interface
 
-The AC791N uses an internal SDIO-like bus to connect the WiFi MAC/BBP engine to the main CPU [M:s].
-This is not an external SDIO card interface; it is an on-chip interconnect [I]. The bus is
-implemented in three vendor modules totalling approximately 55 functions [M:s].
+**ERRATA (2026-10-28):** the previous version of this section described an SDIO controller at
+`0x50000`. That was incorrect: `0x50000` / `0x50008` / `0x5000C` are **GPIO Port A** registers
+(`PA_OUT`, `PA_DIR`, `PA_DIE`) per `fm1_gpio.h` [M:t, M:hw]. The AC791N does not use an SDIO bus
+for CPU-to-WiFi communication. The vendor's `wl_sdio.c` naming is a software abstraction borrowed
+from the Linux WiFi driver stack; the actual interface is direct memory-mapped registers [M:s, I].
 
-### 7.1 SDIO controller registers
+**ERRATA (2026-10-28, probes v15-v18):** the DMA register range `0x0200`-`0x0298` listed in the
+vendor binary is **open bus** on real hardware [M:hw]. The actual DMA registers are at base
+`0x40000` + RT2800 offset, confirmed by probes v21-v23c [M:hw].
 
-| Address   | Purpose                                   | Tag |
-|-----------|-------------------------------------------|-----|
-| `0x50000` | SDIO base control register                | M:s |
-| `0x50008` | SDIO data/status (read during operations) | M:s |
-| `0x5000C` | SDIO data/status (read during operations) | M:s |
+The CPU accesses the WiFi MAC engine through direct memory-mapped registers, but access to the
+`0x30000`+ MAC space requires a **bus gate** at WL_CTL0 (`0x14000`):
 
-Note: these addresses were discovered in the vendor binary [M:s] but are not in the emulator trace (the emulator does
-not model the SDIO controller). Their detailed bit fields are unknown [I].
+1. **Bus gate**: WL_CTL0 at `0x14000` must be written non-zero before MAC registers are accessible [M:hw]
+2. **MAC / BBP control**: `0x30000` + RT2800 offset (documented in §4.3). Confirmed readable after bus gate [M:hw]
+3. **DMA / interrupt engine**: `0x40000` + RT2800 offset. **Confirmed** [M:hw v23c]. Control registers live, TX/RX ring pointers zeroed (uninitialized), writes effective (crash proof from v23b)
 
-### 7.2 Bus operations
+Clock and reset are at `0x14040`-`0x1405C` (documented in §4.2) [M:t, M:s, M:hw].
 
-The bus uses standard SDIO CMD52 (single-byte) and CMD53 (block transfer) semantics [M:s]:
+### 7.1 DMA / interrupt registers: base `0x40000`
 
-- **CMD52** (`io_rw_direct`): single-byte read or write to a function/address. Used for control
-  register access [M:s].
-- **CMD53** (`io_rw_extended`): block DMA transfer. Used for bulk data (TX/RX frames). Parameters:
-  write flag, function number, address, increment mode, buffer pointer, length, block size [M:s].
+**CONFIRMED [M:hw v21-v23c].** The DMA/interrupt engine uses RT2800 register offsets from base
+`0x40000` (not `0x0000` as in standard RT2800, and not `0x0200` as seen in vendor binary [M:s]).
 
-### 7.3 Initialization sequence
+The vendor binary references offsets `0x0200`-`0x0298` [M:s], which are **open bus** on real hardware
+[M:hw v15-v16]. The vendor's software abstraction layer likely adds the `0x40000` base at runtime.
 
-The bus initialization follows this order [M:s]:
+**Evidence chain:**
+- v21 [M:hw]: wide DMA hunt found non-zero value at `0x40200` (0x809803B5), all other tested bases returned zero
+- v22 [M:hw]: deep scan showed `0x40000`-`0x40100` = zeros, but `0x40200`/`0x40204`/`0x40208` non-zero
+- v23c [M:hw]: full read of RT2800 DMA offsets at `0x40000` base: control regs non-zero, TX/RX ring pointers zero (uninitialized)
+- v23b [M:hw]: write to `0x40230` (TX_BASE_PTR0) with garbage value caused immediate bus fault, proving writes reach the DMA engine
+- WPDMA_GLO_CFG (`0x40208`) value changed between boots (0xF1FE vs 0x61FE), confirming live register
 
-1. Clock and reset init via `0x14040-0x1405C` (WiFi clock gates and reset) [M:t]
-2. SDIO enumeration (bus discovery and function enable) [M:s]
-3. WiFi DMA init (sets up DMA descriptors for TX/RX) [M:s]
-4. PA enable (power amplifier brought up) [M:s]
-5. RF common init (full RF analog bring-up, §10) [M:t]
+| Address   | RT2800 offset | RT2800 name        | HW value (v23c)     | Function                              | Tag                    |
+|-----------|---------------|---------------------|---------------------|---------------------------------------|------------------------|
+| `0x40200` | `0x0200`      | INT_SOURCE_CSR      | `0x809803B5`        | Interrupt source (W1C to ACK)         | M:hw, IP:RT2x00        |
+| `0x40204` | `0x0204`      | INT_MASK_CSR        | `0x00000001`        | Interrupt mask                        | M:hw, IP:RT2x00        |
+| `0x40208` | `0x0208`      | WPDMA_GLO_CFG       | `0x000061FE` (varies) | DMA global config (enable TX/RX DMA) | M:hw, IP:RT2x00        |
+| `0x4020C` | `0x020C`      | WPDMA_RST_IDX       | `0x00004000`        | DMA ring index reset                  | M:hw, IP:RT2x00        |
+| `0x40210` | `0x0210`      | DELAY_INT_CFG       | `0x0000001F`        | Interrupt coalescing / delay          | M:hw, IP:RT2x00        |
+| `0x40230` | `0x0230`      | TX_BASE_PTR0        | `0x00000000`        | TX ring 0 base address (DMA desc)     | M:hw, IP:RT2x00        |
+| `0x40234` | `0x0234`      | TX_MAX_CNT0         | `0x00000000`        | TX ring 0 max descriptor count        | M:hw, IP:RT2x00        |
+| `0x40238` | `0x0238`      | TX_CTX_IDX0         | `0x00000000`        | TX ring 0 CPU index (next to submit)  | M:hw, IP:RT2x00        |
+| `0x4023C` | `0x023C`      | TX_DTX_IDX0         | `0x00000000`        | TX ring 0 DMA index (last completed)  | M:hw, IP:RT2x00        |
+| `0x40240` | `0x0240`      | TX_BASE_PTR1        | `0x00000000`        | TX ring 1 base address                | M:hw, IP:RT2x00        |
+| `0x40290` | `0x0290`      | RX_BASE_PTR         | `0x00000000`        | RX ring base address (DMA desc)       | M:hw, IP:RT2x00        |
+| `0x40294` | `0x0294`      | RX_MAX_CNT          | `0x00000000`        | RX ring max descriptor count          | M:hw, IP:RT2x00        |
+| `0x40298` | `0x0298`      | RX_CRX_IDX          | `0x00000000`        | RX ring CPU read index                | M:hw, IP:RT2x00        |
+| `0x4029C` | `0x029C`      | RX_DRX_IDX          | `0x00000000`        | RX ring DMA read index                | M:hw, IP:RT2x00        |
+| `0x40300` | `0x0300`      | (past DMA range)    | `0x00000003`        | Non-zero; may be PBF region           | M:hw                   |
 
-### 7.4 IRQ handling
+TX/RX ring pointers are all zero because probes run before the WiFi driver programs DMA descriptors.
+The remaining TX queues (2-5) at `0x40260`-`0x40288` are expected to follow the same layout [IP:RT2x00, I].
 
-- An SDIO interrupt handler is registered for WiFi MAC events [M:s].
-- An IRQ thread runs in the background, woken by a semaphore post from the interrupt [M:s].
-- The receive interrupt handler dispatches frames to the RX data path [M:s].
+**Address mapping rule:** AC791N DMA address = `0x40000` + RT2800 offset [M:hw, IP:RT2x00].
 
-### 7.5 TX/RX data path
+### 7.2 MAC control register addressing
 
-The internal SDIO bus carries WiFi frame data between the MAC engine and the CPU [M:s]:
+MAC control registers reside at `0x30000` + RT2800 offset [M:t, M:hw, IP:RT2x00].
 
-- **TX**: frame DMA write over SDIO [M:s].
-- **RX**: SDIO IRQ triggers receive, frames passed through a software filter [M:s].
+| Address   | RT2800 offset | RT2800 name      | HW value (v23c)     | Tag                     |
+|-----------|---------------|-------------------|---------------------|-------------------------|
+| `0x31000` | `0x1000`      | CHIP_VERSION      | `0x00300100`        | M:hw, IP:RT2x00         |
+| `0x31004` | `0x1004`      | MAC_SYS_CTRL      | `0x0000000C`        | M:hw, IP:RT2x00         |
+| `0x3101C` | `0x101C`      | BBP_CSR_CFG       | `0x0008D000`        | M:hw, IP:RT2x00         |
+| `0x31100` | `0x1100`      | XIFS_TIME_CFG     | `0x33A40C0B`        | M:hw, IP:RT2x00         |
+| `0x31104` | `0x1104`      | BKOFF_SLOT_CFG    | `0x00140314`        | M:hw, IP:RT2x00         |
+| `0x31330` | `0x1330`      | TX_SW_CFG0        | `0x00040804`        | M:hw, IP:RT2x00         |
+| `0x30300` | `0x0300`      | MAC_ADDR_DW0      | `0x00007001`        | M:hw, IP:RT2x00         |
+| `0x30304` | `0x0304`      | MAC_ADDR_DW1      | `0x00000000`        | M:hw, IP:RT2x00         |
+| `0x30308` | `0x0308`      | (MAC config)      | `0x00009407`        | M:hw, IP:RT2x00         |
+| `0x30F00` | `0x0F00`      | (RF config)       | (untested on HW)    | M:t, M:s                |
+
+**Address mapping rule:** AC791N MAC address = `0x30000` + RT2800 offset [M:hw, IP:RT2x00].
+
+### 7.3 Address region summary
+
+| Region            | Address range         | Base       | RT2800 equivalent        | HW status                              | Tag                    |
+|-------------------|-----------------------|------------|--------------------------|----------------------------------------|------------------------|
+| DMA / interrupts  | `0x40200`-`0x4029C`  | `0x40000`  | WPDMA, INT_SOURCE/MASK   | **Confirmed** [M:hw v23c]              | M:hw, IP:RT2x00        |
+| DMA (legacy)      | `0x0200`-`0x0298`    | raw `0`    | (vendor binary refs)     | **Open bus** [M:hw v15-v16]            | M:s, IP:RT2x00         |
+| Bus gate          | `0x14000`-`0x14008`  | (JieLi)    | (no RT2800 equivalent)   | **Confirmed** [M:hw v18]               | M:t, M:s, M:hw        |
+| MAC / BBP control | `0x30000`-`0x31FFF`  | `0x30000`  | MAC_SYS_CTRL, BBP_CSR    | **Confirmed** (after bus gate) [M:hw]  | M:hw, IP:RT2x00       |
+| RF analog         | `0x11900`-`0x11978`  | (JieLi)    | (no RT2800 equivalent)   | Untested on HW                         | M:t                    |
+| WL control        | `0x14000`-`0x140A0`  | (JieLi)    | (no RT2800 equivalent)   | **Confirmed** [M:hw v17-v18]           | M:t, M:s, M:hw        |
+| Clock / reset     | `0x14040`-`0x1405C`  | (JieLi)    | (no RT2800 equivalent)   | **Confirmed** [M:hw v15-v17]           | M:t, M:s, M:hw        |
+| BBP indirect      | via `0x3101C`        | `0x30000`  | BBP_CSR_CFG (0x101C)     | Read confirmed [M:hw v23c]             | M:hw, IP:RT2x00       |
+
+**Base address splitting:** JieLi split the RT2800 IP block across two MMIO bases: MAC/BBP at
+`0x30000`, DMA/interrupts at `0x40000`. Both use RT2800 register offsets. This is a common SoC
+integration pattern for licensed IP [I].
+
+### 7.4 Initialization sequence (revised)
+
+The WiFi MAC initialization follows this order [M:s, M:hw]:
+
+1. Clock and reset init via `0x14040`-`0x1405C` (WiFi clock gates and reset) [M:t, M:hw]
+2. **Bus gate**: write WL_CTL0 (`0x14000`) non-zero to enable `0x30000`+ and `0x40000`+ access [M:hw]. Write WL_CTL8 (`0x14008`) as needed [M:hw]. **Without this step, MAC/DMA reads will bus fault** [M:hw]
+3. MAC init: configure MAC_SYS_CTRL (`0x31004`) and related registers [M:t, M:hw, IP:RT2x00]
+4. DMA init: program TX/RX ring base pointers and counts at `0x40230`+/`0x40290`+, configure WPDMA_GLO_CFG (`0x40208`) to enable DMA [M:hw, IP:RT2x00]
+5. Interrupt setup: configure INT_MASK_CSR (`0x40204`) to enable desired interrupts [M:hw, IP:RT2x00]
+6. RF common init (full RF analog bring-up, §11) [M:t]
+
+### 7.5 DMA descriptor format
+
+The RT2800 uses scatter-gather DMA with ring buffers [IP:RT2x00]. Each TX descriptor contains:
+base address, length, and control fields. The exact AC791N descriptor format has not been confirmed
+by probe; the RT2800 format is the working hypothesis [IP:RT2x00, I].
+
+RT2800 TX descriptor (from Linux rt2800.h):
+- Word 0: `SD_PTR0` (scatter buffer 0 pointer)
+- Word 1: `SD_LEN0` [15:0], `LAST_SEC0` [16], `BURST` [17], `SD_LEN1` [31:18] (or similar)
+- Word 2: `SD_PTR1` (scatter buffer 1 pointer)
+- Word 3: `LAST_SEC1` [16], `DMA_DONE` [17]
+
+**Needs confirmation by hardware probe** [I].
+
+### 7.6 IRQ handling
+
+The MAC signals events via INT_SOURCE_CSR (`0x40200`) [M:hw, IP:RT2x00]. The vendor registers an
+interrupt handler that reads this register, ACKs by writing back the active bits (W1C), and defers
+processing to a background task [M:s]. The interrupt mask at `0x40204` controls which events
+generate interrupts [M:hw, IP:RT2x00].
+
+Observed values [M:hw v23c]: INT_SOURCE_CSR = `0x809803B5` (multiple pending interrupts),
+INT_MASK_CSR = `0x00000001` (only bit 0 enabled).
+
+RT2800-compatible interrupt bits [IP:RT2x00, I]:
+- Bit 0: TX done (ring 0)
+- Bit 1: TX done (ring 1)
+- Bit 2: RX done
+- Bit 6: TX status (TXFIFO)
+- Other bits: per RT2800 documentation
+
+### 7.7 TX/RX data path
+
+Based on the DMA ring architecture [M:s, IP:RT2x00]:
+
+- **TX**: CPU writes frame into a TX descriptor buffer, updates TX_CTX_IDX to advance the ring.
+  MAC DMA fetches the descriptor, transmits, advances TX_DTX_IDX, and raises TX-done interrupt.
+- **RX**: MAC DMA writes received frames into pre-posted RX descriptor buffers, advances
+  RX_DRX_IDX (read-only by CPU), and raises RX-done interrupt. CPU reads frames up to RX_CRX_IDX.
 - **Rate control**: per-packet TX rate selection via a rate control table [M:s].
 
-### 7.6 Host controller
+### 7.8 What needs hardware probes
 
-- Bus locking via mutex (claim/release host) [M:s].
-- Semaphore-based synchronization for bus operations [M:s].
-- The host controller manages timing and arbitration for the internal bus [M:s].
+**Confirmed by probes v14-v23c [M:hw]:**
+
+| Fact | Result | Probe | Tag |
+|------|--------|-------|-----|
+| **DMA at `0x40000` base** | **Yes.** Control regs non-zero, TX/RX rings zero, writes crash (effective) | v21-v23c | M:hw, IP:RT2x00 |
+| MAC_SYS_CTRL (`0x31004`) readable | Yes, returns `0x0C` (TX_EN + RX_EN per RT2800) | v18, v23c | M:hw, IP:RT2x00 |
+| CHIP_VERSION (`0x31000`) | `0x00300100` | v19, v23c | M:hw |
+| BBP_CSR_CFG (`0x3101C`) readable | Yes, returns `0x0008D000` | v19, v23c | M:hw, IP:RT2x00 |
+| MAC_ADDR_DW0 (`0x30300`) | `0x00007001` | v23c | M:hw |
+| XIFS_TIME_CFG (`0x31100`) | `0x33A40C0B` | v23c | M:hw, IP:RT2x00 |
+| BKOFF_SLOT_CFG (`0x31104`) | `0x00140314` | v23c | M:hw, IP:RT2x00 |
+| TX_SW_CFG0 (`0x31330`) | `0x00040804` | v23c | M:hw, IP:RT2x00 |
+| WL_CTL0 (`0x14000`) is bus gate | Yes, `0x30000`+/`0x40000`+ fault without it | v13 vs v18 | M:hw |
+| DMA range (`0x0200`-`0x0210`) | **Open bus** (vendor binary offset, not real address) | v15-v16 | M:hw |
+| `0x50000` is SDIO controller | **No, it is GPIO PA_OUT** | v14 | M:hw |
+| Clock regs (`0x14040`-`0x1405C`) | Non-zero values confirmed | v15, v17 | M:hw |
+| WL control block (`0x14000`-`0x140A0`) | 13 non-zero registers mapped | v17, v18 | M:hw |
+| `0x34000`+ block | SRAM/flash (high-entropy, not registers) | v21, v22 | M:hw |
+| `0x14090`/`0x14080` indirect port | **Disproven**: independent registers, not addr/data pair | v22 | M:hw |
+
+**Still unconfirmed (lower priority, not blocking WiFi STA):**
+
+| Fact                              | Hypothesis source | Notes                                                  |
+|-----------------------------------|-------------------|--------------------------------------------------------|
+| DMA descriptor format             | [IP:RT2x00]       | RT2800 format is working hypothesis; confirm during TX/RX bring-up |
+| BBP indirect write protocol       | [IP:RT2x00]       | Read confirmed; write protocol needed for calibration |
+| RF analog block (`0x11900`+)      | [M:t]             | Read on real HW to confirm emulator model accuracy |
+| WL_CTL0 minimal gate bits         | [M:hw]            | Which bit(s) enable MAC/DMA access? |
+| TX queues 2-5                     | [IP:RT2x00]       | Expected at `0x40260`-`0x40288`, untested |
 
 ---
 
@@ -541,9 +721,12 @@ SDK API, not register maps [M:s].
   register behavior)
 - `firmware/hal/fm1_ble_rf.h`: RF init implementation in core-fm1
 - `firmware/hal/fm1_ble.h`: BLE subsystem HAL
+- Linux RT2x00 driver (`drivers/net/wireless/ralink/rt2x00/rt2800.h`): GPL-2.0+ Tier 1 reference
+  for RT2800 DMA/interrupt/MAC register map. IP ancestor of the AC791N WiFi MAC (see
+  `docs/hardware/AC791N_IP_ANCESTRY.md` §3)
+- `docs/hardware/AC791N_IP_ANCESTRY.md`: IP ancestry analysis for all AC791N subsystems
 - JieLi SDK: `https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK` (binary drivers,
   Chinese docs, example applications)
 - IEEE 802.11-2020: WLAN standard (MAC, PHY)
-- SDIO Simplified Specification v3.0: bus protocol
 - FIPS 197 (AES), FIPS 180-4 (SHA-1), RFC 2104 (HMAC), RFC 2898 (PBKDF2): crypto standards
 - IEEE 802.11i: WPA2/CCMP security

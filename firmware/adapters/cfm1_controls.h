@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
-/* Control map adapter: maps physical buttons and encoders to UI actions.
- * Each firmware lineage provides its own table; the shell dispatches
- * through it instead of hardcoding button-to-page assignments. */
+/* Control map adapter: maps physical buttons and encoders to UI views.
+ * Each firmware upstream provides its own table; the shell dispatches
+ * through it instead of hardcoding button-to-view assignments. */
 #ifndef CFM1_CONTROLS_H
 #define CFM1_CONTROLS_H
 #include <stdint.h>
@@ -33,13 +33,13 @@
 #define ENC_PRESET   6
 
 /* what SELECT encoder does when no page claims it */
-#define CTL_SELECT_PAGE   0   /* step through pages (core-fm1 default) */
+#define CTL_SELECT_PAGE   0   /* cycle pages within current view */
 #define CTL_SELECT_BPM    1   /* adjust tempo */
 
-/* button action: navigate to a named page, or NULL for no action */
+/* button action: VIEW_* id on tap/hold, VIEW_NONE for no nav action */
 typedef struct cfm1_controls {
-    const char *btn_tap[BTN_COUNT];     /* page name on tap (NULL = no nav) */
-    const char *btn_hold[BTN_COUNT];    /* page name on hold (NULL = no nav) */
+    uint8_t     btn_tap[BTN_COUNT];     /* VIEW_* on tap */
+    uint8_t     btn_hold[BTN_COUNT];    /* VIEW_* on hold */
     uint32_t    hold_us;                /* hold threshold in microseconds */
     uint8_t     select_default;         /* CTL_SELECT_PAGE or CTL_SELECT_BPM */
 } cfm1_controls_t;
@@ -51,35 +51,36 @@ typedef struct cfm1_controls {
 
 static const cfm1_controls_t cfm1_controls = {
     .btn_tap = {
-        [BTN_OCTDN] = 0,
-        [BTN_OCTUP] = 0,
-        [BTN_FX]    = "FX",
-        [BTN_SCL]   = "SCL",
-        [BTN_ENV]   = "ENV",
-        [BTN_LFO]   = "LFO",
-        [BTN_EDIT]  = "EDIT",
-        [BTN_GLO]   =
-#ifdef CONFIG_DEBUG_LOG
-                       "DEBUG",
-#else
-                       0,
-#endif
-        [BTN_HOME]  = "HOME",
-        [BTN_SAVE]  = 0,
-        [BTN_ARP]   = "ARP",
-        [BTN_SEQ]   = "SEQ",
-        [BTN_PLAY]  = 0,
-        [BTN_REC]   = 0,
+        [BTN_OCTDN] = VIEW_NONE,
+        [BTN_OCTUP] = VIEW_NONE,
+        [BTN_FX]    = VIEW_FX,
+        [BTN_SCL]   = VIEW_SCL,
+        [BTN_ENV]   = VIEW_ENV,
+        [BTN_LFO]   = VIEW_LFO,
+        [BTN_EDIT]  = VIEW_EDIT,
+        [BTN_GLO]   = VIEW_GLO,
+        [BTN_HOME]  = VIEW_HOME,
+        [BTN_SAVE]  = VIEW_SAVE,
+        [BTN_ARP]   = VIEW_ARP,
+        [BTN_SEQ]   = VIEW_SEQ,
+        [BTN_PLAY]  = VIEW_NONE,
+        [BTN_REC]   = VIEW_NONE,
     },
     .btn_hold = {
-#ifdef CONFIG_SYS_MENU
-        [BTN_HOME]  = "SYS",
-#else
-        [BTN_HOME]  = "ABOUT",
-#endif
-#ifdef CONFIG_BLE
-        [BTN_GLO]   = "BLE",
-#endif
+        [BTN_OCTDN] = VIEW_NONE,
+        [BTN_OCTUP] = VIEW_NONE,
+        [BTN_FX]    = VIEW_NONE,
+        [BTN_SCL]   = VIEW_NONE,
+        [BTN_ENV]   = VIEW_NONE,
+        [BTN_LFO]   = VIEW_NONE,
+        [BTN_EDIT]  = VIEW_NONE,
+        [BTN_GLO]   = VIEW_CONN,
+        [BTN_HOME]  = VIEW_SETTINGS,
+        [BTN_SAVE]  = VIEW_NONE,
+        [BTN_ARP]   = VIEW_NONE,
+        [BTN_SEQ]   = VIEW_NONE,
+        [BTN_PLAY]  = VIEW_NONE,
+        [BTN_REC]   = VIEW_NONE,
     },
     .hold_us = 500000u,
     .select_default = CTL_SELECT_PAGE,
@@ -91,24 +92,36 @@ static const cfm1_controls_t cfm1_controls = {
 
 static const cfm1_controls_t cfm1_controls = {
     .btn_tap = {
-        [BTN_OCTDN] = 0,
-        [BTN_OCTUP] = 0,
-        [BTN_FX]    = "FX",
-        [BTN_SCL]   = "SCL",
-        [BTN_ENV]   = "ENV",
-        [BTN_LFO]   = "LFO",
-        [BTN_EDIT]  = "EDIT",
-        [BTN_GLO]   = "MIXER",
-        [BTN_HOME]  = "HOME",
-        [BTN_SAVE]  = "SAVE",
-        [BTN_ARP]   = "ARP",
-        [BTN_SEQ]   = "SEQ",
-        [BTN_PLAY]  = 0,
-        [BTN_REC]   = 0,
+        [BTN_OCTDN] = VIEW_NONE,
+        [BTN_OCTUP] = VIEW_NONE,
+        [BTN_FX]    = VIEW_FX,
+        [BTN_SCL]   = VIEW_SCL,
+        [BTN_ENV]   = VIEW_ENV,
+        [BTN_LFO]   = VIEW_LFO,
+        [BTN_EDIT]  = VIEW_EDIT,
+        [BTN_GLO]   = VIEW_GLO,
+        [BTN_HOME]  = VIEW_HOME,
+        [BTN_SAVE]  = VIEW_SAVE,
+        [BTN_ARP]   = VIEW_ARP,
+        [BTN_SEQ]   = VIEW_SEQ,
+        [BTN_PLAY]  = VIEW_NONE,
+        [BTN_REC]   = VIEW_NONE,
     },
     .btn_hold = {
-        [BTN_HOME]  = "MENU",
-        [BTN_SAVE]  = 0,   /* undo, handled by subsystem */
+        [BTN_OCTDN] = VIEW_NONE,
+        [BTN_OCTUP] = VIEW_NONE,
+        [BTN_FX]    = VIEW_NONE,
+        [BTN_SCL]   = VIEW_NONE,
+        [BTN_ENV]   = VIEW_NONE,
+        [BTN_LFO]   = VIEW_NONE,
+        [BTN_EDIT]  = VIEW_NONE,
+        [BTN_GLO]   = VIEW_CONN,
+        [BTN_HOME]  = VIEW_SETTINGS,
+        [BTN_SAVE]  = VIEW_NONE,
+        [BTN_ARP]   = VIEW_NONE,
+        [BTN_SEQ]   = VIEW_NONE,
+        [BTN_PLAY]  = VIEW_NONE,
+        [BTN_REC]   = VIEW_NONE,
     },
     .hold_us = 500000u,
     .select_default = CTL_SELECT_BPM,
@@ -120,25 +133,38 @@ static const cfm1_controls_t cfm1_controls = {
 
 static const cfm1_controls_t cfm1_controls = {
     .btn_tap = {
-        [BTN_OCTDN] = 0,
-        [BTN_OCTUP] = 0,
-        [BTN_FX]    = "FX",
-        [BTN_SCL]   = "SCL",
-        [BTN_ENV]   = "ENV",
-        [BTN_LFO]   = "LFO",
-        [BTN_EDIT]  = "EDIT",
-        [BTN_GLO]   = "MIXER",
-        [BTN_HOME]  = "HOME",
-        [BTN_SAVE]  = "SAVE",
-        [BTN_ARP]   = "ARP",
-        [BTN_SEQ]   = "SEQ",
-        [BTN_PLAY]  = 0,
-        [BTN_REC]   = 0,
+        [BTN_OCTDN] = VIEW_NONE,
+        [BTN_OCTUP] = VIEW_NONE,
+        [BTN_FX]    = VIEW_FX,
+        [BTN_SCL]   = VIEW_SCL,
+        [BTN_ENV]   = VIEW_ENV,
+        [BTN_LFO]   = VIEW_LFO,
+        [BTN_EDIT]  = VIEW_EDIT,
+        [BTN_GLO]   = VIEW_GLO,
+        [BTN_HOME]  = VIEW_HOME,
+        [BTN_SAVE]  = VIEW_SAVE,
+        [BTN_ARP]   = VIEW_ARP,
+        [BTN_SEQ]   = VIEW_SEQ,
+        [BTN_PLAY]  = VIEW_NONE,
+        [BTN_REC]   = VIEW_NONE,
     },
     .btn_hold = {
-        [BTN_HOME]  = "MENU",
+        [BTN_OCTDN] = VIEW_NONE,
+        [BTN_OCTUP] = VIEW_NONE,
+        [BTN_FX]    = VIEW_NONE,
+        [BTN_SCL]   = VIEW_NONE,
+        [BTN_ENV]   = VIEW_NONE,
+        [BTN_LFO]   = VIEW_NONE,
+        [BTN_EDIT]  = VIEW_NONE,
+        [BTN_GLO]   = VIEW_CONN,
+        [BTN_HOME]  = VIEW_SETTINGS,
+        [BTN_SAVE]  = VIEW_NONE,
+        [BTN_ARP]   = VIEW_NONE,
+        [BTN_SEQ]   = VIEW_NONE,
+        [BTN_PLAY]  = VIEW_NONE,
+        [BTN_REC]   = VIEW_NONE,
     },
-    .hold_us = 700000u,     /* SLOOP uses 0.7s hold threshold */
+    .hold_us = 700000u,
     .select_default = CTL_SELECT_BPM,
 };
 

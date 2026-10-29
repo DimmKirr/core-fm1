@@ -51,6 +51,9 @@ static struct {
     uint32_t last_rx_ms;
 
     uint8_t our_mac[6];
+
+    uint8_t assoc_sent;
+    uint32_t assoc_retry_ms;
 } wifi_sta;
 
 static uint32_t wifi_sta_now_ms(void)
@@ -150,8 +153,11 @@ static uint32_t wifi_sta_ie(uint8_t *buf, uint8_t id, const uint8_t *data, uint8
 
 static void wifi_sta_set_state(wifi_state_t s)
 {
+    cfm1_log_int("wifi: sta state=", (int32_t)s);
     wifi_sta.state = s;
     wifi_sta.state_enter_ms = wifi_sta_now_ms();
+    if (s == WIFI_STATE_ASSOC)
+        wifi_sta.assoc_sent = 0;
 }
 
 static int wifi_sta_timed_out(void)
@@ -380,18 +386,23 @@ static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len)
 
     case 0x00B0: /* authentication */
         if (wifi_sta.state == WIFI_STATE_AUTH) {
-            if (wifi_sta_parse_auth_resp(frame, len) == 0)
+            if (wifi_sta_parse_auth_resp(frame, len) == 0) {
+                cfm1_log("wifi: auth ok");
                 wifi_sta_set_state(WIFI_STATE_ASSOC);
+            }
         }
         break;
 
     case 0x0010: /* association response */
         if (wifi_sta.state == WIFI_STATE_ASSOC) {
             if (wifi_sta_parse_assoc_resp(frame, len) == 0) {
-                if (wifi_sta.target_security >= WIFI_SEC_WPA)
+                cfm1_log_int("wifi: assoc ok aid=", (int32_t)wifi_sta.aid);
+                if (wifi_sta.target_security >= WIFI_SEC_WPA) {
                     wifi_sta_set_state(WIFI_STATE_WPA);
-                else
+                } else {
                     wifi_sta_set_state(WIFI_STATE_CONNECTED);
+                    wifi_on_connected();
+                }
             }
         }
         break;
@@ -399,6 +410,9 @@ static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len)
     case 0x00C0: /* deauthentication */
         if (wifi_sta.state >= WIFI_STATE_AUTH &&
             wifi_sta_mcmp(frame + 10, wifi_sta.target_bssid, 6) == 0) {
+            cfm1_log("wifi: rx deauth");
+            if (wifi_sta.state == WIFI_STATE_CONNECTED)
+                wifi_on_disconnected();
             wifi_sta_set_state(WIFI_STATE_IDLE);
         }
         break;
@@ -406,6 +420,9 @@ static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len)
     case 0x00A0: /* disassociation */
         if (wifi_sta.state >= WIFI_STATE_ASSOC &&
             wifi_sta_mcmp(frame + 10, wifi_sta.target_bssid, 6) == 0) {
+            cfm1_log("wifi: rx disassoc");
+            if (wifi_sta.state == WIFI_STATE_CONNECTED)
+                wifi_on_disconnected();
             wifi_sta_set_state(WIFI_STATE_IDLE);
         }
         break;
@@ -418,12 +435,15 @@ static void wifi_sta_init(const uint8_t *mac)
 {
     wifi_sta_mset((uint8_t *)&wifi_sta, 0, sizeof wifi_sta);
     wifi_sta_mcpy(wifi_sta.our_mac, mac, 6);
-    wifi_sta.state = WIFI_STATE_OFF;
+    wifi_sta.state = WIFI_STATE_IDLE;
+    cfm1_log("wifi: sta init");
+    cfm1_log_hex("wifi: sta mac=", mac, 6);
 }
 
 static int wifi_sta_start_scan(void (*cb)(const char *ssid, int rssi, int channel))
 {
     if (wifi_sta.state != WIFI_STATE_IDLE) return -1;
+    cfm1_log("wifi: scan start");
     wifi_sta.nresults = 0;
     wifi_sta.scan_ch = 1;
     wifi_sta.scan_cb = cb;
@@ -461,7 +481,10 @@ static int wifi_sta_start_connect(const char *ssid, const char *password)
     struct wifi_scan_entry *ap;
 
     idx = wifi_sta_find_ap(ssid);
-    if (idx < 0) return -1;
+    if (idx < 0) {
+        cfm1_log("wifi: sta AP not found");
+        return -1;
+    }
 
     ap = &wifi_sta.results[idx];
     slen = wifi_sta_slen(ssid);
@@ -470,6 +493,7 @@ static int wifi_sta_start_connect(const char *ssid, const char *password)
     wifi_sta_mcpy(wifi_sta.target_ssid, (const uint8_t *)ssid, slen);
     wifi_sta.target_ssid_len = (uint8_t)slen;
     wifi_sta_mcpy(wifi_sta.target_bssid, ap->bssid, 6);
+    wifi_sta_mcpy(wifi_sta_bssid, ap->bssid, 6);
     wifi_sta.target_channel = ap->channel;
     wifi_sta.target_security = ap->security;
 
@@ -482,6 +506,9 @@ static int wifi_sta_start_connect(const char *ssid, const char *password)
     }
 
     wifi_rf_set_channel(ap->channel);
+    cfm1_log("wifi: sta connecting");
+    cfm1_log_int("wifi: sta ch=", (int32_t)ap->channel);
+    cfm1_log_hex("wifi: sta bssid=", ap->bssid, 6);
 
     wifi_sta_set_state(WIFI_STATE_AUTH);
     wifi_sta_send_auth();
@@ -490,6 +517,7 @@ static int wifi_sta_start_connect(const char *ssid, const char *password)
 
 static void wifi_sta_do_disconnect(void)
 {
+    cfm1_log("wifi: sta disconnect");
     if (wifi_sta.state >= WIFI_STATE_AUTH) {
         uint8_t frame[26];
         uint32_t pos;
@@ -534,6 +562,19 @@ static void wifi_sta_poll(void)
             }
             wifi_sta.scan_ch++;
             if (wifi_sta.scan_ch > 13) {
+                cfm1_log_int("wifi: scan done n=", (int32_t)wifi_sta.nresults);
+                /* log BSS table entries */
+                {
+                    uint32_t bi;
+                    for (bi = 0; bi < wifi_bss_count; bi++) {
+                        struct wifi_bss *b = &wifi_bss_table[bi];
+                        if (!b->in_use) continue;
+                        cfm1_log_hex("wifi: bss=", b->bssid, 6);
+                        if (b->ssid_len > 0)
+                            cfm1_log(b->ssid);
+                        cfm1_log_int("wifi:  ch=", (int32_t)b->channel);
+                    }
+                }
                 wifi_sta_set_state(WIFI_STATE_IDLE);
             } else {
                 wifi_sta.scan_start_ms = now;
@@ -543,23 +584,34 @@ static void wifi_sta_poll(void)
         break;
 
     case WIFI_STATE_AUTH:
-        if (wifi_sta_timed_out())
+        if (wifi_sta_timed_out()) {
+            cfm1_log("wifi: auth timeout");
             wifi_sta_set_state(WIFI_STATE_IDLE);
+        }
         break;
 
     case WIFI_STATE_ASSOC:
-        /* send assoc request shortly after entering this state */
-        if ((now - wifi_sta.state_enter_ms) < 10)
+        if (!wifi_sta.assoc_sent) {
             wifi_sta_send_assoc_req();
-        if (wifi_sta_timed_out())
+            wifi_sta.assoc_sent = 1;
+            wifi_sta.assoc_retry_ms = now + 500u;
+        } else if ((int32_t)(now - wifi_sta.assoc_retry_ms) >= 0) {
+            wifi_sta_send_assoc_req();
+            wifi_sta.assoc_retry_ms = now + 500u;
+        }
+        if (wifi_sta_timed_out()) {
+            cfm1_log("wifi: assoc timeout");
             wifi_sta_set_state(WIFI_STATE_IDLE);
+        }
         break;
 
     case WIFI_STATE_WPA:
         /* the 4-way handshake is driven by wifi_wpa via EAPOL frames;
          * completion calls wifi_sta_wpa_complete() */
-        if (wifi_sta_timed_out())
+        if (wifi_sta_timed_out()) {
+            cfm1_log("wifi: wpa timeout");
             wifi_sta_set_state(WIFI_STATE_IDLE);
+        }
         break;
 
     case WIFI_STATE_CONNECTED:
@@ -574,8 +626,11 @@ static void wifi_sta_poll(void)
 /* called by wifi_wpa when the 4-way handshake succeeds */
 static void wifi_sta_wpa_complete(void)
 {
-    if (wifi_sta.state == WIFI_STATE_WPA)
+    if (wifi_sta.state == WIFI_STATE_WPA) {
+        cfm1_log("wifi: wpa handshake ok");
         wifi_sta_set_state(WIFI_STATE_CONNECTED);
+        wifi_on_connected();
+    }
 }
 
 /* called by the MAC RX path for management frames */

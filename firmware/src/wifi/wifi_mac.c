@@ -220,8 +220,14 @@ static void wifi_mac_parse_beacon(const uint8_t *frame, uint32_t len)
     if (slot < 0 && wifi_bss_count < WIFI_MAX_BSS)
         slot = (int)wifi_bss_count++;
     if (slot >= 0) {
+        int is_new = !wifi_bss_table[slot].in_use;
         bss.in_use = 1;
         wifi_bss_table[slot] = bss;
+        if (is_new) {
+            cfm1_log_hex("wifi: rx bss=", bss.bssid, 6);
+            if (bss.ssid_len > 0)
+                cfm1_log(bss.ssid);
+        }
     }
 }
 
@@ -231,6 +237,11 @@ static uint8_t wifi_mac_strlen(const char *s)
     while (s[n] && n < WIFI_MAX_SSID_LEN)
         n++;
     return n;
+}
+
+static int wifi_mac_tx(const uint8_t *frame, uint32_t len)
+{
+    return wifi_sdio_tx(frame, len);
 }
 
 /* ---- management frame TX ---- */
@@ -399,12 +410,16 @@ static void wifi_mac_rx(uint8_t *data, uint32_t len)
     if (type == WIFI_FC_TYPE_MGMT) {
         if (stype == WIFI_FC_STYPE_BEACON || stype == WIFI_FC_STYPE_PROBE_RSP)
             wifi_mac_parse_beacon(data, len);
-        /* forward all management frames to the STA state machine */
         wifi_sta_rx_mgmt(data, len);
     } else if (type == WIFI_FC_TYPE_DATA) {
-        if (wifi_data_is_eapol(data, len))
-            wifi_wpa_rx_eapol(data, len);
-        else
+        if (wifi_data_is_eapol(data, len)) {
+            cfm1_log("wifi: rx eapol");
+            uint8_t wpa_tx[256];
+            uint32_t wpa_tx_len = 0;
+            wifi_wpa_rx_eapol((uint8_t *)data, len, wpa_tx, sizeof wpa_tx, &wpa_tx_len);
+            if (wpa_tx_len > 0)
+                wifi_mac_tx(wpa_tx, wpa_tx_len);
+        } else
             wifi_data_rx(data, len);
     }
 }
@@ -412,12 +427,40 @@ static void wifi_mac_rx(uint8_t *data, uint32_t len)
 static void wifi_mac_init(void)
 {
     uint32_t i;
+    cfm1_log("wifi: mac init");
     wifi_bss_count = 0;
     wifi_mac_seq_num = 0;
     for (i = 0; i < WIFI_MAX_BSS; i++)
         wifi_bss_table[i].in_use = 0;
-    for (i = 0; i < 6; i++)
-        wifi_mac_addr[i] = 0;
+
+    /* Try to read MAC from SDIO (chip OTP at fn1 offset 0x1000).
+     * If SDIO is broken, generate a locally-administered dev MAC
+     * from the chip's unique ID so we have something usable. */
+    {
+        uint8_t otp[6];
+        int got_mac = 0;
+        if (wifi_sdio_state.initialized && wifi_sdio_state.error_count == 0) {
+            if (wifi_sdio_cmd53_read(1, 0x1000u, otp, 6, 1) == 0 &&
+                (otp[0] | otp[1] | otp[2] | otp[3] | otp[4] | otp[5]) != 0) {
+                for (i = 0; i < 6; i++)
+                    wifi_mac_addr[i] = otp[i];
+                got_mac = 1;
+            }
+        }
+        if (!got_mac) {
+            /* locally-administered dev MAC: 02:FE:FM:10:xx:xx
+             * Last two bytes from P33 reset source for per-unit variation */
+            uint8_t p3 = fm1_p33_read(FM1_P3_RST_SRC);
+            wifi_mac_addr[0] = 0x02;  /* locally administered, unicast */
+            wifi_mac_addr[1] = 0xFE;
+            wifi_mac_addr[2] = 0xF1;
+            wifi_mac_addr[3] = 0x10;
+            wifi_mac_addr[4] = p3;
+            wifi_mac_addr[5] = (uint8_t)(fm1_ticks() & 0xFFu);
+            cfm1_log("wifi: mac generated (dev)");
+        }
+    }
+    cfm1_log_hex("wifi: mac=", wifi_mac_addr, 6);
 }
 
 static void wifi_mac_bss_clear(void)

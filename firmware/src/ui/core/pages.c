@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* core-fm1 shell: page registration.
- * Include order matters: pages reference shell_*, boot_text_1x, adapters. */
+/* core-fm1 shell: page registration with view assignments. */
 
 #include "ui/core/page_home.c"
 #include "ui/core/page_engine.c"
@@ -10,9 +9,9 @@
 
 static void shell_register_pages(void)
 {
-    shell_register(&PAGE_HOME);
-    shell_register(&PAGE_ENGINE);
-    shell_register(&PAGE_SEQ);
-    shell_register(&PAGE_FX);
-    shell_register(&PAGE_ABOUT);
+    nav_register(&PAGE_HOME);
+    nav_register(&PAGE_ENGINE);
+    nav_register(&PAGE_SEQ);
+    nav_register(&PAGE_FX);
+    nav_register(&PAGE_ABOUT);
 }

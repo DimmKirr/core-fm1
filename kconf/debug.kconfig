@@ -15,4 +15,13 @@ config DEBUG_LOG
       Enable a 32-line ring buffer for diagnostic messages.
       Subsystems write via cfm1_log(); the DEBUG page displays them.
 
+config DEBUG_DAP
+    bool "USB debug protocol (DAP)"
+    default y if DEBUG
+    depends on DEBUG && USB
+    help
+      Enable the fm1-dock SysEx debug protocol (D_HELLO, D_LOG).
+      Adds a NOINIT byte ring buffer that survives resets; the host
+      reads logs incrementally via tools/fm1log.py or hbdeploy.py.
+
 endmenu

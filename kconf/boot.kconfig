@@ -1,5 +1,9 @@
+# @module --> STORAGE
+# @module --> USB
+
 menu "Boot"
 
+# kc2mm:label "Loader"
 choice
     prompt "Boot/OTA"
     default BOOT_MELODEE
@@ -15,6 +19,7 @@ config BOOT_MELODEE
 
 endchoice
 
+# kc2mm:label "OTA"
 config OTA
     bool "M-UPGRADE OTA (SysEx firmware update)"
     depends on BOOT_MELODEE && FLASH

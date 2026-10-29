@@ -2,7 +2,7 @@
 
 ## Board
 
-Single-PCB design, no debug pads or recovery button exposed.
+Single-PCB design, no debug pads exposed. Recovery via UBOOT mode (hold OCT- only while sliding power on).
 
 | Spec | Value |
 |------|-------|
@@ -28,6 +28,7 @@ Single-PCB design, no debug pads or recovery button exposed.
 
 ### Controls
 
+- SPST slide switch (SW1): power on/off, located next to USB-C connector
 - 27 silicone keys (gold PCB contact pads, D1-D41 scanning diodes)
 - 14 buttons with individual LEDs (LED01-LED55+, tactile switches K30, K36, K40, K41, K45, etc.)
 - 7 rotary encoders + 1 master knob
@@ -49,7 +50,9 @@ Single-PCB design, no debug pads or recovery button exposed.
 
 ### Power
 
-4.7 uH inductor (marked "4R7") visible on board, likely part of DC-DC converter circuit.
+- **SW1**: SPST slide switch next to USB-C, hard power on/off (disconnects battery from system rail)
+- 4.7 uH inductor (marked "4R7") visible on board, likely part of DC-DC converter circuit
+- Battery charges via USB-C regardless of switch position (TP4056 is upstream of the switch)
 
 ## CPU: JieLi AC791N (WL82)
 

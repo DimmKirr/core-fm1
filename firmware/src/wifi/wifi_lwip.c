@@ -8,6 +8,9 @@
 
 #ifdef CONFIG_WIFI_LWIP
 
+/* ---- sys_now: lwIP timer tick (must be extern, called by lwIP core) --- */
+uint32_t sys_now(void) { return fm1_ms; }
+
 /* ---- lwIP headers (BSD-licensed lwIP 2.x) ---- */
 #include "lwip/init.h"
 #include "lwip/netif.h"
@@ -15,6 +18,7 @@
 #include "lwip/dhcp.h"
 #include "lwip/timeouts.h"
 #include "lwip/ip4_addr.h"
+#include "lwip/dns.h"
 #include "netif/ethernet.h"
 
 #define WIFI_LWIP_MTU        1500u
@@ -23,26 +27,27 @@
 static struct netif wifi_netif;
 static uint8_t wifi_lwip_up;
 
-/* MAC address: locally-administered default until VM/OTP path is shared with
- * BLE (VM 104 holds the provisioned BLE public address). */
-static uint8_t wifi_mac_addr[WIFI_LWIP_HWADDR_LEN] = {
-    0x02, 0x00, 0x00, 0x00, 0x00, 0x01
-};
+/* MAC address: shared with wifi_mac.c via wifi_sta.our_mac.
+ * This pointer is set by wifi_lwip_set_mac() before lwIP netif init. */
+static const uint8_t *wifi_lwip_mac;
+
+/* static TX buffer (moved from stack for scheduler safety) */
+static uint8_t wifi_tx_eth[WIFI_LWIP_MTU + 14u] __attribute__((section(".pool")));
 
 /* ---- low-level output: lwIP -> WiFi TX ---- */
 
 static err_t wifi_lwip_linkoutput(struct netif *nif, struct pbuf *p)
 {
-    uint8_t buf[WIFI_LWIP_MTU + 14u];
+    uint8_t *buf = wifi_tx_eth;
     uint32_t len = 0;
     struct pbuf *q;
 
     (void)nif;
     for (q = p; q != 0; q = q->next) {
         uint32_t chunk = (uint32_t)q->len;
-        if (len + chunk > sizeof buf)
-            chunk = sizeof buf - len;
-        wifi_memcpy(buf + len, (const uint8_t *)q->payload, chunk);
+        if (len + chunk > (WIFI_LWIP_MTU + 14u))
+            chunk = (WIFI_LWIP_MTU + 14u) - len;
+        memcpy(buf + len, (const uint8_t *)q->payload, chunk);
         len += chunk;
     }
     if (len < 14u)
@@ -71,7 +76,7 @@ static void wifi_lwip_input(const uint8_t *data, uint32_t len)
         uint32_t chunk = (uint32_t)q->len;
         if (off + chunk > len)
             chunk = len - off;
-        wifi_memcpy((uint8_t *)q->payload, data + off, chunk);
+        memcpy((uint8_t *)q->payload, data + off, chunk);
         off += chunk;
     }
 
@@ -91,12 +96,17 @@ static err_t wifi_lwip_netif_init(struct netif *nif)
     nif->mtu        = WIFI_LWIP_MTU;
     nif->hwaddr_len = WIFI_LWIP_HWADDR_LEN;
     for (i = 0; i < WIFI_LWIP_HWADDR_LEN; i++)
-        nif->hwaddr[i] = wifi_mac_addr[i];
+        nif->hwaddr[i] = wifi_lwip_mac ? wifi_lwip_mac[i] : 0;
     nif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
     return ERR_OK;
 }
 
 /* ---- public interface ---- */
+
+static void wifi_lwip_set_mac(const uint8_t *mac)
+{
+    wifi_lwip_mac = mac;
+}
 
 static void wifi_lwip_init(void)
 {
@@ -108,10 +118,12 @@ static void wifi_lwip_init(void)
               wifi_lwip_netif_init, ethernet_input);
     netif_set_default(&wifi_netif);
     wifi_lwip_up = 0;
+    cfm1_log("wifi: lwip init");
 }
 
 static void wifi_lwip_start_dhcp(void)
 {
+    cfm1_log("wifi: dhcp start");
     netif_set_up(&wifi_netif);
     netif_set_link_up(&wifi_netif);
     dhcp_start(&wifi_netif);
@@ -120,6 +132,7 @@ static void wifi_lwip_start_dhcp(void)
 
 static void wifi_lwip_stop_dhcp(void)
 {
+    cfm1_log("wifi: dhcp stop");
     wifi_lwip_up = 0;
     dhcp_stop(&wifi_netif);
     netif_set_link_down(&wifi_netif);
@@ -131,6 +144,17 @@ static uint32_t wifi_lwip_get_ip(void)
     return netif_ip4_addr(&wifi_netif)->addr;
 }
 
+static uint32_t wifi_lwip_get_gw(void)
+{
+    return netif_ip4_gw(&wifi_netif)->addr;
+}
+
+static uint32_t wifi_lwip_get_dns(void)
+{
+    const ip_addr_t *d = dns_getserver(0);
+    return d ? ip_2_ip4(d)->addr : 0;
+}
+
 /* called from wifi_poll in the main loop */
 static void wifi_lwip_poll(void)
 {
@@ -140,12 +164,14 @@ static void wifi_lwip_poll(void)
 #else /* !CONFIG_WIFI_LWIP */
 
 /* Stubs: the WiFi stack compiles without lwIP, but IP networking is unavailable. */
-static uint8_t wifi_mac_addr[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
+static void wifi_lwip_set_mac(const uint8_t *mac) { (void)mac; }
 static void wifi_lwip_init(void) {}
 static void wifi_lwip_input(const uint8_t *data, uint32_t len) { (void)data; (void)len; }
 static void wifi_lwip_start_dhcp(void) {}
 static void wifi_lwip_stop_dhcp(void) {}
 static uint32_t wifi_lwip_get_ip(void) { return 0; }
+static uint32_t wifi_lwip_get_gw(void) { return 0; }
+static uint32_t wifi_lwip_get_dns(void) { return 0; }
 static void wifi_lwip_poll(void) {}
 
 #endif /* CONFIG_WIFI_LWIP */

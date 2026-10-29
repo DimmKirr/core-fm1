@@ -1,3 +1,7 @@
+# @module : sys · irq · gpio · time · lcd · input
+# @module : flash · uart · usb · timer · mc
+# @module : cache · clock · power · eq · led_pwm · ble_rf
+
 menu "HAL"
 
 comment "Always included: fm1_adc.h, fm1_cc.h, fm1_gpio.h, fm1_xip.h, fm1_time.h"

@@ -46,7 +46,7 @@ extern uint32_t _audio_start[], _audio_end[], _audio_load[];
 #include "fm1_power.h"
 #endif
 
-/* peripherals included when their subsystem is configured */
+/* peripherals included when their module is configured */
 #ifdef CONFIG_AUDIO
 #include "fm1_audio.h"
 #include "fm1_adc.h"
@@ -110,7 +110,7 @@ extern uint32_t _audio_start[], _audio_end[], _audio_load[];
 
 /* --- LCD driver (ST7789 240x240) --- */
 #if defined(CONFIG_UI_FELUCCA)
-#include "ui/felucca/lcd.c"
+#include "ui/themes/felucca/lcd.c"
 #elif defined(CONFIG_UI_MELODEE)
 #include "ui/melodee/lcd.c"
 #else
@@ -300,12 +300,13 @@ static void fm1_fault(const fm1_crash_t *c)
 #include "manifest.h"
 volatile const char *cfm1_manifest_anchor = cfm1_manifest;
 
-/* --- adapters (stub APIs for subsystems not yet integrated) ---
+/* --- adapters (stub APIs for modules not yet integrated) ---
  *
- * Wired (real lineage .c exists in firmware/src/):
+ * Wired (real upstream .c exists in firmware/src/):
  *   cfm1_audio.h      - audio core types + voice interface
  *   cfm1_ble.h        - BLE stack (Optimist)
  *   cfm1_controls.h   - encoder/button names
+ *   cfm1_debug.h      - USB debug protocol (DAP, NOINIT byte ring)
  *   cfm1_log.h        - debug log ring buffer
  *   cfm1_ota.h        - flash ops for ota.c
  *   cfm1_page.h       - UI page vtable
@@ -343,7 +344,9 @@ volatile const char *cfm1_manifest_anchor = cfm1_manifest;
 #include "cfm1_mix.h"
 #include "cfm1_scales.h"
 #include "cfm1_udisk.h"
+#include "cfm1_debug.h"
 #include "cfm1_log.h"
+#include "ui/ui_view.h"
 #include "cfm1_controls.h"
 #include "cfm1_usb_audio.h"
 #include "cfm1_editor.h"
@@ -437,6 +440,9 @@ int usb_host_timeout(unsigned int ms) { (void)ms; return 0; }
 #include "../adapters/cfm1_ota.h"
 #include "boot/ota.c"
 #endif
+#ifdef CONFIG_DEBUG_DAP
+#include "debug/debug_dap.c"
+#endif
 #ifdef CONFIG_EDITOR
 #include "editor/melodee/editor.c"
 #endif
@@ -445,13 +451,29 @@ int usb_host_timeout(unsigned int ms) { (void)ms; return 0; }
 #endif
 #endif
 
+/* --- Audio ISR diagnostics (must precede sched.c for sched_log_stats) --- */
+
+/* ISR timing: written by assembly in fm1_isr.S, non-static */
+uint32_t fm1_audio_irq_start_ticks;
+uint32_t fm1_audio_irq_elapsed_ticks;
+
+/* Audio deadline miss counter: 128 samples @ 44.1kHz = 2.9ms = ~17,400 ticks @ 6MHz */
+static uint32_t audio_deadline_misses;
+#define AUDIO_DEADLINE_TICKS 17400u
+
+/* --- Cooperative scheduler --- */
+
+#ifdef CONFIG_SCHED
+#include "sched/sched.c"
+#endif
+
 /* --- OTG dual-role switching (needs both device and host code above) --- */
 
 #if defined(CONFIG_USB) && defined(CONFIG_USB_HOST)
 #include "cfm1_otg.h"
 #endif
 
-/* --- BLE subsystem (Optimist stack, firmware/upstream/optimist/) --- */
+/* --- BLE module (Optimist stack, firmware/upstream/optimist/) --- */
 
 #ifdef CONFIG_BLE
 #define BLE_API static
@@ -659,30 +681,73 @@ static void cfm1_ble_sync(void) {}
 
 #endif /* CONFIG_BLE */
 
-/* --- WiFi subsystem (GPL-3.0 clean-room driver) --- */
+/* --- WiFi module (GPL-3.0 clean-room driver) --- */
 
 #ifdef CONFIG_WIFI
 #include "../adapters/cfm1_wifi.h"
+#include "fm1_ble_rf.h"
 #include "fm1_wifi_rf.h"
 #include "fm1_wifi_sdio.h"
 #include "fm1_wifi_bbp.h"
 #include "wifi_rf_tables.h"
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
+
 #include "wifi/wifi_rtos.c"
 #include "wifi/wifi_rf.c"
+
+static void wifi_mac_rx(uint8_t *data, uint32_t len);
+
 #include "wifi/wifi_sdio.c"
+
+static void wifi_on_connected(void);
+static void wifi_on_disconnected(void);
+static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len);
+static int  wifi_data_is_eapol(const uint8_t *frame, uint32_t len);
+static int  wifi_wpa_rx_eapol(uint8_t *eapol, uint32_t len,
+                              uint8_t *tx_buf, uint32_t tx_size, uint32_t *tx_len);
+static void wifi_data_rx(const uint8_t *frame, uint32_t len);
+static void wifi_lwip_input(const uint8_t *data, uint32_t len);
+static void wifi_lwip_set_mac(const uint8_t *mac);
+static int  wifi_mac_tx(const uint8_t *frame, uint32_t len);
+static int  wifi_wpa_has_ptk(void);
+static void wifi_wpa_ccmp_hdr(uint8_t *frame);
+static int  wifi_wpa_ccmp_encrypt(uint8_t *frame, uint32_t hdr_len,
+                                   uint8_t *payload, uint32_t data_len,
+                                   uint8_t *mic_out);
+static int  wifi_wpa_ccmp_decrypt(uint8_t *frame, uint32_t hdr_len,
+                                   uint8_t *payload, uint32_t data_len,
+                                   uint8_t *mic_in);
+
+static uint8_t wifi_sta_bssid[6];
+
 #include "wifi/wifi_mac.c"
 #include "wifi/wifi_sta.c"
 #include "wifi/wifi_data.c"
 #include "wifi/wifi_wpa.c"
+#ifdef CONFIG_WIFI_LWIP
+#include "wifi/wifi_lwip_core.c"
+#endif
 #include "wifi/wifi_lwip.c"
+#include "wifi/wifi_http.c"
+#include "wifi/wifi_weather.c"
+#ifdef CONFIG_SCHED
+static void wifi_cmd_poll(void);
+#endif
 #include "wifi/wifi_api.c"
+#include "wifi/wifi_cmd.c"
+#include "wifi/wifi_debug.c"
 #endif /* CONFIG_WIFI */
 
-/* --- audio subsystem --- */
+/* --- WiFi hardware probes (cleanroom analyst instrument) --- */
 
-/* ISR timing: written by assembly in fm1_isr.S, non-static */
-uint32_t fm1_audio_irq_start_ticks;
-uint32_t fm1_audio_irq_elapsed_ticks;
+#ifdef CONFIG_WIFI_PROBES
+#include "fm1_wifi_rf.h"
+#include "wifi/wifi_probes.c"
+#endif /* CONFIG_WIFI_PROBES */
+
+/* --- audio module --- */
 
 static int32_t master_iir;
 
@@ -750,16 +815,19 @@ static int32_t master_iir;
 
 /* --- GFX renderer --- */
 #if defined(CONFIG_UI_FELUCCA)
-#include "ui/felucca/gfx.c"
+#include "ui/themes/felucca/gfx.c"
 #elif defined(CONFIG_UI_MELODEE)
 #include "ui/melodee/gfx.c"
 #endif
 
 /* --- UI shell --- */
 #include "cfm1_page.h"
+#include "ui/ui_theme.h"
+#include "ui/ui_nav.c"
+#include "ui/ui_elements.c"
 
 #if defined(CONFIG_UI_FELUCCA)
-#include "ui/felucca/ui.c"
+#include "ui/themes/felucca/ui.c"
 #elif defined(CONFIG_UI_MELODEE)
 #include "ui/melodee/shell.c"
 #else
@@ -876,6 +944,159 @@ static void ui_input(void)
 }
 #endif /* CONFIG_INPUT */
 
+/* --- scheduler tasks --- */
+
+#ifdef CONFIG_SCHED
+
+/* USB/OTG task: handles USB retries, OTG host, mass storage, OTA, uboot */
+#ifdef CONFIG_USB
+static void usb_task(void)
+{
+#ifdef CONFIG_DEBUG
+    cfm1_log("sched: usb_task start");
+#endif
+    for (;;) {
+        usb_retry(fm1_ms);
+#ifdef CONFIG_USB_HOST
+        otg_poll(fm1_ms);
+#endif
+#ifdef CONFIG_UDISK
+        udisk_poll();
+#endif
+#ifdef CONFIG_OTA
+        ota_service();
+        if (usb.ota_req) {
+            usb.ota_req = 0;
+#ifdef CONFIG_DEBUG
+            cfm1_log("usb: OTA session start");
+#endif
+#ifdef CONFIG_AUDIO
+            fm1_audio_stop();
+#endif
+            if (cfm1_flash_ok)
+                ota_session();
+            lcd_fill(0, 0, 240, 240, 0x0000);
+            nav_dirty = 1;
+        }
+#endif
+        if (usb.uboot_req) {
+            usb_detach();
+            fm1_delay_ms(30);
+            fm1_enter_uboot();
+        }
+        yield();
+    }
+}
+#endif /* CONFIG_USB */
+
+/* Settings task: flash writes run without blocking UI */
+#ifdef CONFIG_SYS_MENU
+static void settings_task(void)
+{
+#ifdef CONFIG_DEBUG
+    cfm1_log("sched: settings_task start");
+#endif
+    for (;;) {
+#ifdef CONFIG_USB
+        if (settings_reset_req) {
+            settings_reset_req = 0;
+            cfm1_log("settings: RESET requested");
+            sys_settings_defaults();
+            sys_settings_dirty = 1;
+            sys_settings_flush();
+            cfm1_log("settings: defaults written, rebooting");
+            fm1_delay_ms(200);
+            fm1_reboot();
+        }
+#endif
+        sys_settings_flush();
+        sleep_ms(50);
+    }
+}
+#endif /* CONFIG_SYS_MENU */
+
+/* Services task: editor, console, debug */
+static void services_task(void)
+{
+#ifdef CONFIG_DEBUG
+    cfm1_log("sched: services_task start");
+#endif
+    for (;;) {
+#ifdef CONFIG_EDITOR
+        editor_poll();
+#endif
+#ifdef CONFIG_CONSOLE
+        console_poll();
+#endif
+#if defined(CONFIG_DEBUG_DAP) && defined(CONFIG_USB)
+        cfm1_debug_poll();
+#endif
+        yield();
+    }
+}
+
+/* UI task: input, drawing, audio ADC, BLE sync */
+static void ui_task(void)
+{
+#ifdef CONFIG_DEBUG
+    cfm1_log("sched: ui_task start");
+#endif
+    for (;;) {
+        uint32_t m = fm1_ms;
+        fm1_wdt_feed();
+#ifdef CONFIG_INPUT
+        {
+            static uint32_t uboot_t0;
+            uint32_t both = (1u << 0) | (1u << 1);
+            if ((fm1_in.buttons & both) != both) {
+                uboot_t0 = fm1_ms;
+            } else if (fm1_ms - uboot_t0 > 5000u) {
+#ifdef CONFIG_AUDIO
+                fm1_audio_stop();
+#endif
+                lcd_fill(0, 0, 240, 240, 0x0000);
+#ifdef CONFIG_USB
+                usb_detach();
+                fm1_delay_ms(30);
+#endif
+                fm1_enter_uboot();
+            }
+        }
+#endif
+#ifdef CONFIG_AUDIO
+        {
+            int32_t a = fm1_adc_read(FM1_ADC_MASTER);
+            master_iir += (a - master_iir) >> 3;
+            song.master_q12 = (uint32_t)((master_iir * master_iir) >> 8);
+        }
+#endif
+#ifdef CONFIG_INPUT
+        ui_input();
+#endif
+#ifdef CONFIG_BLE
+        cfm1_ble_sync();
+#ifdef CFM1_BLE_STUB
+        if (bsim_ui_dirty) {
+            bsim_ui_dirty = 0;
+            nav_dirty = 1;
+        }
+#endif
+#endif
+#if defined(CONFIG_UI_FELUCCA)
+        fsh_draw();
+#elif defined(CONFIG_UI_CORE)
+        shell_draw();
+#endif
+        while (fm1_ms - m < 15u) {
+#ifdef CONFIG_INPUT
+            ui_input();
+#endif
+            yield();
+        }
+    }
+}
+#endif /* CONFIG_SCHED */
+
 static void fm1_main(void)
 {
     lcd_init();
@@ -884,6 +1105,7 @@ static void fm1_main(void)
     boot_text_1x(228, CONFIG_FIRMWARE_VERSION, 0x8410, 0x0000);
     lcd_sync();
 
+    cfm1_debug_init();
     cfm1_log_init();
     cfm1_log("core-fm1 boot");
     cfm1_log("lcd: init OK");
@@ -1061,7 +1283,7 @@ static void fm1_main(void)
 #if defined(CONFIG_UI_FELUCCA)
     fsh_init();
     fsh_register_pages();
-    cfm1_log_int("ui: felucca, pages=", (int32_t)fsh_npage);
+    cfm1_log_int("ui: felucca, pages=", (int32_t)nav_npage);
     fsh_boot();
     fsh_splash();
 #elif defined(CONFIG_UI_CORE)
@@ -1085,7 +1307,6 @@ static void fm1_main(void)
     cfm1_log("audio: DMA half-buf 128");
 #endif
 
-#ifdef CONFIG_INPUT
     {
         *(volatile uint32_t *)0x10900u = 0x4000u;  /* T5 CON: clear */
         *(volatile uint32_t *)0x10904u = 0;         /* T5 CNT */
@@ -1093,17 +1314,65 @@ static void fm1_main(void)
         fm1_irq_attach(FM1_IRQ_TIMER5, isr_timer5, 4);
         *(volatile uint32_t *)0x10900u = 0x4019u;   /* T5 CON: enable */
     }
-    cfm1_log("input: timer5 10kHz");
-#endif
+    cfm1_log("timer5: 10kHz ms clock");
 #ifdef CONFIG_WIFI
-    wifi_init();
-    cfm1_log("wifi: init");
+    cfm1_log("wifi: deferred (3s)");
+#endif
+#ifdef CONFIG_WIFI_PROBES
+    wifi_probes_init();
+#endif
+
+#ifdef CONFIG_SCHED
+    sched_init();
+#if defined(CONFIG_WIFI)
+    {
+        static uint32_t wifi_stack[1024] __attribute__((section(".pool")));
+        sched_create(wifi_task, wifi_stack, sizeof wifi_stack);
+        cfm1_log("sched: wifi task created");
+    }
+#endif
 #endif
 
     fm1_irq_enable_all();
     cfm1_log("irq: enabled");
     cfm1_log("boot complete");
 
+#ifdef CONFIG_SCHED
+#ifdef CONFIG_USB
+    {
+        static uint32_t usb_stack[512] __attribute__((section(".pool")));
+        sched_create(usb_task, usb_stack, sizeof usb_stack);
+#ifdef CONFIG_DEBUG
+        cfm1_log("sched: usb task created");
+#endif
+    }
+#endif
+#ifdef CONFIG_SYS_MENU
+    {
+        static uint32_t settings_stack[512] __attribute__((section(".pool")));
+        sched_create(settings_task, settings_stack, sizeof settings_stack);
+#ifdef CONFIG_DEBUG
+        cfm1_log("sched: settings task created");
+#endif
+    }
+#endif
+    {
+        static uint32_t services_stack[512] __attribute__((section(".pool")));
+        sched_create(services_task, services_stack, sizeof services_stack);
+#ifdef CONFIG_DEBUG
+        cfm1_log("sched: services task created");
+#endif
+    }
+    {
+        static uint32_t ui_stack[640] __attribute__((section(".pool")));
+        sched_create(ui_task, ui_stack, sizeof ui_stack);
+#ifdef CONFIG_DEBUG
+        cfm1_log("sched: ui task created");
+#endif
+    }
+    cfm1_log("sched: starting");
+    sched_run();
+#else
     for (;;) {
         uint32_t m = fm1_ms;
         fm1_wdt_feed();
@@ -1125,9 +1394,7 @@ static void fm1_main(void)
             if (cfm1_flash_ok)
                 ota_session();
             lcd_fill(0, 0, 240, 240, 0x0000);
-#if defined(CONFIG_UI_FELUCCA)
-            fsh_dirty = 1;
-#endif
+            nav_dirty = 1;
         }
 #endif
         if (usb.uboot_req) {
@@ -1165,11 +1432,8 @@ static void fm1_main(void)
 #ifdef CONFIG_EDITOR
         editor_poll();
 #endif
-#if defined(CONFIG_DEBUG_LOG) && defined(CONFIG_USB)
-        if (log_dump_req) {
-            log_dump_req = 0;
-            log_dump_reply();
-        }
+#if defined(CONFIG_DEBUG_DAP) && defined(CONFIG_USB)
+        cfm1_debug_poll();
 #endif
 #if defined(CONFIG_SYS_MENU) && defined(CONFIG_USB)
         if (settings_reset_req) {
@@ -1197,12 +1461,33 @@ static void fm1_main(void)
 #ifdef CFM1_BLE_STUB
         if (bsim_ui_dirty) {
             bsim_ui_dirty = 0;
-            fsh_dirty = 1;
+            nav_dirty = 1;
         }
 #endif
 #endif
 #ifdef CONFIG_WIFI
-        wifi_poll();
+        {
+            static uint8_t wifi_started;
+            static uint32_t hb_next;
+            if (!wifi_started) {
+                if (fm1_ms > hb_next) {
+                    cfm1_log_int("hb: ", (int32_t)fm1_ms);
+                    hb_next = fm1_ms + 2000u;
+                }
+                if (fm1_ms > 3000u) {
+                    wifi_started = 1;
+                    cfm1_log("wifi: deferred init GO");
+                    wifi_init();
+                    cfm1_log("wifi: init done");
+                }
+            } else {
+                if (fm1_ms > hb_next) {
+                    cfm1_log_int("hb+wifi: ", (int32_t)fm1_ms);
+                    hb_next = fm1_ms + 2000u;
+                }
+                wifi_poll();
+            }
+        }
 #endif
 #if defined(CONFIG_UI_FELUCCA)
         fsh_draw();
@@ -1215,6 +1500,7 @@ static void fm1_main(void)
 #endif
         }
     }
+#endif /* !CONFIG_SCHED */
 }
 
 /* --- C entry point (called from crt0.S, must not be static) --- */

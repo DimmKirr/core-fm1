@@ -1,4 +1,5 @@
-menu "USB Disk"
+# kc2mm:ignore
+menu "UDisk"
 
 config USB_HOST
     bool "USB host controller"

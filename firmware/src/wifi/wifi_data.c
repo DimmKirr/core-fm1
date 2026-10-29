@@ -58,6 +58,13 @@ static void wifi_data_cpy(uint8_t *d, const uint8_t *s, uint32_t n)
 /* TX sequence counter (shared with STA for management frames via wifi_sta) */
 static uint16_t wifi_data_seq;
 
+/* ---- static buffers (moved from stack for scheduler safety) ----
+ * Cooperative scheduling ensures single-threaded WiFi access,
+ * so static is safe and avoids 6KB+ stack pressure. */
+static uint8_t wifi_tx_frame[WIFI_DATA_MAX_FRAME + 16] __attribute__((section(".pool")));
+static uint8_t wifi_rx_frame[WIFI_DATA_MAX_FRAME + 16] __attribute__((section(".pool")));
+static uint8_t wifi_rx_eth[WIFI_ETH_HDR_LEN + WIFI_DATA_MTU] __attribute__((section(".pool")));
+
 /* ---- Ethernet -> 802.11 ---- */
 
 /* Convert an Ethernet frame to an 802.11 data frame (to-DS).
@@ -231,7 +238,7 @@ static uint32_t wifi_data_decrypt(uint8_t *frame, uint32_t len)
  * Returns 0 on success. */
 static int wifi_data_tx(const uint8_t *eth, uint32_t eth_len)
 {
-    uint8_t frame[WIFI_DATA_MAX_FRAME + 16]; /* +16 for CCMP overhead */
+    uint8_t *frame = wifi_tx_frame;
     uint32_t frame_len;
 
     if (wifi_sta.state != WIFI_STATE_CONNECTED) return -1;
@@ -257,7 +264,7 @@ static int wifi_data_tx(const uint8_t *eth, uint32_t eth_len)
  * Ethernet, deliver to lwIP or WPA handshake. */
 static void wifi_data_rx(const uint8_t *frame, uint32_t len)
 {
-    uint8_t buf[WIFI_DATA_MAX_FRAME + 16];
+    uint8_t *buf = wifi_rx_frame;
     uint32_t dlen, eth_len;
     uint16_t fc, ethertype;
 
@@ -270,7 +277,7 @@ static void wifi_data_rx(const uint8_t *frame, uint32_t len)
     if (!(fc & WIFI_FC_FROMDS)) return;
 
     /* copy for in-place operations */
-    if (len > sizeof buf) return;
+    if (len > WIFI_DATA_MAX_FRAME + 16) return;
     wifi_data_cpy(buf, frame, len);
     dlen = len;
 
@@ -287,8 +294,13 @@ static void wifi_data_rx(const uint8_t *frame, uint32_t len)
         if (dlen >= hdr + WIFI_SNAP_LEN) {
             ethertype = wifi_data_rd16be(buf + hdr + 6);
             if (ethertype == WIFI_ETHERTYPE_EAPOL) {
+                uint8_t wpa_tx[256];
+                uint32_t wpa_tx_len = 0;
                 wifi_wpa_rx_eapol(buf + hdr + WIFI_SNAP_LEN,
-                                  dlen - hdr - WIFI_SNAP_LEN);
+                                  dlen - hdr - WIFI_SNAP_LEN,
+                                  wpa_tx, sizeof wpa_tx, &wpa_tx_len);
+                if (wpa_tx_len > 0)
+                    wifi_mac_tx(wpa_tx, wpa_tx_len);
                 return;
             }
         }
@@ -296,7 +308,7 @@ static void wifi_data_rx(const uint8_t *frame, uint32_t len)
 
     /* convert to Ethernet and deliver to lwIP */
     {
-        uint8_t eth[WIFI_ETH_HDR_LEN + WIFI_DATA_MTU];
+        uint8_t *eth = wifi_rx_eth;
         eth_len = wifi_data_80211_to_eth(buf, dlen, eth);
         if (eth_len > 0)
             wifi_lwip_input(eth, eth_len);

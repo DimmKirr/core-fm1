@@ -1,4 +1,5 @@
-menu "CDP Debug Server"
+# kc2mm:ignore
+menu "CDP"
 
 config CDP
     bool "Chrome DevTools Protocol server over WiFi"

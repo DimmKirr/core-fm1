@@ -14,7 +14,10 @@
 typedef struct cfm1_page {
     const char *name;           /* short label: "HOME", "ENGINE", "SEQ" */
     const char *title;          /* display title (shell renders this) */
-    uint32_t flags;
+    uint8_t     view;           /* VIEW_* id (which view owns this page) */
+    uint32_t    flags;
+
+    int  (*visible)(void);      /* optional: return 0 to skip in nav cycle */
 
     /* lifecycle */
     void (*enter)(void);        /* page became active (draw full) */
@@ -30,7 +33,7 @@ typedef struct cfm1_page {
     int (*key)(uint32_t note, uint32_t vel);   /* piano key (optional, NULL ok) */
 } cfm1_page_t;
 
-/* a shell registers pages at startup; max 16 pages */
-#define CFM1_MAX_PAGES 16
+/* a shell registers pages at startup */
+#define CFM1_MAX_PAGES 20
 
 #endif /* CFM1_PAGE_H */

@@ -44,14 +44,14 @@ def test_cdp_port_default(kconf):
     assert str(port.str_value) == '9222'
 
 
-def test_wifi_defconfig_includes_cdp():
+def test_dev_defconfig_includes_cdp():
     genconfig = ROOT / 'tools' / 'genconfig.py'
     if not genconfig.exists():
         pytest.skip('tools/genconfig.py not found')
     import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         r = subprocess.run(
-            [sys.executable, str(genconfig), '--defconfig', 'wifi', '--outdir', tmpdir],
+            [sys.executable, str(genconfig), '--defconfig', 'core_fm1_dev', '--outdir', tmpdir],
             capture_output=True, text=True, cwd=str(ROOT))
         assert r.returncode == 0, r.stderr
         header = Path(tmpdir) / 'config.h'

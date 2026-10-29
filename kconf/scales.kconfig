@@ -1,7 +1,9 @@
+# kc2mm:ignore
 menu "Scales"
 
 choice
     prompt "Scale system"
+    depends on AUDIO
     default SCALES_MELODEE
 
 config SCALES_FELUCCA

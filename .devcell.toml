@@ -1,0 +1,286 @@
+# devcell.toml
+# DevCell project configuration. Optional global defaults: ~/.config/devcell/devcell.toml
+# Every option is listed below with its default. Uncomment what you need.
+
+[cell]
+# --- Image ---
+# Base stack: base (minimal, default), dev (seed), ultimate (general development), bbb (specialist tools).
+stack = "ultimate"
+#
+# Addon modules composed on top of the stack (run `devcell modules list`).
+modules = ["graphics", "electronics"]
+#
+# Nix packages from the stable channel: the default place for tools
+# (pre-commit, ruff, httpie and most CLIs are in nixpkgs). Run `devcell build` after editing.
+packages = ["qemu"]
+#
+# Image tag and registry overrides. Env: IMAGE_TAG, DEVCELL_REGISTRY.
+# image_tag = "v1.2.3-ultimate"
+# registry = "ghcr.io/devcell-sh/devcell"
+#
+# Tag the image per cell instead of per stack. Default: false.
+# per_cell_image = false
+#
+# Install the project's own flake.nix into the cell. Default: false. Env: DEVCELL_FLAKE.
+# flake = false
+#
+# --- Runtime ---
+# Extra volume mounts: /path, /host:/container, /host:/container:ro.
+
+
+
+#
+# Port forwards from container to host. A bare port is the same on both sides.
+# ports = ["3000", "8080:3000"]
+#
+# MCP servers to enable.
+#mcps = []
+#
+# Timezone (IANA) and locale. Default: host $TZ, "en_US.UTF-8".
+# timezone = "America/New_York"
+# locale = "en_US.UTF-8"
+#
+# Container hostname. Default: "devcell-<cellname>". Env: DEVCELL_HOSTNAME.
+# hostname = "devcell-myproject-1"
+#
+# Fixed MAC address for the container NIC (locally administered: 2/6/A/E first nibble).
+# mac_address = "e2:2d:42:13:81:d2"
+#
+# Pass the daemon host's /dev/kvm in for hardware-accelerated QEMU. Default: false. Env: DEVCELL_KVM.
+# kvm = false
+#
+# Keep the container/VM running after the shell exits. Default: false. Env: DEVCELL_BACKGROUND.
+# background = false
+#
+# Mount /var/run/docker.sock into the container. Default: true. Env: DEVCELL_DOCKER_SOCKET.
+# docker_socket = true
+#
+# Warn at start when the cell is behind its image. Default: true. Env: DEVCELL_STALE_WARN.
+# stale_warning = true
+#
+# Subcommand to run when `devcell` is invoked with no arguments. Env: DEVCELL_DEFAULT_COMMAND.
+# default_command = "claude"
+#
+# Opt-in experimental features, a list or a comma-separated string.
+# Flag: --experimental=ui-cage,ui-boot-popup. Env: DEVCELL_EXPERIMENTAL. Registry: docs/experimental.md.
+#   ui-cage        one-line bottom bar (workspace, cell name, clocks) drawn by a host tmux session
+#   ui-boot-popup   boot panel in a centred tmux popup, closed before the agent starts (needs ui-cage)
+#   engine-windows  Windows guest (os = "windows" or "winpe", engine winkit)
+# experimental = ["ui-cage", "ui-boot-popup"]
+#
+# --- Engine ---
+# Guest OS: linux (default), macos, windows (or winpe; experimental, needs experimental = ["engine-windows"]). Derives the engine when engine is unset.
+# os = "linux"
+#
+# Execution engine: docker (default), tart, winkit.
+# engine = "docker"
+#
+# Tart engine (macOS VMs). Env: DEVCELL_TART_*.
+# tart_oci_image = "ghcr.io/cirruslabs/macos-sequoia-base:latest"
+# tart_ssh_host = "localhost"
+# tart_ssh_port = 22
+# tart_ssh_user = "admin"
+# tart_ssh_key = "~/.ssh/id_ed25519"
+#
+# Winkit engine (Windows VMs). Env: DEVCELL_WINKIT_*.
+# winkit_windows_iso = "~/Downloads/Win11_ARM64.iso"
+# winkit_ssh_port = 2222
+# winkit_cpus = 4
+# winkit_memory_gb = 4
+
+# --- Docker resource limits for the running container ---
+# [docker]
+# privileged = false               # run with --privileged
+# cap_add = ["SYS_ADMIN"]          # extra Linux capabilities
+# mem_limit = "4g"                 # "0" = uncapped. Env: DEVCELL_DOCKER_MEM_LIMIT
+# cpu_limit = "2"                  # "0" = no quota. Env: DEVCELL_DOCKER_CPU_LIMIT
+# shm_size = "1g"                  # Env: DEVCELL_DOCKER_SHM_SIZE
+
+# --- Image build limits (cell build) ---
+# [build]
+# memory = "16g"                   # "0" = uncapped. Env: DEVCELL_BUILD_MEMORY
+# cpus = "8"                       # "0" = no quota. Env: DEVCELL_BUILD_CPUS
+# max_jobs = 0                     # nix max-jobs; 0 = derived. Env: DEVCELL_NIX_MAX_JOBS
+# cores = 0                        # nix cores per job; 0 = derived. Env: DEVCELL_NIX_CORES
+# threads = 128                    # nix download threads. Env: DEVCELL_BUILD_THREADS
+
+# --- Nix ---
+# [nix]
+# image = "nixos/nix:2.34.7"       # nix core image for builds. Env: DEVCELL_NIX_IMAGE
+# nixhome = "~/dev/home"           # local nixhome checkout. Env: DEVCELL_NIXHOME_PATH
+
+# --- Desktop GUI (Xvfb + VNC/RDP + window manager) ---
+# [gui]
+# enabled = true
+# wm = "icewm"                     # icewm, fluxbox
+# resolution = "1920x1080x24"      # logical resolution, before scaling
+# scale = 1                        # 1 = 96 DPI, 2 = 192 DPI (HiDPI)
+
+# --- Cage bar colours (experimental = ["ui-cage"]) ---
+# Three elements, each with its own colours: workspace name, cell name, status panel
+# (clocks). bar_* colours the gap between them. name picks a preset; every other key
+# overrides one colour. Colours: "#rrggbb", "colour0".."colour255" or a name.
+# [theme]
+# name = "devcell"                 # devcell (cool tone, default), brand, nord, catppuccin-mocha, tokyo-night
+# workspace_bg = "#38bdf8"
+# workspace_fg = "#0f172a"
+# cell_bg = "#334155"
+# cell_fg = "#e2e8f0"
+# status_bg = "#1e293b"
+# status_fg = "#cbd5e1"
+# bar_bg = "#0f172a"
+# bar_fg = "#94a3b8"
+# accent = "#818cf8"               # copy-mode selection, messages
+# separator = " | "                # between status panel blocks
+
+# --- AI agents: all LLM settings in one place ---
+# [llm]
+# Where agents send requests: default (each agent's own vendor and login,
+# e.g. Claude Code → Anthropic, Codex → OpenAI), ollama, openrouter.
+# --ollama / --openrouter override this for a single run.
+# provider = "openrouter"
+#
+# The provider's own model ID, no provider/ prefix. Default: the agent's own default.
+# model = "deepseek/deepseek-v4-pro"
+#
+# Replace Claude Code's built-in system prompt (you own the whole prompt).
+# system_prompt = """
+# This project uses PostgreSQL 16 with pgx/v5.
+# """
+# system_prompt_file = "docs/agent-prompt.md"
+#
+# Add to the system prompt instead of replacing it.
+# append_system_prompt = "API endpoints follow REST conventions at /api/v2/."
+# append_system_prompt_file = "docs/agent-notes.md"
+#
+# One table per provider, keyed by name. base_url is optional for the built-in
+# providers below (shown with their defaults) and required for custom ones.
+# [llm.providers.ollama]
+# base_url = "http://host.docker.internal:11434"
+# models = ["qwen3-coder:30b", "qwen3:8b"]
+#
+# [llm.providers.openrouter]
+# base_url = "https://openrouter.ai/api/v1"
+# models = ["moonshotai/kimi-k3", "deepseek/deepseek-v4-pro"]
+#
+# [llm.providers.lmstudio]
+# base_url = "http://host.docker.internal:1234/v1"
+# models = ["deepseek-r1:32b"]
+# --- Git identity forwarded into the container ---
+# If omitted and no GIT_AUTHOR_* env vars are set, ~/.config/git/config is mounted read-only.
+# [git]
+# author_name = "Your Name"
+# author_email = "you@example.com"
+# committer_name = "Your Name"         # defaults to author_name
+# committer_email = "you@example.com"  # defaults to author_email
+
+# --- Secrets ---
+# 1Password documents whose fields become env vars (requires the `op` CLI on the host).
+# A field labeled "API_KEY" becomes the env var API_KEY inside the container.
+# Fields can also be referenced in [env] values with ${secret:LABEL} (see [env] below).
+# [secrets.onepassword]
+# documents = ["prod-api-keys", "dev-secrets"]
+
+# --- AWS credential scoping ---
+# Scope every AWS tool (cli, terraform, SDKs, MCP servers) to read-only creds. Default: false.
+# [aws]
+# read_only = true
+
+# --- Port publishing ---
+# Host interface for published ports (VNC, RDP, [cell] ports). Default: "0.0.0.0".
+# [ports]
+# publish_ip = "127.0.0.1"
+
+# --- Browser fingerprint (patchright stealth) ---
+# [stealth]
+# arch = "arm"                     # arm, x86. Default: host architecture
+# platform = "Linux"               # Linux (default), macOS, Windows
+
+# --- Extra environment variables forwarded into the container ---
+# Values support two expansion forms:
+#   $VAR / ${VAR}       — resolved from the host environment
+#   ${secret:LABEL}     — resolved from 1Password fields (see [secrets.onepassword])
+# [env]
+# GITHUB_TOKEN = "ghp_xxx"
+# DB_DSN = "postgres://${DB_HOST}:${secret:DB_PASS}@db/app"
+
+# --- mise settings, forwarded as MISE_<UPPER_KEY> env vars ---
+# See: https://mise.jdx.dev/configuration.html
+# [mise]
+# trusted_config_paths = "/"
+
+# --- More packages ---
+# Newer nix channels, only when stable is too old. A package listed in more
+# than one channel comes from the newest. Run `devcell build` after editing.
+# [packages.nix]
+# unstable = ["uv"]                # nixpkgs-unstable: recent, cached
+# edge = ["claude-code"]           # master: newest, may build from source
+#
+# PyPI and npm tools not in nixpkgs. Installed by mise at container start
+# (cached in the cell home, no rebuild needed); pipx tools get one venv each.
+# Needs the python module (uv) or the node module (npm).
+# [packages.python]
+# "some-tool" = "latest"           # "latest", a prefix like "0.6", or "0.6.9"
+#
+# [packages.node]
+# "some-tool" = "^1.0.0"           # "latest" or any npm version range
+
+# --- Network egress proxy (deny-by-default outbound) ---
+# When enabled, the container sits on an internal-only network behind a gateway
+# sidecar (squid). Only allowed destinations are reachable; everything else gets
+# a 403. Presets cover common registries and AI APIs. Default: disabled (open).
+#
+# Quick start: `devcell claude --solitary` enables the proxy and strips every
+# setting that could bypass it (privileged, NET_ADMIN, docker socket, etc.).
+#
+# [network.proxy]
+# enabled = true
+# mode = "allow"                     # "allow" = deny by default; "block" = allow by default
+# presets = ["claude", "github", "npm", "nix"]
+# allow = ["api.example.com", "*.corp.internal", "10.0.0.0/8"]
+# block = ["pastebin.com"]
+# allow_host_network = false         # true = host reachable on bridge gateway
+# log = true                         # JSON access log in the sidecar
+# image = ""                         # gateway sidecar image; default: ubuntu/squid (pinned)
+#
+# Available presets:
+#   claude   — api.anthropic.com, claude.ai, claude.com, ...
+#   codex    — api.openai.com, chatgpt.com, ...
+#   gemini   — generativelanguage.googleapis.com, ...
+#   opencode — opencode.ai, models.dev
+#   openrouter — openrouter.ai
+#   github   — github.com, api.github.com, ghcr.io, ...
+#   npm      — registry.npmjs.org
+#   pypi     — pypi.org, files.pythonhosted.org
+#   go       — proxy.golang.org, sum.golang.org, ...
+#   cargo    — index.crates.io, static.crates.io
+#   nix      — cache.nixos.org, channels.nixos.org (includes github)
+#   mise     — mise-versions.jdx.dev, nodejs.org (includes github)
+#   docker   — registry-1.docker.io, auth.docker.io, ...
+#   devcell  — devcell.sh, host.docker.internal
+#   1password — *.1password.com, *.1passwordservices.com, ...
+#
+# Flags:
+#   --solitary              full lockdown (proxy + strip dangerous settings)
+#   --force-insecure-network  disable proxy, run with open egress
+
+# --- WireGuard tunnels (one [[wireguard]] block per tunnel) ---
+#
+# Paste a standard wg-quick config. Keep secrets OUT of the file: devcell
+# strips PrivateKey and PresharedKey and loads them at runtime from env vars
+# (set them in [secrets] or the environment; they live on a tmpfs, never on
+# disk). The DNS= line is ignored inside the container.
+#   WG_PRIVATE_KEY    required: the [Interface] PrivateKey
+#   WG_PRESHARED_KEY  optional: applied to every [Peer] (one PSK per tunnel)
+# [[wireguard]]
+# name = "office"
+# enabled = true
+# config = """
+# [Interface]
+# Address = 10.2.0.2/32
+#
+# [Peer]
+# PublicKey = "..."
+# Endpoint = vpn.example.com:51820
+# AllowedIPs = 0.0.0.0/0
+# """

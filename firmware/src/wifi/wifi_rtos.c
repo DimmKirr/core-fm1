@@ -183,15 +183,30 @@ static void wifi_defer_init(struct wifi_defer *d, wifi_defer_fn_t func, unsigned
     }
 }
 
+static struct wifi_defer *wifi_defer_find(struct wifi_defer *d)
+{
+    uint32_t i;
+    for (i = 0; i < wifi_defer_count; i++) {
+        if (wifi_defers[i].func == d->func && wifi_defers[i].data == d->data)
+            return &wifi_defers[i];
+    }
+    return (struct wifi_defer *)0;
+}
+
 static void wifi_defer_schedule(struct wifi_defer *d)
 {
-    d->pending = 1;
+    struct wifi_defer *reg = wifi_defer_find(d);
+    if (reg)
+        reg->pending = 1;
 }
 
 static void wifi_defer_cancel(struct wifi_defer *d)
 {
-    d->active = 0;
-    d->pending = 0;
+    struct wifi_defer *reg = wifi_defer_find(d);
+    if (reg) {
+        reg->active = 0;
+        reg->pending = 0;
+    }
 }
 
 static void wifi_defer_poll(void)
@@ -227,7 +242,7 @@ static int wifi_rx_deliver(struct wifi_buf *b)
 
 /* ---- heap: bump allocator for small MAC-layer allocations ---- */
 
-static uint8_t wifi_heap[WIFI_HEAP_SIZE] __attribute__((aligned(4)));
+static uint8_t wifi_heap[WIFI_HEAP_SIZE] __attribute__((section(".pool"), aligned(4)));
 static uint32_t wifi_heap_ptr;
 
 static void *wifi_heap_alloc(uint32_t size)

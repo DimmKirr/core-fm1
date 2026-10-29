@@ -292,10 +292,15 @@ def gen_engine_tables():
 
 
 def build(dry_run=False):
+    gen_inc = [f'-I{GEN}']
+    if str(GEN) != str(OUT / 'gen'):
+        gen_inc.append(f'-I{OUT / "gen"}')
     flags = [*CFLAGS, '-Ifirmware/hal', '-Ifirmware/adapters',
-             '-Ifirmware/src', '-Ifirmware', '-Ibuild/gen',
+             '-Ifirmware/src', '-Ifirmware', *gen_inc,
              '-Ifirmware/upstream/felucca/build/gen',
-             '-Ifirmware/upstream/optimist/firmware/src/ble']
+             '-Ifirmware/upstream/optimist/firmware/src/ble',
+             '-Ifirmware/upstream/lwip/src/include',
+             '-Ifirmware/src/wifi']
 
     config_h = GEN / 'config.h'
     if not config_h.exists():
@@ -311,6 +316,14 @@ def build(dry_run=False):
             print('gen_felucca_ui: headers exist, skipping (delete build/gen/ui_fonts.h to regenerate)')
     if 'ENGINES' in enabled:
         gen_engine_tables()
+    if 'WIFI' in enabled and not (GEN / 'ble_rf_tables.h').exists():
+        src = FW / 'upstream' / 'optimist' / 'firmware' / 'hal' / 'ble_rf_tables_v15.h'
+        if src.exists():
+            import shutil
+            shutil.copy2(src, GEN / 'ble_rf_tables.h')
+            print(f'ble_rf_tables: copied {src.name} -> {GEN.relative_to(ROOT)}/')
+        else:
+            raise SystemExit(f'{src} not found; WiFi builds need the shared RF init tables')
     pending = enabled & {'MIDI_UART', 'DUAL_CORE'}
     unsupported = {s for s in enabled if s.startswith('HAL_') and
                    s.endswith(('_FELUCCA', '_SLOOP'))}
@@ -325,17 +338,26 @@ def build(dry_run=False):
     if filtered != config_text:
         config_h.write_text(filtered)
 
-    flags.append('-includebuild/gen/config.h')
+    flags.append(f'-include{GEN}/config.h')
 
     version = _firmware_version()
     flags.append(f'-DCONFIG_FIRMWARE_VERSION="{version}"')
     print(f'build: version {version}')
+
+    wifi_pass = os.environ.get('CORE_FM1_WIFI_PASSWORD', '')
+    if wifi_pass and 'WIFI' in enabled:
+        flags.append(f'-DCONFIG_WIFI_PASSWORD="{wifi_pass}"')
+        print(f'build: WiFi password set ({len(wifi_pass)} chars)')
 
     asm_srcs = []
     if (FW / 'crt0.S').exists():
         asm_srcs.append(('crt0.S', FW / 'crt0.S'))
     for f in sorted((FW / 'hal').glob('*.S')):
         asm_srcs.append((f.name, f))
+    if 'SCHED' in enabled:
+        ctx_s = FW / 'src' / 'sched' / 'ctx.S'
+        if ctx_s.exists():
+            asm_srcs.append(('ctx.S', ctx_s))
 
     c_src = FW / 'src' / 'core_fm1.c'
     if not c_src.exists():
@@ -360,7 +382,10 @@ def build(dry_run=False):
     OUT.mkdir(parents=True, exist_ok=True)
     print(f'build: compiling{runner.label()}...')
 
-    asm_flags = ['-Ifirmware', '-Ibuild/gen', '-include', 'build/gen/config.h']
+    asm_gen_inc = [f'-I{GEN}']
+    if str(GEN) != str(OUT / 'gen'):
+        asm_gen_inc.append(f'-I{OUT / "gen"}')
+    asm_flags = ['-Ifirmware', *asm_gen_inc, '-include', f'{GEN}/config.h']
     for name, path in asm_srcs:
         obj_name = Path(name).stem + '.o'
         tc('cc', *asm_flags, '-c', str(path), '-o', str(OUT / obj_name))

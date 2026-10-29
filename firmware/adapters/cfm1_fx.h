@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* Effects adapter: FX chain state for UI display and control.
- * Stubs are active only when no effects lineage is configured. */
+ * Stubs are active only when no effects upstream is configured. */
 #ifndef CFM1_FX_H
 #define CFM1_FX_H
 #include <stdint.h>

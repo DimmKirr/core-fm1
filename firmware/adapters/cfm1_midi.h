@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* MIDI adapter: routing, learn, LED state for UI.
- * Stubs are active only when no MIDI routing lineage is configured. */
+ * Stubs are active only when no MIDI routing upstream is configured. */
 #ifndef CFM1_MIDI_H
 #define CFM1_MIDI_H
 #include <stdint.h>

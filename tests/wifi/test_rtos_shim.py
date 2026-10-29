@@ -58,3 +58,24 @@ def test_no_linux_kernel_names():
     ]
     found = [s for s in forbidden if s in text]
     assert not found, f'Linux kernel names in cleanroom code: {found}'
+
+
+def test_defer_schedule_modifies_registered_copy():
+    """wifi_defer_schedule must set pending on the copy in wifi_defers[]."""
+    src = RTOS_C.read_text()
+    fn_start = src.index('wifi_defer_schedule(')
+    fn_end = src.index('\n}', fn_start) + 2
+    fn = src[fn_start:fn_end]
+    assert 'wifi_defers' in fn or 'wifi_defer_find' in fn, \
+        'wifi_defer_schedule must modify the registered copy in wifi_defers[]'
+
+
+def test_wifi_poll_calls_timer_poll():
+    """wifi_poll must call wifi_timer_poll() for software timers."""
+    api_c = ROOT / 'firmware' / 'src' / 'wifi' / 'wifi_api.c'
+    src = api_c.read_text()
+    fn_start = src.index('wifi_poll(')
+    fn_end = src.index('\n}', fn_start) + 2
+    fn = src[fn_start:fn_end]
+    assert 'wifi_timer_poll()' in fn, \
+        'wifi_poll must call wifi_timer_poll()'

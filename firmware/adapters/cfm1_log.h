@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* Debug log adapter: fixed-size ring buffer for diagnostic messages.
- * Any subsystem can call cfm1_log() to push a line; the debug UI page
+ * Any module can call cfm1_log() to push a line; the debug UI page
  * reads the ring to display recent messages on the LCD. */
 #ifndef CFM1_LOG_H
 #define CFM1_LOG_H
@@ -68,6 +68,19 @@ static void cfm1_log(const char *msg)
     cfm1_log_head = (cfm1_log_head + 1) % CFM1_LOG_LINES;
     if (cfm1_log_count < CFM1_LOG_LINES)
         cfm1_log_count++;
+#ifdef CONFIG_DEBUG_DAP
+    {
+        char b[12];
+        uint32_t t = cfm1_log_ms, n = 0, j;
+        do { b[n++] = (char)('0' + t % 10u); t /= 10u; } while (t);
+        for (j = 0; j < n / 2u; j++) { char c = b[j]; b[j] = b[n - 1u - j]; b[n - 1u - j] = c; }
+        b[n++] = ' ';
+        b[n] = 0;
+        cfm1_debug_put(b);
+        cfm1_debug_put(msg);
+        cfm1_debug_put("\n");
+    }
+#endif
 }
 
 static void cfm1_log_int(const char *prefix, int32_t val)

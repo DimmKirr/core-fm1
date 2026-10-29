@@ -1,41 +1,73 @@
 # Components
 
-## Terminology
+## Module dependency graph
 
-| Term | Meaning | Kconfig pattern | Example |
-|------|---------|-----------------|---------|
-| **Subsystem** | Architectural grouping with its own lifecycle | `CONFIG_AUDIO`, `CONFIG_USB` | Audio, HAL, USB, UI |
-| **Module** | Functional slot within a subsystem | `CONFIG_ENGINE_FM6`, `CONFIG_SEQ_*` | FM6 engine, Effects, Sequencer |
-| **Lineage** | Firmware-specific implementation of a module | `CONFIG_*_FELUCCA`, `CONFIG_*_MELODEE` | Melodee FX, Felucca Sequencer |
-
-## Subsystem dependency graph
-
+<!-- module-diagram:start -->
 ```mermaid
-graph TB
-    UI["UI<br/><small>screen, menus, events</small>"]
-    AUDIO["Audio<br/><small>voices, render, DMA</small>"]
-    SEQ["Sequencer<br/><small>steps, patterns, song</small>"]
-    MIDI["MIDI Routing<br/><small>channels, clock, thru</small>"]
-    USB["USB<br/><small>MIDI, SysEx, UBOOT</small>"]
-    STORAGE["Storage<br/><small>flash, projects, presets</small>"]
-    BLE["BLE<br/><small>GATT, link layer</small>"]
-    BOOT["Boot<br/><small>loader, OTA, recovery</small>"]
-    SCALES["Scales<br/><small>tuning, quantize</small>"]
-    HAL["HAL<br/><small>registers, peripherals</small>"]
+%%{init: {"flowchart": {"curve": "step"}} }%%
+flowchart TB
+    AUDIO["<b>Audio</b><br/><small>Core · Effects · Engines · Scales · Sequencer</small>"]
+    BLE["<b>BLE</b><br/><small>midi · central · hid · bond · diag · file_transfer</small>"]
+    BOOT["<b>Boot</b><br/><small>Loader · OTA</small>"]
+    DEBUG["<b>Debug</b><br/><small>log · dap</small>"]
+    HAL["<b>HAL</b><br/><small>sys · irq · gpio · time · lcd · input<br/>flash · uart · usb · timer · mc<br/>cache · clock · power · eq · led_pwm · ble_rf</small>"]
+    MIDI["<b>MIDI</b><br/><small>UART Transport · Routing<br/>Editor · Console</small>"]
+    USB["<b>USB</b><br/><small>Device Driver · USB Audio · Host Controller · UDisk</small>"]
+    STORAGE["<b>Storage</b><br/><small>Flash · Settings</small>"]
+    SCHED["<b>Sched</b><br/><small>Cooperative round-robin · ctx.S</small>"]
+    UI["<b>UI</b><br/><small>Shell · Controls · Settings Menu</small>"]
+    WIFI["<b>WiFi</b><br/><small>STA · lwIP · WPA · MIDI · CDP</small>"]
 
+    BOOT -.-> STORAGE
+    BOOT -.-> USB
+    MIDI --> AUDIO
+    MIDI -.->|transport| BLE
     UI --> AUDIO
     UI --> STORAGE
-    SEQ --> AUDIO
-    MIDI --> AUDIO
-    MIDI -.->|"routing needs<br/>transport"| USB
-    MIDI -.-> BLE
-    USB --> HAL
+    UI --> MIDI
+    UI -.->|pages| WIFI
+    UI -.->|pages| DEBUG
+    WIFI -.->|mutex| BLE
+    UI -.-> USB
+    UI -.-> BLE
+    DEBUG --> USB
+    MIDI --> USB
+    WIFI --> DEBUG
+    SCHED --> HAL
+    UI -.-> SCHED
+    WIFI -.-> SCHED
     AUDIO --> HAL
     BLE --> HAL
-    STORAGE --> HAL
     BOOT --> HAL
-    SCALES
+    DEBUG --> HAL
+    MIDI --> HAL
+    USB --> HAL
+    STORAGE --> HAL
+    UI --> HAL
+    WIFI --> HAL
 ```
+<!-- module-diagram:end -->
+
+> Solid arrows: hard dependency. Dashed arrows: optional/conditional.
+
+## Terminology
+
+| Tier | What it answers | Kconfig pattern | Example |
+|------|-----------------|-----------------|---------|
+| **Module** | What domain? | top-level `menu` + `CONFIG_*` | Audio, UI, MIDI, USB, WiFi, BLE, HAL |
+| **Component** | What thing? | `CONFIG_ENGINE_FM6`, `CONFIG_OTA` | FM6, Shell, Weather, Effects, OTA |
+| **Upstream** | Whose code? (omit if native) | `choice` radio / `CONFIG_*_FELUCCA` | Felucca, Melodee, SLOOP, Optimist, FMLab |
+
+Qualifiers (orthogonal to the tiers):
+
+| Qualifier | What it answers | Example |
+|-----------|-----------------|---------|
+| **Capability** | What gates it on/off? | `CONFIG_WEATHER`, `CONFIG_BLE`, `CONFIG_ENGINE_FM6` |
+| **Contract** | What interface does it implement? | `cfm1_page.h`, `cfm1_engine.h`, `cfm1_fx.h` |
+
+**Module boundary rule:** a module has its own Kconfig top-level menu AND its own directory under `firmware/src/`.
+
+**Grouping convention:** components registered in `engines.c` are engines; components registered in `pages.c` are pages. These are naming conventions, not taxonomy tiers.
 
 ## Unity build inclusion order
 
@@ -98,6 +130,11 @@ graph TD
         ISR_TIMING["fm1_audio_irq_start_ticks<br/>fm1_audio_irq_elapsed_ticks<br/><small>non-static, used by fm1_isr.S</small>"]
     end
 
+    subgraph "5c. Scheduler (CONFIG_SCHED)"
+        SCHED_CORE["sched/sched.c<br/><small>round-robin, yield, sleep_ms</small>"]
+        CTX_S["sched/ctx.S<br/><small>context switch (asm)</small>"]
+    end
+
     subgraph "6. Audio core"
         PARAMS["params.c"]
         VOICE["voice.c"]
@@ -110,8 +147,9 @@ graph TD
         SHELL["ui shell + pages"]
     end
 
-    subgraph "8. Main loop"
+    subgraph "8. Main / Scheduler tasks"
         MAIN["fm1_main()"]
+        TASKS["usb_task · settings_task<br/>services_task · ui_task<br/>wifi_task"]
     end
 ```
 
@@ -126,9 +164,9 @@ Registers and low-level hardware access. Header-only. No logic, no state.
 - `fm1_gpio.h` (pin mux, read/write)
 - `fm1_irq.h` (interrupt controller)
 
-### Variant (pick one per slot via Kconfig)
+### Upstream (pick one per slot via Kconfig)
 
-| Variant slot | Felucca | SLOOP | Melodee |
+| Component | Felucca | SLOOP | Melodee |
 |---|---|---|---|
 | sys | yes | yes | yes |
 | irq | yes | yes | yes |
@@ -204,7 +242,7 @@ if (usb.uboot_req) {
 ### Source
 
 - HAL: `firmware/hal/fm1_usb.h` (register-level, USB0 peripheral)
-- Driver: `firmware/src/midi/usb.c` (~1000 lines, Melodee lineage)
+- Driver: `firmware/src/midi/usb.c` (~1000 lines, Melodee upstream)
 - Adapter guard: `firmware/adapters/cfm1_midi.h` (`CFM1_USB_MIDI` flag avoids stub conflict)
 
 ## Audio
@@ -213,7 +251,7 @@ Voice allocator, render pipeline, DMA half-buffer (128 samples @ 44.1kHz stereo)
 
 Enabled by `CONFIG_AUDIO`. Requires `fm1_irq_enable_all()` after `audio_init()` or the ALNK0 DMA ISR never fires. Optionally uses `CONFIG_DUAL_CORE` for render on core 1.
 
-### Audio Core (pick one)
+### Core component (pick one upstream)
 
 - **Felucca**: 8+6 voices (14 total)
 - **SLOOP**: inherited from Felucca
@@ -223,20 +261,20 @@ Enabled by `CONFIG_AUDIO`. Requires `fm1_irq_enable_all()` after `audio_init()` 
 
 Engines implement the `engine_t` vtable. Each compiles in/out independently via `CONFIG_ENGINE_*`.
 
-#### Multiple lineages
+#### Multiple upstreams
 
 - **FM6**: Felucca | Melodee (FPU, MARK I/MODERN/OPL modes)
 - **Drum**: Felucca (GM) | SLOOP | Melodee (808/909/SID)
 
-#### Felucca only
+#### Felucca upstream only
 
 Analog (ported), Digital, Phase, Sample, Granular, LoFi, Trio, Tonewheel, Formant, Physical, Noise (ported)
 
-#### Melodee only
+#### Melodee upstream only
 
 Prophet-5, CZ-1, SID
 
-### Effects (pick one)
+### Effects component (pick one upstream)
 
 - **Felucca**
 - **SLOOP**
@@ -250,7 +288,7 @@ Prophet-5, CZ-1, SID
 
 Step sequencer, pattern management, recording. Depends on Audio.
 
-### Implementation (pick one)
+### Sequencer component (pick one upstream)
 
 - **Felucca**: 64-step, chords, ties, live loop
 - **SLOOP**: arranger, scenes
@@ -262,7 +300,7 @@ Routing, clock sync, transport control.
 
 Requires at least one transport: `CONFIG_MIDI_UART` (TRS) or `CONFIG_USB`.
 
-### Routing (pick one)
+### Routing component (pick one upstream)
 
 - **Felucca**
 - **SLOOP**
@@ -280,7 +318,7 @@ Requires at least one transport: `CONFIG_MIDI_UART` (TRS) or `CONFIG_USB`.
 ## BLE
 
 Bluetooth Low Energy protocol stack. Depends on HAL (radio registers).
-Enables BLE MIDI transport in the MIDI subsystem.
+Enables BLE MIDI transport in the MIDI module.
 
 ### BLE Stack (Optimist)
 
@@ -294,15 +332,17 @@ Enables BLE MIDI transport in the MIDI subsystem.
 
 ## UI
 
-Screen rendering, event dispatch, menu system.
+Screen rendering, event dispatch, view navigation.
 Enabled by `CONFIG_INPUT`.
 
-### UI Framework (pick one)
+For the cross-theme framework (view/page/element model, navigation rules, theme contract), see [UI.md](UI.md).
+
+### Shell component (pick one upstream)
 
 - **Felucca**: page-based shell with encoder/button dispatch
 - **SLOOP**
 - **Melodee**: Rubik font, track colors, 8 palettes, partial updates
-- **Core**: minimal bitmap-font shell (default when no lineage UI is selected)
+- **Native** (Core): minimal bitmap-font shell (default when no upstream UI is selected)
 
 ### Event flow
 
@@ -320,7 +360,7 @@ button taps and holds to page names, and per-page `knob()`/`button()`/`key()`
 handlers process encoder and keyboard input. The shell tries the page handler
 first; if it returns 0 (unhandled), the shell falls through to the nav table.
 
-### Source files (Felucca UI)
+### Source files (Felucca upstream)
 
 | File | Role |
 |------|------|
@@ -334,14 +374,17 @@ first; if it returns 0 (unhandled), the shell falls through to the nav table.
 | `firmware/src/ui/felucca/page_seq.c` | SEQ: step sequencer display |
 | `firmware/src/ui/felucca/page_mixer.c` | MIXER: per-track level controls |
 | `firmware/src/ui/felucca/page_about.c` | ABOUT: firmware info (display only) |
-| `firmware/src/ui/felucca/page_sys.c` | SYS: settings menu (conditional, `CONFIG_SYS_MENU`) |
+| `firmware/src/ui/felucca/page_sys.c` | Settings View pages (conditional, `CONFIG_SYS_MENU`) |
 | `firmware/src/ui/felucca/page_files.c` | FILES: USB disk browser (conditional, `CONFIG_UDISK`) |
 | `firmware/src/ui/felucca/page_ble.c` | BLE: device list (conditional, `CONFIG_BLE`) |
 | `firmware/src/ui/felucca/page_debug.c` | DEBUG: log viewer (conditional, `CONFIG_DEBUG_LOG`) |
 
-### Felucca page order
+### Felucca views and pages
 
-HOME, ENV, LFO, FX, SCL, EDIT, ARP, SEQ, MIXER, VOICE, ABOUT, [SYS], [FILES], [BLE], [DEBUG]
+Each button opens a view; the encoder cycles pages within that view. See [UI.md](UI.md#views) for the full view map.
+
+**Synth views**: HOME, ENV, LFO, FX, SCL, EDIT, GLO, SAVE, ARP, SEQ
+**System views**: Settings (HOME hold), Conn (GLO hold: [WiFi], [Weather], [BLE])
 
 Pages in brackets are conditional on their Kconfig symbol.
 
@@ -349,10 +392,10 @@ Pages in brackets are conditional on their Kconfig symbol.
 
 #### Encoders
 
-| ID | Name | HOME page | Param pages (ENV, LFO, etc.) | SYS | FILES | DEBUG |
-|----|------|-----------|------------------------------|-----|-------|-------|
+| ID | Name | HOME View | Param Views (ENV, LFO, etc.) | Settings View | FILES | DEBUG |
+|----|------|-----------|------------------------------|---------------|-------|-------|
 | 0 | SELECT | Engine select | Page nav (CW/CCW) | Cycle value | Scroll entries | Scroll log |
-| 1 | ALGO | Track select | -- | Switch tabs | -- | -- |
+| 1 | ALGO | Track select | -- | Switch pages | -- | -- |
 | 2 | KNOB1 | Engine knob[0] | Param card 1 | -- | -- | -- |
 | 3 | KNOB2 | Engine knob[1] | Param card 2 | -- | -- | -- |
 | 4 | KNOB3 | Engine knob[2] | Param card 3 | -- | -- | -- |
@@ -360,8 +403,8 @@ Pages in brackets are conditional on their Kconfig symbol.
 | 6 | PRESET | -- | -- | Scroll rows | -- | -- |
 | -- | MASTER | Volume (ADC) | Volume (ADC) | Volume (ADC) | Volume (ADC) | Volume (ADC) |
 
-ALGO (ENC 1) has no knob handler on param pages: it is used only on HOME
-(track select) and SYS (tab switch).
+ALGO (ENC 1) has no knob handler on param views: it is used only on HOME
+(track select) and Settings (page switch).
 
 #### Buttons
 
@@ -369,16 +412,16 @@ ALGO (ENC 1) has no knob handler on param pages: it is used only on HOME
 |----|------|-----------|-------------------|
 | 0 | OCT- | **dead** | -- |
 | 1 | OCT+ | **dead** | -- |
-| 2 | FX | -> FX page | -- |
-| 3 | SCL | -> SCL page | -- |
-| 4 | ENV | -> ENV page | -- |
-| 5 | LFO | -> LFO page | -- |
-| 6 | EDIT | -> EDIT page | -- |
-| 7 | GLO | -> DEBUG page (if `CONFIG_DEBUG_LOG`, else dead) | -- |
-| 8 | HOME | -> HOME page | -> SYS page (if `CONFIG_SYS_MENU`, else ABOUT) |
-| 9 | SAVE | **dead** | -- |
-| 10 | ARP | -> ARP page | -- |
-| 11 | SEQ | -> SEQ page | -- |
+| 2 | FX | -> FX View | -- |
+| 3 | SCL | -> SCL View | -- |
+| 4 | ENV | -> ENV View | -- |
+| 5 | LFO | -> LFO View | -- |
+| 6 | EDIT | -> EDIT View | -- |
+| 7 | GLO | -> GLO View | -> CONN View (WiFi/Weather/BLE) |
+| 8 | HOME | -> HOME View | -> Settings View |
+| 9 | SAVE | -> SAVE View | -- |
+| 10 | ARP | -> ARP View | -- |
+| 11 | SEQ | -> SEQ View | -- |
 | 12 | PLAY | **dead** | -- |
 | 13 | REC | **dead** | -- |
 
@@ -430,7 +473,7 @@ which parameters appear:
 Flash storage, project save/load, presets.
 Enabled by `CONFIG_FLASH`.
 
-### Implementation (pick one)
+### Flash component (pick one upstream)
 
 - **Felucca**
 - **SLOOP**
@@ -438,9 +481,9 @@ Enabled by `CONFIG_FLASH`.
 
 ## Scales
 
-Scale selection, key quantization, tuning.
+Scale selection, key quantization, tuning. Component within the Audio module.
 
-### Implementation (pick one)
+### Scales component (pick one upstream)
 
 - **Felucca**: 16 scales, white-key QNT
 - **Melodee**: 70 scales incl. 54 microtonal, concert pitch 400-480Hz
@@ -449,7 +492,7 @@ Scale selection, key quantization, tuning.
 
 Startup, loader, OTA update mechanism.
 
-### Implementation (pick one)
+### Loader component (pick one upstream)
 
 - **Felucca**: stock DFU
 - **SLOOP**: stock DFU
@@ -491,22 +534,22 @@ sequenceDiagram
 
 ### Source
 
-- Protocol core: `firmware/src/boot/ota.c` (Melodee lineage, portable)
+- Protocol core: `firmware/src/boot/ota.c` (Melodee upstream, portable)
 - Hardware hooks: `firmware/adapters/cfm1_ota.h` (flash ops, clock, progress display, commit)
 - Wire transport: `firmware/src/midi/usb.c` (`ota_wire_send`, `ota_frame_get`, gated by `MELODEE_OTA`)
 - Host tool: `firmware/upstream/felucca/tools/fm1_install.py`
 
-## Adapters
+## Contracts (adapters)
 
-Thin compatibility headers (`cfm1_*.h`) that let subsystems from different lineages plug into core-fm1. Each adapter defines the contract (types, vtable, signatures) that both sides conform to.
+Thin compatibility headers (`cfm1_*.h`) that let components from different upstreams plug into core-fm1. Each contract defines the interface (types, vtable, signatures) that both sides conform to.
 
 ```mermaid
 graph LR
     subgraph "Producers"
-        ENG_F["Felucca Engine"]
-        ENG_M["Melodee Engine"]
+        ENG_F["Felucca upstream"]
+        ENG_M["Melodee upstream"]
     end
-    subgraph "Adapter"
+    subgraph "Contract"
         EP["cfm1_engine.h"]
     end
     subgraph "Consumers"
@@ -520,17 +563,17 @@ graph LR
     EP --> AC_M
 ```
 
-| Adapter | Header | Enables |
-|---------|--------|---------|
+| Contract | Header | Enables |
+|----------|--------|---------|
 | Audio Core | `cfm1_audio.h` | Common audio types and voice interface |
-| Engine Plugin | `cfm1_engine.h` | Any engine on any audio core |
-| Effects Chain | `cfm1_fx.h` | Swap FX implementations |
-| Sequencer | `cfm1_seq.h` | Swap sequencer implementations |
+| Engine | `cfm1_engine.h` | Any engine on any audio core |
+| Effects | `cfm1_fx.h` | Swap effects upstreams |
+| Sequencer | `cfm1_seq.h` | Swap sequencer upstreams |
 | Storage | `cfm1_storage.h` | Tagged-blob project format |
-| MIDI Routing | `cfm1_midi.h` | Swap MIDI implementations (`CFM1_USB_MIDI` gates stub) |
-| Modulation | `cfm1_mod.h` | Swap modulation matrix implementations |
-| Page/UI | `cfm1_page.h` | Page vtable for UI shell dispatch |
-| OTA Update | `cfm1_ota.h` | Flash ops, clock, progress, commit hooks for `ota.c` |
+| MIDI Routing | `cfm1_midi.h` | Swap MIDI upstreams (`CFM1_USB_MIDI` gates stub) |
+| Modulation | `cfm1_mod.h` | Swap modulation upstreams |
+| Page | `cfm1_page.h` | Page vtable for UI shell dispatch |
+| OTA | `cfm1_ota.h` | Flash ops, clock, progress, commit hooks for `ota.c` |
 
 ## Defconfig presets
 

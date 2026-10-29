@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* Storage adapter: project save/load, user presets.
- * Stubs are active only when no storage lineage is configured. */
+ * Stubs are active only when no storage upstream is configured. */
 #ifndef CFM1_STORAGE_H
 #define CFM1_STORAGE_H
 #include <stdint.h>

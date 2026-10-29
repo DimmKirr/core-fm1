@@ -6,7 +6,7 @@ Works on macOS and Linux using pyusb (libusb backend). No SCSI passthrough neede
 
   fm1_uboot_flash.py build/core-fm1.fwsc [--yes]
 
-The FM-1 must be in UBOOT mode (hold OCT+/- for 5 s, or send the SysEx softkey).
+The FM-1 must be in UBOOT mode (hold OCT- only for 5 s, or send the SysEx softkey).
 The device appears as VID 4C4A PID 8057, product "WL80UBOOT1.00".
 
 Protocol: uploads wl82loader.bin to RAM (MengLi-ciphered), jumps to it, then

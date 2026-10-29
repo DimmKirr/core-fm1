@@ -32,6 +32,7 @@ static int seq_page_knob(uint32_t id, int32_t clicks)
 static const cfm1_page_t PAGE_SEQ = {
     .name  = "SEQ",
     .title = "SEQUENCER",
+    .view  = VIEW_SEQ,
     .flags = 0,
     .draw   = seq_page_draw,
     .knob   = seq_page_knob,

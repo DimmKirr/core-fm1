@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 /* Sequencer adapter: transport, step data, pattern state.
  * Used by UI shells to show playback/record state and pattern grids.
- * Stubs are active only when no sequencer lineage is configured. */
+ * Stubs are active only when no sequencer upstream is configured. */
 #ifndef CFM1_SEQ_H
 #define CFM1_SEQ_H
 #include <stdint.h>

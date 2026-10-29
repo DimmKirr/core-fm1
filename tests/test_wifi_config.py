@@ -41,14 +41,14 @@ def test_wifi_sub_options_depend_on_wifi(kconf):
         assert 'WIFI' in dep, f'{name} must depend on WIFI, got: {dep}'
 
 
-def test_wifi_defconfig_generates_header():
+def test_dev_defconfig_generates_wifi_header():
     genconfig = ROOT / 'tools' / 'genconfig.py'
     if not genconfig.exists():
         pytest.skip('tools/genconfig.py not found')
     import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         r = subprocess.run(
-            [sys.executable, str(genconfig), '--defconfig', 'wifi', '--outdir', tmpdir],
+            [sys.executable, str(genconfig), '--defconfig', 'core_fm1_dev', '--outdir', tmpdir],
             capture_output=True, text=True, cwd=str(ROOT))
         assert r.returncode == 0, r.stderr
         header = Path(tmpdir) / 'config.h'

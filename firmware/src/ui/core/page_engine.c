@@ -61,7 +61,7 @@ static int engine_knob(uint32_t id, int32_t clicks)
             if (v > d->max) v = d->max;
         }
         t->p[pi] = v;
-        shell_dirty = 1;
+        nav_dirty = 1;
         return 1;
     }
     return 0;
@@ -76,6 +76,7 @@ static int engine_button(uint32_t id, uint32_t down)
 static const cfm1_page_t PAGE_ENGINE = {
     .name  = "ENGINE",
     .title = "ENGINE",
+    .view  = VIEW_EDIT,
     .flags = 0,
     .enter  = engine_enter,
     .leave  = engine_leave,

@@ -1,9 +1,11 @@
 menu "Storage"
 
+# kc2mm:label "Flash"
 config FLASH
     bool "Application flash storage"
     default n
 
+# kc2mm:label "Settings"
 choice
     prompt "Storage implementation"
     depends on FLASH
