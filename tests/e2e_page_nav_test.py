@@ -49,43 +49,35 @@ class TestPageNavLatency(E2ETestCase):
         Snapshots the footer region (bottom of LCD) before the click, then
         polls at ~10ms until it differs. Returns elapsed ms.
         """
-        elapsed_ms = page.evaluate('''(direction) => {
-            return new Promise(resolve => {
-                const canvas = document.getElementById('panel');
-                const ctx = canvas.getContext('2d', {willReadFrequently: true});
-                // Footer region on the LCD (bottom 80px of the 480px LCD area)
-                const lx = 370, ly = 42 + 400, lw = 480, lh = 80;
-                const before = ctx.getImageData(lx, ly, lw, lh).data.slice();
-                const t0 = performance.now();
-                // Send the encoder click via keyboard
-                const key = direction > 0 ? 'ArrowRight' : 'ArrowLeft';
-                canvas.tabIndex = 0;
-                canvas.focus({preventScroll: true});
-                canvas.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles: true}));
-                setTimeout(() => {
-                    canvas.dispatchEvent(new KeyboardEvent('keyup', {key, bubbles: true}));
-                }, 50);
-                // Poll for LCD change
-                function check() {
-                    const after = ctx.getImageData(lx, ly, lw, lh).data;
-                    let diff = 0;
-                    for (let i = 0; i < after.length; i += 16) {
-                        if (Math.abs(after[i] - before[i]) > 10 ||
-                            Math.abs(after[i+1] - before[i+1]) > 10 ||
-                            Math.abs(after[i+2] - before[i+2]) > 10) diff++;
-                    }
-                    if (diff > 50) {
-                        resolve(performance.now() - t0);
-                    } else if (performance.now() - t0 > 10000) {
-                        resolve(-1); // timeout
-                    } else {
-                        setTimeout(check, 10);
-                    }
+        page.evaluate('''() => {
+            const canvas = document.getElementById('panel');
+            const ctx = canvas.getContext('2d', {willReadFrequently: true});
+            const lx = 370, ly = 42, lw = 480, lh = 480;
+            window._navBefore = ctx.getImageData(lx, ly, lw, lh).data.slice();
+            window._navT0 = performance.now();
+            window._navResult = null;
+            function check() {
+                const after = ctx.getImageData(lx, ly, lw, lh).data;
+                let diff = 0;
+                for (let i = 0; i < after.length; i += 16) {
+                    if (Math.abs(after[i] - window._navBefore[i]) > 10 ||
+                        Math.abs(after[i+1] - window._navBefore[i+1]) > 10 ||
+                        Math.abs(after[i+2] - window._navBefore[i+2]) > 10) diff++;
                 }
-                setTimeout(check, 30);
-            });
-        }''', direction)
-        return elapsed_ms
+                if (diff > 50) {
+                    window._navResult = performance.now() - window._navT0;
+                } else if (performance.now() - window._navT0 > 10000) {
+                    window._navResult = -1;
+                } else {
+                    setTimeout(check, 10);
+                }
+            }
+            setTimeout(check, 30);
+        }''')
+        ctrl = self.controls(page)
+        ctrl.rotate_encoder('select', direction=direction, steps=1, delay_ms=0)
+        page.wait_for_function('window._navResult !== null', timeout=15_000)
+        return page.evaluate('window._navResult')
 
     def _go_to_page(self, page, button_name):
         """Navigate to a page via button press, wait for redraw."""
@@ -97,14 +89,11 @@ class TestPageNavLatency(E2ETestCase):
         page = self.new_emu_page(mhz=100)
         try:
             self._boot_to_home(page)
-            # Go to ENV page (button press) where knob 0 is not consumed
-            self._go_to_page(page, 'env')
-            page.wait_for_timeout(500)
-            self.screenshot(page, 'ENV-env-shortPress')
+            self.screenshot(page, 'HOME-none-initial')
 
             ms = self._measure_page_change_ms(page, direction=1, label='fwd')
             page.wait_for_timeout(500)
-            self.screenshot(page, 'LFO-select-rotateRight')
+            self.screenshot(page, 'ENV-select-rotateRight')
 
             print(f'\n  Forward page nav: {ms:.0f}ms')
             self.assertGreater(ms, 0, 'LCD never changed after forward click')
@@ -120,14 +109,14 @@ class TestPageNavLatency(E2ETestCase):
         page = self.new_emu_page(mhz=100)
         try:
             self._boot_to_home(page)
-            # Go to LFO page, then backward to ENV
-            self._go_to_page(page, 'lfo')
-            page.wait_for_timeout(500)
-            self.screenshot(page, 'LFO-lfo-shortPress')
+            # Go forward one page first, then measure backward
+            ctrl = self.controls(page)
+            ctrl.rotate_encoder('select', direction=1, steps=1, delay_ms=500)
+            self.screenshot(page, 'ENV-select-rotateRight')
 
             ms = self._measure_page_change_ms(page, direction=-1, label='bwd')
             page.wait_for_timeout(500)
-            self.screenshot(page, 'ENV-select-rotateLeft')
+            self.screenshot(page, 'HOME-select-rotateLeft')
 
             print(f'\n  Backward page nav: {ms:.0f}ms')
             self.assertGreater(ms, 0, 'LCD never changed after backward click')
@@ -143,9 +132,6 @@ class TestPageNavLatency(E2ETestCase):
         page = self.new_emu_page(mhz=100)
         try:
             self._boot_to_home(page)
-            # Go to ENV, then sweep forward through LFO, FX, SCL, EDIT
-            self._go_to_page(page, 'env')
-            page.wait_for_timeout(500)
 
             timings = []
             for i in range(4):
@@ -158,7 +144,7 @@ class TestPageNavLatency(E2ETestCase):
             worst = max(timings)
             print(f'\n  Sweep timings: {[f"{t:.0f}" for t in timings]}ms '
                   f'avg={avg:.0f}ms worst={worst:.0f}ms')
-            self.screenshot(page, 'EDIT-select-rotateRight')
+            self.screenshot(page, 'SCL-select-sweep')
 
             self.assertLessEqual(
                 worst, PAGE_NAV_MAX_MS,

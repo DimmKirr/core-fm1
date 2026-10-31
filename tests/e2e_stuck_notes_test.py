@@ -20,8 +20,8 @@ from e2e_fixtures import E2ETestCase
 FWSC_PATH = Path(__file__).resolve().parents[1] / 'build' / 'core-fm1.fwsc'
 
 # Frequency constants (Hz) for the test notes.
-# C2 (MIDI 36) after two oct-down from the default C4 key.
-FREQ_C2 = 65.41
+# C4 (MIDI 60) is the default 'a' key at default octave.
+FREQ_C4 = 261.63
 # C5 (MIDI 72) via the C5 key at default octave.
 FREQ_C5 = 523.25
 
@@ -156,26 +156,22 @@ class TestStuckNotes(E2ETestCase):
     # ---- Litmus tests: verify the analyser pipeline works ----
 
     def test_01_litmus_low_note(self):
-        """Litmus: a held C2 note shows power at ~65Hz."""
+        """Litmus: a held C4 note shows power at ~261Hz."""
         page = self._open_with_audio_intercept()
         try:
             self._boot_and_setup_audio(page)
             ctrl = self.controls(page)
-            # Shift octave down twice: C4 key -> C2.
-            self._octave_down(page, 2)
-            page.wait_for_timeout(300)
-            # Hold C4 key (which now plays C2).
             ctrl._focus_panel()
             page.keyboard.down('a')  # C4 key
             page.wait_for_timeout(500)
-            power = self._freq_power(page, FREQ_C2)
+            power = self._freq_power(page, FREQ_C4)
             page.keyboard.up('a')
             page.wait_for_timeout(100)
-            self.screenshot(page, 'HOME-c2-hold')
-            print(f'\n  Litmus C2 held: {power:.1f} dB (threshold {PRESENT_DB})')
+            self.screenshot(page, 'HOME-c4-hold')
+            print(f'\n  Litmus C4 held: {power:.1f} dB (threshold {PRESENT_DB})')
             self.assertGreater(
                 power, PRESENT_DB,
-                f'C2 not audible while held ({power:.1f} dB < {PRESENT_DB} dB)')
+                f'C4 not audible while held ({power:.1f} dB < {PRESENT_DB} dB)')
         finally:
             self.write_log(page, 'litmus-low.log')
             page.close()
@@ -210,25 +206,20 @@ class TestStuckNotes(E2ETestCase):
         try:
             self._boot_and_setup_audio(page)
             ctrl = self.controls(page)
-            self._octave_down(page, 2)
-            page.wait_for_timeout(300)
-            # Play C2 for 500ms, then release.
             ctrl._focus_panel()
-            page.keyboard.down('a')  # C2
+            page.keyboard.down('a')  # C4
             page.wait_for_timeout(500)
-            held_power = self._freq_power(page, FREQ_C2)
-            print(f'\n  C2 held: {held_power:.1f} dB')
+            held_power = self._freq_power(page, FREQ_C4)
+            print(f'\n  C4 held: {held_power:.1f} dB')
             page.keyboard.up('a')
-            # Wait for analyser buffer to flush (fftSize/sampleRate ~ 186ms)
-            # plus release envelope time.
             page.wait_for_timeout(500)
-            released_power = self._freq_power(page, FREQ_C2)
-            self.screenshot(page, 'HOME-c2-noteOff')
-            print(f'  C2 after release+500ms: {released_power:.1f} dB '
+            released_power = self._freq_power(page, FREQ_C4)
+            self.screenshot(page, 'HOME-c4-noteOff')
+            print(f'  C4 after release+500ms: {released_power:.1f} dB '
                   f'(threshold {SILENT_DB})')
             self.assertLess(
                 released_power, SILENT_DB,
-                f'Stuck note: C2 still audible after release '
+                f'Stuck note: C4 still audible after release '
                 f'({released_power:.1f} dB >= {SILENT_DB} dB)')
         finally:
             self.write_log(page, 'note-release.log')
@@ -242,28 +233,19 @@ class TestStuckNotes(E2ETestCase):
         try:
             self._boot_and_setup_audio(page)
             ctrl = self.controls(page)
-            self._octave_down(page, 2)
-            page.wait_for_timeout(300)
-            # Play C2 on the current engine and hold it.
             ctrl._focus_panel()
-            page.keyboard.down('a')  # C2
+            page.keyboard.down('a')  # C4
             page.wait_for_timeout(500)
-            held_power = self._freq_power(page, FREQ_C2)
-            print(f'\n  C2 held on engine A: {held_power:.1f} dB')
-            # Release the note first (the bug is it stays audible).
+            held_power = self._freq_power(page, FREQ_C4)
+            print(f'\n  C4 held on engine A: {held_power:.1f} dB')
             page.keyboard.up('a')
             page.wait_for_timeout(100)
-            # Switch engine via the algorithm encoder (clockwise).
             ctrl.rotate_encoder('algorithm', direction=1, steps=1)
             page.wait_for_timeout(500)
-            # Check C2 is gone after engine switch.
-            bleed_power = self._freq_power(page, FREQ_C2)
+            bleed_power = self._freq_power(page, FREQ_C4)
             self.screenshot(page, 'HOME-algorithm-rotateRight')
-            print(f'  C2 after release + engine switch: {bleed_power:.1f} dB '
+            print(f'  C4 after release + engine switch: {bleed_power:.1f} dB '
                   f'(threshold {SILENT_DB})')
-            # Now play C5 on the new engine to confirm it works.
-            self._octave_up(page, 2)  # Back to default octave.
-            page.wait_for_timeout(200)
             ctrl._focus_panel()
             page.keyboard.down('k')  # C5
             page.wait_for_timeout(500)
@@ -272,7 +254,7 @@ class TestStuckNotes(E2ETestCase):
             print(f'  C5 on engine B: {new_power:.1f} dB')
             self.assertLess(
                 bleed_power, SILENT_DB,
-                f'Engine bleed: C2 still audible after release + engine switch '
+                f'Engine bleed: C4 still audible after release + engine switch '
                 f'({bleed_power:.1f} dB >= {SILENT_DB} dB)')
         finally:
             self.write_log(page, 'engine-switch.log')
