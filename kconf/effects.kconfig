@@ -4,6 +4,7 @@ menu "Effects"
 
 choice
     prompt "Effects chain"
+    optional
     default EFFECTS_MELODEE
 
 config EFFECTS_FELUCCA

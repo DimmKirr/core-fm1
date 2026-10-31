@@ -95,7 +95,7 @@ def write_manifest(kconf, out_dir):
     lines = [
         '#ifndef CFM1_MANIFEST_H',
         '#define CFM1_MANIFEST_H',
-        f'static const char cfm1_manifest[] = "{manifest_str}";',
+        f'__attribute__((used)) static const char cfm1_manifest[] = "{manifest_str}";',
         '#endif',
         '',
     ]

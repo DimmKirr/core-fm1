@@ -189,17 +189,15 @@ static void sched_log_stats(void)
 {
 #ifdef CONFIG_DEBUG
     uint32_t i;
-    cfm1_log_int("sched: tasks=", (int32_t)sched.count);
+    cfm1_log_int("sched: cur=", (int32_t)sched.current);
     for (i = 0; i < sched.count; i++) {
         sched_task_t *t = &sched.tasks[i];
         cfm1_log_int("sched: task ", (int32_t)i);
-        cfm1_log_int("  stack hwm=", (int32_t)t->hwm);
-        cfm1_log_int("  stack size=", (int32_t)(t->stack_words * 4u));
+        cfm1_log_int("  state=", (int32_t)t->state);
         cfm1_log_int("  yields=", (int32_t)t->yields);
-        cfm1_log_int("  max_gap_ms=", (int32_t)t->max_gap_ms);
+        cfm1_log_int("  gap=", (int32_t)t->max_gap_ms);
+        cfm1_log_int("  hwm=", (int32_t)t->hwm);
     }
-    cfm1_log_int("sched: audio deadline misses=", (int32_t)audio_deadline_misses);
-    cfm1_log_int("sched: audio last ticks=", (int32_t)fm1_audio_irq_elapsed_ticks);
 #endif
 }
 

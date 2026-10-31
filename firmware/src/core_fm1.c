@@ -298,7 +298,9 @@ static void fm1_fault(const fm1_crash_t *c)
 
 /* --- component manifest (survives in binary for verification) --- */
 #include "manifest.h"
-volatile const char *cfm1_manifest_anchor = cfm1_manifest;
+/* Force linker to retain manifest string. The asm constraint prevents
+   dead-code elimination even when cfm1_log is a no-op. */
+#define CFM1_MANIFEST_ANCHOR() asm volatile("" :: "m"(cfm1_manifest))
 
 /* --- adapters (stub APIs for modules not yet integrated) ---
  *
@@ -822,6 +824,7 @@ static int32_t master_iir;
 
 /* --- UI shell --- */
 #include "cfm1_page.h"
+#include "cfm1_modal.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_nav.c"
 #include "ui/ui_elements.c"
@@ -1038,12 +1041,25 @@ static void services_task(void)
 /* UI task: input, drawing, audio ADC, BLE sync */
 static void ui_task(void)
 {
-#ifdef CONFIG_DEBUG
-    cfm1_log("sched: ui_task start");
-#endif
+    cfm1_log("ui: task start");
     for (;;) {
         uint32_t m = fm1_ms;
         fm1_wdt_feed();
+#ifdef CONFIG_DEBUG
+        {
+            static uint32_t ui_hb_next;
+            if (fm1_ms > ui_hb_next) {
+                cfm1_log_int("ui: hb ", (int32_t)fm1_ms);
+                cfm1_log_int("ui: btns=", (int32_t)fm1_in.buttons);
+                cfm1_log_int("ui: frames=", (int32_t)fm1_in.frames);
+                cfm1_log_int("ui: raw0=", (int32_t)fm1_in.raw[0]);
+                cfm1_log_int("ui: raw1=", (int32_t)fm1_in.raw[1]);
+                cfm1_log_int("ui: raw2=", (int32_t)fm1_in.raw[2]);
+                cfm1_log_int("ui: raw3=", (int32_t)fm1_in.raw[3]);
+                ui_hb_next = fm1_ms + 3000u;
+            }
+        }
+#endif
 #ifdef CONFIG_INPUT
         {
             static uint32_t uboot_t0;
@@ -1108,6 +1124,8 @@ static void fm1_main(void)
     cfm1_debug_init();
     cfm1_log_init();
     cfm1_log("core-fm1 boot");
+    cfm1_log(cfm1_manifest);
+    CFM1_MANIFEST_ANCHOR();
     cfm1_log("lcd: init OK");
     cfm1_log_int("hal: sys variant=",
 #if defined(CONFIG_HAL_SYS_MELODEE)
@@ -1275,37 +1293,42 @@ static void fm1_main(void)
     console_init();
 #endif
 
+    /* ---- Phase 1: boot logo, no ISR ---- */
+
+#if defined(CONFIG_UI_FELUCCA)
+    fsh_init();
+    fsh_splash_render();
+    cfm1_log("boot: splash visible");
+#elif defined(CONFIG_UI_CORE)
+    shell_init();
+#endif
+
 #ifdef CONFIG_INPUT
     fm1_input_init();
     cfm1_log("input: scan OK");
 #endif
 
-#if defined(CONFIG_UI_FELUCCA)
-    fsh_init();
-    fsh_register_pages();
-    cfm1_log_int("ui: felucca, pages=", (int32_t)nav_npage);
-    fsh_boot();
-    fsh_splash();
-#elif defined(CONFIG_UI_CORE)
-    shell_init();
-    shell_register_pages();
-    shell_boot();
+#ifdef CONFIG_WIFI
+    wifi_init();
+#endif
+
+#ifdef CONFIG_INPUT
+    fm1_input_init();
 #endif
 
 #ifdef CONFIG_AUDIO
     fm1_adc_init();
     {
-        /* Read physical pot before audio starts so initial volume matches knob. */
-        fm1_adc_read(FM1_ADC_MASTER);          /* drop first (unreliable) */
+        fm1_adc_read(FM1_ADC_MASTER);
         int32_t a = fm1_adc_read(FM1_ADC_MASTER);
         master_iir = a;
         song.master_q12 = (uint32_t)((a * a) >> 8);
     }
     audio_init();
     cfm1_log("audio: init OK");
-    cfm1_log("audio: 44100Hz stereo");
-    cfm1_log("audio: DMA half-buf 128");
 #endif
+
+    /* ---- Phase 2: ISR active, ready to play ---- */
 
     {
         *(volatile uint32_t *)0x10900u = 0x4000u;  /* T5 CON: clear */
@@ -1315,11 +1338,14 @@ static void fm1_main(void)
         *(volatile uint32_t *)0x10900u = 0x4019u;   /* T5 CON: enable */
     }
     cfm1_log("timer5: 10kHz ms clock");
-#ifdef CONFIG_WIFI
-    cfm1_log("wifi: deferred (3s)");
-#endif
-#ifdef CONFIG_WIFI_PROBES
-    wifi_probes_init();
+
+#if defined(CONFIG_UI_FELUCCA)
+    fsh_register_pages();
+    cfm1_log_int("ui: felucca, pages=", (int32_t)nav_npage);
+    fsh_boot();
+#elif defined(CONFIG_UI_CORE)
+    shell_register_pages();
+    shell_boot();
 #endif
 
 #ifdef CONFIG_SCHED
@@ -1466,28 +1492,8 @@ static void fm1_main(void)
 #endif
 #endif
 #ifdef CONFIG_WIFI
-        {
-            static uint8_t wifi_started;
-            static uint32_t hb_next;
-            if (!wifi_started) {
-                if (fm1_ms > hb_next) {
-                    cfm1_log_int("hb: ", (int32_t)fm1_ms);
-                    hb_next = fm1_ms + 2000u;
-                }
-                if (fm1_ms > 3000u) {
-                    wifi_started = 1;
-                    cfm1_log("wifi: deferred init GO");
-                    wifi_init();
-                    cfm1_log("wifi: init done");
-                }
-            } else {
-                if (fm1_ms > hb_next) {
-                    cfm1_log_int("hb+wifi: ", (int32_t)fm1_ms);
-                    hb_next = fm1_ms + 2000u;
-                }
-                wifi_poll();
-            }
-        }
+        wifi_cmd_poll();
+        wifi_poll();
 #endif
 #if defined(CONFIG_UI_FELUCCA)
         fsh_draw();

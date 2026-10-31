@@ -4,6 +4,7 @@ menu "Sequencer"
 choice
     prompt "Sequencer implementation"
     depends on AUDIO
+    optional
     default SEQ_MELODEE
 
 config SEQ_FELUCCA

@@ -4,9 +4,10 @@ includes:
   fm1-platform:
     taskfile: https://raw.githubusercontent.com/DimmKirr/setup-fm1-toolchain/v1/Taskfile.yml
   fm1-emulator:
-    taskfile: https://raw.githubusercontent.com/DimmKirr/setup-fm1-emulator/v1/Taskfile.yml
+    taskfile: /Users/dmitry/dev/dimmkirr/setup-fm1-emulator/Taskfile.yml
     vars:
       FM1_VERSION: v0.3.0
+      FM1_SOURCE_REPO: DimmKirr/fm1-emu
   debug:wifi:
     taskfile: docs/hardware/wifi/Taskfile.yml
     dir: '{{.ROOT_DIR}}'
@@ -230,6 +231,49 @@ tasks:
     silent: true
     cmds:
       - uv run --quiet --with python-rtmidi python tools/fm1log.py --hello {{.CLI_ARGS}}
+
+  debug:dump:
+    desc: Dump debug log buffer and save to .scratch/debug/dump.log
+    silent: true
+    cmds:
+      - mkdir -p .scratch/debug
+      - |
+        echo "=== debug:dump $(date -Iseconds) ===" | tee .scratch/debug/dump.log
+        echo "=== config.h symbols ===" | tee -a .scratch/debug/dump.log
+        grep '^#define CONFIG_' build/gen/config.h 2>/dev/null | tee -a .scratch/debug/dump.log
+        echo "" | tee -a .scratch/debug/dump.log
+        echo "=== .bss/.pool sizes (from linker map) ===" | tee -a .scratch/debug/dump.log
+        grep -E '^\.(bss|pool)\b|_bss_(start|end)|_pool_(start|end)' build/core_fm1.map 2>/dev/null | tee -a .scratch/debug/dump.log
+        echo "" | tee -a .scratch/debug/dump.log
+        echo "=== firmware size ===" | tee -a .scratch/debug/dump.log
+        ls -la build/core-fm1.fwsc build/core_fm1.elf 2>/dev/null | tee -a .scratch/debug/dump.log
+        echo "" | tee -a .scratch/debug/dump.log
+        echo "=== DAP log buffer ===" | tee -a .scratch/debug/dump.log
+        uv run --quiet --with python-rtmidi python tools/fm1log.py {{.CLI_ARGS}} 2>&1 | tee -a .scratch/debug/dump.log
+
+  debug:hello:
+    desc: Print device status and save to .scratch/debug/hello.log
+    silent: true
+    cmds:
+      - mkdir -p .scratch/debug
+      - |
+        echo "=== debug:hello $(date -Iseconds) ===" | tee .scratch/debug/hello.log
+        uv run --quiet --with python-rtmidi python tools/fm1log.py --hello {{.CLI_ARGS}} 2>&1 | tee -a .scratch/debug/hello.log
+
+  debug:input:
+    desc: "Test input: HOLD a button/key, then run this. Saves to .scratch/debug/input.log"
+    silent: true
+    cmds:
+      - mkdir -p .scratch/debug
+      - |
+        echo "=== debug:input $(date -Iseconds) ===" | tee .scratch/debug/input.log
+        echo "Hold a button or key on the FM-1 NOW, then press Enter..." | tee -a .scratch/debug/input.log
+        read -r
+        echo "Capturing log (hold button for 5 more seconds)..." | tee -a .scratch/debug/input.log
+        uv run --quiet --with python-rtmidi python tools/fm1log.py 2>&1 | tee -a .scratch/debug/input.log
+        echo "" | tee -a .scratch/debug/input.log
+        echo "Look for raw0-3 != 0 or btns != 0 in the heartbeats above." | tee -a .scratch/debug/input.log
+        echo "If all zeros while holding a button, input hardware is not working." | tee -a .scratch/debug/input.log
 
   settings:reset:
     desc: Reset FM-1 settings to defaults (erases saved settings, device reboots)

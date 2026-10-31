@@ -9,6 +9,7 @@ config FLASH
 choice
     prompt "Storage implementation"
     depends on FLASH
+    optional
     default STORAGE_MELODEE
 
 config STORAGE_FELUCCA

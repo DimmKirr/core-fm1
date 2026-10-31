@@ -4,6 +4,7 @@ menu "Scales"
 choice
     prompt "Scale system"
     depends on AUDIO
+    optional
     default SCALES_MELODEE
 
 config SCALES_FELUCCA

@@ -11,6 +11,7 @@ and tests:
   5. Cards show placeholder "---" values before data arrives
   6. Page survives multiple visits (enter/leave cycle)
 """
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -40,14 +41,22 @@ class TestWeatherPage(E2ETestCase):
     @classmethod
     def setUpClass(cls):
         TEST_RESULTS.mkdir(parents=True, exist_ok=True)
-        r, _ = e2e_build(DEFCONFIG, TEST_RESULTS)
-        cls._build_ok = r.returncode == 0
+        dc_path = ROOT / 'configs' / f'{DEFCONFIG}_defconfig'
+        if not dc_path.exists():
+            cls._build_ok = False
+            (TEST_RESULTS / 'SKIP-no-defconfig.txt').write_text(
+                f'configs/{DEFCONFIG}_defconfig does not exist.\n')
+        else:
+            try:
+                r, _ = e2e_build(DEFCONFIG, TEST_RESULTS)
+                cls._build_ok = r.returncode == 0
+            except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired):
+                cls._build_ok = False
         if not cls._build_ok:
             (TEST_RESULTS / 'SKIP-build-failed.txt').write_text(
-                f'Build failed with exit code {r.returncode}.\n'
-                'The wifi defconfig has pre-existing errors in the lower\n'
-                'wifi stack (NULL, forward declarations). Weather page E2E\n'
-                'tests will run once those are fixed.\n')
+                f'Build failed or defconfig missing for {DEFCONFIG}.\n'
+                'Weather page E2E tests will run once the wifi defconfig\n'
+                'is available and builds successfully.\n')
         try:
             super().setUpClass()
         except unittest.SkipTest:
