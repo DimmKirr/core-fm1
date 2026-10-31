@@ -53,12 +53,16 @@ static void shell_draw(void)
 
     if (p->draw)
         p->draw();
+    if (nav_modal && nav_modal->draw)
+        nav_modal->draw();
 }
 
 /* ------------------------------------------------------------- input --- */
 
 static void shell_knob(uint32_t id, int32_t clicks)
 {
+    if (nav_modal && nav_modal->knob && nav_modal->knob(id, clicks))
+        return;
     const cfm1_page_t *p = nav_active();
     if (p && p->knob && p->knob(id, clicks))
         return;
@@ -70,6 +74,8 @@ static void shell_knob(uint32_t id, int32_t clicks)
 
 static void shell_button(uint32_t id, uint32_t down)
 {
+    if (nav_modal && nav_modal->button && nav_modal->button(id, down))
+        return;
     const cfm1_page_t *p = nav_active();
     if (p && p->button && p->button(id, down))
         return;
@@ -80,6 +86,8 @@ static void shell_button(uint32_t id, uint32_t down)
 
 static void shell_key(uint32_t note, uint32_t vel)
 {
+    if (nav_modal && nav_modal->key && nav_modal->key(note, vel))
+        return;
     const cfm1_page_t *p = nav_active();
     if (p && p->key)
         p->key(note, vel);

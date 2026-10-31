@@ -94,6 +94,8 @@ hash comparison.
 | `e2e_stuck_notes_test.py` | Notes don't stick after engine switch or page change | SELECT encoder, notes |
 | `e2e_sched_test.py` | Scheduler stability: boot+UI, audio+nav, rapid page stress, extended run | FX, HOME, SEQ, ENV, LFO, SCL, EDIT buttons, SELECT/K1/K2 encoders, notes |
 | `e2e_ble_test.py` | BLE module integration | (varies) |
+| `e2e_views_test.py` | **All views with screenshots**: HOME, ENV-SEQ (buttons), MIXER/VOICE (GLO view), FILES (SAVE), SYS (long-HOME), WIFI (long-GLO), engine cycling, rapid switching | All buttons, SELECT, ALGO encoders |
+| `e2e_weather_test.py` | Weather page rendering, refresh, spinner | SELECT encoder, PLAY button |
 
 ### Coverage summary
 
@@ -113,6 +115,7 @@ hash comparison.
 | Cross-engine level balance | `e2e_audio_engines_test.py::TestAudioLevelNormalization` |
 | Engine select volume stability | `e2e_audio_engines_test.py::TestEngineSelectVolumeConsistency` |
 | Scheduler multi-task stability | `e2e_sched_test.py::SchedAcceptanceTest` (boot, audio+nav, stress, extended) |
+| All views with screenshots | `e2e_views_test.py::TestAllViews` (HOME, button pages, GLO/SAVE/SETTINGS/CONN views, engine cycling) |
 
 ## Audio testing
 

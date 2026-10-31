@@ -121,3 +121,22 @@ static void nav_boot(void)
     nav_build_views();
     nav_open_view(VIEW_HOME);
 }
+
+/* ----------------------------------------------------------- modal --- */
+
+static const cfm1_modal_t *nav_modal;
+
+static void nav_modal_open(const cfm1_modal_t *m)
+{
+    if (nav_modal && nav_modal->close) nav_modal->close();
+    nav_modal = m;
+    if (m && m->open) m->open();
+    nav_dirty = 1;
+}
+
+static void nav_modal_close(void)
+{
+    if (nav_modal && nav_modal->close) nav_modal->close();
+    nav_modal = 0;
+    nav_dirty = 1;
+}

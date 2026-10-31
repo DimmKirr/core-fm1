@@ -41,11 +41,15 @@ static void fsh_draw(void)
     fsh_draw_frame();
     if (p->draw)
         p->draw();
+    if (nav_modal && nav_modal->draw)
+        nav_modal->draw();
     nav_dirty = 0;
 }
 
 static void fsh_knob(uint32_t id, int32_t clicks)
 {
+    if (nav_modal && nav_modal->knob && nav_modal->knob(id, clicks))
+        return;
     const cfm1_page_t *p = nav_active();
     if (p && p->knob && p->knob(id, clicks))
         return;
@@ -61,6 +65,8 @@ static uint32_t fsh_btn_us;
 static void fsh_button(uint32_t id, uint32_t down)
 {
     if (id >= BTN_COUNT) return;
+    if (nav_modal && nav_modal->button && nav_modal->button(id, down))
+        return;
     if (down) {
         fsh_btn_held = id + 1;
         fsh_btn_us = fm1_micros();
@@ -84,6 +90,8 @@ static void fsh_button(uint32_t id, uint32_t down)
 
 static void fsh_key(uint32_t note, uint32_t vel)
 {
+    if (nav_modal && nav_modal->key && nav_modal->key(note, vel))
+        return;
     const cfm1_page_t *p = nav_active();
     if (p && p->key)
         p->key(note, vel);

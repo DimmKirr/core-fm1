@@ -33,21 +33,28 @@ No upstream uses a flat encoder-scroll page list. Button selects view, encoder w
 ## Framework Structure
 
 ```
+firmware/adapters/
+  cfm1_page.h            # page contract (cfm1_page_t)
+  cfm1_modal.h           # modal overlay contract (cfm1_modal_t)
+  cfm1_controls.h        # button/encoder ID constants
+
 firmware/src/ui/
   ui_view.h              # VIEW_* constants
   ui_theme.h             # ui_theme_t struct (metrics, fonts, renderers)
-  ui_nav.c               # view navigation: open, cycle, scroll, memory
+  ui_nav.c               # view navigation, modal state (nav_modal_open/close)
 
   themes/
     felucca/             # Felucca shell (active)
       ui.c               # unity root: includes gfx, draw, theme, shell, pages
       theme.c            # ui_theme_t instance: metrics, palette, fonts, renderers
-      shell.c            # input routing, button/encoder dispatch
+      shell.c            # input routing, button/encoder dispatch, modal intercepts
       draw.c             # Felucca-specific drawing helpers (header, cards, footer)
       gfx.c              # shim to upstream canvas renderer
+      kbd_piano.c        # piano keyboard modal (text input)
       pages.c            # page registration with view assignments
       page_home.c        # page implementations
       page_params.c
+      page_demo.c        # DEMO view: 5-screen UI showcase + keyboard integration
       page_weather.c
       ...
 
@@ -58,8 +65,8 @@ firmware/src/ui/
 ```
 
 The split:
-- **Universal** (`ui_*.h`, `ui_*.c`): view model, navigation rules, element API, toast queue. Shared by all shells.
-- **Shell-specific** (`felucca/`, `melodee/`, etc.): theme rendering, input routing, page implementations.
+- **Universal** (`ui_*.h`, `ui_*.c`, `cfm1_*.h`): view model, navigation rules, page/modal contracts, element API. Shared by all shells.
+- **Shell-specific** (`felucca/`, `melodee/`, etc.): theme rendering, input routing, modal implementations, page implementations.
 
 ## Views
 
@@ -79,6 +86,7 @@ A view groups related pages under one physical button. Pressing a button opens t
 | `VIEW_SEQ` | SEQ | Sequencer, Pattern | |
 | `VIEW_CONN` | GLO hold | WiFi, Weather, BLE | core-fm1 connectivity features |
 | `VIEW_SETTINGS` | HOME hold | Display, Audio, System, About, Debug | Settings and device info |
+| `VIEW_DEMO` | FX hold | Cards, List, Graph, Text, Edit | UI kitchen-sink showcase |
 
 ### View Memory
 
@@ -91,6 +99,22 @@ Each view remembers its last active page (`view_last[VIEW_COUNT]`). Returning to
 3. **HOME tap**: always returns to VIEW_HOME regardless of current view.
 4. **HOME hold**: opens VIEW_SETTINGS (display, audio, system, about, debug).
 5. **GLO hold**: opens VIEW_CONN (WiFi/Weather/BLE).
+
+### Encoder Pattern (Felucca)
+
+Felucca upstream establishes a consistent encoder-to-card mapping. Each page shows up to 4 cards in a row. The physical encoders K1-K4 each control the card in the corresponding slot:
+
+| Encoder | ID | Role |
+|---|---|---|
+| SELECT | `ENC_SELECT` (0) | Navigate: cycle pages within view, or switch screens in multi-screen pages |
+| ALGO | `ENC_ALGO` (1) | Context-dependent (engine select on HOME, track select, etc.) |
+| K1 | `ENC_K1` (2) | Card slot 0 parameter |
+| K2 | `ENC_K2` (3) | Card slot 1 parameter |
+| K3 | `ENC_K3` (4) | Card slot 2 parameter |
+| K4 | `ENC_K4` (5) | Card slot 3 parameter |
+| PRESETS | `ENC_PRESET` (6) | Preset scroll |
+
+On HOME, `engine.knob[4]` defines which parameter each card slot shows. The same K1-K4 pattern applies to DEMO and other multi-card pages.
 
 ### Why "view"
 
@@ -109,6 +133,63 @@ Upstream firmwares use "family" (`FAM_*`) for this concept. We rename to "view" 
 Upstream firmwares implement settings as a modal overlay (HOME hold draws on top of the current page). core-fm1 promotes settings to a regular view (`VIEW_SETTINGS`) for consistency: every button action opens a view, no special cases. The Settings View contains pages like any other view. See the [page catalog](#view_settings-home-hold) for its pages.
 
 A shell may choose to render VIEW_SETTINGS as an overlay (matching upstream visual style) while still using the view navigation model internally.
+
+## Modal System
+
+A modal is a temporary UI overlay that intercepts all shell input before the active page receives it. The modal draws on top of the page content (cards, graph, footer) while the header remains from the underlying page.
+
+The contract is defined in `firmware/adapters/cfm1_modal.h`:
+
+```c
+typedef struct cfm1_modal {
+    void (*draw)(void);
+    int  (*knob)(uint32_t id, int32_t clicks);
+    int  (*button)(uint32_t id, uint32_t down);
+    int  (*key)(uint32_t note, uint32_t vel);
+    void (*open)(void);
+    void (*close)(void);
+} cfm1_modal_t;
+```
+
+Navigation state in `ui_nav.c` holds a single `nav_modal` pointer. When non-NULL, the shell's dispatch functions (draw, knob, button, key) check the modal first. Modal handlers return 1 to consume the event, 0 to pass through.
+
+```c
+nav_modal_open(const cfm1_modal_t *m);  /* activate modal, call m->open */
+nav_modal_close(void);                   /* deactivate, call close, set dirty */
+```
+
+Both the Felucca shell and the core fallback shell wire modal intercepts identically.
+
+### Piano Keyboard Modal
+
+`kbd_piano.c` implements a text-input keyboard using the FM-1's 27 piano keys (F3-G5, MIDI 53-79) as direct character input. 16 white keys + 11 black keys, each mapped to a character from the active layer.
+
+**4 layers**: abc (a-z + space), ABC (A-Z + space), 123 (digits + punctuation), !@# (remaining ASCII).
+
+**Controls when active:**
+
+| Control | Action |
+|---|---|
+| Piano keys | Insert character at cursor |
+| ALGO encoder | Cycle layers (abc/ABC/123/!@#) |
+| K1 encoder | Move cursor left/right |
+| K2 encoder | Scroll character at cursor through ASCII |
+| K3 encoder | Jump to home/end |
+| K4 encoder | Delete chunk (back 5 / forward all) |
+| SELECT encoder | Toggle password mask |
+| FX button | Backspace |
+| PLAY button | Insert space |
+| HOME button | Clear all |
+| REC button | Toggle password mask |
+| OCT+ button | Confirm and close |
+| OCT- button | Cancel and close |
+
+**API:**
+```c
+kbd_piano_start(title, prefill, max_len, hide, on_done);
+```
+
+The callback `on_done(buf, ok)` receives the buffer and whether the user confirmed (1) or cancelled (0).
 
 ## Page Definition
 
@@ -315,3 +396,17 @@ Grouped by view. For encoder/button mappings and card parameter details, see [CO
 | System | header, grid, footer | USB mode, MIDI channel |
 | About | header, text, footer | Firmware version, MAC, build info |
 | Debug | header, text, footer | Log ring viewer (`CONFIG_DEBUG_LOG`) |
+
+### VIEW_DEMO (FX hold)
+
+Kitchen-sink UI showcase. SELECT cycles 5 screens, K1-K4 adjust card values per screen.
+
+| Screen | Cards | Graph area | K1 special |
+|---|---|---|---|
+| CARDS | FRA, SCR, K1, NOTE | Theme color swatches + spinner | Counter (0-99) |
+| LIST | ITEMS, SEL, SCROLL, VISIBLE | Scrollable 16-item list | List selection + auto-scroll |
+| GRAPH | BARS, FRAME, ANIM, STYLE | Animated bar chart | Counter (0-99) |
+| TEXT | FONT S/M/L, DEMO | Font samples, alignment, rounded rects | Counter (0-99) |
+| EDIT | EDIT, LEN, MAX, OCT+ | Editable text field + "OCT+ TO EDIT" hint | Counter (0-99) |
+
+On the EDIT screen, pressing OCT+ opens the [piano keyboard modal](#piano-keyboard-modal) to edit the text field. The keyboard callback writes back to the display on confirm.

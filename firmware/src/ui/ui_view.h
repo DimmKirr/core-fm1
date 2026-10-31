@@ -17,7 +17,8 @@
 #define VIEW_SEQ       9
 #define VIEW_CONN     10
 #define VIEW_SETTINGS 11
-#define VIEW_COUNT    12
+#define VIEW_DEMO     12
+#define VIEW_COUNT    13
 #define VIEW_NONE    255
 
 #endif /* UI_VIEW_H */

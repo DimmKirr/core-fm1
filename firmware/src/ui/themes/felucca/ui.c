@@ -41,4 +41,6 @@
 #ifdef CONFIG_SYS_MENU
 #include "ui/themes/felucca/page_sys.c"
 #endif
+#include "ui/themes/felucca/kbd_piano.c"
+#include "ui/themes/felucca/page_demo.c"
 #include "ui/themes/felucca/pages.c"

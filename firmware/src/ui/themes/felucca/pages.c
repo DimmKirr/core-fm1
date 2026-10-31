@@ -55,4 +55,7 @@ static void fsh_register_pages(void)
 #ifdef CONFIG_DEBUG_LOG
     nav_register(&FPAGE_DEBUG);
 #endif
+
+    /* VIEW_DEMO */
+    nav_register(&FPAGE_DEMO);
 }
