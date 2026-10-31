@@ -35,6 +35,16 @@ ranges: `0x34200` (SRAM, high-entropy) and **`0x40200` (DMA candidate)** [M:hw v
 disproven: `0x14080` always returns `0x800` regardless of `0x14090` value [M:hw v22].
 §7.1, §7.3, §7.8 updated.
 
+Update 2026-10-30 (WiFi bisect on real hardware): **[M:hw]** WL_CTL8 (`0x14008`) GPIO hazard.
+Key findings: (1) Writing `0xFFFF` to WL_CTL8 kills the input shift register (74HC595 chain on
+PA1/PA3/PA4): encoders and buttons stop responding. All other subsystems (scheduler, UI drawing,
+USB) continue normally. (2) WL_CTL0 (`0x14000`) alone is sufficient for MAC/DMA bus gating:
+full WiFi init sequence (rtos, rf, sdio, mac, sta, lwip, weather) and `wifi_poll()` in a
+cooperative scheduler task all work without writing WL_CTL8. (3) Bisect sequence verified each
+init stage independently: rtos (PASS), rf (PASS), sdio with WL_CTL8 (FAIL: input dead), sdio
+without WL_CTL8 (PASS), mac (PASS), sta (PASS), lwip+weather (PASS), poll in task (PASS).
+§4.2, §7.4, §7.8 updated.
+
 ---
 
 ## 0. Sources, tags and caveats
@@ -232,7 +242,14 @@ System-level wireless control: bus gating, clock gating, reset, and the RF-die S
 When WL_CTL0 is zero (default after reset), any read to `0x30000`+ causes a bus fault (confirmed:
 probe v13 crashed on `0x31004` read with WL_CTL0=0). Writing `0xFFFF` to WL_CTL0 (reads back
 `0xF103`) enables MAC register access (confirmed: probe v18 read `0x31004`=`0x0C` after gate).
-WL_CTL8 (`0x14008`) is also fully writable (`0xFFFF` sticks) and may participate in gating [M:hw].
+WL_CTL0 alone is sufficient for MAC/DMA bus gating [M:hw confirmed 2026-10-30].
+
+**WL_CTL8 hazard [M:hw confirmed 2026-10-30]:** Writing `0xFFFF` to WL_CTL8 (`0x14008`) kills the
+input shift register (74HC595 chain on PA1/PA3/PA4). All 16 bits stick (unlike WL_CTL0 which masks
+to `0xF103`), indicating WL_CTL8 enables individual hardware blocks or remaps GPIO pins to wireless
+functions. Bisect on real hardware confirmed: WL_CTL0=0xFFFF alone enables MAC/DMA access; writing
+WL_CTL8 is not required and must be avoided. The stock firmware's vendor library writes both, but
+the stock firmware does not use a cooperative scheduler or scan input concurrently with WiFi init.
 
 Full hardware scan of `0x14000`-`0x140A0` (probes v17, v18). Registers reading non-zero after WiFi
 clock/reset init are marked; zero-reading addresses between non-zero ones may be reserved or
@@ -242,7 +259,7 @@ mode-dependent [M:hw].
 |-----------|------------|--------------|--------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|---------------|
 | `0x14000` | WL_CTL0    | `0x00000000` | [15:0] writable; write `0xFFFF` reads `0xF103`; write `0xBEEF` reads `0xB003` | **MAC bus gate.** Must be written non-zero before accessing `0x30000`+ registers. Bit field semantics unknown beyond gating function | M:t, M:hw |
 | `0x14004` |            | `0x00000000` |                                                                          | Unknown (reads zero) [M:hw]                                                                   | M:hw          |
-| `0x14008` | WL_CTL8    | `0x00000000` | [15:0] fully writable; write `0xFFFF` reads `0xFFFF`                     | WiFi control. May participate in bus gating. Written during clock/reset init                   | M:s, M:hw     |
+| `0x14008` | WL_CTL8    | `0x00000000` | [15:0] fully writable; write `0xFFFF` reads `0xFFFF`                     | **HAZARD: do not write.** Remaps GPIO pins to wireless functions, kills input shift register (PA1/PA3/PA4). Not required for MAC/DMA bus gating. Stock vendor library writes it, but stock firmware does not scan input concurrently | M:s, M:hw     |
 | `0x1400C` | WL_ID      | `0x5B000000` |                                                                          | Unknown. Stable non-zero value across boots; possibly chip/block version ID                    | M:hw, I       |
 | `0x14010`-`0x14024` |  | `0x00000000` |                                                                          | Zero (7 registers) [M:hw]                                                                     | M:hw          |
 | `0x14028` | RFSPI_CTL  | `0x00010000` | [22:20] busy; [16] start; [15:8] address; [7:0] command; [4] kick toggle | RF-die SPI control port. Reads `0x10000` (start bit set) at rest. Commands: 0xE = LUT word 0 write, 0xD = LUT word 1 write, 0x6 = read | M:t, M:s, M:hw |
@@ -472,7 +489,7 @@ MAC control registers reside at `0x30000` + RT2800 offset [M:t, M:hw, IP:RT2x00]
 |-------------------|-----------------------|------------|--------------------------|----------------------------------------|------------------------|
 | DMA / interrupts  | `0x40200`-`0x4029C`  | `0x40000`  | WPDMA, INT_SOURCE/MASK   | **Confirmed** [M:hw v23c]              | M:hw, IP:RT2x00        |
 | DMA (legacy)      | `0x0200`-`0x0298`    | raw `0`    | (vendor binary refs)     | **Open bus** [M:hw v15-v16]            | M:s, IP:RT2x00         |
-| Bus gate          | `0x14000`-`0x14008`  | (JieLi)    | (no RT2800 equivalent)   | **Confirmed** [M:hw v18]               | M:t, M:s, M:hw        |
+| Bus gate          | `0x14000` only       | (JieLi)    | (no RT2800 equivalent)   | **Confirmed** [M:hw v18, v30]. `0x14008` hazard: kills GPIO input | M:t, M:s, M:hw        |
 | MAC / BBP control | `0x30000`-`0x31FFF`  | `0x30000`  | MAC_SYS_CTRL, BBP_CSR    | **Confirmed** (after bus gate) [M:hw]  | M:hw, IP:RT2x00       |
 | RF analog         | `0x11900`-`0x11978`  | (JieLi)    | (no RT2800 equivalent)   | Untested on HW                         | M:t                    |
 | WL control        | `0x14000`-`0x140A0`  | (JieLi)    | (no RT2800 equivalent)   | **Confirmed** [M:hw v17-v18]           | M:t, M:s, M:hw        |
@@ -488,7 +505,7 @@ integration pattern for licensed IP [I].
 The WiFi MAC initialization follows this order [M:s, M:hw]:
 
 1. Clock and reset init via `0x14040`-`0x1405C` (WiFi clock gates and reset) [M:t, M:hw]
-2. **Bus gate**: write WL_CTL0 (`0x14000`) non-zero to enable `0x30000`+ and `0x40000`+ access [M:hw]. Write WL_CTL8 (`0x14008`) as needed [M:hw]. **Without this step, MAC/DMA reads will bus fault** [M:hw]
+2. **Bus gate**: write WL_CTL0 (`0x14000`) non-zero to enable `0x30000`+ and `0x40000`+ access [M:hw]. **Do not write WL_CTL8 (`0x14008`)**: it remaps GPIO pins and kills input [M:hw confirmed 2026-10-30]. **Without WL_CTL0, MAC/DMA reads will bus fault** [M:hw]
 3. MAC init: configure MAC_SYS_CTRL (`0x31004`) and related registers [M:t, M:hw, IP:RT2x00]
 4. DMA init: program TX/RX ring base pointers and counts at `0x40230`+/`0x40290`+, configure WPDMA_GLO_CFG (`0x40208`) to enable DMA [M:hw, IP:RT2x00]
 5. Interrupt setup: configure INT_MASK_CSR (`0x40204`) to enable desired interrupts [M:hw, IP:RT2x00]
@@ -550,6 +567,7 @@ Based on the DMA ring architecture [M:s, IP:RT2x00]:
 | BKOFF_SLOT_CFG (`0x31104`) | `0x00140314` | v23c | M:hw, IP:RT2x00 |
 | TX_SW_CFG0 (`0x31330`) | `0x00040804` | v23c | M:hw, IP:RT2x00 |
 | WL_CTL0 (`0x14000`) is bus gate | Yes, `0x30000`+/`0x40000`+ fault without it | v13 vs v18 | M:hw |
+| WL_CTL8 (`0x14008`) kills input | Writing `0xFFFF` remaps GPIO, kills 74HC595 shift register on PA1/PA3/PA4. Not needed for bus gating | v30 bisect | M:hw |
 | DMA range (`0x0200`-`0x0210`) | **Open bus** (vendor binary offset, not real address) | v15-v16 | M:hw |
 | `0x50000` is SDIO controller | **No, it is GPIO PA_OUT** | v14 | M:hw |
 | Clock regs (`0x14040`-`0x1405C`) | Non-zero values confirmed | v15, v17 | M:hw |
@@ -564,7 +582,7 @@ Based on the DMA ring architecture [M:s, IP:RT2x00]:
 | DMA descriptor format             | [IP:RT2x00]       | RT2800 format is working hypothesis; confirm during TX/RX bring-up |
 | BBP indirect write protocol       | [IP:RT2x00]       | Read confirmed; write protocol needed for calibration |
 | RF analog block (`0x11900`+)      | [M:t]             | Read on real HW to confirm emulator model accuracy |
-| WL_CTL0 minimal gate bits         | [M:hw]            | Which bit(s) enable MAC/DMA access? |
+| WL_CTL0 minimal gate bits         | [M:hw]            | Which bit(s) enable MAC/DMA access? (0xFFFF works; reads back 0xF103, so only some bits matter) |
 | TX queues 2-5                     | [IP:RT2x00]       | Expected at `0x40260`-`0x40288`, untested |
 
 ---

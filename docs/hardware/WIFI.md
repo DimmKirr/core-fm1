@@ -201,12 +201,12 @@ The shared radio front-end. Initialized during both WiFi and BLE startup [M:t].
 
 ### 4.2 Wireless control block: `0x14000-0x14064`
 
-System-level wireless control: radio enables, clock gating, and the RF-die SPI interface [M:t].
+System-level wireless control: bus gating, clock gating, reset, and the RF-die SPI interface [M:t, M:hw].
 
 | Address | Name | Bits | Function | Tag |
 |---------|------|------|----------|-----|
-| `0x14000` | WL_CTL0 | | Wireless system control | M:t |
-| `0x14008` | WL_CTL8 | | WiFi control (written during clock/reset init) | M:s |
+| `0x14000` | WL_CTL0 | [15:0] writable (reads back masked, e.g. 0xFFFF -> 0xF103) | **MAC bus gate.** Must be written non-zero before accessing `0x30000`+/`0x40000`+ registers | M:t, M:hw |
+| `0x14008` | WL_CTL8 | [15:0] fully writable | **HAZARD: do not write.** Remaps GPIO pins to wireless functions, kills input shift register (PA1/PA3/PA4). Not required for bus gating [M:hw confirmed 2026-10-30] | M:s, M:hw |
 | `0x14028` | RFSPI_CTL | [22:20] busy; [16] start; [15:8] address; [7:0] command; [4] kick toggle | RF-die SPI control port. Commands: 0xE = LUT word 0 write, 0xD = LUT word 1 write, 0x6 = read | M:t, M:s |
 | `0x1402C` | RFSPI_DATA | [31:0] | RF-die SPI data (written before CTL) | M:t |
 | `0x14034` | RFSPI_WAIT | | Written 0 while polling busy (purpose unclear) | M:t, I |
@@ -368,10 +368,10 @@ The bus uses standard SDIO CMD52 (single-byte) and CMD53 (block transfer) semant
 
 ### 7.3 Initialization sequence
 
-The bus initialization follows this order [M:s]:
+The bus initialization follows this order [M:s, M:hw]:
 
 1. Clock and reset init via `0x14040-0x1405C` (WiFi clock gates and reset) [M:t]
-2. SDIO enumeration (bus discovery and function enable) [M:s]
+2. Bus gate: write WL_CTL0 (`0x14000`) non-zero. **Do not write WL_CTL8 (`0x14008`)**: it remaps GPIO pins and kills the input shift register [M:hw confirmed 2026-10-30]
 3. WiFi DMA init (sets up DMA descriptors for TX/RX) [M:s]
 4. PA enable (power amplifier brought up) [M:s]
 5. RF common init (full RF analog bring-up, §10) [M:t]

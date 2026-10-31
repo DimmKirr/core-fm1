@@ -257,11 +257,9 @@ static void wifi_rf_vco_scan(void)
 /* Group 1: system clocks (0x10010, 0x10008) -- 5 writes, constant */
 static void wifi_rf_group1_clocks(void)
 {
-    /* SYS_CLK2 at 0x10010: WiFi clock source enable */
-    FM1_RF_REG(0x10010u) |= (1u << 8);   /* enable WiFi PLL clock source */
+    FM1_RF_REG(0x10010u) |= (1u << 8);
     fm1_delay_us(100);
-    /* SYS_CLK1 at 0x10008: system clock config for WiFi */
-    FM1_RF_REG(0x10008u) |= (1u << 12);  /* WiFi module clock gate */
+    FM1_RF_REG(0x10008u) |= (1u << 12);
     fm1_delay_us(50);
     wifi_rf_stat.ops += 5;
 }

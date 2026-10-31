@@ -211,11 +211,11 @@ static void wifi_sdio_init(void)
     fm1_delay_us(10);
     FM1_WL_RST = 0x01u;
     fm1_delay_us(100);
-
     cfm1_log("wifi: sdio gate");
-    /* Step 2: Bus gate [M:hw v18] */
+    /* Bus gate: WL_CTL0 only. Do NOT write WL_CTL8 (0x14008):
+     * it remaps GPIO pins to wireless functions and kills the
+     * input shift register (PA1/PA3/PA4). See SPECSHEET.md §4.2. */
     *(volatile uint32_t *)0x14000u = 0x0000FFFFu;
-    *(volatile uint32_t *)0x14008u = 0x0000FFFFu;
     fm1_delay_us(100);
 
     cfm1_log("wifi: sdio dma_init");

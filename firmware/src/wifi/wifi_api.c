@@ -138,46 +138,20 @@ static void wifi_on_rx(const uint8_t *data, uint32_t len)
 
 static void wifi_poll(void)
 {
-    /* deferred work from ISRs */
     wifi_defer_poll();
-
-    /* software timers */
     wifi_timer_poll();
-
-    /* SDIO: check for pending IRQs */
     wifi_sdio_poll_irq();
-
-    /* STA: advance the state machine (auth/assoc/wpa timeouts) */
     wifi_sta_poll();
-
-    /* lwIP: run protocol timers (ARP, DHCP, TCP retransmit) */
     wifi_lwip_poll();
-
-    /* HTTP client: check timeouts */
     http_poll();
-
-    /* weather: advance fetch state machine */
     weather_poll();
 }
 
 #ifdef CONFIG_SCHED
 static void wifi_task(void)
 {
-    sleep_ms(3000);
-    cfm1_log("wifi: task init GO");
-    wifi_rtos_init(); yield();
-    wifi_rf_init(); yield();
-    wifi_sdio_init(); yield();
-    wifi_mac_init(); yield();
-    wifi_sta_init(wifi_mac_addr);
-    wifi_lwip_set_mac(wifi_sta.our_mac);
-    wifi_lwip_init();
-    weather_init();
-    wifi_cfg_ssid = 0;
-    wifi_cfg_pass = 0;
-    cfm1_log("wifi: task init done");
+    cfm1_log("wifi: task poll enabled");
     for (;;) {
-        wifi_cmd_poll();
         wifi_poll();
         yield();
     }

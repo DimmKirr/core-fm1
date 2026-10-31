@@ -129,7 +129,8 @@ static void wifi_probes_init(void)
     fm1_delay_us(100);
     wifi_probes.clock_ok = 1;
     *(volatile uint32_t *)0x14000u = 0x0000FFFFu;
-    *(volatile uint32_t *)0x14008u = 0x0000FFFFu;
+    /* Do NOT write 0x14008 (WL_CTL8): kills input shift register GPIO.
+     * WL_CTL0 alone is sufficient for MAC/DMA bus gating. */
     fm1_delay_us(100);
 
     /* v23b faulted. Suspect: write-readback tests (Group 7).
