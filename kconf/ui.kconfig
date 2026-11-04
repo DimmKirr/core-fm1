@@ -14,7 +14,7 @@ config INPUT
 # kc2mm:label "Shell"
 choice
     prompt "UI framework"
-    default UI_MELODEE if INPUT
+    default UI_FELUCCA if INPUT
     default UI_CORE
 
 config UI_FELUCCA
@@ -28,11 +28,11 @@ config UI_SLOOP
     bool "SLOOP"
     depends on INPUT
 
+# Not yet selectable: no melodee shell implementation exists.
+# Remove the 'depends on n' guard when themes/melodee/shell.c is ready.
 config UI_MELODEE
     bool "Melodee"
-    depends on INPUT
-    help
-      Rubik font, track colors, 8 palettes, partial screen updates.
+    depends on n
 
 config UI_CORE
     bool "core-fm1 (minimal)"
