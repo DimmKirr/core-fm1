@@ -742,6 +742,14 @@ static void wifi_cmd_poll(void);
 #include "wifi/wifi_debug.c"
 #endif /* CONFIG_WIFI */
 
+/* --- WiFi non-free driver (vendor binary libs + fm1-base shim) --- */
+
+#ifdef CONFIG_WIFI_NONFREE
+#include "../adapters/cfm1_wifi.h"
+#include "wifi/nonfree/nf_main.c"
+#include "wifi/nonfree/nf_wifi_compat.c"
+#endif /* CONFIG_WIFI_NONFREE */
+
 /* --- WiFi hardware probes (cleanroom analyst instrument) --- */
 
 #ifdef CONFIG_WIFI_PROBES
@@ -1045,7 +1053,7 @@ static void ui_task(void)
     for (;;) {
         uint32_t m = fm1_ms;
         fm1_wdt_feed();
-#ifdef CONFIG_DEBUG
+#ifdef CONFIG_DEBUG_UI_HB
         {
             static uint32_t ui_hb_next;
             if (fm1_ms > ui_hb_next) {
@@ -1311,6 +1319,10 @@ static void fm1_main(void)
 #ifdef CONFIG_WIFI
     wifi_init();
 #endif
+#ifdef CONFIG_WIFI_NONFREE
+    cfm1_log("nf: wifi init");
+    nf_wifi_init();
+#endif
 
 #ifdef CONFIG_INPUT
     fm1_input_init();
@@ -1494,6 +1506,9 @@ static void fm1_main(void)
 #ifdef CONFIG_WIFI
         wifi_cmd_poll();
         wifi_poll();
+#endif
+#ifdef CONFIG_WIFI_NONFREE
+        nf_wifi_poll();
 #endif
 #if defined(CONFIG_UI_FELUCCA)
         fsh_draw();

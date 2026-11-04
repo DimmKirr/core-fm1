@@ -39,8 +39,10 @@ static void fsh_register_pages(void)
     nav_register(&FPAGE_SEQ);
 
     /* VIEW_CONN: connectivity */
-#ifdef CONFIG_WIFI
+#if defined(CONFIG_WIFI) || defined(CONFIG_WIFI_NONFREE)
     nav_register(&FPAGE_WIFI);
+#endif
+#ifdef CONFIG_WIFI
     nav_register(&FPAGE_WEATHER);
 #endif
 #ifdef CONFIG_BLE

@@ -1,0 +1,147 @@
+CONFIG_FIRMWARE_NAME="core-fm1"
+CONFIG_FIRMWARE_VERSION="v0.0.0"
+
+#
+# Engines
+#
+CONFIG_ENGINES=y
+# CONFIG_ENGINE_FM6 is not set
+# CONFIG_ENGINE_ANALOG is not set
+# CONFIG_ENGINE_LOFI is not set
+# CONFIG_ENGINE_TRIO is not set
+# CONFIG_ENGINE_NOISE is not set
+CONFIG_ENGINE_STUB=y
+# end of Engines
+
+#
+# Effects
+#
+# CONFIG_EFFECTS_MELODEE is not set
+# CONFIG_MODULATION is not set
+# end of Effects
+
+#
+# Sequencer
+#
+CONFIG_SEQ_MELODEE=y
+# end of Sequencer
+
+#
+# Scales
+#
+CONFIG_SCALES_MELODEE=y
+# end of Scales
+
+#
+# System
+#
+
+#
+# HAL
+#
+CONFIG_HAL_SYS_MELODEE=y
+CONFIG_HAL_IRQ_MELODEE=y
+CONFIG_HAL_LCD_MELODEE=y
+CONFIG_HAL_INPUT_MELODEE=y
+CONFIG_HAL_GUARD_MELODEE=y
+CONFIG_HAL_FLASH_MELODEE=y
+CONFIG_HAL_UART_MELODEE=y
+CONFIG_HAL_USB_MELODEE=y
+CONFIG_HAL_TIMER_MELODEE=y
+CONFIG_HAL_MULTICORE_MELODEE=y
+CONFIG_HAL_MELODEE_CACHE=y
+CONFIG_HAL_MELODEE_CLOCK=y
+CONFIG_HAL_MELODEE_POWER=y
+# end of HAL
+
+#
+# Boot
+#
+CONFIG_BOOT_MELODEE=y
+CONFIG_OTA=y
+# end of Boot
+
+#
+# Audio
+#
+CONFIG_AUDIO=y
+CONFIG_AUDIO_CORE_MELODEE=y
+# end of Audio
+
+#
+# MIDI
+#
+CONFIG_USB=y
+CONFIG_MIDI_MELODEE=y
+# end of MIDI
+
+#
+# UI
+#
+CONFIG_INPUT=y
+CONFIG_UI_FELUCCA=y
+CONFIG_CONTROLS_FELUCCA=y
+CONFIG_SPLASH_LOGO=y
+CONFIG_GEN_FELUCCA_UI=y
+# end of UI
+
+#
+# Storage
+#
+CONFIG_FLASH=y
+CONFIG_STORAGE_MELODEE=y
+# end of Storage
+
+#
+# UDisk
+#
+CONFIG_USB_HOST=y
+CONFIG_UDISK=y
+# end of UDisk
+
+#
+# BLE
+#
+# CONFIG_BLE is not set
+# end of BLE
+
+#
+# WiFi
+#
+# CONFIG_WIFI is not set
+CONFIG_WIFI_NONFREE=y
+# CONFIG_WIFI_PROBES is not set
+# end of WiFi
+
+#
+# CDP
+#
+# CONFIG_CDP is not set
+# end of CDP
+
+#
+# Debug
+#
+CONFIG_DEBUG=y
+CONFIG_DEBUG_LOG=y
+CONFIG_DEBUG_DAP=y
+# end of Debug
+
+#
+# Settings Menu
+#
+CONFIG_SYS_MENU=y
+CONFIG_SETTINGS_FMLAB=y
+CONFIG_SETTINGS_AT=0xFC000
+CONFIG_SYS_MENU_USB_MODE=y
+CONFIG_SYS_MENU_MIDI_CH=y
+# end of Settings Menu
+
+#
+# Scheduler
+#
+CONFIG_SCHED=y
+CONFIG_SCHED_MAX_TASKS=6
+CONFIG_SCHED_STACK_CANARY=y
+# end of Scheduler
+# end of System
