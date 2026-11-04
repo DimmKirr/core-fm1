@@ -11,10 +11,10 @@ core-fm1 is a modular firmware framework for the M-VAVE FM-1 synthesizer (JieLi 
 Kconfiglib-based configuration. All commands go through [Taskfile](https://taskfile.dev), which wraps the JieLi toolchain env vars (`JIELI_TOOLCHAIN`, `AC79_SDK`) automatically:
 
 ```
-task build                              # download toolchain + compile firmware
-task build -- --defconfig felucca_noise # build a specific defconfig
+task build                              # build using .config (default symlink)
+task build -- --defconfig wifi_debug    # build a specific defconfig from configs/
 task config                             # interactive menuconfig
-task config:defconfig -- melodee        # load a preset defconfig
+task config:defconfig -- melodee        # load a preset defconfig into .config
 task config:generate                    # .config -> build/gen/config.h
 task test                               # run all tests (unit + e2e)
 task test:unit                          # Python unit tests only
@@ -23,9 +23,15 @@ task test:e2e                           # emulator + Playwright e2e tests
 
 **Important:** always use `task build` (not `python tools/build.py` directly) because the Taskfile sets required env vars for the JieLi toolchain. If calling `build.py` directly, you must set `JIELI_TOOLCHAIN` and `AC79_SDK`.
 
-Defconfig profiles live in `configs/`: `melodee_defconfig`, `felucca_defconfig`, `sloop_defconfig`, `minimal_defconfig`.
+### .config and defconfigs
 
-Generated files go to `build/gen/config.h`. The `.config` file is gitignored.
+`.config` is a symlink to `configs/core_fm1_dev_defconfig`, the main development profile. Do not replace it with a regular file. To build with a different defconfig from `configs/`, pass `--defconfig <name>` (without the `_defconfig` suffix):
+
+```
+task build -- --defconfig wifi_debug    # builds with configs/wifi_debug_defconfig
+```
+
+Generated files go to `build/gen/config.h`.
 
 ## Architecture
 

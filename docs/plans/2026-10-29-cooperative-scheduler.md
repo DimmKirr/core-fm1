@@ -8,7 +8,7 @@
 
 **Tech Stack:** C (unity build, all static), pi32v2 assembly (context switch), Kconfiglib, Python (unit tests), Playwright (e2e tests)
 
-**Design doc:** `.scratch/doc/2026-10-29-cooperative-scheduler-design.md`
+**Design doc:** `../../.scratch/tasks/doc`
 **Master checklist:** `.scratch/tasks/todo/2026-10-29T02-cooperative-scheduler-design.md`
 
 ---
