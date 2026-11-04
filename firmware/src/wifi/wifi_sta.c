@@ -171,8 +171,10 @@ static void wifi_sta_send_probe_req(uint8_t channel)
 {
     uint8_t frame[128];
     uint32_t pos;
+    int tx_rc;
 
     wifi_rf_set_channel(channel);
+    wifi_mac_front_end();
 
     pos = wifi_sta_mgmt_hdr(frame, FC_TYPE_MGMT | FC_SUBTYPE_PREQ,
                             wifi_bcast, wifi_sta.our_mac, wifi_bcast);
@@ -183,7 +185,25 @@ static void wifi_sta_send_probe_req(uint8_t channel)
     pos += wifi_sta_ie(frame + pos, IE_RATES,
                        wifi_sta_rates, sizeof wifi_sta_rates);
 
-    wifi_mac_tx(frame, pos);
+    tx_rc = wifi_mac_tx(frame, pos);
+    cfm1_log_int("wifi: probe tx=", (int32_t)tx_rc);
+    if (wifi_sta.scan_ch <= 2) {
+        /* TX-side behaviour [IP:RT2x00]:
+         *  qpcnt   TXRXQ_PCNT sampled before the WDMA ack: 0 = the frame never
+         *          entered a MAC TX queue, [7:0] = TX0Q depth
+         *  mstat   MAC_STATUS_CFG: [0] BBP/RF busy TX, [1] busy RX
+         *  tsfifo  TX_STA_FIFO: [0] valid, [5] success, [15:8] WCID
+         *  tx_cnt0 [15:0] fail, [31:16] beacon;  tx_cnt1 [15:0] success, [31:16] retry */
+        cfm1_log_int("wifi: qpcnt=", (int32_t)wifi_sdio_state.tx_qpcnt);
+        cfm1_log_int("wifi: txgate=", (int32_t)wifi_sdio_state.tx_gate);
+        cfm1_log_int("wifi: txg_pcnt=", (int32_t)wifi_sdio_state.tx_gate_pcnt);
+        cfm1_log_int("wifi: txg_434=", (int32_t)wifi_sdio_state.tx_gate_qsta);
+        cfm1_log_int("wifi: txg_43c=", (int32_t)wifi_sdio_state.tx_gate_dbg);
+        cfm1_log_int("wifi: mstat=", (int32_t)WIFI_MAC_STATUS);
+        cfm1_log_int("wifi: tsfifo=", (int32_t)WIFI_TX_STA_FIFO);
+        cfm1_log_int("wifi: tx_cnt0=", (int32_t)WIFI_TX_STA_CNT0);
+        cfm1_log_int("wifi: tx_cnt1=", (int32_t)WIFI_TX_STA_CNT1);
+    }
 }
 
 /* ---- scan result parsing ---- */
@@ -444,11 +464,14 @@ static int wifi_sta_start_scan(void (*cb)(const char *ssid, int rssi, int channe
 {
     if (wifi_sta.state != WIFI_STATE_IDLE) return -1;
     cfm1_log("wifi: scan start");
+    cfm1_log_hex("wifi: scan mac=", wifi_sta.our_mac, 6);
     wifi_sta.nresults = 0;
     wifi_sta.scan_ch = 1;
     wifi_sta.scan_cb = cb;
     wifi_sta.scan_start_ms = wifi_sta_now_ms();
     wifi_sta_set_state(WIFI_STATE_SCANNING);
+    cfm1_log_int("wifi: scan wdma_ctl=", (int32_t)WDMA_CTL);
+    cfm1_log_int("wifi: scan irq_en=", (int32_t)WIFI_MAC_IRQ_EN);
     wifi_sta_send_probe_req(1);
     return 0;
 }
@@ -494,6 +517,7 @@ static int wifi_sta_start_connect(const char *ssid, const char *password)
     wifi_sta.target_ssid_len = (uint8_t)slen;
     wifi_sta_mcpy(wifi_sta.target_bssid, ap->bssid, 6);
     wifi_sta_mcpy(wifi_sta_bssid, ap->bssid, 6);
+    wifi_mac_set_bssid(ap->bssid);
     wifi_sta.target_channel = ap->channel;
     wifi_sta.target_security = ap->security;
 
@@ -506,6 +530,7 @@ static int wifi_sta_start_connect(const char *ssid, const char *password)
     }
 
     wifi_rf_set_channel(ap->channel);
+    wifi_mac_front_end();
     cfm1_log("wifi: sta connecting");
     cfm1_log_int("wifi: sta ch=", (int32_t)ap->channel);
     cfm1_log_hex("wifi: sta bssid=", ap->bssid, 6);
@@ -529,6 +554,7 @@ static void wifi_sta_do_disconnect(void)
         pos += 2;
         wifi_mac_tx(frame, pos);
     }
+    wifi_mac_clear_bssid();
     wifi_sta_set_state(WIFI_STATE_IDLE);
 }
 
@@ -560,9 +586,69 @@ static void wifi_sta_poll(void)
                     }
                 }
             }
+            cfm1_log_int("wifi: scan ch=", (int32_t)wifi_sta.scan_ch);
+            cfm1_log_int("wifi: scan rx=", (int32_t)wifi_sdio_state.rx_count);
+            /* Per channel (12m): rx0 [15:0] CRC / [31:16] PHY errors, rx1
+             * [15:0] false CCA / [31:16] PLCP errors (read-to-clear), the
+             * channel code in WF_CON7 and whether the RF die applied the LUT
+             * entry: divider 0x1193C [12:5], bank 0x11938 [25:19]. */
+            cfm1_log_int("wifi: rx0=", (int32_t)WIFI_RX_STA_CNT0);
+            cfm1_log_int("wifi: rx1=", (int32_t)WIFI_RX_STA_CNT1);
+            cfm1_log_int("wifi: wcon7=", (int32_t)FM1_RF_REG(0x1405Cu));
+            cfm1_log_int("wifi: pll=", (int32_t)FM1_RF_REG(0x11938u));
+            cfm1_log_int("wifi: fine=", (int32_t)FM1_RF_REG(0x1193Cu));
+            if (wifi_sta.scan_ch <= 2) {
+                /* RX-side behaviour [IP:RT2x00]: rx counters are read-to-clear,
+                 * so each value is the count since the previous read.
+                 *  mac_rx0 [15:0] CRC errors, [31:16] PHY errors
+                 *  mac_rx1 [15:0] false CCA,  [31:16] PLCP errors
+                 * Any non-zero value means the baseband detected energy. */
+                cfm1_log_int("wifi: mac_rx0=", (int32_t)WIFI_RX_STA_CNT0);
+                cfm1_log_int("wifi: mac_rx1=", (int32_t)WIFI_RX_STA_CNT1);
+                cfm1_log_int("wifi: isr_n=", (int32_t)wifi_isr_count);
+                /* CCA occupancy over the 100 ms dwell [IP:RT2x00 CH_IDLE/BUSY_STA]:
+                 * busy/(idle+busy) near 1 means carrier sense is stuck and the
+                 * MAC defers every transmission. */
+                cfm1_log_int("wifi: ch_idle=", (int32_t)WIFI_CH_IDLE_STA);
+                cfm1_log_int("wifi: ch_busy=", (int32_t)WIFI_CH_BUSY_STA);
+                cfm1_log_int("wifi: ch_bsec=", (int32_t)WIFI_CH_BUSY_SEC);
+                /* Diffs still open against the vendor after iteration 11.
+                 * RF analog and MAC config readbacks were removed: all equal. */
+                cfm1_log_int("wifi: wctl=", (int32_t)WDMA_CTL);       /* vendor 0x10037 (bit 16) */
+                cfm1_log_int("wifi: sirq=", (int32_t)WIFI_SOC_IRQ_EN); /* vendor 0x00C80001 (bit 23) */
+                /* SoC wireless control block [SPECSHEET §4.2, §4.5] for the
+                 * vendor comparison: bus gates, clock tree, unknown configs */
+                cfm1_log_int("wifi: wctl0=", (int32_t)(*(volatile uint32_t *)0x14000u));
+                cfm1_log_int("wifi: wctl8=", (int32_t)(*(volatile uint32_t *)0x14008u));
+                cfm1_log_int("wifi: clk0=", (int32_t)(*(volatile uint32_t *)0x14040u));
+                cfm1_log_int("wifi: clk3=", (int32_t)(*(volatile uint32_t *)0x1404Cu));
+                cfm1_log_int("wifi: cfg54=", (int32_t)(*(volatile uint32_t *)0x14054u));
+                cfm1_log_int("wifi: cfg58=", (int32_t)(*(volatile uint32_t *)0x14058u));
+                cfm1_log_int("wifi: cfg60=", (int32_t)(*(volatile uint32_t *)0x14060u));
+                cfm1_log_int("wifi: sysclk2=", (int32_t)(*(volatile uint32_t *)0x10010u));
+                cfm1_log_int("wifi: sysclk1=", (int32_t)(*(volatile uint32_t *)0x10008u));
+                cfm1_log_int("wifi: wlid=", (int32_t)(*(volatile uint32_t *)0x1400Cu));
+                cfm1_log_int("wifi: cfg90=", (int32_t)(*(volatile uint32_t *)0x14090u));
+                cfm1_log_int("wifi: mac_sys=", (int32_t)WIFI_MAC_SYS_CTRL);
+                cfm1_log_int("wifi: txpin=", (int32_t)WIFI_TX_PIN_CFG);
+                cfm1_log_int("wifi: txband=", (int32_t)WIFI_TX_BAND_CFG);
+                cfm1_log_int("wifi: pbfmax=", (int32_t)WIFI_PBF_MAX_PCNT);
+                /* txadr == txbuf means WDMA_TX_ADR reads back the DMA start we
+                 * wrote; txadr > txbuf means the engine advances it (end pointer).
+                 * Needed to interpret the vendor TX ring samples. */
+                cfm1_log_int("wifi: txadr=", (int32_t)WDMA_TX_ADR);
+                cfm1_log_int("wifi: txbuf=", (int32_t)(uint32_t)&wifi_tx_buf[0]);
+                cfm1_log_int("wifi: txlen=", (int32_t)WDMA_TX_LEN);
+                /* Baseband snapshot, once per scan, for the 1:1 BBP comparison */
+                if (wifi_sta.scan_ch == 1) {
+                    wifi_bbp_snapshot();
+                    wifi_ind_log("scan", 1);
+                }
+            }
             wifi_sta.scan_ch++;
             if (wifi_sta.scan_ch > 13) {
                 cfm1_log_int("wifi: scan done n=", (int32_t)wifi_sta.nresults);
+                cfm1_log_int("wifi: rx total=", (int32_t)wifi_sdio_state.rx_count);
                 /* log BSS table entries */
                 {
                     uint32_t bi;

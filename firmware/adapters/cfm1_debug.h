@@ -10,7 +10,7 @@
 
 /* ---- NOINIT structure: survives resets ---- */
 #define CFM1_DBG_MAGIC    0x564E4246u      /* "FBNV" */
-#define CFM1_DBG_LOG_SIZE 2048u
+#define CFM1_DBG_LOG_SIZE 4096u
 #define CFM1_DBG_CRASH_MAGIC 0x43525348u   /* "CRSH" */
 
 typedef struct {
@@ -19,6 +19,7 @@ typedef struct {
     char     log[CFM1_DBG_LOG_SIZE];
     struct { uint32_t magic, vec, pc, rets, ms; } crash;
     struct { uint32_t worst, overruns; } stats;
+    uint32_t probe;                        /* 12i markers: b0 WL_CTL0 probe running, b1 init-time indicator rows running */
 } cfm1_dbg_nv_t;
 
 /* non-static: the compiler must not assume zero-init for .noinit objects */

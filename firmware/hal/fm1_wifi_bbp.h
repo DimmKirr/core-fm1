@@ -3,7 +3,8 @@
  * No vendor code, IR or disassembly. */
 /* AC791N / WL82 BBP (Baseband Processor) access helpers.
  * All access goes through the indirect port at 0x3101C:
- *   [17] start bit, [16] read flag, [15:8] register address, [7:0] data.
+ *   [19] strobe (JieLi extension), [17] kick/busy, [16] read, [15:8] reg, [7:0] data.
+ *   Two-phase write: load with bit 19, then kick with bits 19+17 [SPECSHEET §6.2].
  *
  * Four BBP windows provide access to extended register banks:
  *   Window C  (w=0): commit 0xC8, entry 0xC9, data 0xCA, readback 0xCB, range 0x00-0x7A
@@ -11,13 +12,14 @@
  *   Window D  (w=2): commit 0xD0, entry 0xD1, data 0xD2, readback 0xD3, range 0x00-0x5F
  *   Window D' (w=3): commit 0xD4, entry 0xD5, data 0xD6, readback 0xD7, range 0x00-0x1C
  *
- * Write protocol: 3 MMIO writes to port (entry addr, data, commit=1).
- * Read protocol:  entry addr, commit=2, read readback register. */
+ * Write protocol [SPECSHEET §6.2]: load (strobe), kick (strobe+busy), poll busy clear.
+ * Read protocol [SPECSHEET §6.3]: load (strobe+read), kick (strobe+busy+read), read [7:0]. */
 #pragma once
 #include <stdint.h>
 #include "fm1_cc.h"
 #include "fm1_wifi_rf.h"
 
+#define WIFI_BBP_STROBE   (1u << 19)
 #define WIFI_BBP_START    (1u << 17)
 #define WIFI_BBP_READ     (1u << 16)
 #define WIFI_BBP_POLLS    1000u
@@ -26,10 +28,11 @@
 
 static uint32_t wifi_bbp_timeouts;
 
-/* one BBP transaction: write reg with data, or read (rd=1) -> port [7:0] */
+/* one BBP transaction [SPECSHEET §6.2]: load (strobe), kick (strobe+busy) */
 FM1_INLINE uint32_t wifi_bbp_xfer(uint32_t reg, uint32_t data, uint32_t rd)
 {
-    uint32_t cmd = WIFI_BBP_START | (rd ? WIFI_BBP_READ : 0u)
+    uint32_t cmd = WIFI_BBP_STROBE | WIFI_BBP_START
+                 | (rd ? WIFI_BBP_READ : 0u)
                  | (reg & 0xFFu) << 8 | (data & 0xFFu);
     uint32_t i;
     FM1_BBP_PORT = cmd & ~WIFI_BBP_START;

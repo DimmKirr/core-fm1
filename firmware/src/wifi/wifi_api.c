@@ -22,15 +22,28 @@ static void wifi_init(void)
     /* RTOS shim: buffer pool, deferred work queue */
     wifi_rtos_init();
 
+    /* Running-indicator rows at every init boundary (iteration 12i). The
+     * first sample is "rf", after the clock tree: the SoC block has only been
+     * read on hardware from that point on. */
+    wifi_ind_arm();
+
     /* RF bring-up: clocks, analog block, VCO scan, BBP, LUT (14-group
      * sequence from docs/hardware/wifi/SPECSHEET.md) */
     wifi_rf_init();
+    wifi_ind_log("rf", 0);
 
     /* SDIO internal bus: clock/reset, enumeration, DMA */
     wifi_sdio_init();
 
     /* MAC: set initial channel, enable RX */
     wifi_mac_init();
+    /* Re-arm the RF die after the last MAC/PHY reset [SPECSHEET §14 row 7,
+     * §4.2.1 A17-A23]: the vendor's LUT load and auto control follow its
+     * final PHY init with no reset afterwards; ours ran before the resets
+     * in wifi_sdio_init(), so the tail runs once more here (12m). */
+    wifi_rf_arm();
+    wifi_ind_log("mac", 1);
+    wifi_ind_done();
 
     /* STA state machine: start in IDLE */
     wifi_sta_init(wifi_mac_addr);
@@ -44,6 +57,14 @@ static void wifi_init(void)
 
     wifi_cfg_ssid = 0;
     wifi_cfg_pass = 0;
+
+    /* diagnostic: confirm WiFi subsystem state after init */
+    cfm1_log_int("wifi: init mac_sys=", (int32_t)WIFI_MAC_SYS_CTRL);
+    cfm1_log_int("wifi: init wdma_ctl=", (int32_t)WDMA_CTL);
+    cfm1_log_int("wifi: init wdma_cfg0=", (int32_t)WDMA_CFG0);
+    cfm1_log_int("wifi: init mac0=", (int32_t)WIFI_MAC_ADDR_DW0);
+    cfm1_log_int("wifi: init mac1=", (int32_t)WIFI_MAC_ADDR_DW1);
+    cfm1_log_int("wifi: init sta_st=", (int32_t)wifi_sta.state);
     cfm1_log("wifi: init done");
 }
 
@@ -136,6 +157,100 @@ static void wifi_on_rx(const uint8_t *data, uint32_t len)
 
 /* ---- main loop poll ---- */
 
+#ifdef CONFIG_WIFI_DEBUG_AUTOSCAN
+/* Debug: scan without the panel. First scan 2 s after the task starts, then
+ * every 15 s while idle, so a power-cycle alone produces the scan
+ * diagnostics for task debug:dump / debug:follow. */
+static void wifi_autoscan_poll(void)
+{
+    static uint32_t next_ms = 2000u;
+    uint32_t now = wifi_sta_now_ms();
+    if (wifi_sta.state != WIFI_STATE_IDLE || (int32_t)(now - next_ms) < 0)
+        return;
+    next_ms = now + 15000u;
+    cfm1_log("wifi: autoscan");
+    wifi_scan(0);
+}
+#endif
+
+#ifdef CONFIG_WIFI_DEBUG_WLCTL0_PROBE
+/* WL_CTL0 release probe (iteration 12i, 2026-11-04) [observations
+ * 2026-11-04T00:04]. The running vendor radio reads 0x14000 = 0 while its MAC
+ * registers stay readable; core-fm1 keeps the 0xFFFF (reads 0xF103) written
+ * at bring-up, and the five read-only "running" indicators never assert.
+ * Host-triggered only (DAP D_WL0, `task debug:wl0`): fm1_fault() halts the
+ * unit on the FAULT screen, so a probe that re-ran by itself after a
+ * power-cycle could keep the device unreachable; on request it runs once,
+ * from the WiFi task, with the indicator rows before and after. SoC-block
+ * reads come first (always safe), the MAC read last: if WL_CTL0 is a level
+ * gate after all, that read faults and the rows already in the ring plus the
+ * crash record (task logs:hello) say so. NOINIT marker bit 0 is set for the
+ * duration of the write so a halted attempt is visible next time. One scan
+ * follows so the counters can move. */
+static uint8_t wifi_wl0_probe_req;   /* set by the DAP command, consumed by the poll */
+static uint8_t wifi_wl0_retry_req;   /* mode 2: retry the writes refused on a held block */
+
+static void wifi_wl0_probe_request(uint32_t mode)
+{
+    if (mode == 2u) {
+        wifi_wl0_retry_req = 1;
+        return;
+    }
+    wifi_wl0_probe_req = 1;
+}
+
+/* 12k: the writes refused in iterations 12e/12h (0x14050 b23, 0x14060 b23,
+ * 0x14058 vendor value, WDMA_CTL b16) were all attempted on a held block
+ * (WL_CTL0 0xF103). Retry them on a released block, read each back, bracket
+ * with indicator rows, then scan. A write that sticks now is an enable that
+ * the hold was gating. Releases first so the result does not depend on how
+ * this boot was started. */
+static void wifi_wl0_retry_poll(void)
+{
+    if (!wifi_wl0_retry_req)
+        return;
+    wifi_wl0_retry_req = 0;
+    cfm1_log("wifi: wl0 retry refused writes");
+    wifi_ind_log("pre2", 1);
+    *(volatile uint32_t *)0x14000u = 0u;
+    fm1_delay_us(1000);
+    *(volatile uint32_t *)0x14050u |= (1u << 23);
+    *(volatile uint32_t *)0x14060u |= (1u << 23);
+    *(volatile uint32_t *)0x14058u = 0x009F827Du;
+    WDMA_CTL = 0x00010037u;
+    fm1_delay_us(100);
+    cfm1_log_int("wifi: r2 sirq=", (int32_t)(*(volatile uint32_t *)0x14050u));
+    cfm1_log_int("wifi: r2 cfg60=", (int32_t)(*(volatile uint32_t *)0x14060u));
+    cfm1_log_int("wifi: r2 cfg58=", (int32_t)(*(volatile uint32_t *)0x14058u));
+    cfm1_log_int("wifi: r2 wctl=", (int32_t)WDMA_CTL);
+    wifi_ind_log("pst2", 1);
+    if (wifi_sta.state == WIFI_STATE_IDLE)
+        wifi_scan(0);
+}
+
+static void wifi_wlctl0_probe_poll(void)
+{
+    volatile uint32_t *wlctl0 = (volatile uint32_t *)0x14000u;
+    if (!wifi_wl0_probe_req)
+        return;
+    wifi_wl0_probe_req = 0;
+    if (cfm1_dbg_nv.probe & 1u)
+        cfm1_log("wifi: wl0 probe: previous attempt crashed");
+    cfm1_log("wifi: wl0 probe");
+    wifi_ind_log("pre0", 1);
+    cfm1_dbg_nv.probe |= 1u;
+    *wlctl0 = 0u;
+    fm1_delay_us(100);
+    cfm1_log_int("wifi: wl0 post=", (int32_t)*wlctl0);
+    wifi_ind_log("soc0", 0);
+    wifi_ind_log("mac0", 1);
+    cfm1_dbg_nv.probe &= ~1u;
+    cfm1_log("wifi: wl0 probe done");
+    if (wifi_sta.state == WIFI_STATE_IDLE)
+        wifi_scan(0);
+}
+#endif
+
 static void wifi_poll(void)
 {
     wifi_defer_poll();
@@ -145,6 +260,13 @@ static void wifi_poll(void)
     wifi_lwip_poll();
     http_poll();
     weather_poll();
+#ifdef CONFIG_WIFI_DEBUG_WLCTL0_PROBE
+    wifi_wlctl0_probe_poll();
+    wifi_wl0_retry_poll();
+#endif
+#ifdef CONFIG_WIFI_DEBUG_AUTOSCAN
+    wifi_autoscan_poll();
+#endif
 }
 
 #ifdef CONFIG_SCHED

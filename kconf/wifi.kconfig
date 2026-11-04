@@ -38,6 +38,40 @@ config WIFI_MIDI
     default n
 
 # kc2mm:hide
+config WIFI_DEBUG_AUTOSCAN
+    bool "Debug: scan automatically after boot"
+    depends on WIFI && DEBUG_LOG
+    default n
+    help
+      Start a WiFi scan 2 s after the WiFi task starts and repeat it every
+      15 s while idle, without touching the panel. Lets a power-cycle alone
+      produce the scan diagnostics read by `task debug:dump` and
+      `task debug:follow` during bring-up. Turn off for normal use.
+
+# kc2mm:hide
+config WIFI_DEBUG_WLCTL0_PROBE
+    bool "Debug: release WL_CTL0 (0x14000) once after boot"
+    depends on WIFI && DEBUG_DAP
+    default n
+    help
+      Host-triggered WiFi probes over DAP (task debug:wl0): write WL_CTL0 = 0,
+      log the running-indicator rows before and after, scan once; or retry
+      the four SoC writes that refused on a held block, then scan. Since 12p
+      the boot no longer asserts WL_CTL0, so the plain probe is just a scan
+      with extra readbacks. Bring-up aid; turn off for normal use.
+
+config WIFI_NONFREE
+    bool "WiFi (vendor binary driver)"
+    default n
+    depends on !BLE && !WIFI
+    help
+      WiFi STA using JieLi's vendor binary libraries from the AC79 SDK.
+      Links wl_wifi_sta_sfc.a, wpasupplicant.a, hsm.a, wl_rf_common.a
+      with fm1-base's MPL-2.0/Apache-2.0 cooperative scheduler shim.
+      For testing and comparison with the clean-room CONFIG_WIFI driver.
+      Requires AC79_SDK to be set.
+
+# kc2mm:hide
 config WIFI_PROBES
     bool "WiFi hardware probes (cleanroom analyst)"
     # depends on !WIFI && !BLE  # temporarily removed for crash isolation

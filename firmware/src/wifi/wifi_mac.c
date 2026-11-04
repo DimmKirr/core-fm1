@@ -47,22 +47,7 @@ struct wifi_hdr {
 
 #define WIFI_HDR_SIZE 24
 
-/* ---- BSS table (scan results) ---- */
-
-#define WIFI_MAX_SSID_LEN 32
-#define WIFI_MAX_BSS      16
-
-struct wifi_bss {
-    uint8_t  bssid[6];
-    char     ssid[WIFI_MAX_SSID_LEN + 1];
-    uint8_t  ssid_len;
-    uint8_t  channel;
-    int8_t   rssi;
-    uint8_t  has_rsn;
-    uint16_t beacon_interval;
-    uint16_t capability;
-    uint8_t  in_use;
-};
+/* ---- BSS table (scan results, struct wifi_bss in cfm1_wifi.h) ---- */
 
 static struct wifi_bss wifi_bss_table[WIFI_MAX_BSS];
 static uint32_t wifi_bss_count;
@@ -393,6 +378,8 @@ static int wifi_mac_tx_data(struct wifi_buf *buf)
 
 /* ---- RX dispatch ---- */
 
+static uint32_t wifi_mac_rx_dbg;
+
 static void wifi_mac_rx(uint8_t *data, uint32_t len)
 {
     const struct wifi_hdr *hdr;
@@ -406,6 +393,12 @@ static void wifi_mac_rx(uint8_t *data, uint32_t len)
     fc = hdr->frame_control;
     type = (uint8_t)(fc & 0x0C);
     stype = (uint8_t)(fc & 0xF0);
+
+    if (wifi_mac_rx_dbg < 10u) {
+        cfm1_log_int("wifi: mac rx fc=", (int32_t)fc);
+        cfm1_log_int("wifi: mac rx len=", (int32_t)len);
+        wifi_mac_rx_dbg++;
+    }
 
     if (type == WIFI_FC_TYPE_MGMT) {
         if (stype == WIFI_FC_STYPE_BEACON || stype == WIFI_FC_STYPE_PROBE_RSP)
@@ -424,6 +417,143 @@ static void wifi_mac_rx(uint8_t *data, uint32_t len)
     }
 }
 
+/* MAC_SYS_CTRL bits [IP:RT2x00, SPECSHEET §7.2] */
+#define MAC_TX_EN  (1u << 2)
+#define MAC_RX_EN  (1u << 3)
+
+/* RX_FILTER_CFG bit definitions [RT5350 §3.20.3.5]
+ * 0 = accept (disable drop), 1 = drop (enable drop) */
+#define RXFILT_DROP_CRC_ERR    (1u << 0)
+#define RXFILT_DROP_PHY_ERR    (1u << 1)
+#define RXFILT_DROP_UC_NOME    (1u << 2)
+#define RXFILT_DROP_NOT_MYBSS  (1u << 3)
+#define RXFILT_DROP_VER_ERR    (1u << 4)
+#define RXFILT_DROP_MC         (1u << 5)
+#define RXFILT_DROP_BC         (1u << 6)
+#define RXFILT_DROP_DUPL       (1u << 7)
+#define RXFILT_DROP_CFACK      (1u << 8)
+#define RXFILT_DROP_CFEND      (1u << 9)
+#define RXFILT_DROP_ACK        (1u << 10)
+#define RXFILT_DROP_CTS        (1u << 11)
+#define RXFILT_DROP_RTS        (1u << 12)
+#define RXFILT_DROP_PSPOLL     (1u << 13)
+#define RXFILT_DROP_BA         (1u << 14)
+#define RXFILT_DROP_BAR        (1u << 15)
+#define RXFILT_DROP_CTRL_RSV   (1u << 16)
+
+/* Linux rt2800 config_filter(FIF_ALLMULTI): drop control/error junk,
+ * accept data+mgmt from all BSSes. NOT_MYBSS=0 for scan. [IP:RT2x00] */
+#define RX_FILTER_INIT  (RXFILT_DROP_CRC_ERR | RXFILT_DROP_PHY_ERR     \
+                       | RXFILT_DROP_UC_NOME  | RXFILT_DROP_VER_ERR     \
+                       | RXFILT_DROP_DUPL     | RXFILT_DROP_CFACK       \
+                       | RXFILT_DROP_CFEND    | RXFILT_DROP_ACK         \
+                       | RXFILT_DROP_CTS      | RXFILT_DROP_RTS         \
+                       | RXFILT_DROP_PSPOLL   | RXFILT_DROP_BAR         \
+                       | RXFILT_DROP_CTRL_RSV)  /* = 0x1BF97 */
+
+/* Scanning: clear NOT_TO_ME so we hear everything while MAC addr is unverified */
+#define RX_FILTER_SCAN  (RX_FILTER_INIT & ~RXFILT_DROP_UC_NOME)  /* = 0x1BF93 */
+
+/* After association: tighten to our BSS only */
+#define RX_FILTER_ASSOC (RX_FILTER_INIT | RXFILT_DROP_NOT_MYBSS) /* = 0x1BF9F */
+
+static void wifi_mac_init_registers(void)
+{
+    volatile uint32_t dummy;
+
+    cfm1_log("wifi: mac regs init");
+
+    /* RX_FILTER_CFG (0x31400) [IP:RT2x00, rt2800.h line 1756]
+     * Hardware default likely has DROP_NOT_MYBSS=1, which drops beacons
+     * during scanning. Set permissive scan filter: accept from all BSSes,
+     * clear NOT_TO_ME until MAC addr matching is verified on AC791N. */
+    cfm1_log_int("wifi: rxfilt pre=", (int32_t)WIFI_RX_FILTER_CFG);
+    WIFI_RX_FILTER_CFG = RX_FILTER_SCAN;
+    cfm1_log_int("wifi: rxfilt post=", (int32_t)WIFI_RX_FILTER_CFG);
+
+    /* AUTO_RSP_CFG (0x31404) [SPECSHEET §7.10 MACRegTable]
+     * bit0=AUTORESPONDER, bit1=BAC_ACK_POLICY, bit4=CCK_SHORT */
+    WIFI_AUTO_RSP_CFG = 0x13u;
+
+    /* LEGACY_BASIC_RATE (0x31408) [IP:RT2x00, rt2800lib.c line 5863] */
+    WIFI_LEGACY_BASIC_RATE = 0x015Fu;
+
+    /* HT_BASIC_RATE (0x3140C) [IP:RT2x00, rt2800lib.c line 5864] */
+    WIFI_HT_BASIC_RATE = 0x8003u;
+
+    /* MAX_LEN_CFG (0x31018) [IP:RT2x00, rt2800lib.c line 6046]
+     * Vendor value 0x000A3FFF: bits 17,19 enable A-MPDU + aggregate. */
+    WIFI_MAX_LEN_CFG = 0x000A3FFFu;
+
+    /* TX_LINK_CFG (0x31350) [vendor baseline: 0x007F1020] */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1350u) = 0x007F1020u;
+
+    /* EDCA_TID_AC_MAP (0x31340) [SPECSHEET §7.10 MACRegTable]
+     * Maps 802.11e TID values to hardware AC queues */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1340u) = 0x0000583Fu;
+
+    /* TX_TIMEOUT_CFG (0x31344) [SPECSHEET §7.10 MACRegTable] */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1344u) = 0x00092B20u;
+
+    /* TX_RETRY_CFG (0x31348) [vendor baseline] */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1348u) = 0x000F1290u;
+
+    /* TX_RTS_CFG (0x3134C) [SPECSHEET §7.10 MACRegTable] */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x134Cu) = 0x47D01F0Fu;
+
+    /* Protection configs [vendor baseline, iteration 7 observation] */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x136Cu) = 0x01754004u;
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1364u) = 0x07F40000u;  /* OFDM_PROT_CFG */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1368u) = 0x07F40000u;  /* MM20_PROT_CFG */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1370u) = 0x03F54084u;  /* MM40_PROT_CFG */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1374u) = 0x01754004u;  /* GF20_PROT_CFG */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1378u) = 0x03F54084u;  /* GF40_PROT_CFG */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x137Cu) = 0x0038013Au;
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1380u) = 0x002400CAu;  /* EXP_ACK_TIME */
+
+    /* EDCA queue parameters [vendor baseline, iteration 7 observation] */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1300u) = 0x000A4300u;  /* EDCA_AC0 (Best Effort) */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1304u) = 0x000A4700u;  /* EDCA_AC1 (Background) */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1308u) = 0x00043538u;  /* EDCA_AC2 (Video) */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x130Cu) = 0x0003222Fu;  /* EDCA_AC3 (Voice) */
+
+    /* Rate protection [SPECSHEET §7.10 MACRegTable] */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x040Cu) = 0x1F3FBF9Fu;  /* CCK_PROT_CFG */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x042Cu) = 0xF8F0E8E0u;  /* LEGACY_PROT_CFG */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x0430u) = 0x6F77D0C8u;  /* HT_PROT_CFG */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x0408u) = 0x00F40006u;
+
+    /* BASIC_RATE (0x31200) [vendor baseline: 0x00030601] */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1200u) = 0x00030601u;
+
+    /* Remaining MACRegTable entries [SPECSHEET §7.10] */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1608u) = 0x00000002u;
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1204u) = 0x00000003u;
+
+    /* Clear error counters by reading them (read-to-clear) */
+    dummy = WIFI_RX_STA_CNT0;
+    dummy = WIFI_RX_STA_CNT1;
+    dummy = WIFI_RX_STA_CNT2;
+    dummy = WIFI_TX_STA_CNT0;
+    dummy = WIFI_TX_STA_CNT1;
+    dummy = WIFI_TX_STA_CNT2;
+    (void)dummy;
+
+    cfm1_log("wifi: mac regs done");
+}
+
+/* MAC front end after every channel switch [SPECSHEET §4.2.1 C2-C3, §14 rows
+ * 3-4, M:s wl_wifi_sta.a, 2026-11-04]: TX_BAND_CFG band select (bits [2:1]
+ * cleared, bit 2 set for 2.4 GHz), then TX_PIN_CFG = 0x00050302 (RT2800 bit
+ * names: PA_PE_G0_EN, LNA_PE_A0_EN, LNA_PE_G0_EN, RFTR_EN, TRSW_EN). The GPL
+ * driver never wrote either register before iteration 12l: with the LNA and
+ * RF switch enables off, the baseband hears noise but never a frame [I]. */
+static void wifi_mac_front_end(void)
+{
+    WIFI_TX_BAND_CFG = (WIFI_TX_BAND_CFG & ~0x6u) | 0x4u;
+    WIFI_TX_PIN_CFG = 0x00050302u;
+}
+
 static void wifi_mac_init(void)
 {
     uint32_t i;
@@ -433,6 +563,18 @@ static void wifi_mac_init(void)
     for (i = 0; i < WIFI_MAX_BSS; i++)
         wifi_bss_table[i].in_use = 0;
 
+    /* Disable MAC during register config [IP:RT2x00, rt2800lib.c line 5866] */
+    WIFI_MAC_SYS_CTRL = 0;
+
+    wifi_mac_init_registers();
+
+    /* Staged enable [IP:RT2x00, rt2800lib.c line 10846-10862]:
+     * TX only → DMA enable (already done in wifi_dma_init) → TX+RX */
+    WIFI_MAC_SYS_CTRL = MAC_TX_EN;
+    fm1_delay_us(50);
+    WIFI_MAC_SYS_CTRL = MAC_TX_EN | MAC_RX_EN;
+    cfm1_log_int("wifi: mac sys_ctrl=", (int32_t)WIFI_MAC_SYS_CTRL);
+
     /* Try to read MAC from SDIO (chip OTP at fn1 offset 0x1000).
      * If SDIO is broken, generate a locally-administered dev MAC
      * from the chip's unique ID so we have something usable. */
@@ -441,7 +583,8 @@ static void wifi_mac_init(void)
         int got_mac = 0;
         if (wifi_sdio_state.initialized && wifi_sdio_state.error_count == 0) {
             if (wifi_sdio_cmd53_read(1, 0x1000u, otp, 6, 1) == 0 &&
-                (otp[0] | otp[1] | otp[2] | otp[3] | otp[4] | otp[5]) != 0) {
+                (otp[0] | otp[1] | otp[2] | otp[3] | otp[4] | otp[5]) != 0 &&
+                !(otp[0] & 0x01u)) {  /* reject multicast MACs */
                 for (i = 0; i < 6; i++)
                     wifi_mac_addr[i] = otp[i];
                 got_mac = 1;
@@ -461,6 +604,48 @@ static void wifi_mac_init(void)
         }
     }
     cfm1_log_hex("wifi: mac=", wifi_mac_addr, 6);
+
+    /* Write MAC to the operational register at 0x1008/0x100C [IP:RT2x00].
+     * The 0x0300 register is OTP/EEPROM mirror; the RX filter uses 0x1008.
+     * DW1 bits [23:16] = UNICAST_TO_ME_MASK: 0xFF means all 6 bytes must
+     * match for NOT_TO_ME filter. Without this, NOT_TO_ME drops everything. */
+    {
+        uint32_t dw0 = (uint32_t)wifi_mac_addr[0]
+                     | ((uint32_t)wifi_mac_addr[1] << 8)
+                     | ((uint32_t)wifi_mac_addr[2] << 16)
+                     | ((uint32_t)wifi_mac_addr[3] << 24);
+        uint32_t dw1 = (uint32_t)wifi_mac_addr[4]
+                     | ((uint32_t)wifi_mac_addr[5] << 8)
+                     | (0xFFu << 16);  /* UNICAST_TO_ME_MASK */
+        WIFI_MAC_ADDR_HI0 = dw0;
+        WIFI_MAC_ADDR_HI1 = dw1;
+        cfm1_log_int("wifi: mac_hi0=", (int32_t)WIFI_MAC_ADDR_HI0);
+        cfm1_log_int("wifi: mac_hi1=", (int32_t)WIFI_MAC_ADDR_HI1);
+    }
+}
+
+/* Write BSSID to hardware filter register and tighten RX filter.
+ * Called when associating to an AP. [IP:RT2x00, rt2800.h line 764] */
+static void wifi_mac_set_bssid(const uint8_t *bssid)
+{
+    uint32_t dw0 = (uint32_t)bssid[0]
+                 | ((uint32_t)bssid[1] << 8)
+                 | ((uint32_t)bssid[2] << 16)
+                 | ((uint32_t)bssid[3] << 24);
+    uint32_t dw1 = (uint32_t)bssid[4]
+                 | ((uint32_t)bssid[5] << 8);
+    WIFI_MAC_BSSID_DW0 = dw0;
+    WIFI_MAC_BSSID_DW1 = dw1;
+    WIFI_RX_FILTER_CFG = RX_FILTER_ASSOC;
+    cfm1_log_hex("wifi: bssid hw=", bssid, 6);
+}
+
+/* Restore permissive scan filter. Called on disconnect. */
+static void wifi_mac_clear_bssid(void)
+{
+    WIFI_MAC_BSSID_DW0 = 0;
+    WIFI_MAC_BSSID_DW1 = 0;
+    WIFI_RX_FILTER_CFG = RX_FILTER_SCAN;
 }
 
 static void wifi_mac_bss_clear(void)

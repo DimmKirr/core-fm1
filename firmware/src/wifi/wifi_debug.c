@@ -61,4 +61,38 @@ static uint32_t wifi_debug_fill_bss(uint8_t *b, uint32_t max)
     return off;
 }
 
+/* DAP D_SWEEP (0x28): `count` consecutive words from `base` [tools/fm1log.py --sweep,
+ * task debug:sweep]. Request: <u32 base><u16 count>. Reply: [0] status, [4..7] base,
+ * [8..] words, all little-endian. Windows: SoC clocks 0x10000-0x10FFF and wireless
+ * control 0x14000-0x14FFF always; MAC 0x30000-0x31FFF only once the clock tree is up
+ * (reads fault before that). 0x40000-0x40FFF is the flash controller [SPECSHEET
+ * erratum 3, 2026-11-04] and is never swept.
+ * Read-to-clear counters (RX/TX_STA_CNT*, TX_STA_FIFO) are consumed by a sweep.
+ * Returns 0 to refuse. */
+static uint32_t wifi_sweep_fill(uint8_t *b, uint32_t max, const uint8_t *req, uint32_t len)
+{
+    uint32_t base, count, end, i;
+    int ok;
+    if (len < 6u || max < 12u)
+        return 0;
+    base = dbg_rd32(req) & ~3u;
+    count = (uint32_t)req[4] | ((uint32_t)req[5] << 8);
+    if (count > (max - 8u) / 4u)
+        count = (max - 8u) / 4u;
+    end = base + 4u * count;
+    ok = (base >= 0x10000u && end <= 0x11000u) || (base >= 0x14000u && end <= 0x15000u);
+    if (!ok && wifi_sdio_state.initialized)
+        ok = (base >= 0x30000u && end <= 0x32000u);
+    if (!ok)
+        return 0;
+    b[0] = 0;
+    b[1] = 0;
+    b[2] = 0;
+    b[3] = 0;
+    dbg_wr32(b + 4, base);
+    for (i = 0; i < count; i++)
+        dbg_wr32(b + 8 + 4u * i, *(volatile uint32_t *)(base + 4u * i));
+    return 8u + 4u * count;
+}
+
 #endif /* CONFIG_WIFI */

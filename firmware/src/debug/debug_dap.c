@@ -14,13 +14,21 @@
 #define DBG_D_OK    0x00u
 #define DBG_D_BAD   0x0Au
 
-#ifdef CONFIG_WIFI
+#if defined(CONFIG_WIFI) || defined(CONFIG_WIFI_NONFREE)
 static uint32_t wifi_debug_fill(uint8_t *b);
 static uint32_t wifi_debug_fill_bss(uint8_t *b, uint32_t max);
 #endif
 #ifdef CONFIG_WIFI_PROBES
 #define DBG_D_PROBES    0x27u
 static uint32_t wifi_probes_fill(uint8_t *b, uint32_t max);
+#endif
+#ifdef CONFIG_WIFI_DEBUG_WLCTL0_PROBE
+#define DBG_D_WL0       0x29u
+static void wifi_wl0_probe_request(uint32_t mode);
+#endif
+#ifdef CONFIG_WIFI
+#define DBG_D_SWEEP     0x28u
+static uint32_t wifi_sweep_fill(uint8_t *b, uint32_t max, const uint8_t *req, uint32_t len);
 #endif
 
 static uint8_t dbg_dec[60];               /* decoded incoming payload */
@@ -113,7 +121,7 @@ static void cfm1_debug_poll(void)
         dbg_reply(cmd, seq, lb, 12u + m);
         return;
     }
-#ifdef CONFIG_WIFI
+#if defined(CONFIG_WIFI) || defined(CONFIG_WIFI_NONFREE)
     case DBG_D_WIFI: {
         static uint8_t wb[48];
         rn = wifi_debug_fill(wb);
@@ -134,6 +142,25 @@ static void cfm1_debug_poll(void)
         dbg_reply(cmd, seq, pb, rn);
         return;
     }
+#endif
+#ifdef CONFIG_WIFI
+    case DBG_D_SWEEP: {
+        static uint8_t sb[248];                /* 8-byte header + 60 words */
+        rn = wifi_sweep_fill(sb, sizeof sb, dbg_dec, len);
+        if (rn) {
+            dbg_reply(cmd, seq, sb, rn);
+            return;
+        }
+        r[0] = DBG_D_BAD;
+        rn = 1;
+        break;
+    }
+#endif
+#ifdef CONFIG_WIFI_DEBUG_WLCTL0_PROBE
+    case DBG_D_WL0:
+        wifi_wl0_probe_request(len >= 4u ? dbg_rd32(dbg_dec) : 0u);   /* 0: release + scan, 2: retry refused writes + scan */
+        r[0] = DBG_D_OK;
+        break;
 #endif
     default:
         r[0] = DBG_D_BAD;
