@@ -78,6 +78,12 @@ def _find_x86_libs():
     return glibc, stdcpp
 
 
+def _driver_plan(text):
+    """Sub-commands printed by `clang -###`, one argv list per line that starts with ` "`."""
+    import shlex
+    return [shlex.split(line) for line in text.splitlines() if line.startswith(' "')]
+
+
 class _NativeRunner:
     def __init__(self, tc_path):
         self.tc = tc_path
@@ -102,7 +108,25 @@ class _QemuRunner:
         env = os.environ.copy()
         env['QEMU_LD_PREFIX'] = self.glibc
         env['LD_LIBRARY_PATH'] = f'{self.stdcpp}/lib:{self.glibc}/lib'
-        cmd = [self.qemu, str(self.tc / tool_path), *args]
+        tool = str(self.tc / tool_path)
+        if str(tool_path).endswith('clang'):
+            # The driver forks `clang -cc1` as a child process. That execve leaves
+            # qemu and goes to the kernel, which on Apple-silicon Docker hands x86-64
+            # ELFs to Rosetta; Rosetta then rejects the nix-ld shim installed as
+            # /lib64/ld-linux-x86-64.so.2 ("not an x86-64 elf (0xb7)"). So ask the
+            # driver for its plan and run every sub-command under qemu ourselves.
+            plan = subprocess.run([self.qemu, tool, '-###', *args], cwd=str(ROOT), env=env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            cmds = _driver_plan(plan.stderr)
+            if plan.returncode != 0 or not cmds:
+                sys.stderr.write(plan.stderr)
+                raise subprocess.CalledProcessError(plan.returncode or 1, plan.args)
+            out = ''
+            for argv in cmds:
+                out = subprocess.run([self.qemu, *argv], check=True, cwd=str(ROOT), env=env,
+                                     stdout=subprocess.PIPE if capture else None, text=True).stdout
+            return out
+        cmd = [self.qemu, tool, *args]
         return subprocess.run(cmd, check=True, cwd=str(ROOT), env=env,
                               stdout=subprocess.PIPE if capture else None, text=True).stdout
 
@@ -344,6 +368,11 @@ def build(dry_run=False):
     flags.append(f'-DCONFIG_FIRMWARE_VERSION="{version}"')
     print(f'build: version {version}')
 
+    if 'WIFI_NONFREE' in enabled:
+        fm1b_shim = ROOT / '.scratch' / 'examples' / 'fm1-base' / 'ble' / 'shim'
+        if fm1b_shim.exists():
+            flags.append(f'-I{fm1b_shim}')
+
     wifi_pass = os.environ.get('CORE_FM1_WIFI_PASSWORD', '')
     if wifi_pass and 'WIFI' in enabled:
         flags.append(f'-DCONFIG_WIFI_PASSWORD="{wifi_pass}"')
@@ -410,9 +439,91 @@ def build(dry_run=False):
             objs.append(str(native_obj))
             print(f'build: compiled usb_sdk.o from cpu.a bitcode')
 
+    vendor_libs = []
+
+    if 'WIFI_NONFREE' in enabled:
+        if not os.environ.get('ALLOW_NONFREE'):
+            raise SystemExit(
+                'CONFIG_WIFI_NONFREE requires ALLOW_NONFREE=1.\n'
+                'The vendor binary driver links proprietary .a libraries from\n'
+                'the JieLi SDK. The resulting binary is for personal testing only\n'
+                'and cannot be distributed under GPL-3.0.\n'
+                'To opt in: ALLOW_NONFREE=1 task build -- --defconfig wifi_nonfree')
+
+        nf_libs = ROOT / 'build' / 'nonfree' / 'libs'
+        fm1b = ROOT / '.scratch' / 'examples' / 'fm1-base'
+        nf_dir = OUT / 'nonfree'
+        nf_dir.mkdir(parents=True, exist_ok=True)
+
+        if not fm1b.exists():
+            raise SystemExit(f'fm1-base not found at {fm1b}. '
+                             'Copy fm1-base into .scratch/examples/fm1-base/')
+        if not nf_libs.exists():
+            raise SystemExit(
+                f'Vendor libs not provisioned at {nf_libs}.\n'
+                'Run: ALLOW_NONFREE=1 task nonfree:provision')
+
+        nf_cf = [
+            '-integrated-as', '-mcpu=r3', '-mfprev1',
+            '-fno-common', '-Oz', '-flto',
+            '-ffunction-sections', '-fdata-sections',
+            '-fallow-pointer-null', '-fprefer-gnu-section',
+            '-femulated-tls', '-fms-extensions', '-w',
+            '-DSUPPORT_MS_EXTENSIONS', '-DCONFIG_RELEASE_ENABLE',
+            '-DCONFIG_CPU_WL82', '-DCONFIG_FREE_RTOS_ENABLE',
+            '-DCONFIG_THREAD_ENABLE', '-D__GCC_PI32V2__',
+            '-DCONFIG_NEW_ECC_ENABLE', '-DCONFIG_SFC_ENABLE',
+            '-DCONFIG_NO_SDRAM_ENABLE', '-DCONFIG_BT_ENABLE=1',
+            '-DSHIM_WIFI=1',
+            '-DSHIM_HEAP_KB=200',
+            '-mllvm', '-pi32v2-large-program=true',
+        ]
+        tc_inc = toolchain_path() / 'pi32v2' / 'include'
+        nf_inc = [f'-I{fm1b / "ble" / "shim"}', f'-I{tc_inc}']
+
+        shim_c = [
+            fm1b / 'ble' / 'shim' / 'os.c',
+            fm1b / 'ble' / 'shim' / 'misc.c',
+            fm1b / 'ble' / 'shim' / 'systimer.c',
+            fm1b / 'ble' / 'shim' / 'rf_const.c',
+            fm1b / 'ble' / 'wifi' / 'wifi_shim.c',
+            FW / 'src' / 'wifi' / 'nonfree' / 'nf_sdk_stubs.c',
+        ]
+        for src in shim_c:
+            obj = nf_dir / f'nf_{src.stem}.o'
+            tc('cc', *nf_cf, *nf_inc, '-c', str(src), '-o', str(obj))
+            objs.append(str(obj))
+
+        ctx_obj = nf_dir / 'nf_ctx.o'
+        tc('cc', *nf_inc, '-c', str(fm1b / 'ble' / 'shim' / 'ctx.S'),
+           '-o', str(ctx_obj))
+        objs.append(str(ctx_obj))
+
+        for lib_name in ['btctrler.a', 'btstack.a', 'crypto_toolbox_Osize.a',
+                         'lib_ccm_aes.a', 'wl_rf_common.a',
+                         'wl_wifi_sta_sfc.a', 'wpasupplicant.a', 'hsm.a',
+                         'libcompiler_rt.a']:
+            p = nf_libs / lib_name
+            if p.exists():
+                vendor_libs.append(str(p))
+
+        print(f'build: nonfree WiFi: {len(shim_c)} shim files + '
+              f'{len(vendor_libs)} vendor libs')
+
     elf = OUT / 'core_fm1.elf'
-    tc('pi32v2/bin/ld', '--gc-sections', '-T', str(FW / 'app.ld'), *objs,
-       '-o', str(elf))
+    lto_plugin = []
+    if vendor_libs:
+        gold = toolchain_path() / 'pi32v2' / 'bin' / 'LLVMgold.so'
+        if gold.exists():
+            lto_plugin = ['--plugin', str(gold),
+                          '--plugin-opt=mcpu=r3',
+                          '--plugin-opt=-pi32v2-large-program=true']
+    ld_script = FW / ('app_wifi.ld' if 'WIFI_NONFREE' in enabled else 'app.ld')
+    link_args = [*lto_plugin, '--gc-sections', '-T', str(ld_script), *objs]
+    if vendor_libs:
+        link_args += ['--allow-multiple-definition',
+                      '--start-group', *vendor_libs, '--end-group']
+    tc('pi32v2/bin/ld', *link_args, '-Map', str(OUT / 'core_fm1.map'), '-o', str(elf))
 
     for sect in ('text.bin', 'data.bin'):
         (OUT / sect).unlink(missing_ok=True)

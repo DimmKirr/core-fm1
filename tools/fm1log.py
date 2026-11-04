@@ -7,6 +7,10 @@ Requires python-rtmidi:
     uv run --with python-rtmidi tools/fm1log.py --follow
     uv run --with python-rtmidi tools/fm1log.py --hello
     uv run --with python-rtmidi tools/fm1log.py --wifi
+    uv run --with python-rtmidi tools/fm1log.py --bytes 1024   # only the last 1 KB
+
+A plain dump returns everything the device ring still holds (CFM1_DBG_LOG_SIZE, 4 KB):
+the device clamps any older read position to the start of the ring.
 
 Uses the fm1-dock SysEx protocol (D_HELLO=0x01, D_LOG=0x20) via hbdeploy.py."""
 import argparse
@@ -21,6 +25,9 @@ import hbdeploy
 D_WIFI = 0x25
 D_WIFI_BSS = 0x26
 D_PROBES = 0x27
+D_WL0 = 0x29      # CONFIG_WIFI_DEBUG_WLCTL0_PROBE: run the WL_CTL0 release probe once
+D_SWEEP = 0x28    # read consecutive words from a base (SoC, WL control, MAC, DMA windows)
+SWEEP_MAX = 60    # words per reply: 8-byte header + 60 words = 248 bytes
 
 WIFI_STATES = [
     "OFF", "IDLE", "SCANNING", "AUTH", "ASSOC", "WPA", "CONNECTED"
@@ -206,6 +213,36 @@ def print_probes(p):
     print("Copy these results into SPECSHEET.md with [M:hw] tags.")
 
 
+def wl0_request(p, mode=0):
+    """D_WL0 modes: 0 release WL_CTL0 and scan once; 2 retry the SoC writes that refused on a
+    held block, then scan (12k). Mode 1 (warm-reboot variant) was removed in 12p."""
+    d = p.ask(D_WL0, struct.pack("<I", mode))
+    return bool(d) and d[0] == 0
+
+
+def sweep_read(p, base, count):
+    """Read `count` words from `base` in reply-sized chunks. Returns {addr: value}."""
+    regs = {}
+    addr = base & ~3
+    end = addr + 4 * count
+    while addr < end:
+        n = min(SWEEP_MAX, (end - addr) // 4)
+        d = p.ask(D_SWEEP, struct.pack("<IH", addr, n))
+        if not d or d[0] != 0:
+            raise RuntimeError(f"sweep refused at {addr:#x}: outside the allowed windows, "
+                               "or MAC/DMA space before the bus gate")
+        got = struct.unpack_from("<I", d, 4)[0]
+        for i, v in enumerate(struct.unpack_from(f"<{n}I", d, 8)):
+            regs[got + 4 * i] = v
+        addr += 4 * n
+    return regs
+
+
+def sweep_text(regs):
+    """`0xADDR = 0xVALUE` lines, the fm1-base /status and /sweep format, for wifi_sweep_diff.py."""
+    return "".join(f"0x{a:08x} = 0x{v:08x}\n" for a, v in sorted(regs.items()))
+
+
 def _hostts():
     return datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
@@ -235,25 +272,48 @@ def _emit(text, host_ts):
     sys.stdout.flush()
 
 
-def read_log(p, follow=False, interval=0.2, host_ts=True):
+def dump_log(p, host_ts=True, tail=0):
+    """Print what the ring holds (all of it, or the last `tail` bytes); return the read position."""
     h = hbdeploy.hello(p)
-    pos = max(0, h["log_w"] - 2048)
-
+    pos = max(0, h["log_w"] - tail) if tail > 0 else 0
     text, pos = _read_from(p, pos)
     if text:
         _emit(text, host_ts)
+    return pos
 
-    if not follow:
-        return
 
+def follow_log(p, pos, interval=0.2, host_ts=True, stop=None, timeout=None):
+    """Poll for new log text from `pos`. Returns 'stop' once `stop` appears in new text,
+    'timeout' after `timeout` seconds, 'lost' when the device stops answering (a halted
+    unit); with neither limit it follows until interrupted."""
+    t0 = time.monotonic()
+    carry = ""
     while True:
         time.sleep(interval)
-        text, pos = _read_from(p, pos)
+        try:
+            text, pos = _read_from(p, pos)
+        except SystemExit:
+            _emit("[fm1log] device stopped answering\n", host_ts)
+            return "lost"
         if text:
             _emit(text, host_ts)
+            if stop and stop in carry + text:
+                return "stop"
+            carry = text[-len(stop):] if stop else ""
+        if timeout is not None and time.monotonic() - t0 >= timeout:
+            _emit("[fm1log] timeout\n", host_ts)
+            return "timeout"
 
 
-def main():
+def read_log(p, follow=False, interval=0.2, host_ts=True, tail=0):
+    """Print the device log. `tail` 0 reads everything the ring still holds;
+    N > 0 reads only the last N bytes. With `follow`, keep polling."""
+    pos = dump_log(p, host_ts=host_ts, tail=tail)
+    if follow:
+        follow_log(p, pos, interval=interval, host_ts=host_ts)
+
+
+def build_parser():
     ap = argparse.ArgumentParser(description="Read FM-1 debug logs over USB-MIDI")
     ap.add_argument("--port", help="MIDI port name substring (default: auto-detect)")
     ap.add_argument("--hello", action="store_true", help="Print device status and exit")
@@ -262,9 +322,26 @@ def main():
     ap.add_argument("--follow", "-f", action="store_true", help="Poll for new log entries continuously")
     ap.add_argument("--interval", type=float, default=0.2, help="Poll interval in seconds (default: 0.2)")
     ap.add_argument("--no-ts", action="store_true", help="Disable host-side timestamps")
-    args = ap.parse_args()
+    ap.add_argument("--wl0", action="store_true",
+                    help="Run the WL_CTL0 release probe (CONFIG_WIFI_DEBUG_WLCTL0_PROBE) and follow until its scan ends")
+    ap.add_argument("--retry", action="store_true",
+                    help="With --wl0: retry the writes refused on a held block (12k) instead of the release probe")
+    ap.add_argument("--sweep", nargs=2, type=lambda s: int(s, 0), metavar=("BASE", "COUNT"),
+                    help="Dump COUNT words from BASE as `addr = value` lines (task debug:sweep)")
+    ap.add_argument("--timeout", type=float, default=30,
+                    help="--wl0: seconds to follow before giving up (default: 30)")
+    ap.add_argument("--bytes", type=int, default=0,
+                    help="Read only the last N bytes of the device ring (default: all it holds, 4 KB)")
+    return ap
 
-    p = hbdeploy.Port(name=args.port)
+
+def main():
+    args = build_parser().parse_args()
+
+    def open_port():
+        return hbdeploy.Port(name=args.port)
+
+    p = open_port()
 
     if args.hello:
         print_hello(p)
@@ -278,11 +355,30 @@ def main():
         print_probes(p)
         return
 
+    if args.sweep:
+        sys.stdout.write(sweep_text(sweep_read(p, args.sweep[0], args.sweep[1])))
+        return
+
+    if args.wl0:
+        print_hello(p)
+        print("---")
+        pos = dump_log(p, host_ts=not args.no_ts, tail=args.bytes)
+        if not wl0_request(p, mode=2 if args.retry else 0):
+            print("wl0: request refused (firmware built without CONFIG_WIFI_DEBUG_WLCTL0_PROBE?)")
+            return
+        print("wl0: " + ("retry of the refused writes" if args.retry else "probe")
+              + " requested; following until its scan finishes")
+        why = follow_log(p, pos, interval=args.interval, host_ts=not args.no_ts,
+                         stop="wifi: scan done n=", timeout=args.timeout)
+        print(f"wl0: {why}")
+        return
+
     if args.follow:
         h = print_hello(p)
         print("---")
 
-    read_log(p, follow=args.follow, interval=args.interval, host_ts=not args.no_ts)
+    read_log(p, follow=args.follow, interval=args.interval, host_ts=not args.no_ts,
+             tail=args.bytes)
 
 
 if __name__ == "__main__":

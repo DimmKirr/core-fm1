@@ -12,6 +12,45 @@ import fm1pkg_make
 import lz4blk
 
 
+def test_driver_plan_splits_clang_subcommands():
+    plan = ('clang version 4.0.1 () ()\nTarget: pi32v2\n'
+            ' "/tc/common/bin/clang" "-cc1" "-triple" "pi32v2" "-E" "-o" "/tmp/a b.s" "x.S"\n'
+            ' "/tc/common/bin/clang" "-cc1as" "-triple" "pi32v2" "-o" "x.o" "/tmp/a b.s"\n')
+    assert build._driver_plan(plan) == [
+        ['/tc/common/bin/clang', '-cc1', '-triple', 'pi32v2', '-E', '-o', '/tmp/a b.s', 'x.S'],
+        ['/tc/common/bin/clang', '-cc1as', '-triple', 'pi32v2', '-o', 'x.o', '/tmp/a b.s'],
+    ]
+
+
+def test_qemu_runner_expands_the_clang_driver(monkeypatch):
+    """The driver forks `clang -cc1`; that execve leaves qemu and the kernel may
+    hand the x86-64 child to Rosetta, which rejects the nix-ld interpreter. Ask
+    the driver for its plan (-###) and run every sub-command under qemu."""
+    calls = []
+    plan = ' "/tc/common/bin/clang" "-cc1" "-emit-obj" "-o" "x.o" "x.c"\n'
+
+    class R:
+        returncode = 0
+        stdout = ''
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        r = R()
+        r.stderr = plan if '-###' in cmd else ''
+        r.args = cmd
+        return r
+
+    monkeypatch.setattr(build.subprocess, 'run', fake_run)
+    monkeypatch.setattr(build.shutil, 'which', lambda n: '/usr/bin/qemu-x86_64')
+    runner = build._QemuRunner(Path('/tc'), '/glibc', '/stdcpp')
+    runner.run('pi32v2/bin/clang', ['-target', 'pi32v2', '-c', 'x.c', '-o', 'x.o'])
+    assert calls[0][:3] == ['/usr/bin/qemu-x86_64', '/tc/pi32v2/bin/clang', '-###']
+    assert calls[1] == ['/usr/bin/qemu-x86_64', '/tc/common/bin/clang', '-cc1', '-emit-obj', '-o', 'x.o', 'x.c']
+    calls.clear()
+    runner.run('pi32v2/bin/ld', ['-o', 'a.elf'])
+    assert calls == [['/usr/bin/qemu-x86_64', '/tc/pi32v2/bin/ld', '-o', 'a.elf']], 'non-driver tools run as before'
+
+
 def test_loader_container_roundtrip():
     image = (bytes(range(256)) * 39) + b'last block'
     wrapped = build.loader_wrap(image)
