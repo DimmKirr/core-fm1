@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """E2E: DEMO view kitchen-sink UI showcase.
 
-Long-FX opens VIEW_DEMO. SELECT cycles 5 screens (CARDS, LIST, GRAPH, TEXT,
-EDIT). K1-K4 adjust card values. Piano keys update the note display.
+Long-FX opens VIEW_DEMO. SELECT cycles 6 screens (CARDS, LIST, GRAPH, TEXT,
+EDIT, MODALS). K1-K4 adjust card values. Piano keys update the note display.
+MODALS screen opens confirm and OK dialogs via OCT+.
 """
 import sys
 import unittest
@@ -90,15 +91,15 @@ class TestDemoView(E2ETestCase):
             page.close()
 
     def test_02_demo_all_screens(self):
-        """SELECT cycles through all 5 demo screens."""
+        """SELECT cycles through all 6 demo screens."""
         page = self._boot()
         try:
             ctrl = self.controls(page)
             self._open_demo(page)
             self._verify_page(page, 'DEMO-screen0-cards')
 
-            names = ['cards', 'list', 'graph', 'text', 'edit']
-            for i in range(1, 5):
+            names = ['cards', 'list', 'graph', 'text', 'edit', 'modals']
+            for i in range(1, 6):
                 ctrl.rotate_encoder('select', direction=1, steps=1, delay_ms=200)
                 page.wait_for_timeout(500)
                 self._verify_page(page, f'DEMO-screen{i}-{names[i]}')
@@ -196,19 +197,19 @@ class TestDemoView(E2ETestCase):
             ctrl = self.controls(page)
             self._open_demo(page)
 
-            # go to EDIT (screen 4), then one more -> wraps to CARDS (screen 0)
-            ctrl.rotate_encoder('select', direction=1, steps=4, delay_ms=200)
+            # go to MODALS (screen 5), then one more -> wraps to CARDS (screen 0)
+            ctrl.rotate_encoder('select', direction=1, steps=5, delay_ms=200)
             page.wait_for_timeout(300)
-            self._verify_page(page, 'DEMO-edit-before-wrap')
+            self._verify_page(page, 'DEMO-modals-before-wrap')
 
             ctrl.rotate_encoder('select', direction=1, steps=1, delay_ms=200)
             page.wait_for_timeout(500)
             self._verify_page(page, 'DEMO-cards-after-wrap')
 
-            # also test backward wrap: from CARDS, go back -> EDIT
+            # also test backward wrap: from CARDS, go back -> MODALS
             ctrl.rotate_encoder('select', direction=-1, steps=1, delay_ms=200)
             page.wait_for_timeout(500)
-            self._verify_page(page, 'DEMO-edit-backward-wrap')
+            self._verify_page(page, 'DEMO-modals-backward-wrap')
         finally:
             self.write_log(page, 'demo-wrap.log')
             page.close()
@@ -226,6 +227,137 @@ class TestDemoView(E2ETestCase):
             self._verify_page(page, 'HOME-after-demo')
         finally:
             self.write_log(page, 'demo-return.log')
+            page.close()
+
+
+    def _go_to_modals(self, page):
+        """Navigate to MODALS screen (screen 5) from CARDS (screen 0)."""
+        ctrl = self.controls(page)
+        self._open_demo(page)
+        ctrl.rotate_encoder('select', direction=1, steps=5, delay_ms=200)
+        page.wait_for_timeout(500)
+
+    def test_08_demo_yesno_dialog(self):
+        """YES/NO dialog: OCT+ = YES, OCT- = NO (direct button mapping)."""
+        page = self._boot()
+        try:
+            ctrl = self.controls(page)
+            self._go_to_modals(page)
+            self._verify_page(page, 'MODALS-screen')
+
+            # item 0 (YES/NO) is selected by default, OCT+ opens it
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-yesno-open')
+
+            # OCT+ = YES -> shows "You chose YES" result dialog
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-yesno-result-yes')
+
+            # dismiss OK result dialog with OCT+
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-after-yesno')
+        finally:
+            self.write_log(page, 'demo-yesno.log')
+            page.close()
+
+    def test_09_demo_yesno_cancel(self):
+        """YES/NO dialog can be cancelled with OCT-."""
+        page = self._boot()
+        try:
+            ctrl = self.controls(page)
+            self._go_to_modals(page)
+
+            # open YES/NO
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-yesno-cancel-open')
+
+            # cancel with OCT-
+            ctrl.press_button('oct-', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-yesno-cancel-result')
+
+            # dismiss the "You chose NO" result dialog
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-after-cancel')
+        finally:
+            self.write_log(page, 'demo-yesno-cancel.log')
+            page.close()
+
+    def test_10_demo_ok_dialog(self):
+        """OK dialog opens from MODALS screen and dismisses with OCT+."""
+        page = self._boot()
+        try:
+            ctrl = self.controls(page)
+            self._go_to_modals(page)
+
+            # select item 1 (OK Dialog) via K1
+            ctrl.rotate_encoder('knob1', direction=1, steps=1, delay_ms=200)
+            page.wait_for_timeout(300)
+            self._verify_page(page, 'MODALS-ok-selected')
+
+            # OCT+ opens it
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-ok-open')
+
+            # dismiss with OCT+
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-after-ok')
+        finally:
+            self.write_log(page, 'demo-ok.log')
+            page.close()
+
+    def test_11_demo_ok_dialog_dismiss_with_octdn(self):
+        """OK dialog also dismisses with OCT- (no cancel concept)."""
+        page = self._boot()
+        try:
+            ctrl = self.controls(page)
+            self._go_to_modals(page)
+
+            # select OK dialog and open
+            ctrl.rotate_encoder('knob1', direction=1, steps=1, delay_ms=200)
+            page.wait_for_timeout(200)
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-ok-before-octdn')
+
+            # dismiss with OCT-
+            ctrl.press_button('oct-', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-ok-after-octdn')
+        finally:
+            self.write_log(page, 'demo-ok-octdn.log')
+            page.close()
+
+    def test_12_demo_keyboard_from_modals(self):
+        """Enter-text modal opens keyboard from MODALS screen."""
+        page = self._boot()
+        try:
+            ctrl = self.controls(page)
+            self._go_to_modals(page)
+
+            # select item 2 (Enter Text) via K1
+            ctrl.rotate_encoder('knob1', direction=1, steps=2, delay_ms=200)
+            page.wait_for_timeout(300)
+            self._verify_page(page, 'MODALS-keyboard-selected')
+
+            # OCT+ opens keyboard
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-keyboard-open')
+
+            # dismiss with OCT+ (confirm)
+            ctrl.press_button('oct+', delay_ms=400)
+            page.wait_for_timeout(500)
+            self._verify_page(page, 'MODALS-after-keyboard')
+        finally:
+            self.write_log(page, 'demo-keyboard-modals.log')
             page.close()
 
 

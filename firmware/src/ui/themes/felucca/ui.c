@@ -31,8 +31,10 @@
 #ifdef CONFIG_BLE
 #include "ui/themes/felucca/page_ble.c"
 #endif
-#ifdef CONFIG_WIFI
+#if defined(CONFIG_WIFI) || defined(CONFIG_WIFI_NONFREE)
 #include "ui/themes/felucca/page_wifi.c"
+#endif
+#ifdef CONFIG_WIFI
 #include "ui/themes/felucca/page_weather.c"
 #endif
 #ifdef CONFIG_DEBUG_LOG
@@ -41,6 +43,7 @@
 #ifdef CONFIG_SYS_MENU
 #include "ui/themes/felucca/page_sys.c"
 #endif
+#include "ui/themes/felucca/dlg_confirm.c"
 #include "ui/themes/felucca/kbd_piano.c"
 #include "ui/themes/felucca/page_demo.c"
 #include "ui/themes/felucca/pages.c"

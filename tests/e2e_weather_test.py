@@ -29,8 +29,9 @@ DEFCONFIG = 'wifi'
 
 
 def _navigate_to_weather(ctrl, page):
-    """Rotate select encoder left once from HOME to reach WEATHER (last page wraps)."""
-    ctrl.rotate_encoder('select', direction=-1, steps=1, delay_ms=500)
+    """GLO hold opens VIEW_CONN (WiFi), then SELECT right reaches Weather."""
+    ctrl.press_button('glo', hold_ms=800, delay_ms=500)
+    ctrl.rotate_encoder('select', direction=1, steps=1, delay_ms=500)
 
 
 class TestWeatherPage(E2ETestCase):

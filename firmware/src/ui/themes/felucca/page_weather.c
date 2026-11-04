@@ -202,6 +202,12 @@ static int fwx_button(uint32_t id, uint32_t down)
     return 0;
 }
 
+static void fwx_status(void)
+{
+    if (weather_fetching())
+        nav_dirty = 1;
+}
+
 static const cfm1_page_t FPAGE_WEATHER = {
     .name   = "WX",
     .title  = "WEATHER",
@@ -209,5 +215,6 @@ static const cfm1_page_t FPAGE_WEATHER = {
     .flags  = PAGEF_SYSTEM,
     .enter  = fwx_enter,
     .draw   = fwx_draw,
+    .status = fwx_status,
     .button = fwx_button,
 };

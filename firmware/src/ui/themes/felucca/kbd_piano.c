@@ -147,7 +147,10 @@ static void kbd_draw(void)
     /* --- graph area --- */
     cv_begin(240, gh, T_BG);
 
-    cv_text_on(6, 2, &AF_S, kbd.title ? kbd.title : "KEYBOARD", T_TEXT, T_BG);
+    /* vertical offset to center content in graph area */
+    #define KBD_OY 8
+
+    cv_text_on(6, KBD_OY + 2, &AF_S, kbd.title ? kbd.title : "KEYBOARD", T_TEXT, T_BG);
     {
         char ctr[8]; uint8_t ci = 0;
         if (kbd.len >= 10) ctr[ci++] = '0' + kbd.len / 10;
@@ -157,11 +160,11 @@ static void kbd_draw(void)
         ctr[ci++] = '0' + kbd.max_len % 10;
         ctr[ci] = 0;
         { int32_t cw = text_w(&AF_S, ctr);
-          cv_text_on(234 - cw, 2, &AF_S, ctr, T_DIM, T_BG); }
+          cv_text_on(234 - cw, KBD_OY + 2, &AF_S, ctr, T_DIM, T_BG); }
     }
 
     /* text field */
-    cv_rrect(4, 16, 232, 20, 3, T_SURF, T_BG);
+    cv_rrect(4, KBD_OY + 16, 232, 20, 3, T_SURF, T_BG);
     {
         int32_t tx = 8;
         uint8_t vis = 28, off = 0, i;
@@ -171,15 +174,15 @@ static void kbd_draw(void)
             char c[2]; c[0] = kbd.hide ? '*' : kbd.buf[i]; c[1] = 0;
             int32_t cw = text_w(&AF_S, c);
             if (i == kbd.cur) {
-                cv_rect(tx, 18, cw + 2, 14, T_THEME);
-                cv_text_on(tx + 1, 19, &AF_S, c, T_INK, T_THEME);
+                cv_rect(tx, KBD_OY + 18, cw + 2, 14, T_THEME);
+                cv_text_on(tx + 1, KBD_OY + 19, &AF_S, c, T_INK, T_THEME);
             } else {
-                cv_text_on(tx, 19, &AF_S, c, T_TEXT, T_SURF);
+                cv_text_on(tx, KBD_OY + 19, &AF_S, c, T_TEXT, T_SURF);
             }
             tx += cw + 1;
         }
         if (kbd.cur >= kbd.len)
-            cv_rect(tx, 18, 2, 14, T_THEME);
+            cv_rect(tx, KBD_OY + 18, 2, 14, T_THEME);
     }
 
     /* mode bar */
@@ -191,17 +194,17 @@ static void kbd_draw(void)
             int32_t pw = tw + 8;
             uint16_t pbg = (li == kbd.layer) ? T_THEME : T_SURF;
             uint16_t pfg = (li == kbd.layer) ? T_INK   : T_DIM;
-            cv_rrect(mx, 40, pw, 12, 3, pbg, T_BG);
-            cv_text_on(mx + 4, 42, &AF_S, KBD_NAMES[li], pfg, pbg);
+            cv_rrect(mx, KBD_OY + 40, pw, 12, 3, pbg, T_BG);
+            cv_text_on(mx + 4, KBD_OY + 42, &AF_S, KBD_NAMES[li], pfg, pbg);
             mx += pw + 4;
         }
         if (kbd.hide) {
-            cv_rrect(180, 40, 36, 12, 3, T_ACCENT, T_BG);
-            cv_text_on(184, 42, &AF_S, "HIDE", T_INK, T_ACCENT);
+            cv_rrect(180, KBD_OY + 40, 36, 12, 3, T_ACCENT, T_BG);
+            cv_text_on(184, KBD_OY + 42, &AF_S, "HIDE", T_INK, T_ACCENT);
         }
     }
 
-    kbd_draw_piano(56);
+    kbd_draw_piano(KBD_OY + 56);
     cv_blit(0, Y_GRAPH);
 
     ui_footer("OCT-", "KEYBOARD", "OCT+");

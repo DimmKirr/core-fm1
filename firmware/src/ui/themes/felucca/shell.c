@@ -22,8 +22,9 @@ static void fsh_draw_frame(void)
     }
     /* gap between cards and graph */
     lcd_fill(0, Y_CARDS + CARD_H, 240, Y_GRAPH - (Y_CARDS + CARD_H), T_BG);
-    /* gap between graph and footer */
-    lcd_fill(0, Y_FOOT, 240, 0, T_BG);
+    /* graph region: cleared so pages that cv_blit a shorter canvas don't
+     * leave stale content from the previous view at the bottom. */
+    lcd_fill(0, Y_GRAPH, 240, Y_FOOT - Y_GRAPH, T_BG);
 }
 
 static void fsh_draw(void)

@@ -3,7 +3,7 @@
  * Long-FX opens this view. SELECT switches demo screens,
  * K1-K4 adjust each screen's card values (Felucca knob pattern). */
 
-#define FDEMO_SCREENS  5
+#define FDEMO_SCREENS  6
 #define FDEMO_ROW_H   16
 #define FDEMO_X_PAD    6
 
@@ -19,7 +19,7 @@ static struct {
 } fdemo;
 
 static const char *FDEMO_NAMES[] = {
-    "CARDS", "LIST", "GRAPH", "TEXT", "EDIT"
+    "CARDS", "LIST", "GRAPH", "TEXT", "EDIT", "MODALS"
 };
 
 static void fdemo_kbd_done(const char *buf, uint8_t ok)
@@ -271,6 +271,67 @@ static void fdemo_draw_edit(void)
     cv_blit(0, Y_GRAPH);
 }
 
+/* --- Screen 5: Modals demo --- */
+
+#define FDEMO_MODAL_N  3
+static const char *FDEMO_MODAL_LIST[] = {
+    "YES / NO Dialog",
+    "OK Dialog",
+    "Enter Text (Keyboard)",
+};
+
+static uint8_t fdemo_modal_sel;
+
+static void fdemo_modal_yesno_done(uint8_t result)
+{
+    dlg_ok("RESULT", result ? "You chose YES" : "You chose NO", 0);
+}
+
+static void fdemo_draw_modals(void)
+{
+    uint32_t i;
+    uint32_t gh = Y_FOOT - Y_GRAPH;
+
+    {
+        char s[4];
+        fui_fmt_val(s, (int16_t)(fdemo_modal_sel + 1));
+        ui_card(0, "MODALS", "3", "", T_MID, -1, ICON_GENERIC);
+        ui_card(1, "SEL", s, "", T_THEME,
+                (int32_t)(fdemo_modal_sel + 1) * 333, ICON_GENERIC);
+        ui_card(2, "", "", "", T_DIM, -1, ICON_GENERIC);
+        ui_card(3, "OCT+", "GO", "", T_ACCENT, -1, ICON_GENERIC);
+    }
+
+    cv_begin(240, gh, T_BG);
+    cv_text_on(6, 2, &AF_S, "MODAL TYPES", T_DIM, T_BG);
+
+    for (i = 0; i < FDEMO_MODAL_N; i++) {
+        int32_t y = 18 + (int32_t)i * FDEMO_ROW_H;
+        uint8_t sel = ((uint8_t)i == fdemo_modal_sel);
+        uint16_t bg = sel ? T_SURF : T_BG;
+        uint16_t fg = sel ? T_THEME : T_TEXT;
+
+        if (sel)
+            cv_rrect(2, y, 236, FDEMO_ROW_H, 3, T_SURF, T_BG);
+
+        {
+            char num[4];
+            num[0] = '0' + (char)(i + 1);
+            num[1] = '.';
+            num[2] = 0;
+            cv_text_on(FDEMO_X_PAD, y + 2, &AF_S, num, T_DIM, bg);
+        }
+
+        cv_text_fit(FDEMO_X_PAD + 20, y + 2, &AF_S,
+                    FDEMO_MODAL_LIST[i], fg, bg, 200);
+    }
+
+    cv_rrect(60, (int32_t)gh - 24, 120, 18, 6, T_THEME, T_BG);
+    cv_text_in(60, (int32_t)gh - 21, 120, &AF_S, "OCT+ TO OPEN", T_INK, T_THEME);
+
+    cv_blit(0, Y_GRAPH);
+}
+
 /* --- Main draw dispatch --- */
 
 static void fdemo_draw(void)
@@ -278,11 +339,12 @@ static void fdemo_draw(void)
     ui_header();
 
     switch (fdemo.screen) {
-    case 0: fdemo_draw_cards(); break;
-    case 1: fdemo_draw_list();  break;
-    case 2: fdemo_draw_graph(); break;
-    case 3: fdemo_draw_text();  break;
-    case 4: fdemo_draw_edit();  break;
+    case 0: fdemo_draw_cards();  break;
+    case 1: fdemo_draw_list();   break;
+    case 2: fdemo_draw_graph();  break;
+    case 3: fdemo_draw_text();   break;
+    case 4: fdemo_draw_edit();   break;
+    case 5: fdemo_draw_modals(); break;
     default: fdemo_draw_cards(); break;
     }
 
@@ -299,6 +361,7 @@ static void fdemo_enter(void)
     fdemo.frame = 0;
     fdemo.last_note = 0;
     fdemo.last_vel = 0;
+    fdemo_modal_sel = 0;
 }
 
 static int fdemo_knob(uint32_t id, int32_t clicks)
@@ -313,7 +376,12 @@ static int fdemo_knob(uint32_t id, int32_t clicks)
     }
     if (id >= ENC_K1 && id <= ENC_K4) {
         uint32_t ki = id - ENC_K1;
-        if (fdemo.screen == 1 && ki == 0) {
+        if (fdemo.screen == 5 && ki == 0) {
+            int32_t r = (int32_t)fdemo_modal_sel + clicks;
+            if (r < 0) r = 0;
+            if (r >= FDEMO_MODAL_N) r = FDEMO_MODAL_N - 1;
+            fdemo_modal_sel = (uint8_t)r;
+        } else if (fdemo.screen == 1 && ki == 0) {
             uint32_t visible = (Y_FOOT - Y_GRAPH) / FDEMO_ROW_H;
             int32_t r = (int32_t)fdemo.val[0] + clicks;
             if (r < 0) r = 0;
@@ -337,9 +405,27 @@ static int fdemo_knob(uint32_t id, int32_t clicks)
 
 static int fdemo_button(uint32_t id, uint32_t down)
 {
-    if (!down && id == BTN_OCTUP && fdemo.screen == 4) {
-        kbd_piano_start("EDIT TEXT", fdemo_text, 31, 0, fdemo_kbd_done);
-        return 1;
+    if (!down && id == BTN_OCTUP) {
+        if (fdemo.screen == 4) {
+            kbd_piano_start("EDIT TEXT", fdemo_text, 31, 0, fdemo_kbd_done);
+            return 1;
+        }
+        if (fdemo.screen == 5) {
+            switch (fdemo_modal_sel) {
+            case 0:
+                dlg_confirm("CONFIRM", "Is this a test?",
+                            fdemo_modal_yesno_done);
+                break;
+            case 1:
+                dlg_ok("INFO", "This is an OK dialog.", 0);
+                break;
+            case 2:
+                kbd_piano_start("EDIT TEXT", fdemo_text, 31, 0,
+                                fdemo_kbd_done);
+                break;
+            }
+            return 1;
+        }
     }
     return 0;
 }

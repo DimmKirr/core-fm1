@@ -45,16 +45,19 @@ static void shell_draw(void)
     if (!p)
         return;
 
-    if (nav_dirty) {
-        lcd_fill(0, 0, 240, 240, 0x0000);
-        shell_draw_status();
-        nav_dirty = 0;
-    }
+    if (p->status)
+        p->status();
 
+    if (!nav_dirty)
+        return;
+
+    lcd_fill(0, 0, 240, 240, 0x0000);
+    shell_draw_status();
     if (p->draw)
         p->draw();
     if (nav_modal && nav_modal->draw)
         nav_modal->draw();
+    nav_dirty = 0;
 }
 
 /* ------------------------------------------------------------- input --- */
