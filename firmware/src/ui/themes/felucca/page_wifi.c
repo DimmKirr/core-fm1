@@ -98,58 +98,56 @@ static void fwifi_draw_info(void)
     }
 
     /* SSID */
-    if (wifi_get_state() >= WIFI_STATE_AUTH && wifi_sta.target_ssid_len) {
+    {
         int32_t y = (int32_t)row * FWIFI_ROW_H;
+        const char *ssid = "---";
+        if (wifi_get_state() >= WIFI_STATE_AUTH && wifi_sta.target_ssid_len)
+            ssid = (const char *)wifi_sta.target_ssid;
         cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "SSID", T_DIM, T_BG, 54);
-        cv_text_fit(60, y + 2, &AF_S, (const char *)wifi_sta.target_ssid,
-                    T_TEXT, T_BG, 176);
+        cv_text_fit(60, y + 2, &AF_S, ssid, T_TEXT, T_BG, 176);
         row++;
     }
 
-    /* IP address */
-    if (wifi_get_state() == WIFI_STATE_CONNECTED) {
+    /* MAC */
+    {
+        int32_t y = (int32_t)row * FWIFI_ROW_H;
+        fwifi_fmt_mac(tmp, wifi_sta.our_mac);
+        cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "MAC", T_DIM, T_BG, 54);
+        cv_text_fit(60, y + 2, &AF_S, tmp, T_TEXT, T_BG, 176);
+        row++;
+    }
+
+    /* IP */
+    {
+        int32_t y = (int32_t)row * FWIFI_ROW_H;
         uint32_t ip = wifi_lwip_get_ip();
-        int32_t y;
-        if (ip) {
-            fwifi_fmt_ip(tmp, ip);
-            y = (int32_t)row * FWIFI_ROW_H;
-            cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "IP", T_DIM, T_BG, 54);
-            cv_text_fit(60, y + 2, &AF_S, tmp, T_TEXT, T_BG, 176);
-            row++;
-        }
+        if (ip) fwifi_fmt_ip(tmp, ip);
+        else { tmp[0] = '-'; tmp[1] = '-'; tmp[2] = '-'; tmp[3] = 0; }
+        cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "IP", T_DIM, T_BG, 54);
+        cv_text_fit(60, y + 2, &AF_S, tmp, ip ? T_TEXT : T_DIM, T_BG, 176);
+        row++;
+    }
 
-        /* gateway */
-        {
-            uint32_t gw = wifi_lwip_get_gw();
-            if (gw) {
-                fwifi_fmt_ip(tmp, gw);
-                y = (int32_t)row * FWIFI_ROW_H;
-                cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "GW", T_DIM, T_BG, 54);
-                cv_text_fit(60, y + 2, &AF_S, tmp, T_TEXT, T_BG, 176);
-                row++;
-            }
-        }
+    /* GW */
+    {
+        int32_t y = (int32_t)row * FWIFI_ROW_H;
+        uint32_t gw = wifi_lwip_get_gw();
+        if (gw) fwifi_fmt_ip(tmp, gw);
+        else { tmp[0] = '-'; tmp[1] = '-'; tmp[2] = '-'; tmp[3] = 0; }
+        cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "GW", T_DIM, T_BG, 54);
+        cv_text_fit(60, y + 2, &AF_S, tmp, gw ? T_TEXT : T_DIM, T_BG, 176);
+        row++;
+    }
 
-        /* DNS */
-        {
-            uint32_t dns = wifi_lwip_get_dns();
-            if (dns) {
-                fwifi_fmt_ip(tmp, dns);
-                y = (int32_t)row * FWIFI_ROW_H;
-                cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "DNS", T_DIM, T_BG, 54);
-                cv_text_fit(60, y + 2, &AF_S, tmp, T_TEXT, T_BG, 176);
-                row++;
-            }
-        }
-
-        /* MAC */
-        {
-            fwifi_fmt_mac(tmp, wifi_sta.our_mac);
-            y = (int32_t)row * FWIFI_ROW_H;
-            cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "MAC", T_DIM, T_BG, 54);
-            cv_text_fit(60, y + 2, &AF_S, tmp, T_TEXT, T_BG, 176);
-            row++;
-        }
+    /* DNS */
+    {
+        int32_t y = (int32_t)row * FWIFI_ROW_H;
+        uint32_t dns = wifi_lwip_get_dns();
+        if (dns) fwifi_fmt_ip(tmp, dns);
+        else { tmp[0] = '-'; tmp[1] = '-'; tmp[2] = '-'; tmp[3] = 0; }
+        cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "DNS", T_DIM, T_BG, 54);
+        cv_text_fit(60, y + 2, &AF_S, tmp, dns ? T_TEXT : T_DIM, T_BG, 176);
+        row++;
     }
 
     cv_blit(0, Y_GRAPH);
@@ -227,8 +225,8 @@ static void fwifi_draw(void)
                   wifi_rf_stat.channel ? "SET" : "---", "",
                   T_DIM, -1, ICON_GENERIC);
 
-    /* main area: connected -> info, otherwise -> AP list */
-    if (wifi_get_state() == WIFI_STATE_CONNECTED)
+    /* main area: connecting/connected -> info, otherwise -> AP list */
+    if (wifi_get_state() >= WIFI_STATE_AUTH)
         fwifi_draw_info();
     else
         fwifi_draw_scan();
@@ -329,10 +327,13 @@ static int fwifi_button(uint32_t id, uint32_t down)
 
 static void fwifi_status(void)
 {
-    static wifi_state_t last;
+    static wifi_state_t last_st;
+    static uint32_t last_ip;
     wifi_state_t now = wifi_get_state();
-    if (now != last) {
-        last = now;
+    uint32_t ip = wifi_lwip_get_ip();
+    if (now != last_st || ip != last_ip) {
+        last_st = now;
+        last_ip = ip;
         nav_dirty = 1;
     }
 }

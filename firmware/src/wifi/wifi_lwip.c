@@ -101,6 +101,20 @@ static err_t wifi_lwip_netif_init(struct netif *nif)
     return ERR_OK;
 }
 
+static void weather_fetch_start(void);
+
+/* ---- netif status callback (DHCP bound, etc.) ---- */
+
+static void wifi_lwip_status_cb(struct netif *nif)
+{
+    uint32_t ip = nif->ip_addr.addr;
+    if (ip) {
+        cfm1_log_hex("wifi: dhcp bound ip=", (const uint8_t *)&ip, 4);
+        cfm1_log_hex("wifi: dhcp gw=", (const uint8_t *)&nif->gw.addr, 4);
+        weather_fetch_start();
+    }
+}
+
 /* ---- public interface ---- */
 
 static void wifi_lwip_set_mac(const uint8_t *mac)
@@ -117,6 +131,7 @@ static void wifi_lwip_init(void)
     netif_add(&wifi_netif, &z, &z, &z, 0,
               wifi_lwip_netif_init, ethernet_input);
     netif_set_default(&wifi_netif);
+    netif_set_status_callback(&wifi_netif, wifi_lwip_status_cb);
     wifi_lwip_up = 0;
     cfm1_log("wifi: lwip init");
 }
