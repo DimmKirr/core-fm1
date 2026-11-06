@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0
- * WiFi RFD RAM LUT table data from the JieLi AC79 SDK (apps/common/net/wifi_conf.c),
+ * WiFi RF-die LUT table data from the JieLi AC79 SDK (apps/common/net/wifi_conf.c),
  * Copyright (c) JIELI (Zhuhai Jieli Technology Co., Ltd.), Apache License 2.0.
  * See LICENSES/Apache-2.0.txt.
  *

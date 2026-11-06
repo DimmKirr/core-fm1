@@ -63,4 +63,4 @@ def test_txwi_mirrors_vendor_word1():
     assert 'TXWI_W1_NSEQ' not in body.split('word1')[1].split(';')[0], \
         'vendor uses software sequence numbers: NSEQ must be clear'
     assert 'TXWI_W1_BW_WIN_SHIFT' in body and '7u << TXWI_W1_BW_WIN_SHIFT' in body
-    assert 'TXWI_W0_DENSITY_SHIFT' in body and '5u << TXWI_W0_DENSITY_SHIFT' in body
+    assert 'TXWI_W0_DENSITY_SHIFT' in body and '0u << TXWI_W0_DENSITY_SHIFT' in body

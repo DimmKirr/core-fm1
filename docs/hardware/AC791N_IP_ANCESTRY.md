@@ -89,7 +89,7 @@ standard MUSB.
 
 ### Evidence
 
-**Direct statement** in `core-fm1/docs/hardware/WIFI.md` section 7.5:
+**Direct statement** in `core-fm1/docs/hardware/wifi/SPECSHEET.md` §0 "IP ancestry":
 > "The 'USB' naming is a Linux driver abstraction layer carried from the Ralink
 > codebase, repurposed for the internal SDIO bus"
 
@@ -284,7 +284,7 @@ To validate the Blackfin-pi32v2 connection using these tools:
 ## Sources
 
 - fm1-emu codebase: `crates/fm1-core/src/lib.rs`, `crates/fm1-soc/src/usb.rs`
-- core-fm1 docs: `docs/hardware/BOARD.md`, `docs/hardware/WIFI.md`, `docs/hardware/WIFI_RE_PROCESS.md`
+- core-fm1 docs: `docs/hardware/BOARD.md`, `docs/hardware/wifi/SPECSHEET.md`, `docs/hardware/wifi/CLEAN_ROOM_METHODOLOGY.md`
 - kagaimiq JieLi documentation: https://kagaimiq.github.io/jielie/cpu/pi32v2.html
 - Quarkslab JieLi teardown research
 - Linux kernel: `drivers/net/wireless/ralink/rt2x00/`, `drivers/usb/musb/`

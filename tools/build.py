@@ -8,10 +8,15 @@ Usage:
   tools/build.py --genconfig-only   # just write config.h, don't compile
   tools/build.py --dry-run          # show what would be compiled
 
-The JieLi toolchain is Linux x86-64 only.
+The JieLi toolchain is Linux x86-64 only. Runner, first match:
   - Native x86-64 Linux: runs directly.
-  - ARM Linux with qemu-x86_64: runs via user-mode QEMU (auto-detected).
-  - macOS (or JIELI_DOCKER=1): runs in a linux/amd64 Docker container.
+  - Other Linux whose kernel runs x86-64 ELFs itself (Rosetta on Apple-silicon
+    VMs, a binfmt_misc registration): runs through an x86-64 ld.so.
+  - Other Linux with qemu-x86_64: runs via user-mode QEMU.
+  - Otherwise (macOS, or JIELI_DOCKER=1): runs in a linux/amd64 Docker container.
+The two Linux fallbacks need x86-64 glibc and libstdc++: JIELI_X86_GLIBC and
+JIELI_X86_STDCPP, else $JIELI_TOOLCHAIN/../x86libs (task toolchain:x86libs),
+else the nix store.
 """
 import argparse
 import glob
@@ -54,12 +59,19 @@ def toolchain_path():
     return p
 
 
-def _find_x86_libs():
-    """Find x86-64 glibc and libstdc++ in the nix store for qemu."""
+def _find_x86_libs(tc_path=None):
+    """x86-64 glibc and libstdc++ for the Rosetta and qemu runners: two directories
+    holding lib/ld-linux-x86-64.so.2 and lib/libstdc++.so.6 (may be the same one)."""
     glibc = os.environ.get('JIELI_X86_GLIBC', '')
     stdcpp = os.environ.get('JIELI_X86_STDCPP', '')
     if glibc and stdcpp:
         return glibc, stdcpp
+
+    if tc_path is not None:
+        local = Path(tc_path).parent / 'x86libs'
+        if ((local / 'lib' / 'ld-linux-x86-64.so.2').exists()
+                and (local / 'lib' / 'libstdc++.so.6').exists()):
+            return str(local), str(local)
 
     for p in sorted(glob.glob('/nix/store/*/lib/ld-linux-x86-64.so.2')):
         glibc = str(Path(p).parents[1])
@@ -76,6 +88,38 @@ def _find_x86_libs():
         except (subprocess.TimeoutExpired, FileNotFoundError):
             continue
     return glibc, stdcpp
+
+
+def _ar_member(archive, member):
+    """One member of a `!<arch>` archive, GNU or BSD naming. Done here because the
+    host ar differs: macOS ar has no --output and extracts into its cwd only."""
+    data = Path(archive).read_bytes()
+    if data[:8] != b'!<arch>\n':
+        raise SystemExit(f'{archive}: not an ar archive')
+    pos, longnames = 8, b''
+    while pos + 60 <= len(data):
+        hdr = data[pos:pos + 60]
+        name = hdr[:16].decode('latin-1').rstrip()
+        size = int(hdr[48:58])
+        body = data[pos + 60:pos + 60 + size]
+        pos += 60 + size + (size & 1)
+        if name == '/':
+            continue                     # symbol table
+        if name == '//':
+            longnames = body             # GNU long-name table
+            continue
+        if name.startswith('/'):
+            off = int(name[1:])
+            name = longnames[off:longnames.index(b'/\n', off)].decode('latin-1')
+        elif name.startswith('#1/'):
+            n = int(name[3:])            # BSD: name precedes the data
+            name = body[:n].rstrip(b'\0').decode('latin-1')
+            body = body[n:]
+        elif name.endswith('/'):
+            name = name[:-1]
+        if name == member:
+            return body
+    raise SystemExit(f'{archive}: no member {member}')
 
 
 def _driver_plan(text):
@@ -97,25 +141,39 @@ class _NativeRunner:
         return ''
 
 
-class _QemuRunner:
-    def __init__(self, tc_path, glibc, stdcpp):
+class _X86Runner:
+    """Run the x86-64 toolchain behind an argv prefix (an x86-64 ld.so, or qemu-x86_64).
+
+    The driver forks `clang -cc1` as a child process. That execve leaves the
+    prefix and goes to the kernel, which on Apple-silicon VMs hands x86-64 ELFs
+    to Rosetta; Rosetta then rejects the nix-ld shim installed as
+    /lib64/ld-linux-x86-64.so.2 ("not an x86-64 elf (0xb7)"). So ask the driver
+    for its plan and run every sub-command behind the prefix ourselves."""
+
+    def __init__(self, tc_path, prefix, env, label, exe=None):
         self.tc = tc_path
-        self.glibc = glibc
-        self.stdcpp = stdcpp
-        self.qemu = shutil.which('qemu-x86_64')
+        self.prefix = prefix
+        self.env = env
+        self._label = label
+        # What /proc/self/exe reads as inside the prefix. An explicit ld.so
+        # reports itself, so the driver names the loader as its -cc1 executable
+        # and derives its resource and tool directories from the loader's
+        # directory; the plan is rewritten back to the real driver. qemu fakes
+        # /proc/self/exe, so nothing to fix there.
+        self.exe = exe
+
+    def _fix(self, argv, tool):
+        if not self.exe:
+            return argv
+        exe_dir, tool_dir = str(Path(self.exe).parent), str(Path(tool).parent)
+        return [a.replace(self.exe, tool).replace(exe_dir, tool_dir) for a in argv]
 
     def run(self, tool_path, args, capture=False):
         env = os.environ.copy()
-        env['QEMU_LD_PREFIX'] = self.glibc
-        env['LD_LIBRARY_PATH'] = f'{self.stdcpp}/lib:{self.glibc}/lib'
+        env.update(self.env)
         tool = str(self.tc / tool_path)
         if str(tool_path).endswith('clang'):
-            # The driver forks `clang -cc1` as a child process. That execve leaves
-            # qemu and goes to the kernel, which on Apple-silicon Docker hands x86-64
-            # ELFs to Rosetta; Rosetta then rejects the nix-ld shim installed as
-            # /lib64/ld-linux-x86-64.so.2 ("not an x86-64 elf (0xb7)"). So ask the
-            # driver for its plan and run every sub-command under qemu ourselves.
-            plan = subprocess.run([self.qemu, tool, '-###', *args], cwd=str(ROOT), env=env,
+            plan = subprocess.run([*self.prefix, tool, '-###', *args], cwd=str(ROOT), env=env,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             cmds = _driver_plan(plan.stderr)
             if plan.returncode != 0 or not cmds:
@@ -123,15 +181,44 @@ class _QemuRunner:
                 raise subprocess.CalledProcessError(plan.returncode or 1, plan.args)
             out = ''
             for argv in cmds:
-                out = subprocess.run([self.qemu, *argv], check=True, cwd=str(ROOT), env=env,
+                argv = self._fix(argv, tool)
+                out = subprocess.run([*self.prefix, *argv], check=True, cwd=str(ROOT), env=env,
                                      stdout=subprocess.PIPE if capture else None, text=True).stdout
             return out
-        cmd = [self.qemu, tool, *args]
+        cmd = [*self.prefix, tool, *args]
         return subprocess.run(cmd, check=True, cwd=str(ROOT), env=env,
                               stdout=subprocess.PIPE if capture else None, text=True).stdout
 
     def label(self):
-        return ' (qemu)'
+        return self._label
+
+
+class _RosettaRunner(_X86Runner):
+    """The kernel executes x86-64 ELFs itself; only the loader and libraries are ours."""
+
+    def __init__(self, tc_path, glibc, stdcpp):
+        loader = f'{glibc}/lib/ld-linux-x86-64.so.2'
+        super().__init__(tc_path,
+                         [loader, '--library-path', f'{stdcpp}/lib:{glibc}/lib'],
+                         {}, ' (rosetta)', exe=loader)
+
+
+class _QemuRunner(_X86Runner):
+    def __init__(self, tc_path, glibc, stdcpp):
+        super().__init__(tc_path, [shutil.which('qemu-x86_64')],
+                         {'QEMU_LD_PREFIX': glibc,
+                          'LD_LIBRARY_PATH': f'{stdcpp}/lib:{glibc}/lib'},
+                         ' (qemu)')
+
+
+def _can_exec_x86(glibc):
+    """True when this kernel runs an x86-64 ELF by itself (Rosetta, binfmt_misc)."""
+    ld = Path(glibc) / 'lib' / 'ld-linux-x86-64.so.2'
+    try:
+        return subprocess.run([str(ld), '--version'], capture_output=True,
+                              timeout=10).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 class _DockerRunner:
@@ -169,10 +256,13 @@ def _pick_runner(tc_path):
     if is_linux and is_x86:
         return _NativeRunner(tc_path)
 
-    if is_linux and shutil.which('qemu-x86_64'):
-        glibc, stdcpp = _find_x86_libs()
+    if is_linux:
+        glibc, stdcpp = _find_x86_libs(tc_path)
         if glibc and stdcpp:
-            return _QemuRunner(tc_path, glibc, stdcpp)
+            if _can_exec_x86(glibc):
+                return _RosettaRunner(tc_path, glibc, stdcpp)
+            if shutil.which('qemu-x86_64'):
+                return _QemuRunner(tc_path, glibc, stdcpp)
 
     return _DockerRunner(tc_path)
 
@@ -236,7 +326,7 @@ def build_support(name, entry):
     return binary.read_bytes()
 
 
-def package():
+def package(version):
     stub = build_support('stub', 'crt0_stub.S')
     if not fm1pkg_make.has_stub(stub + bytes(fm1pkg_make.STUB_LEN)):
         raise SystemExit('boot stub: missing CRSTUB signature')
@@ -257,7 +347,7 @@ def package():
     fwsc = fm1pkg_make.ufw(fm1pkg_make.flash_image(app, fm1pkg_make.KEY), ota, 'FM-1_900')
     path = OUT / 'core-fm1.fwsc'
     path.write_bytes(fwsc)
-    (OUT / 'core-fm1.version').write_text(_firmware_version())
+    (OUT / 'core-fm1.version').write_text(version)
     print(f'package: {path.relative_to(ROOT)} ({len(fwsc)} bytes)')
 
 
@@ -430,9 +520,7 @@ def build(dry_run=False):
         if cpu_a.exists():
             bc_obj = OUT / 'usb_sdk.bc'
             native_obj = OUT / 'usb_sdk.o'
-            subprocess.run(['ar', 'x', str(cpu_a), 'usb.c.o',
-                           f'--output={OUT}'], check=True)
-            (OUT / 'usb.c.o').rename(bc_obj)
+            bc_obj.write_bytes(_ar_member(cpu_a, 'usb.c.o'))
             tc('cc', '-target', 'pi32v2', '-mcpu=r3', '-Os',
                '-ffunction-sections', '-fdata-sections',
                '-c', str(bc_obj), '-o', str(native_obj))
@@ -556,7 +644,7 @@ def build(dry_run=False):
         body += b'\xff' * (offset - len(body)) + blob
     body += b'\xff' * (-len(body) % 4)
     (OUT / 'body.bin').write_bytes(body)
-    package()
+    package(version)
 
 
 def main():

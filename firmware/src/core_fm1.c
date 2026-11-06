@@ -699,13 +699,13 @@ static void cfm1_ble_sync(void) {}
 #include "wifi/wifi_rtos.c"
 #include "wifi/wifi_rf.c"
 
-static void wifi_mac_rx(uint8_t *data, uint32_t len);
+static void wifi_mac_rx(uint8_t *data, uint32_t len, int8_t rssi);
 
 #include "wifi/wifi_sdio.c"
 
 static void wifi_on_connected(void);
 static void wifi_on_disconnected(void);
-static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len);
+static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len, int8_t rssi);
 static int  wifi_data_is_eapol(const uint8_t *frame, uint32_t len);
 static int  wifi_wpa_rx_eapol(uint8_t *eapol, uint32_t len,
                               uint8_t *tx_buf, uint32_t tx_size, uint32_t *tx_len);

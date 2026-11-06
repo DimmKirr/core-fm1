@@ -22,6 +22,15 @@ config WIFI_WPA
     depends on WIFI
     default y
 
+config WIFI_SSID
+    string "Prebaked WiFi SSID"
+    depends on WIFI
+    default ""
+    help
+      SSID to auto-join after scan completes (requires WIFI_AUTOJOIN).
+      Baked into the firmware at compile time. WIFI_SSID=... in the
+      environment (or .env) overrides this at build time.
+
 config WIFI_PASSWORD
     string "Prebaked WiFi password"
     depends on WIFI && WIFI_WPA
@@ -31,11 +40,33 @@ config WIFI_PASSWORD
       to an encrypted AP. Baked into the firmware at compile time.
       Leave empty to disable auto-connect for encrypted networks.
 
+config WIFI_AUTOJOIN
+    bool "Auto-join after scan"
+    depends on WIFI
+    default n
+    help
+      After the first scan completes, attempt to join the AP matching
+      CONFIG_WIFI_SSID. Requires WIFI_SSID to be set. Bring-up aid
+      for testing association and the TX path end-to-end.
+
 # kc2mm:label "MIDI"
 config WIFI_MIDI
     bool "MIDI over WiFi (rtpMIDI/OSC)"
     depends on WIFI && WIFI_LWIP
     default n
+
+# kc2mm:hide
+config WIFI_MAC_OVERRIDE
+    string "Debug: station MAC address override"
+    depends on WIFI
+    default ""
+    help
+      Use this MAC address (AA:BB:CC:DD:EE:FF) instead of the one read
+      from the chip or generated at boot. Bring-up aid: the MAC hardware
+      transmits with a transmitter address of its own, and the address the
+      receive filter and ACK matcher are programmed with has to be the
+      same one. WIFI_MAC_OVERRIDE=... in the environment overrides this
+      at build time, like WIFI_PASSWORD. Leave empty for normal use.
 
 # kc2mm:hide
 config WIFI_DEBUG_AUTOSCAN
@@ -82,5 +113,15 @@ config WIFI_PROBES
       Analyst-designed, results tagged [M:hw] for the SPECSHEET.
       Boots normally, inits WiFi clocks, reads register addresses, logs
       results over USB SysEx (DAP). No WiFi data path, no SDIO, no WPA.
+
+config WIFI_T19_TEST
+    bool "T19: Transmit decodability test"
+    depends on WIFI
+    default n
+    help
+      Diagnostic test for Phase D. After scan completes, sends 10 directed
+      probe requests alternating CCK 1M and OFDM 6M to the strongest AP,
+      logging TX_STA_CNT0/1 after each. Determines if the AP can decode
+      our transmissions.
 
 endmenu

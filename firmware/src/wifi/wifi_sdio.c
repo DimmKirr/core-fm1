@@ -429,69 +429,32 @@ static const uint8_t wifi_txbe_tbl[] = {
      92,0xC0,  93,0x00,  95,0x40,
 };
 
-/* AGC gain table [SPECSHEET §11.2.5a] */
-static const uint32_t wifi_agc_tbl[128] = {
-    0xFFB000ECu, 0xFFB801EDu, 0xFFC002EEu, 0xFFC803EFu,
-    0xFFD004F0u, 0xFFD805F1u, 0xFFE006F2u, 0xFFE807F3u,
-    0xFFF008F4u, 0xFFF809F5u, 0x00000AF6u, 0x00080BF7u,
-    0x00100CF8u, 0x00180DF9u, 0x00200EFAu, 0x00280FFBu,
-    0x003010FCu, 0x003811FDu, 0x004012FEu, 0x004813FFu,
-    0x00501400u, 0x00581501u, 0x00601602u, 0x00681703u,
-    0x00701804u, 0x00781905u, 0x00801A06u, 0x00881B07u,
-    0x00901C08u, 0x00981D09u, 0x00A01E0Au, 0x00A81F0Bu,
-    0x00B0200Cu, 0x00B8210Du, 0x00C0220Eu, 0x00C8230Fu,
-    0x00D02410u, 0x00D82511u, 0x00E02612u, 0x00E82713u,
-    0x00F02814u, 0x00F82915u, 0x01002A16u, 0x01082B17u,
-    0x01102C18u, 0x01182D19u, 0x01202E1Au, 0x01282F1Bu,
-    0x0130301Cu, 0x0138311Du, 0x0140321Eu, 0x0148331Fu,
-    0x01503420u, 0x01583521u, 0x01603622u, 0x01683723u,
-    0x01703824u, 0x01783925u, 0x01803A26u, 0x01883B27u,
-    0x01903C28u, 0x01983D29u, 0x01A03E2Au, 0x01A83F2Bu,
-    0x01B0402Cu, 0x01B8412Du, 0x01C0422Eu, 0x01C8432Fu,
-    0x01D04430u, 0x01D84531u, 0x01E04632u, 0x01E84733u,
-    0x01F04834u, 0x01F84935u, 0x02004A36u, 0x02084B37u,
-    0x02104C38u, 0x02184D39u, 0x02204E3Au, 0x02284F3Bu,
-    0x0230503Cu, 0x0238513Du, 0x0240523Eu, 0x0248533Fu,
-    0x02505440u, 0x02585541u, 0x02605642u, 0x02685743u,
-    0x02705844u, 0x02785945u, 0x02805A46u, 0x02885B47u,
-    0x02905C48u, 0x02985D49u, 0x02A05E4Au, 0x02A85F4Bu,
-    0x02B0604Cu, 0x02B8614Du, 0x02C0624Eu, 0x02C8634Fu,
-    0x02D06450u, 0x02D86551u, 0x02E06652u, 0x02E86753u,
-    0x02F06854u, 0x02F86955u, 0x03006A56u, 0x03086B57u,
-    0x03106C58u, 0x03186D59u, 0x03206E5Au, 0x03286F5Bu,
-    0x0330705Cu, 0x0338715Du, 0x0340725Eu, 0x0348735Fu,
-    0x03507460u, 0x03587561u, 0x03607662u, 0x03687763u,
-    0x03707864u, 0x03787965u, 0x03807A66u, 0x03887B67u,
-    0x03907C68u, 0x03987D69u, 0x03A07E6Au, 0x03A87F6Bu,
-};
-
-/* AGC table load [SPECSHEET §11.2.5a] */
+/* AGC table load from rule [SPECSHEET §6.7]:
+ * Entry i: C[0x2B] = clamp(i-20, -64, +63), C[0x4E] = i,
+ * C[0x54..0x55] = 8i-80 (16-bit two's complement). */
 static void wifi_agc_load(void)
 {
     uint32_t i;
     for (i = 0; i < 128u; i++) {
-        uint32_t v = wifi_agc_tbl[i];
-        int32_t b0 = (int32_t)(int8_t)(v & 0xFFu);
-        uint8_t b1 = (v >> 8) & 0xFFu;
-        uint8_t b2 = (v >> 16) & 0xFFu;
-        uint8_t b3 = (v >> 24) & 0xFFu;
-        if (b0 > 63) b0 = 63;
-        if (b0 < -64) b0 = -64;
-        wifi_bbp_win_write(0, 47, i & 0xFFu);
-        wifi_bbp_win_write(0, 43, (uint8_t)b0);
-        wifi_bbp_win_write(0, 78, b1);
-        wifi_bbp_win_write(0, 84, b2);
-        wifi_bbp_win_write(0, 85, b3);
-        wifi_bbp_win_write(0, 47, (i & 0xFFu) | 0x80u);
+        int32_t gain = (int32_t)i - 20;
+        int16_t val16 = (int16_t)((int32_t)i * 8 - 80);
+        if (gain > 63) gain = 63;
+        if (gain < -64) gain = -64;
+        wifi_bbp_win_write(0, 0x2Fu, (uint8_t)i);
+        wifi_bbp_win_write(0, 0x2Bu, (uint8_t)gain);
+        wifi_bbp_win_write(0, 0x4Eu, (uint8_t)i);
+        wifi_bbp_win_write(0, 0x54u, (uint8_t)(val16 & 0xFF));
+        wifi_bbp_win_write(0, 0x55u, (uint8_t)((val16 >> 8) & 0xFF));
+        wifi_bbp_win_write(0, 0x2Fu, (uint8_t)(i | 0x80u));
     }
-    wifi_bbp_win_write(0, 47, 0);
-    wifi_bbp_win_write(0, 84, 0xC0u);
-    wifi_bbp_win_write(0, 85, 1);
-    wifi_bbp_win_write(0, 78, 66);
-    wifi_bbp_win_write(0, 43, 66);
-    wifi_bbp_win_write(0, 44, 66);
-    wifi_bbp_win_write(0, 121, 0);
-    wifi_bbp_win_write(0, 122, 32);
+    wifi_bbp_win_write(0, 0x2Fu, 0);
+    wifi_bbp_win_write(0, 0x54u, 0xC0u);
+    wifi_bbp_win_write(0, 0x55u, 1);
+    wifi_bbp_win_write(0, 0x4Eu, 66);
+    wifi_bbp_win_write(0, 0x2Bu, 66);
+    wifi_bbp_win_write(0, 0x2Cu, 66);
+    wifi_bbp_win_write(0, 0x79u, 0);
+    wifi_bbp_win_write(0, 0x7Au, 32);
 }
 
 /* Minimum viable PHY init [SPECSHEET §11.2.12] */
@@ -548,16 +511,25 @@ static void wifi_phy_hw_init(void)
     n = sizeof(wifi_txbe_tbl) / 2u;
     for (i = 0; i < n; i++)
         wifi_bbp_win_write(2, wifi_txbe_tbl[i * 2u], wifi_txbe_tbl[i * 2u + 1u]);
-    /* CFR Phase 0: initial filter coefficients [SPECSHEET §6] */
-    wifi_bbp_win_write(2, 41, 0x6Cu);
-    wifi_bbp_win_write(2, 42, 0x01u);
-    wifi_bbp_win_write(2, 43, 0x02u);
-    wifi_bbp_win_write(2, 44, 0x02u);
-    wifi_bbp_win_write(2, 49, 0x03u);
-    wifi_bbp_win_write(2, 77, 0x0Fu);
-    wifi_bbp_win_write(2, 78, 0x0Fu);
-    wifi_bbp_win_write(2, 79, 0x00u);
-    wifi_bbp_win_write(2, 0, 0x02u);
+    /* CFR mode 0: 18 filter coefficients [SPECSHEET §6.9] */
+    wifi_bbp_win_write(2, 0x4Du, 0x01u);
+    wifi_bbp_win_write(2, 0x4Eu, 0x01u);
+    wifi_bbp_win_write(2, 0x4Fu, 0x00u);
+    wifi_bbp_win_write(2, 0x29u, 0x6Cu);
+    wifi_bbp_win_write(2, 0x2Au, 0x01u);
+    wifi_bbp_win_write(2, 0x2Bu, 0x02u);
+    wifi_bbp_win_write(2, 0x2Cu, 0x02u);
+    wifi_bbp_win_write(2, 0x31u, 0x03u);
+    wifi_bbp_win_write(2, 0x36u, 0x6Bu);
+    wifi_bbp_win_write(2, 0x37u, 0x01u);
+    wifi_bbp_win_write(2, 0x38u, 0x02u);
+    wifi_bbp_win_write(2, 0x39u, 0x02u);
+    wifi_bbp_win_write(2, 0x3Eu, 0x02u);
+    wifi_bbp_win_write(2, 0x43u, 0x6Cu);
+    wifi_bbp_win_write(2, 0x44u, 0x01u);
+    wifi_bbp_win_write(2, 0x45u, 0x02u);
+    wifi_bbp_win_write(2, 0x46u, 0x02u);
+    wifi_bbp_win_write(2, 0x4Bu, 0x03u);
 
     /* RX 11n[60] override: 0xFF -> 0x01 [SPECSHEET §11.2.5 step 10] */
     wifi_bbp_win_write(1, 60, 0x01u);
@@ -569,7 +541,7 @@ static void wifi_phy_hw_init(void)
     wifi_ind_log("prst", 1);
 
     /* Direct BBP writes: AC791N only implements BBP[84] and BBP[106]
-     * from the RT2800 register set [DISCOVERY §11.2.12 step 10].
+     * from the RT2800 register set [SPECSHEET §6.6 step 7].
      * AGC is handled by the 128-entry digital AGC table (loaded above),
      * not direct R66 like real RT2800. */
     wifi_bbp_write(84, 0x02);
@@ -587,43 +559,191 @@ static void wifi_phy_hw_init(void)
     cfm1_log("wifi: phy init done");
 }
 
-/* ---- RAPP init [SPECSHEET §7] ----
+/* ---- CFR mode 1: 57 TX filter writes [SPECSHEET §6.9] ----
+ * Written after PHY init #2; these are the final window D filter state. */
+
+static void wifi_cfr_mode1(void)
+{
+    cfm1_log("wifi: cfr mode1");
+
+    wifi_bbp_win_write(2, 0x4Du, 0x0Fu);
+    wifi_bbp_win_write(2, 0x4Eu, 0x0Fu);
+    wifi_bbp_win_write(2, 0x4Fu, 0x00u);
+
+    wifi_bbp_win_write(2, 0x26u, 0x37u);
+    wifi_bbp_win_write(2, 0x27u, 0x01u);
+    wifi_bbp_win_write(2, 0x28u, 0x02u);
+    wifi_bbp_win_write(2, 0x29u, 0x6Cu);
+    wifi_bbp_win_write(2, 0x2Au, 0x01u);
+    wifi_bbp_win_write(2, 0x2Bu, 0x02u);
+    wifi_bbp_win_write(2, 0x2Cu, 0x02u);
+    wifi_bbp_win_write(2, 0x31u, 0x03u);
+    wifi_bbp_win_write(2, 0x2Du, 0x6Au);
+    wifi_bbp_win_write(2, 0x2Eu, 0x01u);
+    wifi_bbp_win_write(2, 0x2Fu, 0x01u);
+    wifi_bbp_win_write(2, 0x30u, 0x02u);
+    wifi_bbp_win_write(2, 0x32u, 0x00u);
+    wifi_bbp_win_write(2, 0x33u, 0x38u);
+    wifi_bbp_win_write(2, 0x34u, 0x01u);
+    wifi_bbp_win_write(2, 0x35u, 0x01u);
+    wifi_bbp_win_write(2, 0x36u, 0xECu);
+    wifi_bbp_win_write(2, 0x37u, 0x01u);
+    wifi_bbp_win_write(2, 0x38u, 0xB7u);
+    wifi_bbp_win_write(2, 0x39u, 0x02u);
+    wifi_bbp_win_write(2, 0x3Eu, 0x02u);
+    wifi_bbp_win_write(2, 0x3Au, 0xEBu);
+    wifi_bbp_win_write(2, 0x3Bu, 0x01u);
+    wifi_bbp_win_write(2, 0x3Cu, 0xB6u);
+    wifi_bbp_win_write(2, 0x3Du, 0x02u);
+    wifi_bbp_win_write(2, 0x3Fu, 0x01u);
+    wifi_bbp_win_write(2, 0x40u, 0x38u);
+    wifi_bbp_win_write(2, 0x41u, 0x01u);
+    wifi_bbp_win_write(2, 0x42u, 0x01u);
+    wifi_bbp_win_write(2, 0x43u, 0x6Bu);
+    wifi_bbp_win_write(2, 0x44u, 0x01u);
+    wifi_bbp_win_write(2, 0x45u, 0x02u);
+    wifi_bbp_win_write(2, 0x46u, 0x02u);
+    wifi_bbp_win_write(2, 0x4Bu, 0x02u);
+    wifi_bbp_win_write(2, 0x47u, 0x6Au);
+    wifi_bbp_win_write(2, 0x48u, 0x01u);
+    wifi_bbp_win_write(2, 0x49u, 0x01u);
+    wifi_bbp_win_write(2, 0x4Au, 0x02u);
+    wifi_bbp_win_write(2, 0x4Cu, 0x00u);
+
+    /* Per-rate gains [SPECSHEET §6.9] */
+    wifi_bbp_win_write(2, 0x0Bu, 0x20u);
+    wifi_bbp_win_write(2, 0x0Du, 0x20u);
+    wifi_bbp_win_write(2, 0x0Fu, 0x20u);
+    wifi_bbp_win_write(2, 0x11u, 0x20u);
+    wifi_bbp_win_write(2, 0x13u, 0x20u);
+    wifi_bbp_win_write(2, 0x15u, 0x2Bu);
+    wifi_bbp_win_write(2, 0x17u, 0x26u);
+    wifi_bbp_win_write(2, 0x19u, 0x20u);
+    wifi_bbp_win_write(2, 0x1Bu, 0x20u);
+    wifi_bbp_win_write(2, 0x1Du, 0x2Bu);
+    wifi_bbp_win_write(2, 0x1Fu, 0x26u);
+    wifi_bbp_win_write(2, 0x21u, 0x20u);
+
+    wifi_bbp_win_write(2, 0x23u, 0x23u);
+    wifi_bbp_win_write(2, 0x24u, 0x32u);
+    wifi_bbp_win_write(2, 0x25u, 0x00u);
+
+    cfm1_log("wifi: cfr mode1 done");
+}
+
+/* ---- Per-rate digital gain from VM 108 [SPECSHEET §6.9, A24] ----
+ * Overwrites the mode-1 defaults with per-unit flash values (or published
+ * defaults when flash record 108 is absent). */
+
+static const uint8_t vm108_pub[20] = {
+    50, 50, 50, 50, 72, 72, 85, 80, 64, 64, 62, 52, 72, 90, 80, 64, 64, 64, 50, 43
+};
+
+static void wifi_vm108_per_rate_gains(void)
+{
+    static const uint8_t byte_idx[12] = { 0, 1, 2, 3, 5, 7, 9, 11, 12, 14, 16, 19 };
+    static const uint8_t entry[12]    = {
+        0x0B, 0x0D, 0x0F, 0x11, 0x1B, 0x1D, 0x1F, 0x21,
+        0x13, 0x15, 0x17, 0x19
+    };
+    const uint8_t *src = (wifi_rf_vm.have & 0x04u) ? wifi_rf_vm.x108 : vm108_pub;
+    uint32_t i;
+
+    cfm1_log("wifi: vm108 per-rate gains");
+
+    for (i = 0; i < 12u; i++) {
+        uint8_t val = src[byte_idx[i]];
+        if (val)
+            wifi_bbp_win_write(2, entry[i], val);
+    }
+}
+
+/* ---- RAPP init [SPECSHEET §6.9] ----
  * Load 128-entry PA ramp lookup table into TX backend RAM.
  * D[92] bit 4: write pulse, D[93] [6:0]: address, D[94]: data lo,
  * D[92] bit 5: data bit 8. */
 
+/* RAPP compression curve [SPECSHEET §6.9]: 128 nine-bit values, all >= 256.
+ * Low 8 bits stored; bit 8 is always 1. */
+static const uint8_t wifi_rapp_curve[128] = {
+    255,255,254,253,252,251,250,249,248,247,246,245,244,242,241,240,
+    239,237,236,235,233,232,231,229,228,226,225,223,221,220,218,217,
+    215,213,211,210,208,206,204,202,201,199,197,195,193,191,189,187,
+    185,183,181,179,177,175,172,170,168,166,164,162,160,157,155,153,
+    151,148,146,144,142,140,137,135,133,130,128,126,124,121,119,117,
+    115,112,110,108,106,103,101, 99, 97, 94, 92, 90, 88, 85, 83, 81,
+     79, 77, 74, 72, 70, 68, 66, 64, 62, 59, 57, 55, 53, 51, 49, 47,
+     45, 43, 41, 39, 37, 35, 33, 31, 29, 27, 25, 23, 21, 19, 17, 15,
+};
+
 static void wifi_rapp_init(void)
 {
-    uint32_t i, v;
+    uint32_t i, r;
+    uint16_t val;
 
     cfm1_log("wifi: rapp init");
 
-    for (i = 0; i < 128u; i++) {
-        /* Linear ramp: 0..254 in steps of 2, clamped to 9-bit range.
-         * Smooth ramp avoids abrupt PA transitions. [SPECSHEET §7] */
-        v = i * 2u;
+    /* Mode 0 while loading [SPECSHEET §6.9] */
+    r = wifi_bbp_win_read(2, 0x51u);
+    wifi_bbp_win_write(2, 0x51u, (uint8_t)(r & ~0x03u));
 
-        wifi_bbp_win_write(2, 92, 0x00u);
-        wifi_bbp_win_write(2, 93, (uint8_t)(i & 0x7Fu));
-        wifi_bbp_win_write(2, 94, (uint8_t)(v & 0xFFu));
-        wifi_bbp_win_write(2, 92, (uint8_t)(((v >> 8) & 1u) << 5));
-        wifi_bbp_win_write(2, 92, (uint8_t)((((v >> 8) & 1u) << 5) | 0x10u));
+    for (i = 0; i < 128u; i++) {
+        val = 256u + (uint16_t)wifi_rapp_curve[i];
+
+        r = wifi_bbp_win_read(2, 0x5Cu);
+        wifi_bbp_win_write(2, 0x5Cu, (uint8_t)(r | 0x10u));
+
+        r = wifi_bbp_win_read(2, 0x5Du);
+        wifi_bbp_win_write(2, 0x5Du, (uint8_t)((r & 0x80u) | (i & 0x7Fu)));
+
+        r = wifi_bbp_win_read(2, 0x5Cu);
+        wifi_bbp_win_write(2, 0x5Eu, (uint8_t)(val & 0xFFu));
+        wifi_bbp_win_write(2, 0x5Cu, (uint8_t)((r & ~0x20u) | (((val >> 8) & 1u) << 5)));
+
+        r = wifi_bbp_win_read(2, 0x5Cu);
+        wifi_bbp_win_write(2, 0x5Cu, (uint8_t)(r & ~0x10u));
     }
 
-    /* Ramp thresholds [SPECSHEET §7]: 11g/n=160, 11b=160, BPSK=400 */
-    wifi_bbp_win_write(2, 86, 160u);
-    wifi_bbp_win_write(2, 87, 160u);
-    wifi_bbp_win_write(2, 88, (uint8_t)(400u & 0xFFu));
-    wifi_bbp_win_write(2, 89, (uint8_t)(400u >> 8));
+    /* Thresholds: 11g/n=160, 11b=160, BPSK=400 [SPECSHEET §6.9] */
+    r = wifi_bbp_win_read(2, 0x58u);
+    wifi_bbp_win_write(2, 0x59u, 0xA0u);
+    wifi_bbp_win_write(2, 0x58u, (uint8_t)(r & ~0x07u));
 
-    /* Enable RAPP: D[81] bits [1:0] = 2 [SPECSHEET §7] */
-    v = wifi_bbp_win_read(2, 81);
-    wifi_bbp_win_write(2, 81, (uint8_t)((v & ~0x03u) | 0x02u));
+    r = wifi_bbp_win_read(2, 0x51u);
+    wifi_bbp_win_write(2, 0x52u, 0x64u);
+    wifi_bbp_win_write(2, 0x53u, 0x2Du);
+    wifi_bbp_win_write(2, 0x51u, (uint8_t)((r & ~0x0Cu) | 0x0Cu));
+
+    r = wifi_bbp_win_read(2, 0x58u);
+    wifi_bbp_win_write(2, 0x5Au, 0xA0u);
+    wifi_bbp_win_write(2, 0x58u, (uint8_t)(r & ~0x38u));
+
+    r = wifi_bbp_win_read(2, 0x51u);
+    wifi_bbp_win_write(2, 0x54u, 0x64u);
+    wifi_bbp_win_write(2, 0x55u, 0x2Du);
+    wifi_bbp_win_write(2, 0x51u, (uint8_t)((r & ~0x30u) | 0x30u));
+
+    r = wifi_bbp_win_read(2, 0x58u);
+    {
+        uint32_t rc = wifi_bbp_win_read(2, 0x5Cu);
+        wifi_bbp_win_write(2, 0x5Bu, 0x90u);
+        wifi_bbp_win_write(2, 0x58u, (uint8_t)((r & ~0xC0u) | 0x40u));
+        wifi_bbp_win_write(2, 0x5Cu, (uint8_t)(rc & ~0x01u));
+    }
+
+    r = wifi_bbp_win_read(2, 0x51u);
+    wifi_bbp_win_write(2, 0x56u, 0xD6u);
+    wifi_bbp_win_write(2, 0x57u, 0x3Fu);
+    wifi_bbp_win_write(2, 0x51u, (uint8_t)((r & ~0xC0u) | 0x80u));
+
+    /* Enable: mode = 2 [SPECSHEET §6.9] */
+    r = wifi_bbp_win_read(2, 0x51u);
+    wifi_bbp_win_write(2, 0x51u, (uint8_t)((r & ~0x03u) | 0x02u));
 
     cfm1_log("wifi: rapp done");
 }
 
-/* ---- Apply TX calibration to BBP [SPECSHEET §18, record 187] ----
+/* ---- Apply TX/RX calibration to BBP [SPECSHEET §10, §10.2, record 187] ----
  * After PHY init resets BBP, re-apply TX IQ gain/phase/DC from
  * wifi_cal to Window D, and RX IQ gain/phase to Window D'. */
 
@@ -634,7 +754,7 @@ static void wifi_cal_bbp_apply(void)
     cfm1_log("wifi: cal bbp apply");
 
     /* TX IQ gain/phase/DC -> Window D entries D[0x04..0x09], D[0x61], D[0x62]
-     * [SPECSHEET §18: bytes 0-23 of record 187] */
+     * [SPECSHEET §10.2: bytes 0-23 of record 187] */
     for (k = 0; k < 6u; k++) {
         u = (uint32_t)wifi_cal.tx[k] & 0x3FFu;
         wifi_bbp_win_write(2, 0x04u + k, (uint8_t)(u >> 2));
@@ -644,13 +764,11 @@ static void wifi_cal_bbp_apply(void)
     }
 
     /* RX IQ gain/phase -> Window D' entries D'[0x09..0x0C]
-     * [SPECSHEET §18: bytes 26-29 of record 187]
-     * Use neutral values (gain=255, phase=0) since wifi_cal doesn't
-     * measure RX IQ (no image rejection cal). */
-    wifi_bbp_win_write(3, 0x09u, 0xFFu);
-    wifi_bbp_win_write(3, 0x0Bu, 0xFFu);
-    wifi_bbp_win_write(3, 0x0Au, 0x00u);
-    wifi_bbp_win_write(3, 0x0Cu, 0x00u);
+     * [SPECSHEET §10.2: bytes 26-29 of record 187, §10.1.11] */
+    wifi_bbp_win_write(3, 0x09u, wifi_cal.rxiq_ig);
+    wifi_bbp_win_write(3, 0x0Bu, wifi_cal.rxiq_qg);
+    wifi_bbp_win_write(3, 0x0Au, (uint8_t)wifi_cal.rxiq_ip);
+    wifi_bbp_win_write(3, 0x0Cu, (uint8_t)wifi_cal.rxiq_qp);
 
     cfm1_log_int("wifi: cal d04=", (int32_t)wifi_bbp_win_read(2, 0x04));
     cfm1_log_int("wifi: cal d61=", (int32_t)wifi_bbp_win_read(2, 0x61));
@@ -709,15 +827,21 @@ static void wifi_sdio_init(void)
 
     /* PHY/MAC hardware init [SPECSHEET §11.2.12]: configure digital
      * baseband for 802.11 frame processing.  This is the "2nd PHY init"
-     * (§17 step 19): reload BBP tables after RF calibration undid
+     * (§11.2.1 step 19): reload BBP tables after RF calibration undid
      * loopback changes.  Must run after WDMA init and before IRQ. */
     wifi_phy_hw_init();
     wifi_ind_log("phy", 1);
 
-    /* RAPP: PA ramp lookup table + thresholds [SPECSHEET §7] */
+    /* CFR mode 1: final TX filter coefficients [SPECSHEET §6.9] */
+    wifi_cfr_mode1();
+
+    /* Per-rate digital gain override [SPECSHEET §6.9, A24] */
+    wifi_vm108_per_rate_gains();
+
+    /* RAPP: PA compression curve + thresholds [SPECSHEET §6.9] */
     wifi_rapp_init();
 
-    /* Re-apply TX/RX calibration values to BBP windows [SPECSHEET §18].
+    /* Re-apply TX/RX calibration values to BBP windows [SPECSHEET §10.2].
      * PHY init reset BBP, wiping any cal values written during trim. */
     wifi_cal_bbp_apply();
     wifi_ind_log("cal", 1);
@@ -748,16 +872,34 @@ static void wifi_sdio_init(void)
 
 /* ---- TX ---- */
 
-static void wifi_build_txwi(struct wifi_txwi *txwi, uint32_t frame_len)
+#ifdef CONFIG_WIFI_T19_TEST
+static uint8_t wifi_tx_phymode_ovr = 0xFFu;
+static uint8_t wifi_tx_mcs_ovr = 0xFFu;
+#endif
+
+static void wifi_build_txwi(struct wifi_txwi *txwi, uint32_t frame_len, int ack)
 {
-    /* 1 Mbps CCK, broadcast (WCID=0xFF, no ACK). Mirrors the vendor TXWI
-     * measured on hardware [SPECSHEET §7.5a, §7.11.5 measured layout]:
-     * MPDU_DENSITY=5, BW_WIN_SIZE=7, software sequence numbers (NSEQ
-     * clear: the 802.11 header already carries one). */
-    txwi->word0 = (PHYMODE_CCK << TXWI_W0_PHYMODE_SHIFT)
-                | (0u << TXWI_W0_MCS_SHIFT)
-                | (5u << TXWI_W0_DENSITY_SHIFT);
-    txwi->word1 = (7u << TXWI_W1_BW_WIN_SHIFT)
+    /* 1 Mbps CCK, WCID 0xFF (no key). Mirrors the vendor TXWI measured on
+     * hardware for a broadcast probe request [SPECSHEET §7.5a, §7.11.5
+     * measured layout]: MPDU_DENSITY=0 (vendor default for mgmt frames),
+     * BW_WIN_SIZE=7, TXOP=3 (bits [9:8]), software sequence numbers (NSEQ
+     * clear: the 802.11 header already carries one). Unicast frames
+     * additionally request an ACK [IEEE 802.11-2020 10.3.2.9, IP:RT2x00
+     * ENTRY_TXD_ACK]: the MAC retries per TX_RTY_CFG and reports the
+     * outcome in TX_STA_CNT0/1 and TX_STA_FIFO. */
+#ifdef CONFIG_WIFI_T19_TEST
+    uint32_t phymode = (wifi_tx_phymode_ovr != 0xFFu) ? wifi_tx_phymode_ovr : PHYMODE_CCK;
+    uint32_t mcs = (wifi_tx_mcs_ovr != 0xFFu) ? wifi_tx_mcs_ovr : 0u;
+#else
+    uint32_t phymode = PHYMODE_CCK;
+    uint32_t mcs = 0u;
+#endif
+    txwi->word0 = (phymode << TXWI_W0_PHYMODE_SHIFT)
+                | (mcs << TXWI_W0_MCS_SHIFT)
+                | (0u << TXWI_W0_DENSITY_SHIFT)
+                | (3u << 8);
+    txwi->word1 = (ack ? TXWI_W1_ACK : 0u)
+                | (7u << TXWI_W1_BW_WIN_SHIFT)
                 | (0xFFu << TXWI_W1_WCID_SHIFT)
                 | ((frame_len & 0xFFFu) << TXWI_W1_MPDU_LEN_SHIFT);
     txwi->iv  = 0;
@@ -786,7 +928,9 @@ static int wifi_sdio_tx(const uint8_t *frame, uint32_t len)
      * at the length word (whose low bits select queue 0): neither queued. */
     *(uint32_t *)&wifi_tx_buf[0] = len + 22u;
     *(uint32_t *)&wifi_tx_buf[4] = ((frame[0] & 0x0Cu) == 0u) ? 5u : 4u;
-    wifi_build_txwi((struct wifi_txwi *)&wifi_tx_buf[WIFI_TX_HDR], len);
+    /* addr1 bit 0 clear = unicast receiver = ACK expected */
+    wifi_build_txwi((struct wifi_txwi *)&wifi_tx_buf[WIFI_TX_HDR], len,
+                    len >= 10u && !(frame[4] & 1u));
     for (i = 0; i < len; i++)
         wifi_tx_buf[WIFI_TX_HDR + sizeof(struct wifi_txwi) + i] = frame[i];
     for (; i < len + 6u; i++)                          /* 2 + 4 trailing bytes */
@@ -960,8 +1104,11 @@ static void wifi_sdio_poll_irq(void)
         if (wifi_sdio_state.rx_count <= 5u)
             cfm1_log_int("wifi: rx len=", (int32_t)frame_len);
 
-        if (frame_len >= 24 && frame_len <= (WIFI_RX_BUF_SIZE - 4u - RXWI_SIZE))
-            wifi_mac_rx(wifi_rx_buf + 4 + RXWI_SIZE, frame_len);
+        if (frame_len >= 24 && frame_len <= (WIFI_RX_BUF_SIZE - 4u - RXWI_SIZE)) {
+            /* RSSI0 from RXWI word 2 bits [7:0] [SPECSHEET §7.5b] */
+            int8_t rssi0 = (int8_t)(*(uint32_t *)&wifi_rx_buf[4 + 8] & 0xFFu);
+            wifi_mac_rx(wifi_rx_buf + 4 + RXWI_SIZE, frame_len, rssi0);
+        }
 
         ctl = WDMA_CTL;
     }

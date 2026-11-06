@@ -29,6 +29,28 @@ static const char *fwifi_state_str(void)
     }
 }
 
+static void fwifi_log2(const char *prefix, const char *s)
+{
+    char line[CFM1_LOG_LINE_LEN];
+    uint32_t i = 0;
+    while (i < CFM1_LOG_LINE_LEN - 1 && prefix[i]) { line[i] = prefix[i]; i++; }
+    while (i < CFM1_LOG_LINE_LEN - 1 && *s) line[i++] = *s++;
+    line[i] = 0;
+    cfm1_log(line);
+}
+
+/* what the LCD shows, logged once per change so the ring can be read
+ * against the STA state machine's own transitions */
+static void fwifi_log_lcd(void)
+{
+    static const char *last;
+    const char *now = fwifi_state_str();
+    if (now != last) {
+        last = now;
+        fwifi_log2("ui: wifi lcd=", now);
+    }
+}
+
 static void fwifi_fmt_ip(char *buf, uint32_t ip)
 {
     uint32_t i, pos = 0;
@@ -76,10 +98,11 @@ static void fwifi_draw_info(void)
     }
 
     /* SSID */
-    if (wifi_get_state() >= WIFI_STATE_AUTH && wifi_cfg_ssid) {
+    if (wifi_get_state() >= WIFI_STATE_AUTH && wifi_sta.target_ssid_len) {
         int32_t y = (int32_t)row * FWIFI_ROW_H;
         cv_text_fit(FWIFI_X_PAD, y + 2, &AF_S, "SSID", T_DIM, T_BG, 54);
-        cv_text_fit(60, y + 2, &AF_S, wifi_cfg_ssid, T_TEXT, T_BG, 176);
+        cv_text_fit(60, y + 2, &AF_S, (const char *)wifi_sta.target_ssid,
+                    T_TEXT, T_BG, 176);
         row++;
     }
 
@@ -179,6 +202,7 @@ static void fwifi_draw_scan(void)
 static void fwifi_draw(void)
 {
     ui_header();
+    fwifi_log_lcd();
 
     /* cards row */
     ui_card(0, "STATE", fwifi_state_str(), "",
@@ -219,8 +243,11 @@ static void fwifi_enter(void)
     fwifi_sel = 0;
     fwifi_scroll = 0;
     fwifi_scanning = 0;
-    if (wifi_get_state() == WIFI_STATE_IDLE)
+    fwifi_log2("ui: wifi page enter, sta=", fwifi_state_str());
+    if (wifi_get_state() == WIFI_STATE_IDLE) {
+        cfm1_log("ui: wifi enter -> scan");
         wifi_scan(fwifi_scan_cb);
+    }
 }
 
 static int fwifi_knob(uint32_t id, int32_t clicks)
@@ -253,7 +280,10 @@ static int fwifi_button(uint32_t id, uint32_t down)
     if (id == BTN_PLAY) {
         wifi_state_t st = wifi_get_state();
 
+        fwifi_log2("ui: wifi PLAY, sta=", fwifi_state_str());
+
         if (st == WIFI_STATE_CONNECTED) {
+            cfm1_log("ui: wifi PLAY -> disconnect");
             wifi_disconnect();
             nav_dirty = 1;
             return 1;
@@ -263,10 +293,18 @@ static int fwifi_button(uint32_t id, uint32_t down)
             if (wifi_bss_count > 0 && fwifi_sel < (int32_t)wifi_bss_count) {
                 struct wifi_bss *b = &wifi_bss_table[fwifi_sel];
                 const char *pass = CONFIG_WIFI_PASSWORD;
+                int rc;
                 if (!pass || !pass[0])
                     pass = 0;
-                wifi_connect(b->ssid, b->has_rsn ? pass : 0);
+                fwifi_log2("ui: wifi PLAY -> connect ", b->ssid);
+                cfm1_log_hex("ui: wifi sel bssid=", b->bssid, 6);
+                cfm1_log_int("ui: wifi sel ch=", (int32_t)b->channel);
+                cfm1_log_int("ui: wifi sel rsn=", (int32_t)b->has_rsn);
+                cfm1_log_int("ui: wifi pass=", pass ? 1 : 0);
+                rc = wifi_connect(b->ssid, b->has_rsn ? pass : 0);
+                cfm1_log_int("ui: wifi connect rc=", (int32_t)rc);
             } else {
+                cfm1_log("ui: wifi PLAY -> scan");
                 wifi_scan(fwifi_scan_cb);
                 fwifi_scanning = 1;
             }
@@ -278,6 +316,7 @@ static int fwifi_button(uint32_t id, uint32_t down)
 
     if (id == BTN_HOME) {
         if (wifi_get_state() == WIFI_STATE_IDLE) {
+            cfm1_log("ui: wifi HOME -> scan");
             wifi_scan(fwifi_scan_cb);
             fwifi_scanning = 1;
             nav_dirty = 1;
@@ -286,6 +325,16 @@ static int fwifi_button(uint32_t id, uint32_t down)
     }
 
     return 0;
+}
+
+static void fwifi_status(void)
+{
+    static wifi_state_t last;
+    wifi_state_t now = wifi_get_state();
+    if (now != last) {
+        last = now;
+        nav_dirty = 1;
+    }
 }
 
 static const cfm1_page_t FPAGE_WIFI = {
@@ -297,4 +346,5 @@ static const cfm1_page_t FPAGE_WIFI = {
     .draw   = fwifi_draw,
     .knob   = fwifi_knob,
     .button = fwifi_button,
+    .status = fwifi_status,
 };

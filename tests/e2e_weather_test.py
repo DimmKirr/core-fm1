@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """E2E: Weather page in the emulator.
 
-Builds wifi defconfig, boots in fm1-emu, navigates to the WEATHER page,
+Builds the core_fm1_dev defconfig (WiFi + lwIP), boots in fm1-emu,
+navigates to the WEATHER page,
 and tests:
   1. Weather page renders without crashing
   2. Loading state shows spinner and "FETCHING WEATHER" text
@@ -25,13 +26,20 @@ FWSC = BUILD / 'core-fm1.fwsc'
 
 TEST_RESULTS = RESULTS_DIR / f'{_run_timestamp}-e2e_weather_test'
 
-DEFCONFIG = 'wifi'
+DEFCONFIG = 'core_fm1_dev'
+
+# Firmware hold threshold is 500 ms of emulated time; 800 ms wall-clock was
+# occasionally delivered as a tap by the WASM emulator, so keep a wide margin.
+GLO_HOLD_MS = 1500
 
 
 def _navigate_to_weather(ctrl, page):
-    """GLO hold opens VIEW_CONN (WiFi), then SELECT right reaches Weather."""
-    ctrl.press_button('glo', hold_ms=800, delay_ms=500)
-    ctrl.rotate_encoder('select', direction=1, steps=1, delay_ms=500)
+    """From HOME: a GLO hold opens VIEW_CONN on its first page (WIFI); a
+    second GLO hold advances within the view to WEATHER. SELECT cannot be
+    used for this: the WIFI page consumes it for its AP list."""
+    ctrl.press_button('glo', hold_ms=GLO_HOLD_MS, delay_ms=500)
+    page.wait_for_timeout(300)
+    ctrl.press_button('glo', hold_ms=GLO_HOLD_MS, delay_ms=500)
 
 
 class TestWeatherPage(E2ETestCase):
@@ -56,8 +64,7 @@ class TestWeatherPage(E2ETestCase):
         if not cls._build_ok:
             (TEST_RESULTS / 'SKIP-build-failed.txt').write_text(
                 f'Build failed or defconfig missing for {DEFCONFIG}.\n'
-                'Weather page E2E tests will run once the wifi defconfig\n'
-                'is available and builds successfully.\n')
+                'Weather page E2E tests run once this defconfig builds.\n')
         try:
             super().setUpClass()
         except unittest.SkipTest:
@@ -65,7 +72,7 @@ class TestWeatherPage(E2ETestCase):
 
     def _boot_page(self):
         if not self._build_ok:
-            self.skipTest('wifi defconfig build failed (pre-existing errors)')
+            self.skipTest(f'{DEFCONFIG} defconfig build failed')
         if not FWSC.is_file():
             self.skipTest('No .fwsc produced')
         if not self._browser:
@@ -107,9 +114,10 @@ class TestWeatherPage(E2ETestCase):
             ctrl = self.controls(page)
             _navigate_to_weather(ctrl, page)
 
-            # Wait for fetch timeout (emulator has no network, so state machine
-            # transitions to error after a brief attempt)
-            page.wait_for_timeout(2_000)
+            # fm1-emu v0.3.0 has no WiFi hardware: the fetch state machine
+            # never fails over, so the spinner stays (observed for 25 s).
+            # The error state needs the --oss-wifi emulator or a device.
+            page.wait_for_timeout(5_000)
             self.screenshot(page, 'WEATHER-no-data')
 
             status = page.locator('#status').text_content()
@@ -166,13 +174,14 @@ class TestWeatherPage(E2ETestCase):
             page.wait_for_timeout(500)
             self.screenshot(page, 'WEATHER-visit-1')
 
-            # Leave: go to HOME
-            ctrl.rotate_encoder('select', direction=1, steps=1, delay_ms=500)
+            # Leave: a HOME tap opens VIEW_HOME
+            ctrl.press_button('home')
             page.wait_for_timeout(500)
             self.screenshot(page, 'WEATHER-left-to-HOME')
 
-            # Return to weather
-            _navigate_to_weather(ctrl, page)
+            # Return: the CONN view remembers its last page, so a single
+            # GLO hold lands on WEATHER again
+            ctrl.press_button('glo', hold_ms=GLO_HOLD_MS, delay_ms=500)
             page.wait_for_timeout(500)
             self.screenshot(page, 'WEATHER-visit-2')
 

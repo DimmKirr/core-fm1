@@ -138,6 +138,7 @@ static uint32_t wifi_get_ip(void)
 static void wifi_on_connected(void)
 {
     cfm1_log("wifi: associated, starting DHCP");
+    wifi_mac_tighten_filter();
     wifi_lwip_start_dhcp();
     weather_fetch_start();
 }

@@ -128,10 +128,9 @@ static uint32_t wifi_data_80211_to_eth(const uint8_t *dot11, uint32_t dot11_len,
     if (!(fc & WIFI_FC_FROMDS)) return 0;
 
     hdr_len = WIFI_DATA_HDR_LEN;
-    /* QoS data adds 2 bytes (subtype bit 7) */
-    if (fc & 0x0080) hdr_len += 2;
+    if (fc & 0x0080) hdr_len += 2; /* QoS Control */
+    payload_off = (hdr_len + 3u) & ~3u; /* L2PAD: buffer offset */
 
-    payload_off = hdr_len;
     if (payload_off + WIFI_SNAP_LEN > dot11_len) return 0;
 
     /* verify LLC/SNAP */
@@ -193,6 +192,7 @@ static uint32_t wifi_data_encrypt(uint8_t *frame, uint32_t len)
                           frame + hdr_len + 8, data_len,
                           frame + hdr_len + 8 + data_len);
 
+    cfm1_log_int("wifi: ccmp enc dlen=", (int32_t)data_len);
     return hdr_len + 8 + data_len + 8; /* hdr + ccmp_hdr + data + MIC */
 }
 
@@ -206,7 +206,8 @@ static uint32_t wifi_data_decrypt(uint8_t *frame, uint32_t len)
     if (!wifi_wpa_has_ptk()) return 0;
 
     hdr_len = WIFI_DATA_HDR_LEN;
-    if (frame[0] & 0x80) hdr_len += 2;
+    if (frame[0] & 0x80) hdr_len += 2; /* QoS Control */
+    hdr_len = (hdr_len + 3u) & ~3u;    /* L2PAD: buffer offset */
 
     /* CCMP: 8-byte header + 8-byte MIC minimum */
     if (len < hdr_len + 16) return 0;
@@ -215,8 +216,11 @@ static uint32_t wifi_data_decrypt(uint8_t *frame, uint32_t len)
     /* verify and decrypt */
     if (wifi_wpa_ccmp_decrypt(frame, hdr_len,
                               frame + hdr_len + 8, data_len,
-                              frame + hdr_len + 8 + data_len) != 0)
+                              frame + hdr_len + 8 + data_len) != 0) {
+        cfm1_log("wifi: ccmp dec FAIL");
         return 0;
+    }
+    cfm1_log_int("wifi: ccmp dec ok len=", (int32_t)data_len);
 
     /* shift payload left to remove CCMP header */
     {
@@ -258,6 +262,36 @@ static int wifi_data_tx(const uint8_t *eth, uint32_t eth_len)
     return wifi_mac_tx(frame, frame_len);
 }
 
+/* Send a bare EAPOL frame wrapped in 802.11 to-DS + LLC/SNAP.
+ * Used during WPA handshake (state != CONNECTED, so wifi_data_tx won't work). */
+static int wifi_data_tx_eapol(const uint8_t *eapol, uint32_t eapol_len)
+{
+    uint8_t *frame = wifi_tx_frame;
+    uint32_t pos = 0;
+
+    if (eapol_len > 256) return -1;
+
+    /* 802.11 header: to-DS data frame */
+    wifi_data_wr16le(frame + pos, WIFI_FC_DATA | WIFI_FC_TODS);
+    pos += 2;
+    wifi_data_wr16le(frame + pos, 0); /* duration */
+    pos += 2;
+    wifi_data_cpy(frame + pos, wifi_sta.target_bssid, 6); pos += 6;
+    wifi_data_cpy(frame + pos, wifi_sta.our_mac, 6);      pos += 6;
+    wifi_data_cpy(frame + pos, wifi_sta.target_bssid, 6); pos += 6;
+    wifi_data_wr16le(frame + pos, wifi_data_seq++ << 4);
+    pos += 2;
+
+    /* LLC/SNAP + EAPOL ethertype */
+    wifi_data_cpy(frame + pos, wifi_llc_snap, 6); pos += 6;
+    wifi_data_wr16be(frame + pos, WIFI_ETHERTYPE_EAPOL); pos += 2;
+
+    wifi_data_cpy(frame + pos, eapol, eapol_len);
+    pos += eapol_len;
+
+    return wifi_mac_tx(frame, pos);
+}
+
 /* ---- RX path (from MAC) ---- */
 
 /* Process a received 802.11 data frame: decrypt if needed, convert to
@@ -290,17 +324,21 @@ static void wifi_data_rx(const uint8_t *frame, uint32_t len)
     /* check for EAPOL: deliver to WPA handshake */
     {
         uint32_t hdr = WIFI_DATA_HDR_LEN;
-        if (buf[0] & 0x80) hdr += 2; /* QoS */
+        if (buf[0] & 0x80) hdr += 2;      /* QoS Control */
+        hdr = (hdr + 3u) & ~3u;           /* L2PAD */
         if (dlen >= hdr + WIFI_SNAP_LEN) {
             ethertype = wifi_data_rd16be(buf + hdr + 6);
+            cfm1_log_int("wifi: data_rx etype=", (int32_t)ethertype);
             if (ethertype == WIFI_ETHERTYPE_EAPOL) {
+                cfm1_log("wifi: eapol -> wpa");
                 uint8_t wpa_tx[256];
                 uint32_t wpa_tx_len = 0;
                 wifi_wpa_rx_eapol(buf + hdr + WIFI_SNAP_LEN,
                                   dlen - hdr - WIFI_SNAP_LEN,
                                   wpa_tx, sizeof wpa_tx, &wpa_tx_len);
+                cfm1_log_int("wifi: wpa_rx ret tx=", (int32_t)wpa_tx_len);
                 if (wpa_tx_len > 0)
-                    wifi_mac_tx(wpa_tx, wpa_tx_len);
+                    wifi_data_tx_eapol(wpa_tx, wpa_tx_len);
                 return;
             }
         }
@@ -319,8 +357,9 @@ static void wifi_data_rx(const uint8_t *frame, uint32_t len)
 static int wifi_data_is_eapol(const uint8_t *frame, uint32_t len)
 {
     uint32_t hdr = WIFI_DATA_HDR_LEN;
+    if (frame[0] & 0x80) hdr += 2;      /* QoS Control */
+    hdr = (hdr + 3u) & ~3u;             /* L2PAD */
     if (len < hdr + WIFI_SNAP_LEN) return 0;
-    if (frame[0] & 0x80) hdr += 2;
     if (frame[hdr] != 0xAA || frame[hdr + 1] != 0xAA) return 0;
     return wifi_data_rd16be(frame + hdr + 6) == WIFI_ETHERTYPE_EAPOL;
 }

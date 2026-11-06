@@ -47,21 +47,25 @@ def test_bank_scan_follows_the_documented_procedure_and_is_bounded():
 
 
 def test_lut_load_patches_the_feq_bank_field():
-    body = _fn_body(RF_C.read_text(), 'wifi_rf_rfd_lut_load')
+    body = _fn_body(RF_C.read_text(), 'wifi_rf_lut_load')
     assert re.search(r'if \(i < 128u\)', body), 'FEQ entries 0-127'
     assert '(w1 >> 21) & 0xFFu' in body, 'divider from word 1 [28:21]'
     assert 'wifi_rf_bank_for(' in body and '<< 9' in body, 'bank OR-ed into word 1 [15:9]'
 
 
-def test_rf_init_scans_banks_before_the_lut_and_re_arms_after_the_mac_init():
+def test_rf_init_wifi_mode_then_calibrate_then_arm():
+    """wifi_rf_wifi_mode() sets the 24 MHz constant block and runs the bank scan
+    internally (§11.2.9); calibrate follows; arm is the re-armable tail."""
     rf = RF_C.read_text()
     init = _fn_body(rf, 'wifi_rf_init')
-    assert 'wifi_rf_bank_scan();' in init and 'wifi_rf_arm();' in init
-    assert init.index('wifi_rf_calibrate();') < init.index('wifi_rf_bank_scan();') < init.index('wifi_rf_arm();')
+    assert 'wifi_rf_wifi_mode();' in init and 'wifi_rf_arm();' in init
+    assert init.index('wifi_rf_wifi_mode();') < init.index('wifi_rf_calibrate();') < init.index('wifi_rf_arm();')
+    wm = _fn_body(rf, 'wifi_rf_wifi_mode')
+    assert 'wifi_rf_bank_scan();' in wm, 'bank scan runs inside wifi_mode after the PLL block'
     arm = _fn_body(rf, 'wifi_rf_arm')
-    for step in ('wifi_rf_rfd_lut_load();', 'wifi_rf_bsb_auto_ctl();', 'wcal_en_set(0);'):
+    for step in ('wifi_rf_lut_load();', 'wifi_rf_auto_control();', 'wifi_cal_rf_mode(0);'):
         assert step in arm, f'{step} belongs to the re-armable tail'
-    assert 'wifi_rf_rfd_lut_load();' not in init.replace('wifi_rf_arm();', ''), 'the tail lives only in wifi_rf_arm()'
+    assert 'wifi_rf_lut_load();' not in init.replace('wifi_rf_arm();', ''), 'the tail lives only in wifi_rf_arm()'
     api = _fn_body(API_C.read_text(), 'wifi_init')
     assert api.index('wifi_mac_init();') < api.index('wifi_rf_arm();') < api.index('wifi_ind_log("mac", 1)'), \
         'LUT load and auto control run again after the last MAC/PHY reset (§14 row 7)'
@@ -83,8 +87,9 @@ def test_scan_logs_rx_counters_and_pll_state_on_every_channel():
 
 
 def test_bank_scan_runs_with_the_control_loops_off_and_logs_raw_comparator_words():
-    """12n: the comparator read flat with auto control armed (12m). The vendor scans with
-    0x11950 zeroed and before auto control; wifi_rf_arm() re-arms both afterwards."""
+    """The vendor scans with 0x11950 zeroed and before auto control.
+    wifi_rf_wifi_mode() sets the 24 MHz constant block then runs the bank scan;
+    wifi_rf_arm() re-arms auto control and PA trims afterwards."""
     src = RF_C.read_text()
     body = _fn_body(src, 'wifi_rf_bank_scan')
     first_probe = body.index('wifi_rf_bank_probe(')
@@ -92,8 +97,9 @@ def test_bank_scan_runs_with_the_control_loops_off_and_logs_raw_comparator_words
     assert '0x11950u) = 0' in head, 'control word zeroed before the first measurement'
     assert '~((1u << 26) | (1u << 27))' in head, 'auto-control enables cleared before the first measurement'
     assert '"wifi: rf bank cmp73="' in body and '"wifi: rf bank cmp121="' in body, 'raw comparator words logged'
-    init = _fn_body(src, 'wifi_rf_init')
-    assert init.index('wifi_rf_force_vendor_regs();') < init.index('wifi_rf_bank_scan();'), \
-        '24 MHz PLL/crystal words (the forced vendor read-backs) applied before the scan: wifi_mode() leaves the 40 MHz word'
+    wm = _fn_body(src, 'wifi_rf_wifi_mode')
+    assert wm.index('0x11934u') < wm.index('wifi_rf_bank_scan();'), \
+        '24 MHz PLL words applied before the bank scan in wifi_mode()'
     arm = _fn_body(src, 'wifi_rf_arm')
-    assert 'wifi_rf_force_vendor_regs();' in arm, 'and re-applied after the LUT load and auto control, as before'
+    assert 'wifi_rf_pa_trims();' in arm, 'PA trims applied in the arm tail'
+    assert 'wifi_rf_auto_control();' in arm, 'auto control re-armed in the arm tail'

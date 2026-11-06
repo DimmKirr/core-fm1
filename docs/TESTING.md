@@ -335,9 +335,16 @@ The JieLi clang 4.0.1 compiler is an x86-64 Linux binary. The build system
 runner:
 
 - **x86-64 Linux**: runs the compiler natively.
-- **ARM/aarch64 Linux**: requires `qemu-x86_64` plus x86-64 glibc and
-  libstdc++ in the nix store.
-- **macOS / Docker fallback**: set `JIELI_DOCKER=1` to compile inside a
-  `linux/amd64` Docker container.
+- **ARM/aarch64 Linux, kernel runs x86-64 ELFs** (Rosetta on Apple-silicon
+  VMs, a binfmt_misc registration): runs the compiler through an x86-64
+  `ld.so`, no emulator process.
+- **ARM/aarch64 Linux with `qemu-x86_64`**: user-mode QEMU.
+- **macOS / Docker fallback**: compiles inside a `linux/amd64` Docker
+  container (`JIELI_DOCKER=1` forces it).
+
+The two Linux fallbacks need x86-64 glibc and libstdc++, looked up in this
+order: `JIELI_X86_GLIBC` + `JIELI_X86_STDCPP`, `~/.fm1-toolchain/x86libs`
+(populate once with `task toolchain:x86libs`, which copies them out of a
+`linux/amd64` Debian image), the nix store.
 
 These tests do not flash hardware.

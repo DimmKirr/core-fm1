@@ -56,11 +56,11 @@ static struct {
     uint32_t con8;
 } wifi_rf_dc;
 
-/* TX LO trim cache for BT reload [SPECSHEET §17 step 27] */
+/* TX LO trim cache for BT reload [SPECSHEET §11.2.11] */
 static struct {
     uint32_t con7;
     uint32_t con8;
-} wifi_rf_txlo_save;
+} wifi_rf_tx_lo_snapshot;
 
 static uint16_t wifi_rf_crc16(uint16_t crc, const uint8_t *p, uint32_t n)
 {
@@ -205,7 +205,7 @@ static uint32_t wifi_rf_bbp_win_rd(uint32_t w, uint32_t entry)
     return wifi_rf_bbp(0xCBu + 4u * w, 0, 1);
 }
 
-/* ---- WiFi RFD RAM LUT table data (Apache-2.0, SPECSHEET §5.1) ---- */
+/* ---- WiFi RF-die LUT LUT table data (Apache-2.0, SPECSHEET §5.1) ---- */
 #include "wifi/wifi_rf_lut_data.c"
 
 /* ---- RF calibration (when VM 187 is absent) ---- */
@@ -271,28 +271,31 @@ static void wifi_rf_vco_scan(void)
     cfm1_log_int("wifi: rf vco band=", wifi_rf_stat.vco_band);
 }
 
-/* The vendor's RF read-backs on this unit, forced since iterations 8/10 because
- * our calibration runs with 40 MHz words on a 24 MHz board [SPECSHEET §11.2.9
- * errata, §14 row 8]. Applied before the bank scan (24 MHz PLL, crystal and
- * loop words) and again at the end of wifi_rf_arm(). TODO: replace by a
- * 24 MHz calibration. */
-static void wifi_rf_force_vendor_regs(void)
+/* ---- PLL restart pulse [SPECSHEET §11.2.9] ---- */
+static void wifi_rf_pll_restart(void)
 {
-    FM1_RF_REG(0x11900u) = 0xEAA00005u;  /* CON0 */
-    FM1_RF_REG(0x11908u) = 0x9C712D10u;  /* RXDC */
-    FM1_RF_REG(0x11910u) = 0x085FD98Eu;  /* CON4 */
-    FM1_RF_REG(0x1191Cu) = 0x2915CD66u;  /* TXLO */
-    FM1_RF_REG(0x11920u) = 0x0065FDB1u;  /* CON8 */
-    FM1_RF_REG(0x11938u) = 0x8DAFD065u;  /* PLL: N = 101 (24 MHz), bank 0x35 */
-    FM1_RF_REG(0x1193Cu) = 0x12640F32u;  /* VCO_FINE: divider 121 */
-    FM1_RF_REG(0x11924u) = 0x51B801F7u;  /* CON9 (PA0) */
-    FM1_RF_REG(0x11928u) = 0x0AFBE9E7u;  /* CON10 (PA1) */
-    FM1_RF_REG(0x11914u) = 0x447C1B19u;  /* CON5 */
-    FM1_RF_REG(0x11930u) = 0x05D9625Fu;  /* XOSC: 24 MHz crystal type 0x0B */
-    FM1_RF_REG(0x11950u) = 0x57BFFFDCu;  /* CON20: auto control */
-    FM1_RF_REG(0x11954u) = 0x02822520u;  /* ANA_CON1 */
-    FM1_RF_REG(0x11964u) = 0x3B010000u;  /* ANA_CON5 */
-    FM1_RF_REG(0x11940u) = 0x08B41411u;  /* PLL_CFG */
+    FM1_WL_VCO_BAND &= ~(1u << 16);
+    FM1_WL_VCO_BAND &= ~(1u << 18);
+    FM1_WL_VCO_EN   &= ~(1u << 24);
+    fm1_delay_us(5);
+    FM1_WL_VCO_BAND |=  (1u << 16);
+    fm1_delay_us(5);
+    FM1_WL_VCO_EN   |=  (1u << 24);
+    FM1_WL_VCO_BAND |=  (1u << 18);
+    fm1_delay_us(100);
+}
+
+/* ---- PA trims from VM 107 [SPECSHEET §11.2.9] ---- */
+static void wifi_rf_pa_trims(void)
+{
+    static const uint8_t pa_def[7] = {1, 7, 4, 7, 11, 1, 7};
+    const uint8_t *pa = (wifi_rf_vm.have & 0x02u) ? wifi_rf_vm.x107 : pa_def;
+    wifi_cal_rmw(0x11924u, 7u << 24,  (uint32_t)pa[0] << 24);
+    wifi_cal_rmw(0x11928u, 7u << 0,   (uint32_t)pa[1] << 0);
+    wifi_cal_rmw(0x11928u, 7u << 9,   (uint32_t)pa[2] << 9);
+    wifi_cal_rmw(0x11928u, 7u << 15,  (uint32_t)pa[3] << 15);
+    wifi_cal_rmw(0x11928u, 0xFu << 22,(uint32_t)pa[4] << 22);
+    wifi_cal_rmw(0x1192Cu, 7u << 0,   (uint32_t)pa[5] << 0);
 }
 
 /* ---- VCO bank-limit scan [SPECSHEET §5.2, M:s 2026-11-04] ----
@@ -613,12 +616,12 @@ static void wifi_rf_group9_pa_trims(void)
 static void wifi_rf_group11_lut(void)
 {
     /* Stub: the BLE RF bytecode handles group 11 LUT loading.
-     * The WiFi-specific LUT is loaded separately by wifi_rf_rfd_lut_load()
+     * The WiFi-specific LUT is loaded separately by wifi_rf_lut_load()
      * after the mode switch. */
     wifi_rf_stat.ops += 6100;
 }
 
-/* ---- WiFi RFD RAM LUT loading [SPECSHEET §5.1] ----
+/* ---- WiFi RF-die LUT LUT loading [SPECSHEET §5.1] ----
  * Loads the 256-entry WiFi frequency/gain/power table into the RF die's
  * RAM via the SPI interface at 0x14028/0x1402C. This replaces the BLE LUT
  * left by the RF bytecode and is required for WiFi reception. */
@@ -640,7 +643,7 @@ static void wifi_rf_rfd_spi_sync(void)
         FM1_RFSPI_CTL &= ~0x10u;
 }
 
-static void wifi_rf_rfd_lut_load(void)
+static void wifi_rf_lut_load(void)
 {
     static const uint8_t pa_def[7] = {0x01,0x07,0x04,0x07,0x0B,0x01,0x07};
     static const uint8_t rxdc_grp_sz[4] = {5, 47, 6, 38};
@@ -658,7 +661,7 @@ static void wifi_rf_rfd_lut_load(void)
     wifi_rf_rfd_spi_sync();
 
     /* PA config bytes from record 107 (default: 01 07 04 07 0B 01 07)
-     * [SPECSHEET §15, APC patch] */
+     * [SPECSHEET §5.1, APC patch] */
     if (wifi_rf_vm.have & 0x02u) {
         for (i = 0; i < 7u; i++)
             pa[i] = wifi_rf_vm.x107[i];
@@ -680,7 +683,7 @@ static void wifi_rf_rfd_lut_load(void)
         } else if (i >= 128u && i < 224u) {
             /* AGC entries: patch word0 with RX DC tune values.
              * Keep [11:0], set [21:12]=rx_dc_i, [31:22]=rx_dc_q
-             * [SPECSHEET §15] */
+             * [SPECSHEET §5.1] */
             uint32_t off = i - 128u, g = 0;
             uint16_t dci, dcq;
             while (g < 3u && off >= rxdc_grp_sz[g]) {
@@ -694,7 +697,7 @@ static void wifi_rf_rfd_lut_load(void)
                | ((uint32_t)(dcq & 0x3FFu) << 22);
             patched_agc++;
         } else if (i >= 224u) {
-            /* APC entries: patch with PA config bytes [SPECSHEET §15] */
+            /* APC entries: patch with PA config bytes [SPECSHEET §5.1] */
             w0 = (w0 & ~0x3Fu)
                | ((uint32_t)(pa[5] & 0x07u))
                | ((uint32_t)(pa[6] & 0x07u) << 3);
@@ -708,7 +711,7 @@ static void wifi_rf_rfd_lut_load(void)
         }
         /* TODO(vco-bank): FEQ entries 0-127: OR bank(fbds) << 9 into word1.
          * Requires VCO bank scan limit[48] table (not yet available).
-         * [SPECSHEET §15, FEQ patch] */
+         * [SPECSHEET §5.1, FEQ patch] */
 
         wifi_rf_lut_write(i, w0, w1);
     }
@@ -728,7 +731,10 @@ static void wifi_rf_rfd_lut_load(void)
     cfm1_log_int("wifi: rf lut spi_to=", (int32_t)wifi_rf_stat.spi_timeouts);
 }
 
-/* Group 13: VM 108 -> BBP window D -- 36 writes */
+/* Group 13: VM 108 -> BBP window D -- 36 writes
+ * NOTE: dead code; entry mapping is wrong (writes to 0..11 instead of
+ * 0x0B,0x0D,...). Superseded by wifi_vm108_per_rate_gains() in
+ * wifi_sdio.c which applies after cfr_mode1. Kept for bytecode docs. */
 static void wifi_rf_group13_vm108(void)
 {
     uint32_t i;
@@ -760,73 +766,63 @@ static void wifi_rf_group13_vm108(void)
 
 static void wifi_rf_wifi_mode(void)
 {
-    uint32_t v;
+    uint8_t cap_l, cap_r;
     cfm1_log("wifi: rf wifi_mode");
 
-    /* --- RMW deltas for registers with known BLE residue --- */
+    /* Crystal word (0x11930) with 24 MHz type and VM 106 caps [§11.2.9] */
+    cap_l = (wifi_rf_vm.have & 0x01u) ? (wifi_rf_vm.x106[0] & 0xFu) : 0x0Bu;
+    cap_r = (wifi_rf_vm.have & 0x01u) ? (wifi_rf_vm.x106[1] & 0xFu) : 0x0Bu;
+    FM1_RF_REG(0x11930u) = 0x0000025Fu
+        | ((uint32_t)cap_l << 13)
+        | ((uint32_t)cap_r << 19)
+        | ((uint32_t)0x0Bu << 23);
 
-    /* CON0 (0x11900): switch LNA/mixer from BLE to WiFi [SPECSHEET §11.2.9]
-     * Clear bits 23,20,19,18 (BLE path); set bit 21 (WiFi path) */
-    v = FM1_RF_REG(0x11900u);
-    v &= ~((1u << 23) | (1u << 20) | (1u << 19) | (1u << 18));
-    v |= (1u << 21);
-    FM1_RF_REG(0x11900u) = v;
+    /* Constant analog block [SPECSHEET §11.2.9, 24 MHz end values] */
+    FM1_RF_REG(0x11950u) = 0x00000000u;
+    FM1_RF_REG(0x11900u) = 0xEA200005u;
+    FM1_RF_REG(0x11904u) = 0x01C35880u;
+    FM1_RF_REG(0x11908u) = 0x9C010010u;
+    FM1_RF_REG(0x1190Cu) = 0x672B9349u;
+    FM1_RF_REG(0x11910u) = 0x0508098Eu;
+    FM1_RF_REG(0x11914u) = 0x4078C319u;
+    FM1_RF_REG(0x11918u) = 0x00076A24u;
+    FM1_RF_REG(0x1191Cu) = 0x2915C066u;
+    FM1_RF_REG(0x11920u) = 0x00A641C0u;
+    FM1_RF_REG(0x11924u) = 0x65B80057u;
+    FM1_RF_REG(0x11928u) = 0x1AFAE7E7u;
+    FM1_RF_REG(0x1192Cu) = 0x0052A070u;
+    FM1_RF_REG(0x11964u) = (FM1_RF_REG(0x11964u) & ~(3u << 16)) | (1u << 16);
 
-    /* CON1 (0x11904): filter/bias for WiFi 20MHz bandwidth [SPECSHEET §11.2.9]
-     * Clear bits 18,10; set bits 17,16,14,11 */
-    v = FM1_RF_REG(0x11904u);
-    v &= ~((1u << 18) | (1u << 10));
-    v |= (1u << 17) | (1u << 16) | (1u << 14) | (1u << 11);
-    FM1_RF_REG(0x11904u) = v;
+    /* PLL block end values [SPECSHEET §11.2.9] */
+    FM1_RF_REG(0x11934u) = 0x01000000u;
+    FM1_RF_REG(0x11938u) = 0x819BD033u;
+    FM1_RF_REG(0x1193Cu) = 0x3A780EF2u;
+    FM1_RF_REG(0x11940u) = 0x08B41490u;
+    FM1_RF_REG(0x11944u) = 0x00000A80u;
 
-    /* ANL_CON2 (0x11930): 40MHz clock source [SPECSHEET §11.2.9]
-     * Set bit 27 (40MHz mode); clear bits 23,10 */
-    v = FM1_RF_REG(0x11930u);
-    v &= ~((1u << 23) | (1u << 10));
-    v |= (1u << 27);
-    FM1_RF_REG(0x11930u) = v;
+    /* PLL for 2442 MHz at 24 MHz [SPECSHEET §11.2.9]:
+     * mode 5, restart, bank scan, PLL words, restart, loop pulse */
+    wifi_cal_rf_mode(5);
+    wifi_rf_pll_restart();
+    wifi_rf_bank_scan();
 
-    /* --- Full writes for RF analog chain [SPECSHEET §11.2.9] --- */
+    wifi_cal_rmw(0x11934u, 0x0FFFFFFFu,  0x00C00000u);
+    wifi_cal_rmw(0x11938u, 0x00000FFFu,   101u);
+    wifi_cal_rmw(0x11940u, (3u << 6) | 1u, 1u);
+    wifi_cal_rmw(0x1193Cu, (0xFu << 18) | (7u << 27),
+                 (9u << 18) | (2u << 27));
+    FM1_RF_REG(0x11954u) = 0x02822520u;
 
-    FM1_RF_REG(0x1190Cu) = 0x672B9349u;   /* CON3: filter/VGA/mixer */
-    FM1_RF_REG(0x11910u) = 0x0508098Eu;   /* CON4 */
-    FM1_RF_REG(0x11914u) = 0x4078C319u;   /* CON5 */
-    FM1_RF_REG(0x11918u) = 0x00076A24u;   /* CON6 */
-    FM1_RF_REG(0x1191Cu) = 0x2915C066u;   /* CON7 */
-    FM1_RF_REG(0x11920u) = 0x00A641C0u;   /* CON8 */
-    FM1_RF_REG(0x11924u) = 0x65B80057u;   /* CON9: PA trims */
-    FM1_RF_REG(0x11928u) = 0x1AFAE7E7u;   /* CON10 */
-    FM1_RF_REG(0x1192Cu) = 0x0052A070u;   /* CON11 */
+    wifi_rf_pll_restart();
+    FM1_WL_VCO_BAND &= ~(1u << 18);
+    fm1_delay_us(80);
+    FM1_WL_VCO_BAND |=  (1u << 18);
 
-    /* --- PLL for WiFi 2.4GHz [SPECSHEET §11.2.9] --- */
-
-    FM1_RF_REG(0x11934u) = 0x01B33333u;   /* PLL frac */
-    FM1_RF_REG(0x11938u) = 0x819FD028u;   /* PLL int=40 + config */
-    FM1_RF_REG(0x1193Cu) = 0x12600EF2u;   /* PLL config */
-    FM1_RF_REG(0x11940u) = 0x08B42451u;   /* PLL config (40MHz path) */
-    FM1_RF_REG(0x11944u) = 0x00000A80u;   /* PLL config */
-
-    /* --- Analog frontend --- */
-
-    FM1_RF_REG(0x11950u) = 0x00000000u;   /* zeroed [SPECSHEET §11.2.9] */
-    FM1_RF_REG(0x11954u) = 0x000A2500u;   /* ANA_CON1 (40MHz) */
-    FM1_RF_REG(0x11964u) = 0x00010000u;   /* ANA_CON5 */
-
-    fm1_delay_us(100);
-
-    /* VCO re-lock after PLL change */
-    FM1_WL_VCO_EN &= ~(1u << 24);
-    fm1_delay_us(WIFI_RF_VCO_EDGE_US);
-    FM1_WL_VCO_EN |= (1u << 24);
-    fm1_delay_us(WIFI_RF_VCO_SETTLE_US);
-
-    /* Diagnostic: verify mode switch */
     cfm1_log_int("wifi: wm con0=", (int32_t)FM1_RF_REG(0x11900u));
-    cfm1_log_int("wifi: wm con1=", (int32_t)FM1_RF_REG(0x11904u));
-    cfm1_log_int("wifi: wm anl2=", (int32_t)FM1_RF_REG(0x11930u));
+    cfm1_log_int("wifi: wm xosc=", (int32_t)FM1_RF_REG(0x11930u));
     cfm1_log_int("wifi: wm pll0=", (int32_t)FM1_RF_REG(0x11934u));
     cfm1_log_int("wifi: wm pll1=", (int32_t)FM1_RF_REG(0x11938u));
-
+    cfm1_log_int("wifi: wm fine=", (int32_t)FM1_RF_REG(0x1193Cu));
     cfm1_log("wifi: rf wifi_mode done");
 }
 
@@ -835,34 +831,63 @@ static void wifi_rf_wifi_mode(void)
  * section. Without these, the receiver cannot adapt to varying signal
  * levels from different APs. */
 
-static void wifi_rf_bsb_auto_ctl(void)
+static void wifi_rf_auto_control(void)
 {
     uint32_t v;
 
-    cfm1_log("wifi: rf bsb_auto_ctl");
+    cfm1_log("wifi: rf auto_control");
 
-    /* CON20 (0x11950): configure auto AGC/frequency control loops */
+    /* Complete auto-control sequence [SPECSHEET §11.2.11].
+     * Single-bit RMW interleaved across registers; final 0x11950 = 0x57BFFFDC. */
+
     v = FM1_RF_REG(0x11950u);
     v &= ~(1u << 0);
     v &= ~(1u << 1);
-    v |= (1u << 2) | (1u << 3);
-    v |= (1u << 23);
+    v |=  (1u << 2) | (1u << 3);
+    FM1_RF_REG(0x11950u) = v;
+
+    FM1_RF_REG(0x11938u) |= (1u << 26) | (1u << 27);
+
+    v = FM1_RF_REG(0x11950u);
+    v |=  (1u << 23);
     v &= ~(1u << 29);
-    v |= (1u << 28);
+    v |=  (1u << 28);
+    FM1_RF_REG(0x11950u) = v;
+
+    FM1_RF_REG(0x1405Cu) |= 0x07000000u;
+    FM1_RF_REG(0x1405Cu) |= (1u << 30);
+
+    v = FM1_RF_REG(0x11950u);
     v |= (1u << 10) | (1u << 11) | (1u << 12) | (1u << 13);
     v |= (1u << 18) | (1u << 19) | (1u << 20) | (1u << 21);
     v &= ~(1u << 22);
     FM1_RF_REG(0x11950u) = v;
 
-    /* CON14 (0x11938): PLL auto-control enables */
-    FM1_RF_REG(0x11938u) |= (1u << 26) | (1u << 27);
+    wifi_cal_rmw(0x11924u, 0x1E0u,
+        (1u << 5) | (1u << 6) | (1u << 7) | (1u << 8));
 
-    /* WL_RST (0x1405C): PLL control bits */
-    FM1_RF_REG(0x1405Cu) |= 0x07000000u;
-    FM1_RF_REG(0x1405Cu) |= (1u << 30);
+    v = FM1_RF_REG(0x11950u);
+    v |=  (1u << 30);
+    v &= ~(1u << 31);
+    FM1_RF_REG(0x11950u) = v;
+
+    wifi_cal_rmw(0x11964u, 7u << 29, 1u << 29);
+    FM1_RF_REG(0x1405Cu) &= ~(1u << 31);
+
+    v = FM1_RF_REG(0x11950u);
+    v |=  (1u << 4);
+    v &= ~(1u << 5);
+    v |= (1u << 6) | (1u << 7) | (1u << 8) | (1u << 9);
+    v |= (1u << 14) | (1u << 15) | (1u << 16) | (1u << 17);
+    v |= (1u << 24) | (1u << 25) | (1u << 26);
+    v &= ~(1u << 27);
+    FM1_RF_REG(0x11950u) = v;
+
+    wifi_cal_rmw(0x11964u, 0x1Fu << 24, 0x1Bu << 24);
 
     cfm1_log_int("wifi: bsb con20=", (int32_t)FM1_RF_REG(0x11950u));
     cfm1_log_int("wifi: bsb con14=", (int32_t)FM1_RF_REG(0x11938u));
+    cfm1_log_int("wifi: bsb con24=", (int32_t)FM1_RF_REG(0x11964u));
 }
 
 /* ---- RF DC offset snapshot/restore [SPECSHEET §11.2.11] ----
@@ -935,15 +960,10 @@ static void wifi_rf_init(void)
 
     /* Always calibrate: VM 187 from BLE boot contains BLE-mode values
      * (wrong filter BW, TX LO, RX DC) that make WiFi deaf.
-     * [SPECSHEET §17 step 12-16, §18] */
+     * [SPECSHEET §11.2.1 steps 12-16, §10.2] */
     wifi_rf_calibrate();
 
-    /* VCO bank-limit table for the LUT FEQ patch [SPECSHEET §5.2, §14 row 6],
-     * measured with the 24 MHz PLL words in place (12n) */
-    wifi_rf_force_vendor_regs();
-    wifi_rf_bank_scan();
-
-    /* LUT, auto control, enables, forced read-backs: the re-armable tail,
+    /* LUT, auto control, enables: the re-armable tail,
      * run again after the MAC/PHY resets by wifi_init() [§14 row 7] */
     wifi_rf_arm();
 
@@ -958,38 +978,53 @@ static void wifi_rf_init(void)
  * wifi_sdio_init(), so wifi_init() calls this once more after them. */
 static void wifi_rf_arm(void)
 {
-    /* Load WiFi-specific RFD RAM LUT [SPECSHEET §5.1].
+    /* Load WiFi-specific RF-die LUT LUT [SPECSHEET §5.1].
      * Replaces the BLE LUT left by the RF bytecode with WiFi
      * frequency equalization, AGC, and power control tables. */
-    wifi_rf_rfd_lut_load();
+    wifi_rf_lut_load();
 
     /* Enable RF auto-control loops (AGC, frequency tracking)
      * [SPECSHEET §11.2.11]. Must run after wifi_mode and calibration. */
-    wifi_rf_bsb_auto_ctl();
+    wifi_rf_auto_control();
 
     /* Snapshot post-calibration RX DC offset [SPECSHEET §11.2.11, step 16].
      * Restored by wifi_rf_dc_set() on channel switch or wake. */
     wifi_rf_dc_get();
 
-    /* Enable analog blocks for Normal RX [SPECSHEET §14.10, mode 0].
+    /* Enable analog blocks for Normal RX [SPECSHEET §10.1.1, mode 0].
      * wifi_rf_wifi_mode() wrote base register values but not the 29
      * enable bits that power on LNA, mixer, VGA, ADC. Without this
      * the analog RX chain is off and the radio is deaf. */
-    wcal_en_set(0);
+    wifi_cal_rf_mode(0);
 
-    wifi_rf_force_vendor_regs();
+    /* Re-arm G4 enable bits that mode(0) cleared [T25b analysis].
+     * auto_control set 0x11924 bits 5,7,8 and 0x11938 bit 27 (G4
+     * group: TX path enables for the hardware RX/TX auto-switch).
+     * mode(0) has G4=0, so it cleared them. Vendor order has mode(0)
+     * before auto_control; we can't reorder without breaking the MAC,
+     * so re-arm explicitly. */
+    wifi_cal_rmw(0x11924u, (1u<<5)|(1u<<7)|(1u<<8), (1u<<5)|(1u<<7)|(1u<<8));
+    wifi_cal_rmw(0x11938u, (1u<<27), (1u<<27));
+
+    /* PA trims from VM 107 [SPECSHEET §11.2.9] */
+    wifi_rf_pa_trims();
+
+    /* Init tail: filter bandwidth select [SPECSHEET §11.2.9] */
+    wifi_cal_rmw(0x11904u, 7u << 12, 4u << 12);
 
     cfm1_log_int("wifi: rf en0 con0=", (int32_t)FM1_RF_REG(0x11900u));
     cfm1_log_int("wifi: rf en0 con4=", (int32_t)FM1_RF_REG(0x11910u));
+    cfm1_log_int("wifi: rf g4 con9=", (int32_t)FM1_RF_REG(0x11924u));
+    cfm1_log_int("wifi: rf g4 cone=", (int32_t)FM1_RF_REG(0x11938u));
 
-    /* Re-snapshot DC offset after override */
+    /* Re-snapshot DC offset after PA trims */
     wifi_rf_dc_get();
 
-    /* Save TX LO trims for BT reload [SPECSHEET §17 step 27] */
-    wifi_rf_txlo_save.con7 = FM1_RF_REG(0x1191Cu);
-    wifi_rf_txlo_save.con8 = FM1_RF_REG(0x11920u);
-    cfm1_log_int("wifi: rf txlo con7=", (int32_t)wifi_rf_txlo_save.con7);
-    cfm1_log_int("wifi: rf txlo con8=", (int32_t)wifi_rf_txlo_save.con8);
+    /* Save TX LO trims for BT reload [SPECSHEET §11.2.11] */
+    wifi_rf_tx_lo_snapshot.con7 = FM1_RF_REG(0x1191Cu);
+    wifi_rf_tx_lo_snapshot.con8 = FM1_RF_REG(0x11920u);
+    cfm1_log_int("wifi: rf txlo con7=", (int32_t)wifi_rf_tx_lo_snapshot.con7);
+    cfm1_log_int("wifi: rf txlo con8=", (int32_t)wifi_rf_tx_lo_snapshot.con8);
 }
 
 /* ---- channel control ---- */

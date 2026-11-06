@@ -145,7 +145,8 @@ static uint8_t *wifi_mac_append_ie(uint8_t *p, uint8_t id,
  * Fixed fields after MAC header: Timestamp(8) + Beacon Interval(2) + Capability(2) = 12 bytes,
  * followed by tagged IEs. */
 
-static void wifi_mac_parse_beacon(const uint8_t *frame, uint32_t len)
+static void wifi_mac_parse_beacon(const uint8_t *frame, uint32_t len,
+                                  int8_t rssi)
 {
     const struct wifi_hdr *hdr;
     const uint8_t *fixed, *ies;
@@ -166,7 +167,7 @@ static void wifi_mac_parse_beacon(const uint8_t *frame, uint32_t len)
     bss.ssid[0] = 0;
     bss.ssid_len = 0;
     bss.channel = 0;
-    bss.rssi = 0;
+    bss.rssi = rssi;
     bss.has_rsn = 0;
     bss.beacon_interval = wifi_mac_le16(fixed + 8);
     bss.capability = wifi_mac_le16(fixed + 10);
@@ -194,7 +195,7 @@ static void wifi_mac_parse_beacon(const uint8_t *frame, uint32_t len)
         pos += 2 + elen;
     }
 
-    /* update BSS table: replace existing BSSID or add new entry */
+    /* update BSS table: replace existing BSSID, add, or evict weakest */
     slot = -1;
     for (i = 0; i < wifi_bss_count; i++) {
         if (wifi_mac_addr_eq(wifi_bss_table[i].bssid, bss.bssid)) {
@@ -202,8 +203,21 @@ static void wifi_mac_parse_beacon(const uint8_t *frame, uint32_t len)
             break;
         }
     }
-    if (slot < 0 && wifi_bss_count < WIFI_MAX_BSS)
+    if (slot < 0 && wifi_bss_count < WIFI_MAX_BSS) {
         slot = (int)wifi_bss_count++;
+    } else if (slot < 0) {
+        /* table full: evict weakest if incoming is stronger */
+        int weakest = 0;
+        int8_t weakest_rssi = wifi_bss_table[0].rssi;
+        for (i = 1; i < WIFI_MAX_BSS; i++) {
+            if (wifi_bss_table[i].rssi < weakest_rssi) {
+                weakest = (int)i;
+                weakest_rssi = wifi_bss_table[i].rssi;
+            }
+        }
+        if (rssi > weakest_rssi)
+            slot = weakest;
+    }
     if (slot >= 0) {
         int is_new = !wifi_bss_table[slot].in_use;
         bss.in_use = 1;
@@ -212,6 +226,21 @@ static void wifi_mac_parse_beacon(const uint8_t *frame, uint32_t len)
             cfm1_log_hex("wifi: rx bss=", bss.bssid, 6);
             if (bss.ssid_len > 0)
                 cfm1_log(bss.ssid);
+        }
+        /* keep table sorted by RSSI descending (strongest first) */
+        while (slot > 0 &&
+               wifi_bss_table[slot].rssi > wifi_bss_table[slot - 1].rssi) {
+            struct wifi_bss tmp = wifi_bss_table[slot - 1];
+            wifi_bss_table[slot - 1] = wifi_bss_table[slot];
+            wifi_bss_table[slot] = tmp;
+            slot--;
+        }
+        while (slot + 1 < (int)wifi_bss_count &&
+               wifi_bss_table[slot].rssi < wifi_bss_table[slot + 1].rssi) {
+            struct wifi_bss tmp = wifi_bss_table[slot + 1];
+            wifi_bss_table[slot + 1] = wifi_bss_table[slot];
+            wifi_bss_table[slot] = tmp;
+            slot++;
         }
     }
 }
@@ -380,7 +409,7 @@ static int wifi_mac_tx_data(struct wifi_buf *buf)
 
 static uint32_t wifi_mac_rx_dbg;
 
-static void wifi_mac_rx(uint8_t *data, uint32_t len)
+static void wifi_mac_rx(uint8_t *data, uint32_t len, int8_t rssi)
 {
     const struct wifi_hdr *hdr;
     uint16_t fc;
@@ -402,18 +431,24 @@ static void wifi_mac_rx(uint8_t *data, uint32_t len)
 
     if (type == WIFI_FC_TYPE_MGMT) {
         if (stype == WIFI_FC_STYPE_BEACON || stype == WIFI_FC_STYPE_PROBE_RSP)
-            wifi_mac_parse_beacon(data, len);
-        wifi_sta_rx_mgmt(data, len);
+            wifi_mac_parse_beacon(data, len, rssi);
+        wifi_sta_rx_mgmt(data, len, rssi);
     } else if (type == WIFI_FC_TYPE_DATA) {
-        if (wifi_data_is_eapol(data, len)) {
-            cfm1_log("wifi: rx eapol");
-            uint8_t wpa_tx[256];
-            uint32_t wpa_tx_len = 0;
-            wifi_wpa_rx_eapol((uint8_t *)data, len, wpa_tx, sizeof wpa_tx, &wpa_tx_len);
-            if (wpa_tx_len > 0)
-                wifi_mac_tx(wpa_tx, wpa_tx_len);
-        } else
-            wifi_data_rx(data, len);
+        /* RXWI MPDU length excludes L2PAD but buffer contains it;
+         * inflate len once here so all downstream functions are consistent */
+        {
+            uint32_t mhdr = WIFI_HDR_SIZE;
+            if (fc & 0x0080) mhdr += 2; /* QoS */
+            len += ((mhdr + 3u) & ~3u) - mhdr;
+        }
+        if (len >= 10 && wifi_mac_addr_eq(data + 4, wifi_mac_addr)) {
+            cfm1_log_int("wifi: rx data4us fc=", (int32_t)fc);
+            cfm1_log_int("wifi: rx data4us len=", (int32_t)len);
+            cfm1_log_hex("wifi: d4us hdr=", data, len > 28 ? 28 : len);
+            if (len > 26)
+                cfm1_log_hex("wifi: d4us snap=", data + 26, len > 40 ? 14 : len - 26);
+        }
+        wifi_data_rx(data, len);
     }
 }
 
@@ -523,9 +558,6 @@ static void wifi_mac_init_registers(void)
     *(volatile uint32_t *)(WIFI_MAC_BASE + 0x0430u) = 0x6F77D0C8u;  /* HT_PROT_CFG */
     *(volatile uint32_t *)(WIFI_MAC_BASE + 0x0408u) = 0x00F40006u;
 
-    /* BASIC_RATE (0x31200) [vendor baseline: 0x00030601] */
-    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1200u) = 0x00030601u;
-
     /* Remaining MACRegTable entries [SPECSHEET §7.10] */
     *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1608u) = 0x00000002u;
     *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1204u) = 0x00000003u;
@@ -554,6 +586,42 @@ static void wifi_mac_front_end(void)
     WIFI_TX_PIN_CFG = 0x00050302u;
 }
 
+static void wifi_mac_init_wcid_tables(void)
+{
+    uint32_t i;
+
+    cfm1_log("wifi: wcid table init");
+
+    /* Invalidate all 254 station WCID slots (MAC+0x1800, 8 bytes each)
+     * [SPECSHEET §4.2.1 T8, IP:RT2x00 rt2800lib.c] */
+    for (i = 0; i < 254; i++) {
+        *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1800u + 8u * i) = 0xFFFFFFFFu;
+        *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1804u + 8u * i) = 0x0000FFFFu;
+    }
+
+    /* Attribute table: 256 entries, 4 bytes each at MAC+0x6800.
+     * Bit 0 = key-table select (1 = pairwise), [3:1] = cipher (0 = none).
+     * Init value 1: pairwise-key table, no cipher [SPECSHEET §4.2.1 B5] */
+    for (i = 0; i < 256; i++)
+        *(volatile uint32_t *)(WIFI_MAC_BASE + 0x6800u + 4u * i) = 1u;
+
+    /* Shared key mode registers: MAC+0x7000..0x700C (4 words)
+     * 0 at init [SPECSHEET §4.2.1 B5]; cipher codes written at key install */
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x7000u) = 0u;
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x7004u) = 0u;
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x7008u) = 0u;
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x700Cu) = 0u;
+
+    /* Disable TSF/beacon sync: MAC+0x1114 [19:16] = 0 [IP:RT2x00] */
+    {
+        uint32_t val = *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1114u);
+        val &= ~0x001F0000u;
+        *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1114u) = val;
+    }
+
+    cfm1_log("wifi: wcid table done");
+}
+
 static void wifi_mac_init(void)
 {
     uint32_t i;
@@ -563,15 +631,8 @@ static void wifi_mac_init(void)
     for (i = 0; i < WIFI_MAX_BSS; i++)
         wifi_bss_table[i].in_use = 0;
 
-    /* Disable MAC during register config [IP:RT2x00, rt2800lib.c line 5866] */
-    WIFI_MAC_SYS_CTRL = 0;
-
     wifi_mac_init_registers();
-
-    /* Staged enable [IP:RT2x00, rt2800lib.c line 10846-10862]:
-     * TX only → DMA enable (already done in wifi_dma_init) → TX+RX */
-    WIFI_MAC_SYS_CTRL = MAC_TX_EN;
-    fm1_delay_us(50);
+    wifi_mac_init_wcid_tables();
     WIFI_MAC_SYS_CTRL = MAC_TX_EN | MAC_RX_EN;
     cfm1_log_int("wifi: mac sys_ctrl=", (int32_t)WIFI_MAC_SYS_CTRL);
 
@@ -603,6 +664,28 @@ static void wifi_mac_init(void)
             cfm1_log("wifi: mac generated (dev)");
         }
     }
+#ifdef CONFIG_WIFI_MAC_OVERRIDE
+    {
+        static const char ov[] = CONFIG_WIFI_MAC_OVERRIDE;
+        uint8_t mac[6];
+        uint32_t n = 0, k = 0, acc = 0;
+        const char *s = ov;
+        for (; *s && n < 6; s++) {
+            uint32_t d;
+            if (*s >= '0' && *s <= '9')      d = (uint32_t)(*s - '0');
+            else if (*s >= 'a' && *s <= 'f') d = (uint32_t)(*s - 'a' + 10);
+            else if (*s >= 'A' && *s <= 'F') d = (uint32_t)(*s - 'A' + 10);
+            else continue;
+            acc = (acc << 4) | d;
+            if (++k == 2) { mac[n++] = (uint8_t)acc; acc = 0; k = 0; }
+        }
+        if (n == 6) {
+            for (i = 0; i < 6; i++)
+                wifi_mac_addr[i] = mac[i];
+            cfm1_log("wifi: mac override (CONFIG_WIFI_MAC_OVERRIDE)");
+        }
+    }
+#endif
     cfm1_log_hex("wifi: mac=", wifi_mac_addr, 6);
 
     /* Write MAC to the operational register at 0x1008/0x100C [IP:RT2x00].
@@ -624,6 +707,21 @@ static void wifi_mac_init(void)
     }
 }
 
+/* Write AP MAC to WCID slot 1 and clear its attribute to no-cipher.
+ * Required before auth so EAPOL (data) frames are accepted. [SPECSHEET §15 T20] */
+static void wifi_mac_set_wcid1(const uint8_t *mac)
+{
+    uint32_t dw0 = (uint32_t)mac[0]
+                 | ((uint32_t)mac[1] << 8)
+                 | ((uint32_t)mac[2] << 16)
+                 | ((uint32_t)mac[3] << 24);
+    uint32_t dw1 = (uint32_t)mac[4]
+                 | ((uint32_t)mac[5] << 8);
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x1808u) = dw0;
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x180Cu) = dw1;
+    *(volatile uint32_t *)(WIFI_MAC_BASE + 0x6804u) = 1u;
+}
+
 /* Write BSSID to hardware filter register and tighten RX filter.
  * Called when associating to an AP. [IP:RT2x00, rt2800.h line 764] */
 static void wifi_mac_set_bssid(const uint8_t *bssid)
@@ -636,8 +734,14 @@ static void wifi_mac_set_bssid(const uint8_t *bssid)
                  | ((uint32_t)bssid[5] << 8);
     WIFI_MAC_BSSID_DW0 = dw0;
     WIFI_MAC_BSSID_DW1 = dw1;
-    WIFI_RX_FILTER_CFG = RX_FILTER_ASSOC;
+    /* keep scan filter during auth/assoc; tighten after 4-way handshake */
     cfm1_log_hex("wifi: bssid hw=", bssid, 6);
+}
+
+/* Tighten RX filter after association + WPA completes. */
+static void wifi_mac_tighten_filter(void)
+{
+    WIFI_RX_FILTER_CFG = RX_FILTER_ASSOC;
 }
 
 /* Restore permissive scan filter. Called on disconnect. */

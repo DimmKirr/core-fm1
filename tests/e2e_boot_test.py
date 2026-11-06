@@ -37,7 +37,9 @@ class BootTest(E2ETestCase):
         try:
             self.load_firmware(page, capture=True)
             status = page.locator('#status').text_content()
-            self.assertIn('instructions/s', status)
+            self.assertTrue(
+                'instructions/s' in status or 'real time' in status,
+                f'Emulator not running: {status}')
 
             page.wait_for_function('''() => {
                 const c = document.getElementById('panel');
@@ -106,7 +108,10 @@ class BootTest(E2ETestCase):
             self.start_canvas_capture(page, fps=30)
         page.locator('#start').click()
         page.wait_for_function(
-            'document.getElementById("status")?.textContent?.includes("instructions/s")',
+            '''() => {
+                const t = document.getElementById("status")?.textContent || "";
+                return t.includes("instructions/s") || t.includes("real time");
+            }''',
             timeout=30_000)
 
     def test_panel_controls_reach_emulator(self):

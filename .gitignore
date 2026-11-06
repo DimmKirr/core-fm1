@@ -17,6 +17,7 @@ tests/results/
 .idea/
 
 # Local config
+.env
 .devcell/
 devcell.toml
 .product/

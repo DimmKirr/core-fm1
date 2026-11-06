@@ -4,6 +4,13 @@
  * STA state machine: scan, auth, assoc, connection management.
  * Architecture informed by Ralink RT2x00 (GPL-2.0+) and ESP-IDF (Apache 2.0). */
 
+/* forward declarations: wifi_wpa.c and wifi_api.c are included after wifi_sta.c */
+static void wifi_wpa_init(const uint8_t *pass, uint32_t pass_len,
+                          const uint8_t *ssid, uint32_t ssid_len,
+                          const uint8_t our_mac[6], const uint8_t ap_mac[6]);
+static void wifi_on_connected(void);
+static void wifi_sta_wpa_complete(void);
+
 /* ---- scan result storage ---- */
 
 #define WIFI_STA_MAX_SCAN   8
@@ -54,7 +61,13 @@ static struct {
 
     uint8_t assoc_sent;
     uint32_t assoc_retry_ms;
+
+    uint32_t resp_log_n;        /* response frames logged in this state (rate limit) */
 } wifi_sta;
+
+static uint8_t wifi_sta_wpa_pending;
+
+#define WIFI_STA_RESP_LOG_MAX 3
 
 static uint32_t wifi_sta_now_ms(void)
 {
@@ -154,6 +167,10 @@ static uint32_t wifi_sta_ie(uint8_t *buf, uint8_t id, const uint8_t *data, uint8
 static void wifi_sta_set_state(wifi_state_t s)
 {
     cfm1_log_int("wifi: sta state=", (int32_t)s);
+    if (wifi_sta.resp_log_n > WIFI_STA_RESP_LOG_MAX)
+        cfm1_log_int("wifi: resp frames unlogged=",
+                     (int32_t)(wifi_sta.resp_log_n - WIFI_STA_RESP_LOG_MAX));
+    wifi_sta.resp_log_n = 0;
     wifi_sta.state = s;
     wifi_sta.state_enter_ms = wifi_sta_now_ms();
     if (s == WIFI_STATE_ASSOC)
@@ -206,9 +223,108 @@ static void wifi_sta_send_probe_req(uint8_t channel)
     }
 }
 
+#ifdef CONFIG_WIFI_T19_TEST
+static void wifi_sta_send_directed_probe(uint8_t channel,
+                                          const uint8_t *bssid,
+                                          const uint8_t *ssid,
+                                          uint8_t ssid_len,
+                                          uint8_t phymode, uint8_t mcs)
+{
+    uint8_t frame[128];
+    uint32_t pos;
+
+    wifi_rf_set_channel(channel);
+    wifi_mac_front_end();
+
+    /* addr1 = addr3 = target BSSID (unicast -> ACK expected) */
+    pos = wifi_sta_mgmt_hdr(frame, FC_TYPE_MGMT | FC_SUBTYPE_PREQ,
+                            bssid, wifi_sta.our_mac, bssid);
+
+    /* SSID: target AP's SSID (not wildcard) */
+    pos += wifi_sta_ie(frame + pos, IE_SSID, ssid, ssid_len);
+    /* supported rates */
+    pos += wifi_sta_ie(frame + pos, IE_RATES,
+                       wifi_sta_rates, sizeof wifi_sta_rates);
+
+    /* Set phymode override for this TX */
+    wifi_tx_phymode_ovr = phymode;
+    wifi_tx_mcs_ovr = mcs;
+
+    wifi_mac_tx(frame, pos);
+
+    /* Restore defaults */
+    wifi_tx_phymode_ovr = 0xFFu;
+    wifi_tx_mcs_ovr = 0xFFu;
+
+    cfm1_log_int("wifi: t19 tx cnt0=", (int32_t)WIFI_TX_STA_CNT0);
+    cfm1_log_int("wifi: t19 tx cnt1=", (int32_t)WIFI_TX_STA_CNT1);
+    cfm1_log_int("wifi: t19 tsfifo=", (int32_t)WIFI_TX_STA_FIFO);
+}
+
+static void wifi_sta_t19_test(void)
+{
+    /* Run after scan completes: pick the strongest AP, park on its channel,
+     * send 10 directed probes alternating CCK 1M and OFDM 6M, log results. */
+    uint32_t i;
+    struct wifi_scan_entry *ap;
+
+    if (wifi_sta.nresults == 0) {
+        cfm1_log("wifi: t19 no scan results");
+        return;
+    }
+
+    /* Pick strongest AP */
+    ap = &wifi_sta.results[0];
+    for (i = 1; i < wifi_sta.nresults; i++) {
+        if (wifi_sta.results[i].rssi > ap->rssi)
+            ap = &wifi_sta.results[i];
+    }
+
+    cfm1_log("wifi: t19 start");
+    cfm1_log_int("wifi: t19 ch=", (int32_t)ap->channel);
+    cfm1_log_hex("wifi: t19 bssid=", ap->bssid, 6);
+    cfm1_log_int("wifi: t19 ssid_len=", (int32_t)ap->ssid_len);
+
+    /* Park on the AP's channel */
+    wifi_rf_set_channel(ap->channel);
+    wifi_mac_front_end();
+
+    for (i = 0; i < 10; i++) {
+        uint8_t phymode = (i & 1u) ? PHYMODE_OFDM : PHYMODE_CCK;
+        uint8_t mcs = 0;
+
+        cfm1_log_int("wifi: t19 probe #", (int32_t)i);
+        cfm1_log_int("wifi: t19 phymode=", (int32_t)phymode);
+
+        wifi_sta_send_directed_probe(ap->channel,
+                                      ap->bssid,
+                                      ap->ssid, ap->ssid_len,
+                                      phymode, mcs);
+        cfm1_log_int("wifi: t19 rf11900=", (int32_t)FM1_RF_REG(0x11900u));
+
+        {
+            uint32_t start = wifi_sta_now_ms();
+            while ((wifi_sta_now_ms() - start) < 1000u)
+                yield();
+        }
+
+        /* Log counters after wait */
+        cfm1_log_int("wifi: t19 post cnt0=", (int32_t)WIFI_TX_STA_CNT0);
+        cfm1_log_int("wifi: t19 post cnt1=", (int32_t)WIFI_TX_STA_CNT1);
+        cfm1_log_int("wifi: t19 post tsfifo=", (int32_t)WIFI_TX_STA_FIFO);
+    }
+
+    cfm1_log_hex("wifi: t19 txwi=", &wifi_tx_buf[8], 16);
+    cfm1_log_hex("wifi: t19 hdr=", &wifi_tx_buf[24], 24);
+    cfm1_log_hex("wifi: t19 mac=", wifi_sta.our_mac, 6);
+    cfm1_log("wifi: t19 done");
+}
+#endif
+
 /* ---- scan result parsing ---- */
 
-static void wifi_sta_parse_beacon(const uint8_t *frame, uint32_t len)
+static void wifi_sta_parse_beacon(const uint8_t *frame, uint32_t len,
+                                  int8_t rssi)
 {
     const uint8_t *body;
     uint32_t body_len, ie_off, i;
@@ -222,7 +338,7 @@ static void wifi_sta_parse_beacon(const uint8_t *frame, uint32_t len)
     ie_off = 12;
 
     /* BSSID = addr2 (transmitter) in beacons */
-    /* check for duplicate */
+    /* check for duplicate: update RSSI if already seen */
     e = NULL;
     for (i = 0; i < wifi_sta.nresults; i++) {
         if (wifi_sta_mcmp(wifi_sta.results[i].bssid, frame + 10, 6) == 0) {
@@ -232,23 +348,26 @@ static void wifi_sta_parse_beacon(const uint8_t *frame, uint32_t len)
     }
     if (!e) {
         if (wifi_sta.nresults >= WIFI_STA_MAX_SCAN) {
-            /* replace weakest signal */
+            /* find weakest; only evict if incoming is stronger */
             uint32_t weakest = 0;
-            int8_t weakest_rssi = 0;
-            for (i = 0; i < WIFI_STA_MAX_SCAN; i++) {
-                if (i == 0 || wifi_sta.results[i].rssi < weakest_rssi) {
+            int8_t weakest_rssi = wifi_sta.results[0].rssi;
+            for (i = 1; i < WIFI_STA_MAX_SCAN; i++) {
+                if (wifi_sta.results[i].rssi < weakest_rssi) {
                     weakest = i;
                     weakest_rssi = wifi_sta.results[i].rssi;
                 }
             }
-            e = &wifi_sta.results[weakest];
+            if (rssi > weakest_rssi)
+                e = &wifi_sta.results[weakest];
+            else
+                return;
         } else {
             e = &wifi_sta.results[wifi_sta.nresults++];
         }
     }
 
     wifi_sta_mcpy(e->bssid, frame + 10, 6);
-    e->rssi = 0; /* TODO: read RSSI from MAC RX descriptor */
+    e->rssi = rssi;
     e->security = WIFI_SEC_OPEN;
     e->ssid_len = 0;
     e->channel = 0;
@@ -287,6 +406,19 @@ static void wifi_sta_parse_beacon(const uint8_t *frame, uint32_t len)
     }
 }
 
+/* Fate of the unicast frames sent so far [IP:RT2x00]: read-to-clear counters,
+ * so each row covers the frames since the previous row. With the TXWI ACK bit
+ * set, cnt1 [15:0] counts frames the AP acknowledged, [31:16] retries, cnt0
+ * [15:0] frames given up on; tsfifo [0] valid, [5] success for the oldest
+ * unreported frame. */
+static void wifi_sta_log_tx_fate(const char *tag)
+{
+    cfm1_log(tag);
+    cfm1_log_int("wifi:  tx_cnt0=", (int32_t)WIFI_TX_STA_CNT0);
+    cfm1_log_int("wifi:  tx_cnt1=", (int32_t)WIFI_TX_STA_CNT1);
+    cfm1_log_int("wifi:  tsfifo=", (int32_t)WIFI_TX_STA_FIFO);
+}
+
 /* ---- authentication (IEEE 802.11 Open System) ---- */
 
 static void wifi_sta_send_auth(void)
@@ -302,12 +434,14 @@ static void wifi_sta_send_auth(void)
     wifi_sta_wr16(frame + pos, 1); pos += 2; /* sequence: 1 */
     wifi_sta_wr16(frame + pos, 0); pos += 2; /* status: reserved */
 
-    wifi_mac_tx(frame, pos);
+    wifi_sta_log_tx_fate("wifi: tx fate before auth");
+    cfm1_log_int("wifi: auth tx=", (int32_t)wifi_mac_tx(frame, pos));
 }
 
 static int wifi_sta_parse_auth_resp(const uint8_t *frame, uint32_t len)
 {
     if (len < 24 + 6) return -1;
+    if (wifi_sta_mcmp(frame + 4, wifi_sta.our_mac, 6) != 0) return -1;
     if (wifi_sta_mcmp(frame + 10, wifi_sta.target_bssid, 6) != 0) return -1;
     if (wifi_sta_rd16(frame + 24) != 0) return -1; /* algorithm */
     if (wifi_sta_rd16(frame + 26) != 2) return -1; /* sequence */
@@ -340,8 +474,6 @@ static void wifi_sta_send_assoc_req(void)
 
     /* RSN IE for WPA2 */
     if (wifi_sta.target_security == WIFI_SEC_WPA2) {
-        /* version(2), group CCMP(4), pairwise count(2)+CCMP(4),
-         * AKM count(2)+PSK(4), capabilities(2) = 20 bytes */
         static const uint8_t rsn_ie[] = {
             0x01, 0x00,             /* version 1 */
             0x00, 0x0F, 0xAC, 0x04, /* group cipher: CCMP */
@@ -354,12 +486,32 @@ static void wifi_sta_send_assoc_req(void)
         pos += wifi_sta_ie(frame + pos, IE_RSN, rsn_ie, sizeof rsn_ie);
     }
 
-    wifi_mac_tx(frame, pos);
+    /* HT Capabilities IE (IEEE 802.11n-2009, 7.3.2.57)
+     * Required by most 802.11n APs for association. [IEEE 802.11] */
+    {
+        static const uint8_t ht_cap[] = {
+            0x0C, 0x01,             /* HT cap info: 20MHz, short GI 20 */
+            0x00,                   /* A-MPDU params */
+            /* MCS set: MCS 0-7 (1 spatial stream) */
+            0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,             /* HT extended cap */
+            0x00, 0x00, 0x00, 0x00, /* TX beamforming */
+            0x00                    /* ASEL cap */
+        };
+        pos += wifi_sta_ie(frame + pos, 45, ht_cap, sizeof ht_cap);
+    }
+
+    wifi_sta_log_tx_fate("wifi: tx fate before assoc");
+    cfm1_log_int("wifi: assoc len=", (int32_t)pos);
+    cfm1_log_int("wifi: assoc tx=", (int32_t)wifi_mac_tx(frame, pos));
+    cfm1_log_int("wifi: assoc qpcnt=", (int32_t)wifi_sdio_state.tx_qpcnt);
 }
 
 static int wifi_sta_parse_assoc_resp(const uint8_t *frame, uint32_t len)
 {
     if (len < 24 + 6) return -1;
+    if (wifi_sta_mcmp(frame + 4, wifi_sta.our_mac, 6) != 0) return -1;
     if (wifi_sta_mcmp(frame + 10, wifi_sta.target_bssid, 6) != 0) return -1;
     /* body: capability(2) + status(2) + AID(2) */
     if (wifi_sta_rd16(frame + 26) != 0) return -1; /* status */
@@ -387,7 +539,7 @@ static void wifi_sta_send_null_data(void)
 
 /* ---- management frame RX dispatch ---- */
 
-static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len)
+static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len, int8_t rssi)
 {
     uint16_t fc;
 
@@ -397,24 +549,53 @@ static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len)
     /* management frames: type field [3:2] == 0 */
     if ((fc & 0x000C) != 0x0000) return;
 
+    /* every management frame addressed to us from the scan on (probe
+     * responses, auth/assoc responses, deauth): subtype, sender and the first
+     * body bytes (status codes) */
+    if (wifi_sta.state >= WIFI_STATE_SCANNING &&
+        wifi_sta_mcmp(frame + 4, wifi_sta.our_mac, 6) == 0) {
+        cfm1_log_int("wifi: rx to-us fc=", (int32_t)fc);
+        cfm1_log_hex("wifi: rx from=", frame + 10, 6);
+        cfm1_log_hex("wifi: rx body=", frame + 24, len > 32 ? 8 : len - 24);
+    }
+
     switch (fc & 0x00F0) {
     case 0x0080: /* beacon */
     case 0x0050: /* probe response */
         if (wifi_sta.state == WIFI_STATE_SCANNING)
-            wifi_sta_parse_beacon(frame, len);
+            wifi_sta_parse_beacon(frame, len, rssi);
         break;
 
     case 0x00B0: /* authentication */
         if (wifi_sta.state == WIFI_STATE_AUTH) {
+            int from_ap = wifi_sta_mcmp(frame + 10, wifi_sta.target_bssid, 6) == 0;
+            int quiet = from_ap && ++wifi_sta.resp_log_n > WIFI_STA_RESP_LOG_MAX;
+            /* whom the target AP is answering: a DA other than ours means
+             * the frame it decoded did not carry our source address */
+            if (from_ap && !quiet)
+                cfm1_log_hex("wifi: auth resp da=", frame + 4, 6);
             if (wifi_sta_parse_auth_resp(frame, len) == 0) {
                 cfm1_log("wifi: auth ok");
                 wifi_sta_set_state(WIFI_STATE_ASSOC);
+            } else if (len >= 30 && !quiet) {
+                cfm1_log_int("wifi: auth rej alg=", (int32_t)wifi_sta_rd16(frame + 24));
+                cfm1_log_int("wifi: auth rej seq=", (int32_t)wifi_sta_rd16(frame + 26));
+                cfm1_log_int("wifi: auth rej status=", (int32_t)wifi_sta_rd16(frame + 28));
             }
         }
         break;
 
     case 0x0010: /* association response */
         if (wifi_sta.state == WIFI_STATE_ASSOC) {
+            int from_ap = wifi_sta_mcmp(frame + 10, wifi_sta.target_bssid, 6) == 0;
+            int quiet = from_ap && ++wifi_sta.resp_log_n > WIFI_STA_RESP_LOG_MAX;
+            if (from_ap && !quiet)
+                cfm1_log_hex("wifi: assoc resp da=", frame + 4, 6);
+            if (len >= 30 && !quiet) {
+                cfm1_log_int("wifi: assoc resp cap=", (int32_t)wifi_sta_rd16(frame + 24));
+                cfm1_log_int("wifi: assoc resp status=", (int32_t)wifi_sta_rd16(frame + 26));
+                cfm1_log_int("wifi: assoc resp aid=", (int32_t)(wifi_sta_rd16(frame + 28) & 0x3FFF));
+            }
             if (wifi_sta_parse_assoc_resp(frame, len) == 0) {
                 cfm1_log_int("wifi: assoc ok aid=", (int32_t)wifi_sta.aid);
                 if (wifi_sta.target_security >= WIFI_SEC_WPA) {
@@ -423,6 +604,8 @@ static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len)
                     wifi_sta_set_state(WIFI_STATE_CONNECTED);
                     wifi_on_connected();
                 }
+            } else {
+                cfm1_log("wifi: assoc resp rejected");
             }
         }
         break;
@@ -430,7 +613,9 @@ static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len)
     case 0x00C0: /* deauthentication */
         if (wifi_sta.state >= WIFI_STATE_AUTH &&
             wifi_sta_mcmp(frame + 10, wifi_sta.target_bssid, 6) == 0) {
-            cfm1_log("wifi: rx deauth");
+            cfm1_log_hex("wifi: deauth da=", frame + 4, 6);
+            cfm1_log_int("wifi: rx deauth reason=",
+                         len >= 26 ? (int32_t)wifi_sta_rd16(frame + 24) : -1);
             if (wifi_sta.state == WIFI_STATE_CONNECTED)
                 wifi_on_disconnected();
             wifi_sta_set_state(WIFI_STATE_IDLE);
@@ -440,7 +625,8 @@ static void wifi_sta_rx_mgmt(const uint8_t *frame, uint32_t len)
     case 0x00A0: /* disassociation */
         if (wifi_sta.state >= WIFI_STATE_ASSOC &&
             wifi_sta_mcmp(frame + 10, wifi_sta.target_bssid, 6) == 0) {
-            cfm1_log("wifi: rx disassoc");
+            cfm1_log_int("wifi: rx disassoc reason=",
+                         len >= 26 ? (int32_t)wifi_sta_rd16(frame + 24) : -1);
             if (wifi_sta.state == WIFI_STATE_CONNECTED)
                 wifi_on_disconnected();
             wifi_sta_set_state(WIFI_STATE_IDLE);
@@ -518,6 +704,7 @@ static int wifi_sta_start_connect(const char *ssid, const char *password)
     wifi_sta_mcpy(wifi_sta.target_bssid, ap->bssid, 6);
     wifi_sta_mcpy(wifi_sta_bssid, ap->bssid, 6);
     wifi_mac_set_bssid(ap->bssid);
+    wifi_mac_set_wcid1(ap->bssid);
     wifi_sta.target_channel = ap->channel;
     wifi_sta.target_security = ap->security;
 
@@ -528,6 +715,13 @@ static int wifi_sta_start_connect(const char *ssid, const char *password)
     } else {
         wifi_sta.target_password[0] = '\0';
     }
+
+#ifdef CONFIG_WIFI_WPA
+    if (plen > 0)
+        wifi_wpa_init((const uint8_t *)password, plen,
+                      (const uint8_t *)ssid, slen,
+                      wifi_sta.our_mac, ap->bssid);
+#endif
 
     wifi_rf_set_channel(ap->channel);
     wifi_mac_front_end();
@@ -649,18 +843,24 @@ static void wifi_sta_poll(void)
             if (wifi_sta.scan_ch > 13) {
                 cfm1_log_int("wifi: scan done n=", (int32_t)wifi_sta.nresults);
                 cfm1_log_int("wifi: rx total=", (int32_t)wifi_sdio_state.rx_count);
-                /* log BSS table entries */
-                {
-                    uint32_t bi;
-                    for (bi = 0; bi < wifi_bss_count; bi++) {
-                        struct wifi_bss *b = &wifi_bss_table[bi];
-                        if (!b->in_use) continue;
-                        cfm1_log_hex("wifi: bss=", b->bssid, 6);
-                        if (b->ssid_len > 0)
-                            cfm1_log(b->ssid);
-                        cfm1_log_int("wifi:  ch=", (int32_t)b->channel);
-                    }
-                }
+                /* scan_cb already reported per-channel SSIDs with RSSI */
+#ifdef CONFIG_WIFI_T19_TEST
+                cfm1_log_int("wifi: cal d4=", (int32_t)wifi_rf_bbp_win_rd(2, 0x04));
+                cfm1_log_int("wifi: cal d5=", (int32_t)wifi_rf_bbp_win_rd(2, 0x05));
+                cfm1_log_int("wifi: cal d6=", (int32_t)wifi_rf_bbp_win_rd(2, 0x06));
+                cfm1_log_int("wifi: cal d8=", (int32_t)wifi_rf_bbp_win_rd(2, 0x08));
+                cfm1_log_int("wifi: cal d9=", (int32_t)wifi_rf_bbp_win_rd(2, 0x09));
+                cfm1_log_int("wifi: cal txlo_i=", (int32_t)((FM1_RF_REG(0x1191Cu) >> 8) & 0x7F));
+                cfm1_log_int("wifi: cal txlo_q=", (int32_t)(FM1_RF_REG(0x11920u) & 0x7F));
+                wifi_sta_t19_test();
+#endif
+#if defined(CONFIG_WIFI_AUTOJOIN) && defined(CONFIG_WIFI_SSID)
+                if (CONFIG_WIFI_SSID[0] != '\0') {
+                    cfm1_log("wifi: autojoin");
+                    wifi_sta_set_state(WIFI_STATE_IDLE);
+                    wifi_sta_start_connect(CONFIG_WIFI_SSID, CONFIG_WIFI_PASSWORD);
+                } else
+#endif
                 wifi_sta_set_state(WIFI_STATE_IDLE);
             } else {
                 wifi_sta.scan_start_ms = now;
@@ -671,7 +871,7 @@ static void wifi_sta_poll(void)
 
     case WIFI_STATE_AUTH:
         if (wifi_sta_timed_out()) {
-            cfm1_log("wifi: auth timeout");
+            wifi_sta_log_tx_fate("wifi: auth timeout");
             wifi_sta_set_state(WIFI_STATE_IDLE);
         }
         break;
@@ -686,15 +886,16 @@ static void wifi_sta_poll(void)
             wifi_sta.assoc_retry_ms = now + 500u;
         }
         if (wifi_sta_timed_out()) {
-            cfm1_log("wifi: assoc timeout");
+            wifi_sta_log_tx_fate("wifi: assoc timeout");
             wifi_sta_set_state(WIFI_STATE_IDLE);
         }
         break;
 
     case WIFI_STATE_WPA:
-        /* the 4-way handshake is driven by wifi_wpa via EAPOL frames;
-         * completion calls wifi_sta_wpa_complete() */
-        if (wifi_sta_timed_out()) {
+        if (wifi_sta_wpa_pending) {
+            wifi_sta_wpa_pending = 0;
+            wifi_sta_wpa_complete();
+        } else if (wifi_sta_timed_out()) {
             cfm1_log("wifi: wpa timeout");
             wifi_sta_set_state(WIFI_STATE_IDLE);
         }
@@ -709,7 +910,7 @@ static void wifi_sta_poll(void)
     }
 }
 
-/* called by wifi_wpa when the 4-way handshake succeeds */
+/* called by the tick handler when wifi_sta_wpa_pending is set */
 static void wifi_sta_wpa_complete(void)
 {
     if (wifi_sta.state == WIFI_STATE_WPA) {
@@ -723,5 +924,5 @@ static void wifi_sta_wpa_complete(void)
 static void wifi_sta_on_rx(const uint8_t *frame, uint32_t len)
 {
     wifi_sta.last_rx_ms = wifi_sta_now_ms();
-    wifi_sta_rx_mgmt(frame, len);
+    wifi_sta_rx_mgmt(frame, len, 0);
 }

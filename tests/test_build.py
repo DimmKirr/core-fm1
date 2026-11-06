@@ -51,6 +51,92 @@ def test_qemu_runner_expands_the_clang_driver(monkeypatch):
     assert calls == [['/usr/bin/qemu-x86_64', '/tc/pi32v2/bin/ld', '-o', 'a.elf']], 'non-driver tools run as before'
 
 
+def test_rosetta_runner_goes_through_the_x86_loader(monkeypatch):
+    """When the kernel runs x86-64 ELFs itself, the only thing missing is an
+    x86-64 ld.so and its libraries: every command, driver plan included, is
+    started through that loader so the nix-ld shim at /lib64 is never consulted.
+    Started that way the driver reads /proc/self/exe as the loader, so its plan
+    names the loader as the -cc1 executable and puts the resource directory
+    under the loader's directory; both are mapped back to the driver."""
+    calls = []
+    plan = (' "/x86/lib/ld-linux-x86-64.so.2" "-cc1" "-emit-obj"'
+            ' "-resource-dir" "/x86/lib/../lib/clang/4.0.1" "-o" "x.o" "x.c"\n')
+
+    class R:
+        returncode = 0
+        stdout = ''
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        r = R()
+        r.stderr = plan if '-###' in cmd else ''
+        r.args = cmd
+        return r
+
+    monkeypatch.setattr(build.subprocess, 'run', fake_run)
+    runner = build._RosettaRunner(Path('/tc'), '/x86', '/x86')
+    runner.run('pi32v2/bin/clang', ['-c', 'x.c', '-o', 'x.o'])
+    loader = ['/x86/lib/ld-linux-x86-64.so.2', '--library-path', '/x86/lib:/x86/lib']
+    assert calls[0] == [*loader, '/tc/pi32v2/bin/clang', '-###', '-c', 'x.c', '-o', 'x.o']
+    assert calls[1] == [*loader, '/tc/pi32v2/bin/clang', '-cc1', '-emit-obj',
+                        '-resource-dir', '/tc/pi32v2/bin/../lib/clang/4.0.1', '-o', 'x.o', 'x.c']
+    assert runner.label() == ' (rosetta)'
+
+
+def test_runner_order_rosetta_then_qemu_then_docker(monkeypatch):
+    """On a non-x86 Linux host: direct x86-64 execution first, qemu-x86_64
+    second, Docker only when neither is possible."""
+    monkeypatch.setattr(build.platform, 'system', lambda: 'Linux')
+    monkeypatch.setattr(build.platform, 'machine', lambda: 'aarch64')
+    monkeypatch.delenv('JIELI_DOCKER', raising=False)
+    monkeypatch.setattr(build, '_find_x86_libs', lambda tc: ('/x86', '/x86'))
+    monkeypatch.setattr(build.shutil, 'which', lambda n: '/usr/bin/qemu-x86_64')
+
+    monkeypatch.setattr(build, '_can_exec_x86', lambda glibc: True)
+    assert isinstance(build._pick_runner(Path('/tc')), build._RosettaRunner)
+
+    monkeypatch.setattr(build, '_can_exec_x86', lambda glibc: False)
+    assert isinstance(build._pick_runner(Path('/tc')), build._QemuRunner)
+
+    monkeypatch.setattr(build.shutil, 'which', lambda n: None)
+    assert isinstance(build._pick_runner(Path('/tc')), build._DockerRunner)
+
+    monkeypatch.setattr(build, '_find_x86_libs', lambda tc: ('', ''))
+    monkeypatch.setattr(build, '_can_exec_x86', lambda glibc: True)
+    assert isinstance(build._pick_runner(Path('/tc')), build._DockerRunner), 'no x86 libs: nothing to run the loader with'
+
+
+def test_x86_libs_next_to_the_toolchain(tmp_path, monkeypatch):
+    monkeypatch.delenv('JIELI_X86_GLIBC', raising=False)
+    monkeypatch.delenv('JIELI_X86_STDCPP', raising=False)
+    monkeypatch.setattr(build.glob, 'glob', lambda pattern: [])
+    tc = tmp_path / 'toolchain'
+    assert build._find_x86_libs(tc) == ('', '')
+    lib = tmp_path / 'x86libs' / 'lib'
+    lib.mkdir(parents=True)
+    (lib / 'ld-linux-x86-64.so.2').write_bytes(b'')
+    (lib / 'libstdc++.so.6').write_bytes(b'')
+    local = str(tmp_path / 'x86libs')
+    assert build._find_x86_libs(tc) == (local, local)
+
+
+def test_ar_member_reads_gnu_archives_without_a_host_ar(tmp_path):
+    def entry(name, body):
+        hdr = f'{name:<16}{"0":<12}{"0":<6}{"0":<6}{"644":<8}{len(body):<10}`\n'.encode()
+        return hdr + body + (b'\n' if len(body) & 1 else b'')
+    archive = (b'!<arch>\n'
+               + entry('/', b'\0' * 4)
+               + entry('//', b'a_very_long_member_name.c.o/\n')
+               + entry('usb.c.o/', b'BC\xc0\xde1')
+               + entry('/0', b'long'))
+    path = tmp_path / 'cpu.a'
+    path.write_bytes(archive)
+    assert build._ar_member(path, 'usb.c.o') == b'BC\xc0\xde1'
+    assert build._ar_member(path, 'a_very_long_member_name.c.o') == b'long'
+    with pytest.raises(SystemExit, match='no member nope.o'):
+        build._ar_member(path, 'nope.o')
+
+
 def test_loader_container_roundtrip():
     image = (bytes(range(256)) * 39) + b'last block'
     wrapped = build.loader_wrap(image)

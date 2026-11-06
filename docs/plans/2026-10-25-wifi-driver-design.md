@@ -1,5 +1,11 @@
 # WiFi Driver Design: GPL-3.0 STA Driver for AC791N
 
+> **Superseded (2026-11-04).** This 2026-10-25 plan describes the discarded 2026-10-26 approach
+> ("clean-room reverse engineering of JieLi's LLVM bitcode blobs" by the implementer). The process
+> in force is `docs/hardware/wifi/CLEAN_ROOM_METHODOLOGY.md`: the reader analyses, the implementer works from
+> `docs/hardware/wifi/SPECSHEET.md` only. Kept for the history section of CLEAN_ROOM_METHODOLOGY.md; not an
+> implementer reference.
+
 ## Goal
 
 Build a GPL-3.0 compatible WiFi STA driver for the AC791N (WL82 radio) from
@@ -21,7 +27,7 @@ firmware OTA, and web configuration.
 
 ## Spike Summary
 
-The feasibility spike (`.scratch/examples/wifi/`) produced:
+The feasibility spike (in the reader's private store) produced:
 
 | Artifact | Key Finding |
 |----------|-------------|
@@ -133,7 +139,7 @@ endmenu
 
 ### Source
 
-Reverse-engineered from `.scratch/examples/wifi/ir/wl_rf_common/` (181 functions,
+Reverse-engineered from the reader's private copy of the vendor library's intermediate representation (181 functions,
 ~3,847 estimated C lines). IR has function names, source paths, variable names,
 and string literals.
 

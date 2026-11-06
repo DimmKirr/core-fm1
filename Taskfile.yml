@@ -1,5 +1,7 @@
 version: '3'
 
+dotenv: ['.env']
+
 includes:
   fm1-platform:
     taskfile: https://raw.githubusercontent.com/DimmKirr/setup-fm1-toolchain/v1/Taskfile.yml
@@ -9,12 +11,13 @@ includes:
       FM1_VERSION: v0.3.0
       FM1_SOURCE_REPO: DimmKirr/fm1-emu
   debug:wifi:
-    taskfile: docs/hardware/wifi/Taskfile.yml
+    taskfile: .scratch/Taskfile.yml
+    optional: true
     dir: '{{.ROOT_DIR}}'
 
 tasks:
   build:
-    desc: Generate config.h and compile firmware
+    desc: Generate config.h and compile firmware (skipped when sources and .env are unchanged; --force to rebuild)
     deps: [fm1-platform:download:sdk, fm1-platform:download:toolchain]
     env:
       JIELI_TOOLCHAIN: '{{env "JIELI_TOOLCHAIN" | default (printf "%s/.fm1-toolchain/toolchain" .HOME)}}'
@@ -31,6 +34,7 @@ tasks:
       - assets/**/*
       - Kconfig
       - .config
+      - .env
     generates:
       - build/core-fm1.fwsc
     method: checksum
@@ -76,15 +80,18 @@ tasks:
       - bash '{{.EMU_SOURCE}}/web/build.sh' '{{.HOME}}/.fm1-emulator/web'
 
   flash:
-    desc: Flash firmware to FM-1 over USB-MIDI (DEBUG=true for post-flash log follow)
+    desc: Build if needed, then flash firmware to FM-1 over USB-MIDI (DEBUG=true for post-flash log follow)
     silent: true
+    deps:
+      - task: build
+        vars: { CLI_ARGS: '' }   # flash's own -- args are for fm1_install.py, not build.py
     vars:
       FIRMWARE: '{{.FIRMWARE | default "build/core-fm1.fwsc"}}'
       DEBUG: '{{.DEBUG | default "true"}}'
       AUTO_APPROVE: '{{.AUTO_APPROVE | default "true"}}'
     preconditions:
       - sh: test -f {{.FIRMWARE}}
-        msg: "{{.FIRMWARE}} not found. Run 'task build' first."
+        msg: "{{.FIRMWARE}} not found."
     cmds:
       - cmd: |
           test -f build/core-fm1.version && echo "version: $(cat build/core-fm1.version)" || true
@@ -131,6 +138,70 @@ tasks:
           printf "pool:   %6d / %6d (%2d%%)  .pool+audio+stacks\n" "$POOL_USED" "$POOL_MAX" "$POOL_PCT"
           printf "noinit: %6d / %6d (%2d%%)  debug ring+crash\n" "$NOINIT_USED" "$NOINIT_MAX" "$NOINIT_PCT"
           printf "fwsc:   %6d bytes (lz4 package)\n" "$FWSC_SZ"
+      # What fills the 96 KB RAM region, largest first (tools/ram_top.py); `task flash:size-top -- -n 40` for more
+      - uv run --quiet python tools/ram_top.py build/core_fm1.map -n 12
+
+  flash:size-top:
+    desc: Rank the .data/.bss consumers from the linker map (default top 20; -- -n N)
+    silent: true
+    preconditions:
+      - sh: test -f build/core_fm1.map
+        msg: "build/core_fm1.map not found. Run 'task build' first."
+    cmds:
+      - uv run --quiet python tools/ram_top.py build/core_fm1.map {{.CLI_ARGS}}
+
+  build:fm1-base:
+    desc: Build fm1-base WiFi example (vendor shim firmware with debug HTTP)
+    deps: [fm1-platform:download:sdk, fm1-platform:download:toolchain]
+    dir: '{{.ROOT_DIR}}/.scratch/examples/fm1-base'
+    env:
+      JIELI_TOOLCHAIN: '{{env "JIELI_TOOLCHAIN" | default (printf "%s/.fm1-toolchain/toolchain" .HOME)}}'
+      AC79_SDK: '{{env "AC79_SDK" | default (printf "%s/.fm1-toolchain/AC79_SDK" .HOME)}}'
+    sources:
+      - examples/wifi/**/*
+      - core/**/*
+      - bsp/**/*
+      - tools/build.py
+    generates:
+      - examples/wifi/build/wifi.fwsc
+    method: checksum
+    cmds:
+      - uv run --quiet python tools/build.py examples/wifi {{.CLI_ARGS}}
+
+  flash:fm1-base:
+    desc: Build fm1-base WiFi example and flash it to the FM-1
+    silent: true
+    deps:
+      - task: build:fm1-base
+        vars: { CLI_ARGS: '' }
+    vars:
+      FIRMWARE: '{{.ROOT_DIR}}/.scratch/examples/fm1-base/examples/wifi/build/wifi.fwsc'
+      AUTO_APPROVE: '{{.AUTO_APPROVE | default "true"}}'
+    preconditions:
+      - sh: test -f {{.FIRMWARE}}
+        msg: "{{.FIRMWARE}} not found. Build failed?"
+    cmds:
+      - uv run --quiet --group flash python tools/fm1_install.py {{.FIRMWARE}} --force {{if eq .AUTO_APPROVE "true"}}--yes {{end}}{{.CLI_ARGS}}
+      - |
+        if [ -n "$WIFI_SSID" ] && [ -n "$WIFI_PASSWORD" ]; then
+          echo "Waiting for device to boot..."
+          sleep 4
+          echo "Joining WiFi: $WIFI_SSID"
+          uv run --quiet --project .scratch/examples/fm1-base python .scratch/examples/fm1-base/tools/fm1_remote.py wifi join "$WIFI_SSID" "$WIFI_PASSWORD" wifi status
+          echo "Waiting for DHCP..."
+          sleep 5
+          uv run --quiet --project .scratch/examples/fm1-base python .scratch/examples/fm1-base/tools/fm1_remote.py wifi status
+        else
+          echo "No WIFI_SSID/WIFI_PASSWORD in .env; join manually: task wifi:join -- SSID PASSWORD"
+        fi
+
+  wifi:join:
+    desc: "Join a WiFi network via USB (task wifi:join -- SSID PASSWORD)"
+    silent: true
+    vars:
+      FM1_REMOTE: '{{.ROOT_DIR}}/.scratch/examples/fm1-base/tools/fm1_remote.py'
+    cmds:
+      - uv run --quiet --project .scratch/examples/fm1-base python {{.FM1_REMOTE}} wifi join {{.CLI_ARGS}}
 
   flash:uboot:
     desc: Flash firmware via UBOOT mode (hold OCT+/- for 5s, then run this)
@@ -259,100 +330,159 @@ tasks:
 
   # Whole DAP ring (4 KB on the device) plus build facts for context.
   debug:dump:
-    desc: Dump the debug log ring and build facts, save to .scratch/debug/dump.log
+    desc: Dump the debug log ring and build facts, save to .scratch/debug/logs/
     silent: true
     cmds:
-      - mkdir -p .scratch/debug
+      - mkdir -p .scratch/debug/logs
       - |
-        echo "=== debug:dump $(date -Iseconds) ===" | tee .scratch/debug/dump.log
-        echo "=== config.h symbols ===" | tee -a .scratch/debug/dump.log
-        grep '^#define CONFIG_' build/gen/config.h 2>/dev/null | tee -a .scratch/debug/dump.log
-        echo "" | tee -a .scratch/debug/dump.log
-        echo "=== .bss/.pool sizes (from linker map) ===" | tee -a .scratch/debug/dump.log
-        grep -E '^\.(bss|pool)\b|_bss_(start|end)|_pool_(start|end)' build/core_fm1.map 2>/dev/null | tee -a .scratch/debug/dump.log
-        echo "" | tee -a .scratch/debug/dump.log
-        echo "=== firmware size ===" | tee -a .scratch/debug/dump.log
-        ls -la build/core-fm1.fwsc build/core_fm1.elf 2>/dev/null | tee -a .scratch/debug/dump.log
-        echo "" | tee -a .scratch/debug/dump.log
-        echo "=== DAP log buffer ===" | tee -a .scratch/debug/dump.log
-        uv run --quiet --with python-rtmidi python tools/fm1log.py {{.CLI_ARGS}} 2>&1 | tee -a .scratch/debug/dump.log
+        TS="$(date -u +%Y-%m-%dT%H%M%SZ)"
+        LOG=".scratch/debug/logs/${TS}-dump.log"
+        {
+          echo "=== debug:dump $(date -Iseconds) ==="
+          echo "=== config.h symbols ==="
+          grep '^#define CONFIG_' build/gen/config.h 2>/dev/null
+          echo ""
+          echo "=== .bss/.pool sizes (from linker map) ==="
+          grep -E '^\.(bss|pool)\b|_bss_(start|end)|_pool_(start|end)' build/core_fm1.map 2>/dev/null
+          echo ""
+          echo "=== firmware size ==="
+          ls -la build/core-fm1.fwsc build/core_fm1.elf 2>/dev/null
+          echo ""
+          echo "=== DAP log buffer ==="
+          uv run --quiet --with python-rtmidi python tools/fm1log.py {{.CLI_ARGS}} 2>&1
+        } | tee "$LOG"
+        ln -sf "logs/${TS}-dump.log" .scratch/debug/dump.log
 
   # Stream the ring from power-on: start it, then power-cycle the FM-1. Ctrl-C to stop.
   debug:follow:
-    desc: Follow the debug log from boot, saved to .scratch/debug/follow.log
+    desc: Follow the debug log from boot, saved to .scratch/debug/logs/
     silent: true
     cmds:
-      - mkdir -p .scratch/debug
+      - mkdir -p .scratch/debug/logs
       - |
-        echo "=== debug:follow $(date -Iseconds) ===" | tee .scratch/debug/follow.log
-        echo "Waiting for FM-1 (power-cycle now)..." | tee -a .scratch/debug/follow.log
-        uv run --quiet --with python-rtmidi python tools/fm1log.py --follow {{.CLI_ARGS}} 2>&1 | tee -a .scratch/debug/follow.log
+        TS="$(date -u +%Y-%m-%dT%H%M%SZ)"
+        LOG=".scratch/debug/logs/${TS}-follow.log"
+        {
+          echo "=== debug:follow $(date -Iseconds) ==="
+          echo "Waiting for FM-1 (power-cycle now)..."
+          uv run --quiet --with python-rtmidi python tools/fm1log.py --follow {{.CLI_ARGS}} 2>&1
+        } | tee "$LOG"
+        ln -sf "logs/${TS}-follow.log" .scratch/debug/follow.log
 
   # Device status: crash record, render stats, ring position. The crash record
   # survives a warm reset (watchdog, fm1_reboot) but not a power-cycle.
   debug:hello:
-    desc: Device status (crash record, log position), saved to .scratch/debug/hello.log
+    desc: Device status (crash record, log position), saved to .scratch/debug/logs/
     silent: true
     cmds:
-      - mkdir -p .scratch/debug
+      - mkdir -p .scratch/debug/logs
       - |
-        echo "=== debug:hello $(date -Iseconds) ===" | tee .scratch/debug/hello.log
-        uv run --quiet --with python-rtmidi python tools/fm1log.py --hello {{.CLI_ARGS}} 2>&1 | tee -a .scratch/debug/hello.log
+        TS="$(date -u +%Y-%m-%dT%H%M%SZ)"
+        LOG=".scratch/debug/logs/${TS}-hello.log"
+        {
+          echo "=== debug:hello $(date -Iseconds) ==="
+          uv run --quiet --with python-rtmidi python tools/fm1log.py --hello {{.CLI_ARGS}} 2>&1
+        } | tee "$LOG"
+        ln -sf "logs/${TS}-hello.log" .scratch/debug/hello.log
 
   # WiFi bring-up probe (CONFIG_WIFI_DEBUG_WLCTL0_PROBE): scan once with extra readbacks,
   # stop when the scan ends, decode the indicator rows.
   #   -- --retry   retry the four refused SoC writes, then scan
   debug:wl0:
-    desc: "WiFi probe scan with readbacks, saved to .scratch/debug/wl0.log (-- --retry)"
+    desc: "WiFi probe scan with readbacks, saved to .scratch/debug/logs/"
     silent: true
     cmds:
-      - mkdir -p .scratch/debug
+      - mkdir -p .scratch/debug/logs
       - |
-        echo "=== debug:wl0 $(date -Iseconds) ===" | tee .scratch/debug/wl0.log
-        uv run --quiet --with python-rtmidi python tools/fm1log.py --wl0 {{.CLI_ARGS}} 2>&1 | tee -a .scratch/debug/wl0.log
-        echo "" | tee -a .scratch/debug/wl0.log
-        echo "=== indicator rows ===" | tee -a .scratch/debug/wl0.log
-        uv run --quiet python tools/wifi_ind_timeline.py .scratch/debug/wl0.log 2>&1 | tee -a .scratch/debug/wl0.log
+        TS="$(date -u +%Y-%m-%dT%H%M%SZ)"
+        LOG=".scratch/debug/logs/${TS}-wl0.log"
+        {
+          echo "=== debug:wl0 $(date -Iseconds) ==="
+          uv run --quiet --with python-rtmidi python tools/fm1log.py --wl0 {{.CLI_ARGS}} 2>&1
+          echo ""
+          echo "=== indicator rows ==="
+          uv run --quiet python tools/wifi_ind_timeline.py ".scratch/debug/logs/${TS}-wl0.log" 2>&1 || true
+        } | tee "$LOG"
+        ln -sf "logs/${TS}-wl0.log" .scratch/debug/wl0.log
+
+  # Capture vendor VM records and BBP state from fm1-base over HTTP (A25).
+  # FM1_BASE_IP from .env or -- <ip>; default 192.168.1.100.
+  debug:vm187:
+    desc: "Capture VM 187 + BBP calibration from fm1-base HTTP (task debug:vm187 -- <ip>)"
+    silent: true
+    vars:
+      IP: '{{.CLI_ARGS | default (env "FM1_BASE_IP" | default "192.168.1.100")}}'
+    cmds:
+      - mkdir -p .scratch/debug/logs
+      - |
+        TS="$(date -u +%Y-%m-%dT%H%M%SZ)"
+        LOG=".scratch/debug/logs/${TS}-vm187.log"
+        {
+          echo "=== debug:vm187 $(date -Iseconds)  http://{{.IP}}:8080 ==="
+          echo ""
+          echo "=== /vm ==="
+          curl -sf "http://{{.IP}}:8080/vm"
+          echo ""
+          echo "=== /status ==="
+          curl -sf "http://{{.IP}}:8080/status"
+          echo ""
+        } | tee "$LOG"
+        ln -sf "logs/${TS}-vm187.log" .scratch/debug/vm187.log
 
   # Register sweep of the wireless-control, MAC and SoC-clock blocks in the vendor's
   # `0xADDR = 0xVALUE` line format. Vendor side: curl http://<ip>:8080/sweep?base=..&n=..
   # Diff: uv run python tools/wifi_sweep_diff.py .scratch/debug/sweep.log <vendor.txt>
   debug:sweep:
-    desc: "Read the 0x14000, 0x30000 and 0x10000 register blocks over DAP, saved to .scratch/debug/sweep.log"
+    desc: "Read the 0x14000, 0x30000 and 0x10000 register blocks over DAP, saved to .scratch/debug/logs/"
     silent: true
     cmds:
-      - mkdir -p .scratch/debug
+      - mkdir -p .scratch/debug/logs
       - |
-        echo "=== debug:sweep $(date -Iseconds) ===" | tee .scratch/debug/sweep.log
-        for w in "0x14000 1024" "0x30000 2048" "0x10000 1024"; do
-          uv run --quiet --with python-rtmidi python tools/fm1log.py --sweep $w {{.CLI_ARGS}} 2>&1 | tee -a .scratch/debug/sweep.log
-        done
+        TS="$(date -u +%Y-%m-%dT%H%M%SZ)"
+        LOG=".scratch/debug/logs/${TS}-sweep.log"
+        {
+          echo "=== debug:sweep $(date -Iseconds) ==="
+          for w in "0x14000 1024" "0x30000 2048" "0x10000 1024"; do
+            uv run --quiet --with python-rtmidi python tools/fm1log.py --sweep $w {{.CLI_ARGS}} 2>&1
+          done
+        } | tee "$LOG"
+        ln -sf "logs/${TS}-sweep.log" .scratch/debug/sweep.log
 
   # Decode the running-indicator rows (A/B tag lines) from a saved log.
   debug:ind:
-    desc: "Decode indicator rows from a log (default .scratch/debug/follow.log), saved to .scratch/debug/ind.log"
+    desc: "Decode indicator rows from a log (default .scratch/debug/follow.log), saved to .scratch/debug/logs/"
     silent: true
     cmds:
-      - mkdir -p .scratch/debug
+      - mkdir -p .scratch/debug/logs
       - |
-        echo "=== debug:ind $(date -Iseconds) ===" | tee .scratch/debug/ind.log
-        uv run --quiet python tools/wifi_ind_timeline.py {{.CLI_ARGS | default ".scratch/debug/follow.log"}} 2>&1 | tee -a .scratch/debug/ind.log
+        TS="$(date -u +%Y-%m-%dT%H%M%SZ)"
+        LOG=".scratch/debug/logs/${TS}-ind.log"
+        {
+          echo "=== debug:ind $(date -Iseconds) ==="
+          uv run --quiet python tools/wifi_ind_timeline.py {{.CLI_ARGS | default ".scratch/debug/follow.log"}} 2>&1
+        } | tee "$LOG"
+        ln -sf "logs/${TS}-ind.log" .scratch/debug/ind.log
 
   # Panel input check: hold a button or key while it captures.
   debug:input:
-    desc: "Test input: HOLD a button/key, then run this. Saved to .scratch/debug/input.log"
+    desc: "Test input: HOLD a button/key, then run this. Saved to .scratch/debug/logs/"
     silent: true
     cmds:
-      - mkdir -p .scratch/debug
+      - mkdir -p .scratch/debug/logs
       - |
-        echo "=== debug:input $(date -Iseconds) ===" | tee .scratch/debug/input.log
-        echo "Hold a button or key on the FM-1 NOW, then press Enter..." | tee -a .scratch/debug/input.log
+        TS="$(date -u +%Y-%m-%dT%H%M%SZ)"
+        LOG=".scratch/debug/logs/${TS}-input.log"
+        echo "Hold a button or key on the FM-1 NOW, then press Enter..."
         read -r
-        echo "Capturing log (hold button for 5 more seconds)..." | tee -a .scratch/debug/input.log
-        uv run --quiet --with python-rtmidi python tools/fm1log.py 2>&1 | tee -a .scratch/debug/input.log
-        echo "" | tee -a .scratch/debug/input.log
-        echo "Look for raw0-3 != 0 or btns != 0 in the heartbeats above." | tee -a .scratch/debug/input.log
-        echo "If all zeros while holding a button, input hardware is not working." | tee -a .scratch/debug/input.log
+        echo "Capturing log (hold button for 5 more seconds)..."
+        {
+          echo "=== debug:input $(date -Iseconds) ==="
+          uv run --quiet --with python-rtmidi python tools/fm1log.py 2>&1
+          echo ""
+          echo "Look for raw0-3 != 0 or btns != 0 in the heartbeats above."
+          echo "If all zeros while holding a button, input hardware is not working."
+        } | tee "$LOG"
+        ln -sf "logs/${TS}-input.log" .scratch/debug/input.log
 
   settings:reset:
     desc: Reset FM-1 settings to defaults (erases saved settings, device reboots)
@@ -376,6 +506,27 @@ tasks:
     desc: Verify generated docs match their sources (for CI)
     cmds:
       - uv run --quiet kc2mm inject --check docs/COMPONENTS.md --kconf-dir kconf
+
+  # x86-64 glibc and libstdc++ for the Rosetta and qemu runners in tools/build.py
+  # (aarch64 Linux hosts). Copied once out of a linux/amd64 Debian image, next to
+  # the toolchain, where build.py looks for them.
+  toolchain:x86libs:
+    desc: Provide x86-64 glibc/libstdc++ for the Rosetta and qemu toolchain runners (~/.fm1-toolchain/x86libs)
+    vars:
+      X86LIBS: '{{printf "%s/.fm1-toolchain/x86libs" .HOME}}'
+    status:
+      - test -f {{.X86LIBS}}/lib/ld-linux-x86-64.so.2
+      - test -f {{.X86LIBS}}/lib/libstdc++.so.6
+    cmds:
+      - mkdir -p {{.X86LIBS}}/lib
+      - |
+        docker run --rm --platform linux/amd64 debian:bookworm-slim \
+          tar -chf - -C /lib/x86_64-linux-gnu \
+            ld-linux-x86-64.so.2 libc.so.6 libm.so.6 libdl.so.2 libpthread.so.0 \
+            librt.so.1 libgcc_s.so.1 libstdc++.so.6 libz.so.1 \
+          | tar -xf - -C {{.X86LIBS}}/lib
+      - ln -sfn lib {{.X86LIBS}}/lib64
+      - echo "x86-64 runtime libraries in {{.X86LIBS}}"
 
   nonfree:provision:
     desc: Copy vendor binary libs from AC79 SDK into build/nonfree/libs/ (requires ALLOW_NONFREE=1)

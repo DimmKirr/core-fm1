@@ -121,13 +121,26 @@ def main():
     elif config.exists():
         kconf.load_config(str(config))
 
+    # Save .config BEFORE env overrides so secrets stay out of the repo.
+    if args.outdir:
+        kconf.write_config(str(Path(args.outdir) / '.config'))
+    elif not args.defconfig:
+        kconf.write_config(str(config))
+
+    # Environment overrides for string Kconfig symbols (build output only).
+    # Taskfile dotenv loads .env; WIFI_PASSWORD=x overrides CONFIG_WIFI_PASSWORD.
+    ENV_OVERRIDES = ['WIFI_SSID', 'WIFI_PASSWORD', 'WIFI_MAC_OVERRIDE']
+    for name in ENV_OVERRIDES:
+        val = os.environ.get(name)
+        if val is not None:
+            sym = kconf.syms.get(name)
+            if sym:
+                sym.set_value(val)
+                print(f'genconfig: {name} overridden from environment')
+
     out = Path(args.outdir) if args.outdir else ROOT / 'build' / 'gen'
     out.mkdir(parents=True, exist_ok=True)
     kconf.write_autoconf(str(out / 'config.h'))
-    if args.outdir:
-        kconf.write_config(str(out / '.config'))
-    elif not args.defconfig:
-        kconf.write_config(str(config))
     components = write_manifest(kconf, out)
     print(f'genconfig: wrote {out / "config.h"}')
     print(f'genconfig: manifest ({len(components)} components): {", ".join(components)}')

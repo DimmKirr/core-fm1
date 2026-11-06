@@ -13,6 +13,7 @@ Kconfiglib-based configuration. All commands go through [Taskfile](https://taskf
 ```
 task build                              # build using .config (default symlink)
 task build -- --defconfig wifi_debug    # build a specific defconfig from configs/
+task flash                              # build if sources or .env changed, then flash over USB-MIDI
 task config                             # interactive menuconfig
 task config:defconfig -- melodee        # load a preset defconfig into .config
 task config:generate                    # .config -> build/gen/config.h
@@ -99,7 +100,7 @@ docs/plans/                 # implementation plans
 
 ## Toolchain
 
-- **Compiler**: JieLi clang 4.0.1 for pi32v2 (proprietary target, x86-64 binary). Runs natively on x86-64 Linux, via `qemu-x86_64` on aarch64 Linux (requires x86-64 glibc/libstdc++ in the nix store), or via Docker (`JIELI_DOCKER=1`).
+- **Compiler**: JieLi clang 4.0.1 for pi32v2 (proprietary target, x86-64 binary). Runner order in `tools/build.py`: native on x86-64 Linux; on other Linux, direct execution through an x86-64 `ld.so` when the kernel runs x86-64 ELFs itself (Rosetta on Apple-silicon VMs, binfmt_misc), then `qemu-x86_64`; otherwise Docker (macOS, or `JIELI_DOCKER=1`). The two Linux fallbacks need x86-64 glibc/libstdc++: `~/.fm1-toolchain/x86libs` (`task toolchain:x86libs`), `JIELI_X86_GLIBC`/`JIELI_X86_STDCPP`, or the nix store.
 - **Target**: AC791N dual-core MCU, bare-metal, no OS
 - **Audio**: 44.1kHz stereo, 128-sample half-buffer DMA, I2S codec
 - **Flash**: SPI NOR for storage, projects, presets, OTA

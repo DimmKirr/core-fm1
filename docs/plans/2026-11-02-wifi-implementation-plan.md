@@ -31,12 +31,12 @@ fm1-base HTTP debug endpoint (`curl http://<fm1-ip>:8080/status`), Python unit t
 | STA state machine, scan loop | `wifi_sta.c` | Runs the 13-channel scan; finds nothing. |
 | WPA2-PSK, CCMP | `wifi_wpa.c` (976 lines) | Compiled, never exercised on air. |
 | lwIP (NO_SYS=1), DHCP, HTTP, weather | `wifi_lwip*.c`, `wifi_http.c`, `wifi_weather.c` | Compiled; weather page E2E-tested in the emulator only. |
-| Vendor-binary backend | `firmware/src/wifi/nonfree/`, `configs/wifi_nonfree_defconfig`, `firmware/app_wifi.ld` | Scaffold only. Seven integration gaps, 7-14 days estimated (`.scratch/tasks/2026-11-01T18:38:42Z-port-fm1-base-vendor-wifi-stack.md`). |
-| Oracle | `.scratch/examples/fm1-base/examples/wifi/` + `ble/wifi/wifi_shim.c` | Works on this unit: associates, DHCP, HTTP `/status` dumps 80 MMIO + 13 BBP values. |
+| Vendor-binary backend | `firmware/src/wifi/nonfree/`, `configs/wifi_nonfree_defconfig`, `firmware/app_wifi.ld` | Scaffold only. Seven integration gaps, 7-14 days estimated (task note in the reader's private store). |
+| Oracle | the vendor-firmware copy in the reader's private store (its WiFi example and shim) | Works on this unit: associates, DHCP, HTTP `/status` dumps 80 MMIO + 13 BBP values. |
 
 ### Hard evidence from 11 debug iterations
 
-Observations: `.scratch/debug/observations/2026-11-01T11:20…` through `2026-11-02T09:08:00Z-WIFI.md`.
+Observations: the observation store, 2026-11-01T11:20 through 2026-11-02T09:08.
 
 - `TX_STA_CNT0/1` (`0x3170C/0x31710`) stay 0: the MAC never completes or fails a transmission.
 - `RX_STA_CNT0/1` (`0x31700/0x31704`) stay 0: the PHY never reports a CRC error, PHY error,
@@ -107,9 +107,9 @@ is the only shippable artifact under GPL-3.0; everything else is instrumentation
 
 ## 2. Phase 1: break the TX/RX deadlock (time-box 5 days)
 
-Every task below ends in a new observation file in `.scratch/debug/observations/` using the
+Every task below ends in a new observation file in the observation store using the
 existing format (build, result, tables, analysis, next steps) and a line in
-`.scratch/tasks/todo/2026-11-02T04-wifi-behavioural-diff.md`.
+the behavioural-diff task note (reader's private store).
 
 ### Task 1: Group and commit the current working tree (Dmitry)
 
@@ -121,7 +121,7 @@ readbacks, (b) SPECSHEET and wifi.kconfig, (c) nonfree scaffold (`firmware/src/w
 `configs/wifi_nonfree_defconfig`, `firmware/app_wifi.ld`, `tools/build.py`), (d) UI/demo/keyboard,
 (e) tests, (f) Taskfile/AGENTS.
 
-**Step 2:** do not commit `work/panel.ppm` (3 MB scratch) or `.scratch/`.
+**Step 2:** do not commit `work/panel.ppm` (3 MB scratch) or the private stores.
 
 ### Task 2: Behavioural counters on the core-fm1 side
 
@@ -180,7 +180,7 @@ busy pair. The dwell is 100 ms (`WIFI_STA_DWELL_MS`), so one read per dwell give
 
 **Files:**
 - Modify: `firmware/src/wifi/wifi_sdio.c` (new `wifi_bbp_snapshot`), `firmware/src/wifi/wifi_sta.c:579` (call once at `scan_ch == 1`)
-- Modify: `.scratch/examples/fm1-base/ble/wifi/wifi_shim.c:616-656`, `.scratch/examples/fm1-base/examples/wifi/debug_http.c:11-12`
+- Modify (reader side): the oracle copy's shim register list and its debug page
 
 **Step 1 (core-fm1):** compact hex rows so 22 log lines cover everything readable
 (direct R0-R127, window C 0x00-0x7A, window D 0x00-0x5F; windows C' and D' have no read-back):
@@ -239,7 +239,7 @@ Window ids use `(w + 1) << 8 | entry` so they cannot collide with direct registe
 Raise `MAX_REGS` to 400 and `DBG_BUF` to 12288 in `debug_http.c`; check the vendor heap
 headroom printed on `/status` (`heap_used` was 95 KiB of 278 KiB in iteration 4).
 
-**Step 3:** collect both, write a Python diff into `.scratch/tools/wifi-bbp-diff/bbp_diff.py`
+**Step 3:** collect both, write a Python diff (reader-side tooling)
 (parse `bbpR:/bbpC:/bbpD:` rows from `dump.log` and `bbp[...]` rows from the curl output, print
 a three-column table). Add the table to the observation file.
 
@@ -249,7 +249,7 @@ Diff rows become the first suspects, R66/R82 expected among them.
 ### Task 4: Capture the vendor's real TX buffer and DMA start address
 
 **Files:**
-- Modify: `.scratch/examples/fm1-base/ble/wifi/wifi_shim.c` (new `dbg_txbuf`), `debug_http.c:86-114` (`status_page`)
+- Modify (reader side): the oracle copy's shim (a TX buffer sampler) and its status page
 
 **Step 1:** the WDMA address register reads back on this SoC (core-fm1 reads
 `txadr=0x01C17750`). After any vendor TX it still points at the vendor's static TX buffer:
@@ -297,7 +297,7 @@ Questions, in priority order:
    condition is it set (after MAC enable, after first RX, after IRQ init)?
 3. New §6.6: direct BBP registers the vendor writes after reset (register, value, call site,
    and whether per-channel), especially R66, R82, R25, R27, R62-R86. This closes the gap noted in
-   `.scratch/tasks/todo/2026-11-01T04-wifi-bbp-direct-registers.md`.
+   the BBP direct-registers task note (reader's private store).
 4. §7.10: MAC_STATUS_CFG (`0x1200`) bits 8-11 as used by the vendor, if at all.
 5. §4.2: `0x14050` bit 23 and bits 22-21 (vendor value `0x00C80001`).
 6. §7.11.4 step order: where in `wfhw_init`/`wfhw_iqr_init` the vendor enables TX relative to
@@ -333,8 +333,8 @@ answer on bit 16 and init order; re-order `wdma_init`, MAC enable and IRQ enable
 ### Task 7: Phase 1 exit review
 
 **2026-11-04: pass.** `TX_STA_CNT1` success counted (12l) and `scan done n=8` with real SSIDs on the
-correct channels (12o). The reader pass of 2026-11-04 (`.scratch/hardware/wl82-wifi/`, SPECSHEET §4.2.1,
-§14) supplied the missing steps; see `.scratch/debug/observations/2026-11-04T09:45:00Z-WIFI.md`.
+correct channels (12o). The reader pass of 2026-11-04 (SPECSHEET §4.2.1,
+§14) supplied the missing steps; see the observation of 2026-11-04T09:45.
 
 
 **Pass (go to Phase 2):** `TX_STA_CNT1` success > 0 on at least one channel and
@@ -387,7 +387,7 @@ per new parser (beacon IEs, RXWI RSSI, EAPOL key descriptor) with captured byte 
 6. **Tests and CI.** Keep `task test:unit` and `task test:e2e` green; add a hardware checklist
    doc (`docs/hardware/wifi/HW_CHECKLIST.md`) mirroring the acceptance table above.
 7. **Docs.** Update `docs/COMPONENTS.md` (`task docs:module-diagram`), `AGENTS.md` WiFi section,
-   SPECSHEET with every new [M:hw] fact, and close the `.scratch/tasks/todo/*wifi*` files.
+   SPECSHEET with every new [M:hw] fact, and close the WiFi task notes.
 
 ---
 
@@ -397,7 +397,7 @@ per new parser (beacon IEs, RXWI RSSI, EAPOL key descriptor) with captured byte 
 |------|--------|-------------------|
 | Vendor-binary backend (`CONFIG_WIFI_NONFREE`) | Parked | Phase 1 fails its exit criteria, or a need to A/B the vendor stack under core-fm1's runtime |
 | `CONFIG_WIFI_MIDI` (rtpMIDI/OSC) | Kconfig stub only | After Phase 3 |
-| OTA over WiFi | Out of MVP scope (`.scratch/examples/wifi/MVP_SCOPE.md`) | After Phase 3 |
+| OTA over WiFi | Out of MVP scope (the MVP scope note in the reader's private store) | After Phase 3 |
 | BLE/WiFi coexistence (RFPRIO) | `CONFIG_WIFI` depends on `!BLE` | Separate design |
 | Power save | Not started | After Phase 3 |
 
@@ -409,7 +409,7 @@ per new parser (beacon IEs, RXWI RSSI, EAPOL key descriptor) with captured byte 
 2. **Phase 1 time-box**: 5 working days with the FM-1 and the test AP available (recommended).
 3. **Oracle memory reads**: Task 4 reads the vendor TX buffer bytes from the running fm1-base
    build. It is black-box observation like the existing register dumps, documented as [M:hw]. Confirm
-   this fits the clean-room policy in `docs/hardware/wifi/CLEAN_ROOM.md`.
+   this fits the clean-room policy in `docs/hardware/wifi/CLEAN_ROOM_METHODOLOGY.md`.
 
 ---
 

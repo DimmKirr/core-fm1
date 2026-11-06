@@ -2,16 +2,19 @@
 
 This file lists third-party code and specifications referenced by
 core-fm1's WiFi subsystem (`firmware/src/wifi/`), with their licenses
-and copyright holders. See `docs/hardware/wifi/CLEAN_ROOM.md` for the
+and copyright holders. See `docs/hardware/wifi/CLEAN_ROOM_METHODOLOGY.md` for the
 clean-room methodology.
 
 
 ## Ralink RT2x00 WiFi Driver
 
 The WiFi MAC layer and STA state machine architecture are informed by
-the Ralink RT2x00 driver family in the Linux kernel. Only high-level
+the Ralink RT2x00 driver family in the Linux kernel. High-level
 architectural patterns (state machine structure, frame dispatch flow)
-were referenced; no code was copied or directly translated.
+were referenced, and register offsets, bit definitions and initial
+values from `rt2800.h` / `rt2800lib.c` are used with line citations in
+the code (GPL-2.0-or-later is compatible with GPL-3.0); no driver logic
+was copied or directly translated.
 
 - Source: `drivers/net/wireless/ralink/rt2x00/` (Linux kernel)
 - License: GPL-2.0-or-later
@@ -70,6 +73,49 @@ bare-metal WiFi driver patterns on resource-constrained SoCs.
 - Files influenced: general architecture patterns
 
 
+## JieLi AC79 SDK (published sources and data)
+
+The RF-die lookup table in `firmware/src/wifi/wifi_rf_lut_data.c` is
+data from the SDK's published application source
+`apps/common/net/wifi_conf.c`, and the WiFi fact sheet cites the
+published files `apps/common/net/wifi_conf.c`,
+`apps/common/config/user_cfg.c`,
+`apps/demo/demo_wifi/board/wl82/board.c`,
+`include_lib/net/wifi/wifi_connect.h`,
+`include_lib/utils/syscfg/syscfg_id.h` and
+`include_lib/driver/cpu/wl82/asm/{WL82.h,hwi.h}` for register names,
+default trim values and configuration constants.
+
+- Source: `fw-AC79_AIoT_SDK` (release package AC79NN_SDK_V1.2.14_2026-10-13;
+  the cited files are byte-identical to the repository's copies)
+- License: Apache-2.0 (repository `LICENSE`)
+- Copyright: Copyright (c) Zhuhai Jieli Technology Co., Ltd.
+- URL: https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK
+- Files influenced: `firmware/src/wifi/wifi_rf_lut_data.c` (data),
+  constants cited through `docs/hardware/wifi/SPECSHEET.md`
+
+The SDK's pre-compiled radio libraries are not published source and
+are not a reference for the clean-room driver; they link only in the
+optional `CONFIG_WIFI_NONFREE` build (`firmware/src/wifi/nonfree/`),
+which is mutually exclusive with the clean-room driver.
+
+
+## fm1-base
+
+`firmware/src/wifi/nonfree/nf_main.c` and `nf_sdk_stubs.c` (the
+non-free build only) adapt platform shim code from fm1-base's
+`device/radio.c` and `device/wifi.c`. Those files are MPL-2.0; the
+adapted files are licensed `GPL-3.0-only AND MPL-2.0`.
+
+- Source: charlesvestal/fm1-base
+- License: MPL-2.0 (the adapted shim files)
+- Copyright: Copyright (c) Charles Vestal
+
+fm1-base's `bsp/chip/fm1_rf_cal.h` is not an accepted reference for the
+clean-room driver (see `docs/hardware/wifi/CLEAN_ROOM_METHODOLOGY.md`, "fm1-base
+ruling").
+
+
 ## IEEE Standards
 
 - IEEE 802.11-2020: Wireless LAN Medium Access Control and Physical
@@ -97,7 +143,7 @@ Program on the target hardware. The Corresponding Source of this
 firmware therefore does not include the JieLi SDK runtime, consistent
 with the GPL-3.0 System Library exception.
 
-The JieLi AC79 SDK userspace code is separately licensed (GPL-2.0 per
-its repository). The SDK's proprietary static libraries (.a) are
-platform runtime components, not combined works, and are covered by
-the exception above.
+The JieLi AC79 SDK's published application sources and headers are
+Apache-2.0 (see the JieLi entry above). The SDK's pre-compiled static
+libraries (.a) are platform runtime components, not combined works, and
+are covered by the exception above.

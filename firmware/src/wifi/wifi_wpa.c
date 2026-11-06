@@ -622,9 +622,23 @@ static int wifi_wpa_rx_msg1(uint8_t *eapol, uint32_t len,
     wifi_wpa_gen_nonce(wifi_wpa.snonce);
     wifi_wpa_derive_ptk();
 
-    *tx_len = wifi_wpa_build_msg(tx_buf, tx_size,
-                                 KI_VER_HMAC_SHA1 | KI_PAIRWISE | KI_MIC,
-                                 16, wifi_wpa.snonce, NULL, 0);
+    /* RSN IE in Key Data (IEEE 802.11i §8.5.3.3: must match assoc req) */
+    {
+        static const uint8_t rsn_ie[] = {
+            0x30, 0x14,             /* tag=RSN(48), length=20 */
+            0x01, 0x00,             /* RSN version 1 */
+            0x00, 0x0F, 0xAC, 0x04, /* group cipher: CCMP-128 */
+            0x01, 0x00,             /* pairwise cipher count: 1 */
+            0x00, 0x0F, 0xAC, 0x04, /* pairwise cipher: CCMP-128 */
+            0x01, 0x00,             /* AKM count: 1 */
+            0x00, 0x0F, 0xAC, 0x02, /* AKM type: PSK */
+            0x00, 0x00,             /* RSN capabilities */
+        };
+        *tx_len = wifi_wpa_build_msg(tx_buf, tx_size,
+                                     KI_VER_HMAC_SHA1 | KI_PAIRWISE | KI_MIC,
+                                     16, wifi_wpa.snonce,
+                                     rsn_ie, sizeof rsn_ie);
+    }
     wifi_wpa.step = 2;
     cfm1_log("wifi: wpa msg1 -> msg2 sent");
     return *tx_len ? 0 : -1;
@@ -662,6 +676,7 @@ static int wifi_wpa_rx_msg3(uint8_t *eapol, uint32_t len,
                                  16, NULL, NULL, 0);
     wifi_wpa.step = 4;
     cfm1_log("wifi: wpa msg3 -> msg4 sent, tk installed");
+    wifi_sta_wpa_pending = 1;
     return *tx_len ? 0 : -1;
 }
 
@@ -837,18 +852,41 @@ static void wifi_ccmp_ctr(const uint8_t tk[16],
     }
 }
 
+/* Build CCMP AAD per IEEE 802.11-2020 §12.5.3.3.1.
+ * Masks FC (clear Retry/PwrMgmt/MoreData/Order, set Protected),
+ * zeroes SC sequence number, masks QoS to TID only.
+ * Returns AAD length: 22 (non-QoS) or 24 (QoS). */
+static uint32_t wifi_ccmp_build_aad(const uint8_t *hdr, uint8_t *aad)
+{
+    uint32_t i, pos = 0;
+    aad[pos++] = hdr[0];
+    aad[pos++] = (hdr[1] & 0x07u) | 0x40u;
+    for (i = 4; i < 22u; i++)
+        aad[pos++] = hdr[i];
+    aad[pos++] = hdr[22] & 0x0Fu;
+    aad[pos++] = 0;
+    if (hdr[0] & 0x80u) {
+        aad[pos++] = hdr[24] & 0x0Fu;
+        aad[pos++] = 0;
+    }
+    return pos;
+}
+
 /* Encrypt: plaintext in payload[], 8-byte MIC appended (caller provides room).
- * hdr = 802.11 header (AAD), A2 at hdr+10. Returns payload_len + 8. */
+ * hdr = 802.11 header, A2 at hdr+10. Returns payload_len + 8. */
 static uint32_t wifi_ccmp_encrypt(const uint8_t *hdr, uint32_t hdr_len,
                                   uint8_t *payload, uint32_t payload_len,
                                   const uint8_t tk[16], uint64_t pn)
 {
-    uint8_t nonce[13], mic[8], a0[16], s0[16];
-    uint32_t i;
+    uint8_t nonce[13], mic[8], a0[16], s0[16], aad[24];
+    uint32_t i, aad_len;
+    uint8_t priority = (hdr[0] & 0x80u) ? (hdr[24] & 0x0Fu) : 0;
 
-    wifi_ccmp_nonce(nonce, 0, hdr + 10u, pn);
+    (void)hdr_len;
+    aad_len = wifi_ccmp_build_aad(hdr, aad);
+    wifi_ccmp_nonce(nonce, priority, hdr + 10u, pn);
 
-    wifi_ccmp_cbc_mac(tk, nonce, hdr, hdr_len, payload, payload_len, mic);
+    wifi_ccmp_cbc_mac(tk, nonce, aad, aad_len, payload, payload_len, mic);
 
     wifi_ccmp_ctr(tk, nonce, payload, payload_len, 1);
 
@@ -873,14 +911,17 @@ static int wifi_ccmp_decrypt(const uint8_t *hdr, uint32_t hdr_len,
                              uint8_t *payload, uint32_t enc_len,
                              const uint8_t tk[16], uint64_t pn)
 {
-    uint8_t nonce[13], mic_enc[8], mic_calc[8], a0[16], s0[16];
-    uint32_t data_len, i;
+    uint8_t nonce[13], mic_enc[8], mic_calc[8], a0[16], s0[16], aad[24];
+    uint32_t data_len, i, aad_len;
+    uint8_t priority = (hdr[0] & 0x80u) ? (hdr[24] & 0x0Fu) : 0;
 
     if (enc_len < 8u)
         return -1;
     data_len = enc_len - 8u;
 
-    wifi_ccmp_nonce(nonce, 0, hdr + 10u, pn);
+    (void)hdr_len;
+    aad_len = wifi_ccmp_build_aad(hdr, aad);
+    wifi_ccmp_nonce(nonce, priority, hdr + 10u, pn);
 
     for (i = 0; i < 8u; i++)
         mic_enc[i] = payload[data_len + i];
@@ -898,7 +939,7 @@ static int wifi_ccmp_decrypt(const uint8_t *hdr, uint32_t hdr_len,
     wifi_ccmp_ctr(tk, nonce, payload, data_len, 1);
 
     /* verify MIC over decrypted plaintext */
-    wifi_ccmp_cbc_mac(tk, nonce, hdr, hdr_len, payload, data_len, mic_calc);
+    wifi_ccmp_cbc_mac(tk, nonce, aad, aad_len, payload, data_len, mic_calc);
 
     for (i = 0; i < 8u; i++)
         if (mic_enc[i] != mic_calc[i])

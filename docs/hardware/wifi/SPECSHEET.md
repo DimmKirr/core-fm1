@@ -2,12 +2,14 @@
 
 Written 2026-10-25 by the clean-room reader for the GPL-3.0 Wi-Fi driver on the JieLi AC791N (WL82)
 radio. **The implementers must not read vendor code, vendor IR or vendor disassembly.** They work from
-this sheet, the IEEE 802.11 standard, and permitted open-source references (Ralink RT2x00
-GPL-2.0+, lwIP 2.x BSD, wpa_supplicant BSD, ESP-IDF Apache 2.0).
+this sheet, the IEEE 802.11 standard, and the permitted references of §2 only; `CLEAN_ROOM_METHODOLOGY.md`
+states the barrier and the licence record.
 
 This sheet contains facts only: addresses, bit fields, values, sequences, timing, interrupts, bus
-protocols and observed behaviour. It contains no vendor code or pseudo-code. Long vendor tables (BBP
-init, RF-die LUT, AGC) are described by location, size and capture method, not transcribed.
+protocols and observed behaviour. It contains no vendor code or pseudo-code. Constant tables follow the
+policy of §0 ("Tables"): published tables are cited, tables that a measured rule reproduces are
+given as the rule, register tables are recorded in full with their tag, and nothing is transcribed
+that a higher-tier source supplies.
 
 Update 2026-11-04 (reader pass): **[M:s wl_rf_common.a, wl_wifi_sta.a, cpu and BT controller
 libraries; PUB WL82.h; M:hw 12a-12k]** A Tier 4 pass over the vendor WiFi libraries, every fact
@@ -39,10 +41,84 @@ BCN_OFFSET0/1, `0x3040C` PBF_MAX_PCNT, `0x30408` PBF_CFG, `0x31340` TXOP_CTRL_CF
 Vendor function names that earlier revisions carried in §5.1, §6, §7.11, §10.1 and §11.2 were
 replaced by behavioural descriptions; section numbers are unchanged.
 
+Update 2026-11-05 (reader pass 3, Phase D; evidence cutoff: the implementer's observation file of
+2026-11-05 06:50 with build dev-20261105T064012Z, its device ring and its register sweep of 06:53;
+the uncommitted driver tree read on 2026-11-05 for the GPL column; verification: every row below was
+re-read in the vendor libraries by the reader, and the join-step, link-up, link-down and key-table
+claims were checked a second time by hand): **[M:s wl_wifi_sta.a, hostapd_and_wpasupplicant.a,
+wl_rf_common.a; IP:RT2x00 (rt2800.h, rt2800lib.c); PUB assign_macaddr.c, wifi_conf.c, cpu.h,
+cache.h, linker scripts, IEEE OUI registry; M:hw vendor captures 2026-11-02 and 2026-11-04, GPL
+observations 2026-11-05]**. New: §4.2.1 Phase D (join, authentication, association, link-up,
+EAPOL and key install, link-down: rows D1-D32 with the GPL column and the timers); §7.11.5 TXWI rows
+for unicast management frames and station EAPOL frames; §7.13 (station slot table, key tables,
+address handling, the acknowledgement path, the hand-off contract between the 802.11 state
+machine, the supplicant and the key tables, WDMA buffer placement); §14 rows 17-19; §15 T19-T26;
+§16 U6 and U14 narrowed, U15-U21 added. **Errata** (old text kept where it stood):
+(22) The on-air transmitter address: nothing in the hardware or the libraries substitutes the
+transmitter address of a frame; addr2 is the frame bytes (§7.13.1). The address the access point
+answered on 2026-11-05 (`D8:C8:0C:F7:36:E2`) is registered to Tuya Smart Inc.: a third station on
+the same channel, whose responses the GPL driver accepted because its RX filter has bit 2 (drop
+unicast not to me) clear and its parser did not check addr1.
+(23) §4.2.1 B5 "1 each (shared-key mode; WCID attributes)": the attribute value 1 selects the
+pairwise-key table with no cipher (bit 0 = key-table select); SHARED_KEY_MODE is the `0x7000`
+block (§7.13.3).
+(24) §7.10 "`|= 0x08` after association": the vendor never sets RX_FILTER_CFG bit 3 in station
+mode; the running vendor radio reads `0x17F97` while associated [M:hw 2026-11-02].
+(25) §7.11.5 "CCK 1 Mbps only after a rate update the initial scan does not run": that update is
+the join step (D3); every management frame after the first join, including the authentication and
+association requests, goes out at CCK 1 Mbps with a 304 µs duration field.
+(26) The vendor's station slot 1 and the BSSID registers are written at join, **before** the
+authentication request (D4-D5), not at link-up only; §4.2.1 B3's "WCID `0xFF` is never used as a
+table index" stands, and the vendor's acknowledged unicast management frames all carry WCID `0xFF`.
+
+Update 2026-11-04 (reader pass 2; evidence cutoff: the observation record through iteration 12p
+and the driver at commit 76da132d; supported profile: FM-1, 24 MHz crystal, WiFi-only cold start,
+station mode; verification: every claim of the private evidence record re-checked in the vendor
+libraries, and the vendor unit's window D read-back of 2026-11-03 used as a cross-check): **[M:s
+wl_rf_common.a, wl_wifi_sta.a, cpu and BT controller libraries; PUB SDK application sources; M:hw
+12l-12o]**. The driver written from this sheet transmits and receives on the FM-1 since iteration
+12o (2026-11-04 09:56): a 13-channel scan decodes beacons on channels 3-11 and lists 16 networks
+[M:hw]. New: §10.1 rewritten so the full RF calibration can be implemented from this sheet alone
+(RF mode table, gain-step rule, measurement engine, trim prologue, attenuation settings, RC tune,
+TX LO/IQ and RX DC/IQ searches, bounds and failure contract); new §10.2 (record layout and
+validity, quick path, when the record is written); §6.9 completed (both TX-filter coefficient
+sets, the compression curve, the final window D state, confirmed against the vendor unit's
+read-back); §11.2.9 completed (the 24 MHz constant analog block as an ordered field-write list,
+the PLL field map, the crystal word, and the vendor unit's steady state split into constant and
+unit-specific parts); §4.2.1 GPL column refreshed to commit 76da132d; §14 reconciled with the
+observation record; new §15 (hardware tests for the implementer) and §16 (unspecified steps,
+unknowns, housekeeping). **Errata** (old text kept where it stood):
+(11) The vendor's receive path handles **one frame per wake** and never loops on `WDMA_CTL` bit 17
+(§7.11.6); "re-check bit 17 for more frames" was wrong.
+(12) In polling mode (a build option, not the default) the vendor writes neither MAC+`0x328` nor
+`0x14050` bit 0 (§7.11.9); "register writes are the same" was wrong.
+(13) The runtime AGC idle rule is "no target frame for 2 x 110 ms" (configurable), not 11 ticks
+(§6.7).
+(14) Record 187 stores its CRC-16 as a **32-bit word at bytes 64-67**, a stored 0 is invalid, and
+the record is written only after a full trim that ran because the stored record was invalid (§10,
+§10.2).
+(15) The vendor's first-scan probe request goes out at **OFDM 6 Mbps**, not CCK 1 Mbps, unless a
+profile step the sheet cannot resolve changes the management rate (§7.11.5); the MAC accepts the
+GPL's CCK 1 Mbps probe [M:hw 12l].
+(16) At interface up the EDCA registers receive the WMM default set (`0x64300`, `0xA4700`,
+`0x43538`, `0x3212F`), not the constant set (`0xA4200` ...), which is written only at link-down or
+at association (§4.2.1 B9, §7.10).
+(17) `PBF_MAX_PCNT` is rewritten to `0x1F3F7F9F` at association (TX burst off); the table value
+`0x1F3FBF9F` is replaced by software, not dropped by hardware (§7.10).
+(18) The names `PLL_CON0..4` / `ANA_CON0..5` / `WL_CON0..11` that §11.2.9 used for
+`0x11900`-`0x11964` clash with the published names `WL_CONn` (`0x14000` block) and `PLL_CON0/1`
+(`0x119A0`/`0x119A4`); §11.2.9 now uses the published `WLA_CONn` names.
+(19) The vendor identifier earlier text used for the feedback-divider code is replaced by
+"divider code"; "PA_C_I" by "PA trim bytes".
+(20) The bank-limit scan's degenerate case writes banks 15..0 then 127..97 (8-bit wrap, §5.2); the
+GPL's bank table differs from the vendor's (43 vs 53 at divider 121 [M:hw 12n]) and works.
+(21) `0x1193C` and `0x11938` do not track the channel on either unit: the MMIO PLL words stay at
+divider 121 / the init bank while the RF die tunes from the LUT (§6.8, §11.2.9) [M:hw, M:s].
+
 Update 2026-11-04 (iteration 12i, WL_CTL0 release): **[M:hw]** WL_CTL0 (`0x14000`) is an
 assert/release control, not a bus gate: writing 0 after init keeps the MAC readable and starts the
 baseband CCA detector (false CCA 201-240 per 100 ms, BBP R60 live) while TX and the five indicators
-stay unchanged. Every init so far ran on a held block. §4.2 row updated; new §7.{n} is the
+stay unchanged. Every init so far ran on a held block. §4.2 row updated; new §7.12 is the
 stage-by-stage RX status with the open items.
 
 Update 2026-11-03 (iteration 12h, SoC configuration probes): **[M:hw]** With every writable SoC-level
@@ -210,6 +286,68 @@ the vendor libraries `wl_rf_common.a` and `wl_wifi_sta.a` and the cpu and BT con
 of the public SDK, disassembled with public LLVM tools; nothing encrypted or access-controlled was
 bypassed. Facts from that pass carry [M:s] with the library named.
 
+**Tables (transcription policy, 2026-11-04).** A constant table that the hardware consumes is a
+hardware fact; how it reaches this sheet depends on its source, in this order: (1) a published SDK
+source is cited by path and line and not copied (the RF-die LUT, the CCA tunables, the default
+trim bytes, the record ids); (2) a table that a measured generating rule reproduces exactly is
+given as the rule with check values (the AGC RAM, §6.7; the receive gain steps, §10.1.2); (3) a
+register table (entry index, bit position, value, write order) is recorded in full with its tag
+(the BBP window tables of §11.2.6-§11.2.8b, the TX-filter coefficient sets and the compression
+curve of §6.9, the RF mode table of §10.1.1); (4) a value read back from the running vendor unit
+is tagged [M:hw] when it has been; (5) nothing is transcribed that a higher-tier source supplies.
+There is no numeric size threshold; each table says which route it took. Unit-specific calibration
+results (RX DC, TX LO, TX/RX IQ, RC codes, VCO bank, crystal caps, PA trims) are never to be
+hard-coded from any unit's read-back; §11.2.9 marks them.
+
+**Published-source record [PUB].** The SDK sources cited in this sheet come from JieLi's public
+repository `fw-AC79_AIoT_SDK` (gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK; repository licence
+Apache-2.0, `LICENSE` = the Apache License 2.0 text; default branch `release/AC79NN_SDK_V1.2.0`,
+head commit `0617f4cc` of 2026-10-27 at the time of writing). They were read from the release
+package `AC79NN_SDK_V1.2.14_2026-10-13`, whose copies of every cited file are byte-identical to
+the repository's. Files cited: `apps/common/net/wifi_conf.c`, `apps/common/config/user_cfg.c`,
+`apps/demo/demo_wifi/board/wl82/board.c`, `include_lib/net/wifi/wifi_connect.h`,
+`include_lib/utils/syscfg/syscfg_id.h`, `include_lib/driver/cpu/wl82/asm/WL82.h`,
+`include_lib/driver/cpu/wl82/asm/hwi.h`. The vendor's pre-compiled libraries in the same package
+are not published source; they were analysed under the interoperability exemption (`CLEAN_ROOM_METHODOLOGY.md`).
+
+**Source search record for the 2026-11-04 reader pass 2.** Tier 1: the published `user_cfg.c`,
+`board.c` and `wifi_connect.h` supply the default crystal caps, PA trim bytes and per-rate gains
+and the record ids (cited in §10, §6.9, §11.2.9); the published profile string in `wifi_conf.c`
+supplies the wireless mode, TX-burst, HT-bandwidth and scan-dwell settings that decide several
+MAC values (§4.2.1 B9, C5, §7.10, §7.11.5); no published document describes the RF calibration,
+the BBP window contents or the WDMA engine. Tier 2: the RT2800 public header explains the
+TXWI/RXWI/TXINFO/RXINFO layouts, the EDCA packing and the association-time MAC writes
+[IP:RT2x00]. Tier 3: the vendor unit's window D read-back of 2026-11-03 confirms the TX-filter
+and compression finals (§6.9); iterations 12l-12o confirm the TX image, the gate, the front-end
+registers, the channel code, the bank patch and the interrupt handling (§14). Tier 4: the
+calibration, TX-filter, PHY-init, RF-init, RT-layer and transport routines of `wl_rf_common.a`
+and `wl_wifi_sta.a` and the clock, delay, CRC and power routines of the cpu library were re-read
+for the claims listed in the private evidence record; every fact added in this pass carries
+[M:s] with the library named, or a higher tag.
+
+**Source search record for the 2026-11-05 reader pass 3 (Phase D).** Tier 1: the published
+`apps/common/net/assign_macaddr.c` (two variants of the address generator, L273-L310 and
+L314-L339), the published profile string `MacAddress=00:00:00:00:00:00` in `wifi_conf.c` (L396,
+L530), `include_lib/net/wifi/wifi_connect.h` (events L71-L113, API L170-L397),
+`include_lib/net/wireless_ext/wpa_supplicant_event.h` (L5-L12) and `wifi_ext.h` (L10, L16),
+`include_lib/driver/cpu/wl82/asm/cpu.h` (address map L45-L53, cache wait L65-L66), `cache.h`
+(L22-L32), `csfr.h` (L41, L105-L115), the linker scripts `cpu/wl82/sdk_ld_sfc.c` and
+`sdk_ld_sdram.c`; the IEEE OUI registry (lookup of `D8:C8:0C` through macvendors.com on
+2026-11-05: Tuya Smart Inc.). Tier 2: `rt2800.h` (station, key, IV/EIV, attribute and shared-key
+tables at `0x1800`/`0x4000`/`0x6000`/`0x6800`/`0x6C00`/`0x7000` with their field masks, TX_RTY_CFG,
+TX_STA_FIFO, BCN_TIME_CFG, EDCA, protection, fallback, MAX_LEN_CFG, RX_PARSER_CFG) and
+`rt2800lib.c` (the station-table, key-table, interface-address, TX-status and ERP routines) as the
+public meaning of the same registers. Tier 3: the vendor captures of 2026-11-02 (`0x31008`/`0x3100C`,
+`0x31408`, `0x31718`, `0x31400` while associated), the V1 capture of 2026-11-04, the oracle build's
+symbol table (buffer addresses), and the implementer's 2026-11-05 observations (ring, sweep, the
+response timing). Tier 4: the station library's control, synchronisation, authentication,
+association, link-up/link-down, ASIC-helper, management-transmit, counter, periodic-task,
+control-interface and key routines, the supplicant archive's driver glue, 4-way-handshake and
+key-install routines, and the transport library's WDMA and staging routines were read for the
+claims listed in the private evidence record; no published document describes the station-table
+and key-table usage, the join-time writes or the hand-off, so the exemption was used for those.
+Every fact carries [M:s] with the library named, or a higher tag.
+
 ---
 
 ## 1. Overview
@@ -248,7 +386,9 @@ community firmware has ever enabled Wi-Fi data transfer.
 
 ## 2. GPL / open-source driver status
 
-**No GPL-compatible Wi-Fi driver exists for the AC791N.**
+**No GPL-compatible Wi-Fi driver existed for the AC791N before this project.** Status
+2026-11-04: the GPL-3.0 driver written from this sheet transmits and receives on the FM-1 (a
+13-channel scan lists 16 networks) [M:hw 12o]; on 2026-11-05 it reached the authentication step with no unicast frame acknowledged yet (§7.13.4); the paragraphs below describe the starting point.
 
 ### JieLi SDK (binary-only)
 
@@ -274,15 +414,22 @@ BLE link layer.
 
 ### Permitted open-source references
 
-The implementers may use the following open-source codebases as architectural references. These are **not** JieLi code
-and do not require clean-room treatment:
+The implementers may use the following references (revised 2026-11-04; `CLEAN_ROOM_METHODOLOGY.md` keeps the
+same list). Nothing else that touches this hardware is permitted: not the vendor's pre-compiled
+libraries, not any reader-side material (the reader's private store), not the stale copy
+`docs/hardware/WIFI.md`, and not third-party code written from the vendor libraries (see
+`CLEAN_ROOM_METHODOLOGY.md`, "fm1-base").
 
-| Reference                                                   | License    | Use for                                            |
-|-------------------------------------------------------------|------------|----------------------------------------------------|
-| Ralink RT2x00 (Linux `drivers/net/wireless/ralink/rt2x00/`) | GPL-2.0+   | MAC frame handling, STA state machine architecture |
-| wpa_supplicant / hostapd (hostap.w1.fi)                     | BSD        | WPA2-PSK, 4-way handshake, CCMP, EAPOL             |
-| lwIP 2.x (savannah.nongnu.org)                              | BSD        | TCP/IP stack, netif driver pattern                 |
-| ESP-IDF WiFi (github.com/espressif)                         | Apache 2.0 | STA state machine patterns, WiFi API surface       |
+| Reference | Licence | Use for | Tag |
+|-----------|---------|---------|-----|
+| Linux `drivers/net/wireless/ralink/rt2x00/` (`rt2800.h`, `rt2800usb.h`, `rt2800lib.c`, `rt2800mmio.h`), pinned by kernel version where cited | GPL-2.0+ | MAC register names and bit layouts, TXWI/RXWI/TXINFO/RXINFO, EDCA packing, STA state machine patterns | IP:RT2x00 |
+| Ralink RT5350 datasheet §3.20 (public) | published | MAC register semantics of the RT2800 ancestor | IP:RT2x00 |
+| wpa_supplicant / hostapd (w1.fi) | BSD-3-Clause | WPA2-PSK, 4-way handshake, CCMP, EAPOL | OSS |
+| lwIP 2.x (savannah.nongnu.org) | BSD-3-Clause | TCP/IP stack, netif driver pattern | OSS |
+| ESP-IDF WiFi (github.com/espressif) | Apache-2.0 | STA state machine patterns, API surface | OSS |
+| JieLi SDK published sources listed in §0 ("Published-source record") | Apache-2.0 | RF-die LUT data, CCA tunables, default trim bytes, record ids, register block names, IRQ index, profile defaults | PUB |
+| Optimist `firmware/upstream/optimist/docs/BLE-HW-FACTS.md` and this repository's `firmware/hal/fm1_ble_rf.h` with its capture tables | GPL-3.0 / MIT | the shared RF analog bring-up replay and the BLE-side facts | OSS |
+| IEEE 802.11-2020, IEEE 802.11i, FIPS 197, FIPS 180-4, RFC 2104, RFC 2898 | standards | frame formats, crypto | standard |
 
 ---
 
@@ -520,8 +667,9 @@ wl_wifi_sta.a]. Phase C runs in the scan context after a scan request. "MAC+x" =
 BBP writes use the port protocol of §6.2 (busy poll before each write). Window entries are written
 as §6.2 describes (entry index, data, commit 1).
 
-Column **GPL**: what the GPL driver in this tree currently does for that step, read from its
-source and its replayed stock-BLE capture on 2026-11-04 [I for the comparison]: **same**; **diff
+Column **GPL**: what the GPL driver at commit 76da132d (2026-11-04, iteration 12p) does for that
+step, read from its source and its replayed stock-BLE capture [I for the comparison; refreshed in
+reader pass 2]: **same**; **diff
 value**; **diff order**; **missing**; **extra** (GPL writes something the vendor does not);
 **replay** (only the captured stock-BLE bytecode does it, before the GPL driver's own re-inits).
 
@@ -529,37 +677,37 @@ value**; **diff order**; **missing**; **extra** (GPL writes something the vendor
 
 | # | Register | Value / operation | Delay / poll | Condition | GPL |
 |---|----------|-------------------|--------------|-----------|-----|
-| A0 | `0x10010` SYS_CLK2 | [11:10] = 01 (UART clock), bit 16 cleared, [3:2] cleared. No other SYS_CLK1/SYS_CLK2 bit is written by radio code; the vendor unit's bit 16 = 1 is set outside the analysed libraries | | boot | extra: GPL also sets SYS_CLK2 b8 then b10 and SYS_CLK1 b12, later cleared |
+| A0 | `0x10010` SYS_CLK2 | [11:10] = 01 (UART clock), bit 16 cleared, [3:2] cleared. No other SYS_CLK1/SYS_CLK2 bit is written by radio code; the vendor unit's bit 16 = 1 is set outside the analysed libraries | | boot | extra: GPL sets SYS_CLK2 b8 (then clears it and sets b10) and SYS_CLK1 b12 (later cleared); bit 16 and [3:2] are not cleared |
 
 **Phase A: shared radio front end (once per power-up)**
 
 | # | Register | Value / operation | Delay / poll | Condition | GPL |
 |---|----------|-------------------|--------------|-----------|-----|
-| A1 | `0x10010` SYS_CLK2 | [15:14] = 0: radio clock source = PLL (3 = disabled, used only by BT stop) | | first front-end init | same (replay) |
-| A2 | `0x14040`, `0x14044`, `0x14048`, `0x1404C`, `0x14050` | = 0 each, in that order (WiFi interrupt masked) | | | same (replay) |
-| A3 | `0x14040` WF_CON0 | `\|= 0x100`; `\|= 0x40`; `\|= 0x01`; 1 µs; `\|= 0x04`; 1 µs; `\|= 0x08`; 1 µs; `\|= 0x02`; 50 µs. Final `0x14F` | 1, 1, 1, 50 µs | | same final value (replay) |
-| A4 | `0x1405C` WF_CON7 | six read-modify-writes: [7:0] = 5; [15:8] = 0; [23:16] = 0; `\|= 0x07000000`; `\|= 0x40000000`; bit 31 cleared. Result `0x47000005` | none | | same (replay, and a later direct write of `0x47000005`) |
+| A1 | `0x10010` SYS_CLK2 | [15:14] = 0: radio clock source = PLL (3 = disabled, used only by BT stop) | | first front-end init | replay only (the GPL's own write is unreachable code) |
+| A2 | `0x14040`, `0x14044`, `0x14048`, `0x1404C`, `0x14050` | = 0 each, in that order (WiFi interrupt masked) | | | replay only |
+| A3 | `0x14040` WF_CON0 | `\|= 0x100`; `\|= 0x40`; `\|= 0x01`; 1 µs; `\|= 0x04`; 1 µs; `\|= 0x08`; 1 µs; `\|= 0x02`; 50 µs. Final `0x14F` | 1, 1, 1, 50 µs | | replay only |
+| A4 | `0x1405C` WF_CON7 | six read-modify-writes: [7:0] = 5; [15:8] = 0; [23:16] = 0; `\|= 0x07000000`; `\|= 0x40000000`; bit 31 cleared. Result `0x47000005` | none | | replay only (the direct write of `0x47000005` is unreachable code) |
 | A5 | `0x1404C` WF_CON3 | `\|=` bit 24 (WDMA clock) | | | same |
-| A6 | `0x30F04` WDMA_CTL | nine separate read-modify-writes in this order: `\|= 0x800`, `\|= 0x400`, `\|= 0x200`, `\|= 0x20`, `\|= 0x10`, `&= ~0x8`, `\|= 0x4`, `\|= 0x2`, `\|= 0x1`. Bit 16 is never written | none | | diff value and diff order: one write of `0x00010E37` (also sets read-only bit 16) after the GPL's own MAC reset |
-| A7 | `0x30F00` WDMA_CFG0 | nine read-modify-writes: `\|= 0x400`, `&= ~0x200`, `&= ~0x100`, [7:5] = 3, `&= ~0x10`, `\|= 0x8`, `\|= 0x4`, `\|= 0x2`, `\|= 0x1` (written `0x46F`, reads `0x467`) | none | | same final value, diff order (after the GPL MAC reset) |
+| A6 | `0x30F04` WDMA_CTL | nine separate read-modify-writes in this order: `\|= 0x800`, `\|= 0x400`, `\|= 0x200`, `\|= 0x20`, `\|= 0x10`, `&= ~0x8`, `\|= 0x4`, `\|= 0x2`, `\|= 0x1`. Bit 16 is never written | none | | diff value and diff order: one write of `0x00010E37` (sets read-only bit 16) after the GPL's own MAC reset |
+| A7 | `0x30F00` WDMA_CFG0 | nine read-modify-writes: `\|= 0x400`, `&= ~0x200`, `&= ~0x100`, [7:5] = 3, `&= ~0x10`, `\|= 0x8`, `\|= 0x4`, `\|= 0x2`, `\|= 0x1` (written `0x46F`, reads `0x467`) | none | | same final value, diff order: one write of `0x46F` after the GPL MAC reset |
 | A8 | PA1/PA2 direction and output, `0x14008` `\|= 0x103` | external-PA option | | board option; **not configured on the FM-1** | same (not written) |
-| A9 | MAC+`0x1004` MAC_SYS_CTRL; MAC+`0x30C` | MAC_SYS_CTRL = 3; MAC+`0x30C` = `0x1E`; MAC+`0x30C` = 0 (reset pulse of bits [4:1]) | none | | replay; GPL later adds MAC_SYS_CTRL `\|= 3`, 10 µs, **= 0** (extra: the vendor never writes 0 on the start path) |
-| A10 | MAC_SYS_CTRL; BBP R22, R21, R21, R25 | MAC_SYS_CTRL = `0xC`; R22 = 0; R21 = `0x31`; R21 = `0x30` (BBP reset pulse on bit 0); R25 = 0 | BBP busy poll | | same |
+| A9 | MAC+`0x1004` MAC_SYS_CTRL; MAC+`0x30C` | MAC_SYS_CTRL = 3; MAC+`0x30C` = `0x1E`; MAC+`0x30C` = 0 (reset pulse of bits [4:1]) | none | | same inside its PHY init; **extra**: a separate reset `\|= 3`, 10 µs, `= 0` before it, and MAC_SYS_CTRL = `0xC` repeatedly during calibration |
+| A10 | MAC_SYS_CTRL; BBP R22, R21, R21, R25 | MAC_SYS_CTRL = `0xC`; R22 = 0; R21 = `0x31`; R21 = `0x30` (BBP reset pulse on bit 0); R25 = 0 | BBP busy poll | | same (the calibration also writes R25 = `0x18`) |
 | A11 | MAC+`0x1104`, `0x1100`, `0x1330`, `0x1334`, `0x1338`, `0x1348` | `0x00140314`, `0x33A40C0B`, `0x00040804`, `0x000C0808`, `0x000C0104`, `0x000F1290` (in that order) | | | same |
 | A12 | MAC+`0x308` | `0x9407` | | | same |
-| A13 | repeat A9, A10 | | | | replay |
-| A14 | window D (TX back end), mode-0 set | D[`0x4D`] = 1, D[`0x4E`] = 1, D[`0x4F`] = 0, then 15 coefficient writes in D[`0x29`..`0x4B`]; the PHY init (A15) overwrites every coefficient, only the three tap counts survive | | | diff value: GPL writes D[`0x29`..`0x2C`] = `6C 01 02 02`, D[`0x31`] = 3, D[`0x4D`] = D[`0x4E`] = `0x0F`, D[`0x4F`] = 0 *after* its PHY init, so mode-0 coefficients and tap counts 15 remain in its final state |
-| A15 | PHY init #1 | the sequence of §6.6 (resets, timing registers, MAC+`0x308`, AGC RAM, windows C, D', C', D, fix-ups, R106 = 4, R84 = 2, final PHY reset) | BBP busy poll only | | replay; GPL's own single PHY init runs later (same tables; R84/R106 after the final reset: diff order, values persist) |
-| A16 | RF transceiver init and calibration | crystal word `0x11930` (type [27:23] = `0x0B` for 24 MHz, caps from VM 106); `0x11950` = 0; constant analog block; RF mode off; PLL restart; PLL bank scan and 48-entry bank-limit table (§5.2); PLL for 2442 MHz with 24 MHz values (N = 101, fraction `0xC00000`, `0x11954` = `0x02822520`); PLL restart; loop pulse; calibration: quick path from VM 187 when its CRC is valid, else full trim (§10.1); RF mode RX; PA fields from VM 107 | PLL restart 5/5/100 µs; loop pulse 80 µs | 24 MHz crystal (`PLL_CON0` [27:26] != 2) | **diff value**: GPL switches to 40 MHz crystal type (`0x1A`) and 40 MHz PLL words (N = 40, `0x11954` = `0x000A2500`) for its calibration, always runs a full trim, never builds the bank-limit table (own bisection), then forces 15 RF registers to the vendor read-backs |
-| A17 | PHY init #2 | byte-identical to A15 | | | **diff order**: GPL's only own PHY init runs after A20/A21 |
-| A18 | window D (TX back end), mode-1 set | 57 writes: D[`0x4D`] = D[`0x4E`] = 15, D[`0x4F`] = 0; coefficient groups in D[`0x26`..`0x4C`]; per-rate gains D[`0x0B`, `0x0D`, `0x0F`, `0x11`, `0x13`] = `0x20`, D[`0x15`] = `0x2B`, D[`0x17`] = `0x26`, D[`0x19`] = D[`0x1B`] = `0x20`, D[`0x1D`] = `0x2B`, D[`0x1F`] = `0x26`, D[`0x21`] = `0x20`; D[`0x23`] = `0x23`, D[`0x24`] = `0x32`, D[`0x25`] = 0 | | | **missing** (only in the replay, then overwritten) |
-| A19 | RAPP (TX soft compression, window D) | mode off; 128-entry curve load; thresholds and powers; mode 2 (§6.9) | | | **diff value**: GPL loads a rising 0, 2 .. 254 ramp and writes the thresholds to D[`0x56`..`0x59`] |
-| A20 | RF-die LUT load | bridge reset and sync; 256 entries x 2 words with patches: FEQ entries 0-127 word 1 `\|=` bank << 9 from the bank-limit table; AGC entries 128-223 word 0 RX DC; APC entries 224-255 PA fields; then six writes of 0 and one of `0x10000` to `0x14028` (§5.1) | SPI busy poll per word | | **diff value**: FEQ bank field left 0 in all 128 entries; AGC DC from the GPL's own (40 MHz) trim; **diff order**: before the GPL's MAC/PHY reset and PHY init |
-| A21 | RF auto control | `0x11950` built bit by bit to `0x57BFFFDC`; `0x11938` b26 = b27 = 1; `0x11924` b5..b8 = 1; `0x11964` [31:29] = 1 then [28:24] = `0x1B`; `0x1405C` `\|= 0x07000000`, `\|= 0x40000000`, bit 31 cleared (§11.2.11) | none | | same final values (forced), **diff order**: followed in the GPL by a MAC/PHY reset pulse and a PHY init; the vendor performs no reset after this step |
+| A13 | repeat A9, A10 | | | | replay only |
+| A14 | window D (TX back end), mode-0 set | D[`0x4D`] = 1, D[`0x4E`] = 1, D[`0x4F`] = 0, then 15 coefficient writes in D[`0x29`..`0x4B`]; the PHY init (A15) overwrites every coefficient, only the three tap counts survive | | | diff value and position: D[`0x29`..`0x2C`] = `6C 01 02 02`, D[`0x31`] = 3, D[`0x4D`] = D[`0x4E`] = `0x0F`, D[`0x4F`] = 0 inside its PHY init; no mode-0 set |
+| A15 | PHY init #1 | the sequence of §6.6 (resets, timing registers, MAC+`0x308`, AGC RAM, windows C, D', C', D, fix-ups, R106 = 4, R84 = 2, final PHY reset) | BBP busy poll only | | diff order: one own PHY init (R84/R106 after the final reset; D' ascending without the second D'[`0x18`] write; fix-ups folded into the tables) |
+| A16 | RF transceiver init and calibration | crystal word `0x11930` (type [27:23] = `0x0B` for 24 MHz, caps from VM 106); `0x11950` = 0; constant analog block; RF mode off; PLL restart; PLL bank scan and 48-entry bank-limit table (§5.2); PLL for 2442 MHz with 24 MHz values (N = 101, fraction `0xC00000`, `0x11954` = `0x02822520`); PLL restart; loop pulse; calibration: quick path from VM 187 when its CRC is valid, else full trim (§10.1); RF mode RX; PA fields from VM 107 | PLL restart 5/5/100 µs; loop pulse 80 µs | 24 MHz crystal (`PLL_CON0` [27:26] != 2) | **diff value**: calibrates with the 40 MHz crystal type and PLL words, always a full trim (no quick path), then forces fifteen RF registers to the vendor read-backs (§11.2.9 marks the unit-specific ones); the bank-limit scan runs (24 MHz words, control loops off) but the forced `0x11938` word overwrites the scanned bank outside the LUT; no PA fields from record 107 (the forced values win); no loop pulse |
+| A17 | PHY init #2 | byte-identical to A15 | | | diff order: the own PHY init runs after LUT load + auto control #1; the MAC init sits between the PHY init and LUT load + auto control #2 |
+| A18 | window D (TX back end), mode-1 set | 57 writes: D[`0x4D`] = D[`0x4E`] = 15, D[`0x4F`] = 0; coefficient groups in D[`0x26`..`0x4C`]; per-rate gains D[`0x0B`, `0x0D`, `0x0F`, `0x11`, `0x13`] = `0x20`, D[`0x15`] = `0x2B`, D[`0x17`] = `0x26`, D[`0x19`] = D[`0x1B`] = `0x20`, D[`0x1D`] = `0x2B`, D[`0x1F`] = `0x26`, D[`0x21`] = `0x20`; D[`0x23`] = `0x23`, D[`0x24`] = `0x32`, D[`0x25`] = 0 | | | **missing** (D[`0x23`] stays 3) |
+| A19 | RAPP (TX soft compression, window D) | mode off; 128-entry curve load; thresholds and powers; mode 2 (§6.9) | | | **diff value**: rising ramp 0..254, write-disable polarity inverted, thresholds written to D[`0x56`..`0x59`], no mode 0 before the load, no power words |
+| A20 | RF-die LUT load | bridge reset and sync; 256 entries x 2 words with patches: FEQ entries 0-127 word 1 `\|=` bank << 9 from the bank-limit table; AGC entries 128-223 word 0 RX DC; APC entries 224-255 PA fields; then six writes of 0 and one of `0x10000` to `0x14028` (§5.1) | SPI busy poll per word | | same patches (FEQ bank from the scan, AGC DC from the own trim, APC from record 107 or the published default); runs twice, the second after all resets |
+| A21 | RF auto control | `0x11950` built bit by bit to `0x57BFFFDC`; `0x11938` b26 = b27 = 1; `0x11924` b5..b8 = 1; `0x11964` [31:29] = 1 then [28:24] = `0x1B`; `0x1405C` `\|= 0x07000000`, `\|= 0x40000000`, bit 31 cleared (§11.2.11) | none | | same final values (forced); bit 31 of `0x1405C` not cleared; runs twice, the second after all resets |
 | A22 | `0x1405C` [23:16] | = 6 (TX power level) | | | replay only |
-| A23 | `0x1405C` [7:0] | = 6 + 101 = `0x6B` (channel 6) → `0x4706006B` | | | replay only; never rewritten by the GPL after its resets and channel switches |
-| A24 | window D per-rate gains | defaults of A18, then every non-zero byte of VM 108 overrides its entry | | VM 108 present | same |
-| A25 | (software snapshot of `0x1191C`, `0x11920`) | no register write | | | n/a |
+| A23 | `0x1405C` [7:0] | = 6 + 101 = `0x6B` (channel 6) → `0x4706006B` | | | n/a: [7:0] is written per channel (C1) |
+| A24 | window D per-rate gains | defaults of A18, then every non-zero byte of VM 108 overrides its entry | | VM 108 present | missing (the replay's values are overwritten by the own PHY init) |
+| A25 | (software snapshot of `0x1191C`, `0x11920`) | no register write | | | same |
 
 No delay follows A21-A24 [M:s]. Phase A writes nothing to `0x14000`, `0x14004`, `0x14054`,
 `0x14058`, `0x14060`, MAC+`0x1200`, MAC+`0x1328` or MAC+`0x132C` [M:s].
@@ -568,20 +716,20 @@ No delay follows A21-A24 [M:s]. Phase A writes nothing to `0x14000`, `0x14004`, 
 
 | # | Register | Value / operation | Delay / poll | Condition | GPL |
 |---|----------|-------------------|--------------|-----------|-----|
-| B1 | `0x14000` `\|= 3`, arbiter through `0x14004` | coexistence start | | **only if BT already did the front end**; not on a WiFi-only start | extra: GPL writes `0x14000` = `0xFFFF` (holds the block) and later 0 |
-| B2 | MAC configuration table, 22 writes in this order | MAC+`0x42C` = `0xF8F0E8E0`, `0x430` = `0x6F77D0C8`, `0x1408` = `0x13F`, `0x140C` = `0x8003`, `0x1400` = `0x17F97`, `0x1350` = `0x1020`, `0x1018` = `0x1F00`, `0x40C` = `0x1F3FBF9F`, `0x134C` = `0x47D01F0F`, `0x1404` = `0x13`, `0x1364` = `0x05740003`, `0x1368` = `0x05740003`, `0x408` = `0x00F40006`, `0x1370` = `0x03F44084`, `0x1374` = `0x01744004`, `0x1378` = `0x03F44084`, `0x136C` = `0x01744004`, `0x1340` = `0x583F`, `0x1344` = `0x00092B20`, `0x1380` = `0x002400CA`, `0x1608` = 2, `0x1204` = 3 | | | diff value in several (GPL uses post-association values for `0x1350`, the protection registers and `0x1018`; `0x1408` = `0x15F`); extra: GPL writes MAC+`0x1200` = `0x00030601` and MAC+`0x137C` |
-| B3 | MAC+`0x1800` + 8i, i = 0..253 (WCID table) | each entry bytes `FF FF FF FF FF FF FF 00` (words `0xFFFFFFFF`, `0x00FFFFFF`) | | | **missing** |
-| B4 | MAC+`0x1700`..`0x1714` | read (read-to-clear counters) | | | same |
-| B5 | MAC+`0x7000`..`0x700C`; MAC+`0x6800` + 4i, i = 0..255 | 0 each; 1 each (shared-key mode; WCID attributes) | | hard-reset path (taken at first start) | **missing** |
+| B1 | `0x14000` `\|= 3`, arbiter through `0x14004` | coexistence start | | **only if BT already did the front end**; not on a WiFi-only start | same: no write to `0x14000` on the boot path (12p); the debug probe may write 0 on host request |
+| B2 | MAC configuration table, 22 writes in this order | MAC+`0x42C` = `0xF8F0E8E0`, `0x430` = `0x6F77D0C8`, `0x1408` = `0x13F`, `0x140C` = `0x8003`, `0x1400` = `0x17F97`, `0x1350` = `0x1020`, `0x1018` = `0x1F00`, `0x40C` = `0x1F3FBF9F`, `0x134C` = `0x47D01F0F`, `0x1404` = `0x13`, `0x1364` = `0x05740003`, `0x1368` = `0x05740003`, `0x408` = `0x00F40006`, `0x1370` = `0x03F44084`, `0x1374` = `0x01744004`, `0x1378` = `0x03F44084`, `0x136C` = `0x01744004`, `0x1340` = `0x583F`, `0x1344` = `0x00092B20`, `0x1380` = `0x002400CA`, `0x1608` = 2, `0x1204` = 3 | | | diff value in `0x1408` (`0x15F`), `0x1400` (`0x1BF93`), `0x1350` (`0x007F1020`), `0x1018` (`0x000A3FFF`), the protection set (association values); **extra**: `0x1200` = `0x00030601`, `0x137C` = `0x0038013A`; RX filter written first |
+| B3 | MAC+`0x1800` + 8i, i = 0..253 (WCID table) | each entry bytes `FF FF FF FF FF FF FF 00` (words `0xFFFFFFFF`, `0x00FFFFFF`); entries 254 and 255 are never written, and WCID `0xFF` is never used as a table index by the vendor (only as the "no station" marker in TXWI word 1) [M:s] (§7.13.2: every management frame, including the acknowledged unicast ones, carries it) | | | **missing** |
+| B4 | MAC+`0x1700`..`0x1714` | read (read-to-clear counters) | | | same (once) |
+| B5 | MAC+`0x7000`..`0x700C`; MAC+`0x6800` + 4i, i = 0..255 | 0 each (SHARED_KEY_MODE); 1 each (attribute: pairwise-key table selected, no cipher; §7.13.3) | | hard-reset path (taken at first start) | **missing** |
 | B6 | MAC+`0x1114` BCN_TIME_CFG | `&= ~0x001F0000` (TSF/beacon sync off) | | | **missing** |
-| B7 | MAC+`0x1700`..`0x1714`; MAC+`0x1340` | read again; `0x583F` | | | same |
+| B7 | MAC+`0x1700`..`0x1714`; MAC+`0x1340` | read again; `0x583F` | | | diff: no second read; `0x1340` written once |
 | B8 | MAC+`0x1008`, `0x100C` | MAC address; `0x100C` [23:16] = `0xFF` | | | same |
-| B9 | MAC+`0x1300`..`0x130C` EDCA; MAC+`0x132C` bit 0 | AC1 = `0x000A4200`; AC0/AC2/AC3 are computed from default parameters (`0xA4200`, `0xA4260`, `0xA4230` per the reader's notes, not re-verified [I]); bit 0 only for 40 MHz operation | | | diff value (GPL uses association-time values; effect on scanning not expected [I]) |
-| B10 | delay | 10 ms | 10 ms | | n/a |
-| B11 | first receive buffer posted → `0x14050` `\|= 1` | WiFi interrupt unmasked | | | same final state (GPL sets b0 once) |
-| B12 | MAC+`0x1400` RX_FILTER_CFG | `0x17F97` | | station mode | diff value (GPL `0x1BF93`: DROP_UC_NOME and DROP_BA clear, DROP_BAR set) |
-| B13 | MAC+`0x328`; interrupt 52 | MAC+`0x328` = 0; interrupt 52 registered (priority argument 2, CPU argument 1, i.e. core 1 [I]); MAC+`0x328` = 2 | | interrupt-driven receive | same register values; the GPL's handler also reads and writes MAC+`0x328`, the vendor's handler never touches the MAC |
-| B14 | MAC_SYS_CTRL | **no write**: stays `0xC` from the final PHY reset of A17 | | | extra: GPL writes 0, then 4, 50 µs, then `0xC` |
+| B9 | MAC+`0x1300`..`0x130C` EDCA; MAC+`0x132C` bit 0 | the WMM default set written by the HT setup (§7.10): AC0 MAC+`0x1300` = `0x64300`, AC1 = `0xA4700`, AC2 = `0x43538`, AC3 = `0x3212F` [M:s wl_wifi_sta.a]; MAC+`0x132C` bit 0 only with the 40 MHz option (the published profile has it off: not written) | | | diff value: `0xA4300`, `0xA4700`, `0x43538`, `0x3222F` (association-time values) |
+| B10 | delay | 10 ms | 10 ms | | missing (50 µs between MAC_SYS_CTRL 4 and `0xC`) |
+| B11 | first receive buffer posted → `0x14050` `\|= 1` | WiFi interrupt unmasked | | | same value; set after the IRQ attach and MAC+`0x328`; re-opened after every receive drain |
+| B12 | MAC+`0x1400` RX_FILTER_CFG | `0x17F97` (the station arm; the AP arm writes `0x15F97`; the operation-mode byte is set to station at module init, and B2 already wrote the same value) [M:s] | | station mode | diff value (`0x1BF93`; `0x1BF9F` after association) |
+| B13 | MAC+`0x328`; interrupt 52 | MAC+`0x328` = 0; interrupt 52 registered (priority argument 2, CPU argument 1, i.e. core 1 [I]); MAC+`0x328` = 2 | | interrupt-driven receive | same values; the line is attached before MAC+`0x328` = 0/2 and without a CPU selection; handler as the vendor (12o); extra MAC+`0x324` = 2 before each RX DMA as §7.11.6 |
+| B14 | MAC_SYS_CTRL | **no write**: stays `0xC` from the final PHY reset of A17 | | | extra: 0, table, 4, 50 µs, `0xC` |
 
 The order B11 before B13 means the interrupt mask is opened before interrupt 52 is registered
 [M:s]; harmless because nothing is pending [I].
@@ -590,21 +738,79 @@ The order B11 before B13 means the interrupt mask is opened before interrupt 52 
 
 | # | Register | Value / operation | Delay / poll | Condition | GPL |
 |---|----------|-------------------|--------------|-----------|-----|
-| C1 | `0x1405C` [7:0] | = channel + 101, one read-modify-write; no PLL, LUT or BBP access, no delay | | channel in the driver's channel list | **missing**; instead GPL writes BBP R94 = 17, `0x1193C` [12:5] = f − 2320, pulses `0x11934` b24, writes **BBP R106 = channel** and R94 = 26 (all extra; the vendor never writes R94 and keeps R106 = 4) |
-| C2 | MAC+`0x132C` TX_BAND_CFG | `(v & ~0x6) \| 0x4` for channels below 15 (`\| 0x2` otherwise) | | | **missing** |
-| C3 | MAC+`0x1328` TX_PIN_CFG | `0x00050302` (from the board's 1T1R antenna configuration). The first write of this register happens here, before the first probe request | | | **missing** (never written, never compared on hardware) |
+| C1 | `0x1405C` [7:0] | = channel + 101, one read-modify-write; no PLL, LUT or BBP access, no delay | | channel in the driver's channel list | same (one read-modify-write; no BBP or PLL write) |
+| C2 | MAC+`0x132C` TX_BAND_CFG | `(v & ~0x6) \| 0x4` for channels below 15 (`\| 0x2` otherwise) | | | same |
+| C3 | MAC+`0x1328` TX_PIN_CFG | `0x00050302`: a plain write of the 2.4 GHz base value `0x00050F02` (one TX path) masked with `0x0005030A` (one RX path), from the 1T1R antenna configuration; the first write of this register happens here, before the first probe request [M:s] | | | same |
 | C4 | (AGC initial value through the RT2800 BBP path) | dropped by the vendor's own register filter: no hardware write | | | n/a |
-| C5 | dwell timer, then probe request built | software | 30-140 ms dwell | | n/a |
-| C6 | TX readiness gate | read MAC+`0x438` byte 2 (pages in TX queue 2) and require it below the limit (byte 1 of the value written to MAC+`0x40C`, i.e. `0xBF`) with (limit − pages) x 128 > MPDU length; read MAC+`0x434`, require bit 18 = 0; read MAC+`0x43C`, require [7:5] != 0. Otherwise wait (10 ms or yield) and retry, no bound | polled retry | | **missing** (`0x434`/`0x43C` never read) |
-| C7 | TX staging | software buffer: length word (MPDU + 22, not transferred), queue word (bit 0 = WIV, [2:1] = queue 2), TXWI, frame (§7.11.5) | | | diff value (different first DMA word) |
-| C8 | WDMA TX | `WDMA_CTL` `\|= 0x400`; barrier; `WDMA_TX_ADR` = address of the queue word; `WDMA_TX_LEN` = MPDU + 26 (bit 31 = 0); barrier; poll `WDMA_CTL` b20; `WDMA_CTL` `\|= 0x400` | b20 polled without bound | | **diff value**: GPL starts at the length word with length + 8 (12d) or at the TXWI (12c) |
+| C5 | dwell timer armed, then one probe request per channel visit (active scans only; passive channels send none) | software | 200 ms (the published tunable, infrastructure mode); 140 ms otherwise; 30 ms fast-active; 110/90 ms in dual-band modes [M:s, PUB] | | diff order: probe sent right after the switch, then a 100 ms dwell; channels 1-13 |
+| C6 | TX readiness gate | read MAC+`0x438` byte 2 (pages in TX queue 2) and require it below the limit (byte 1 of the value last written to MAC+`0x40C`: `0xBF` from the table, `0x7F` after association, §7.10) with (limit − pages) x 128 > MPDU length; read MAC+`0x434`, require bit 18 = 0; read MAC+`0x43C`, require [7:5] != 0. Otherwise retry from the first read after a 10 ms sleep, a scheduler yield or at once (a published build option; yield is the default without uCOS), without bound; every 10 s the vendor reads MAC+`0x438`, `0x40C`, `0x434`, `0x43C`, `0x1500`, `0x1504` for a diagnostic | polled retry | | same reads; bounded: up to 5 x 10 ms, then transmits anyway |
+| C7 | TX staging | software buffer: length word (MPDU + 22, not transferred), queue word (bit 0 = WIV, [2:1] = queue 2), TXWI, frame (§7.11.5) | | | same layout (software length word, queue word 5/4, TXWI, unpadded frame, 6 zero bytes); TXWI: TXOP 0, density 5, PacketId 0, ACK 0 and WCID `0xFF` for every frame |
+| C8 | WDMA TX | `WDMA_CTL` `\|= 0x400`; barrier; `WDMA_TX_ADR` = address of the queue word; `WDMA_TX_LEN` = MPDU + 26 (bit 31 = 0); barrier; poll `WDMA_CTL` b20; `WDMA_CTL` `\|= 0x400` | b20 polled without bound | | same (bit 20 poll bounded at 10 ms) |
 
-The GPL driver's actual order, for reference: replay of the stock-BLE capture (phase A
-equivalents A1-A24 with its own VCO search), 40 MHz-mode full calibration, LUT reload without
-banks, auto control, forced RF read-backs; then `WL_CON0` = `0xFFFF`, a MAC reset ending in
-MAC_SYS_CTRL = 0, WDMA single writes, PHY init (with resets), RAPP ramp, calibration values into
-windows D/D', interrupt setup, MAC configuration (MAC_SYS_CTRL 0, 4, `0xC`); scan per channel with
-the C1 alternative; TX from the length word [I, from the GPL source].
+**Phase D: join, authentication, association, link-up, keys, link-down [M:s wl_wifi_sta.a,
+hostapd_and_wpasupplicant.a; added 2026-11-05]**
+
+The 802.11 state machine (scan, join, authentication, association) runs in the station library;
+the 4-way and group handshakes and the key derivation run on the host supplicant, which drives the
+station library through a control interface and receives its events; the station library forwards
+every received EAPOL frame upward unchanged and transmits EAPOL frames handed to it as ordinary
+data frames (§7.13.5) [M:s]. Profile assumed: infrastructure station, 2.4 GHz, 20 MHz, B/G/N
+mixed, WMM access point, WPA2-PSK CCMP, TX burst off. "Slot n" = entry n of the station slot table
+MAC+`0x1800` + 8n (§7.13.2). D1-D10 run before any key exists; D11-D24 are the link-up routine
+(one task, directly after the association response); D25-D29 the EAPOL and key phase; D30-D32 the
+link-down routine. Column **GPL**: build dev-20261105T064012Z and the uncommitted tree of
+2026-11-05 [I for the comparison].
+
+| # | Register / action | Value / operation | Delay / timer | Condition | GPL |
+|---|-------------------|-------------------|---------------|-----------|-----|
+| D1 | key clearing by the host before the join: slot 1 attribute MAC+`0x6804`; SHARED_KEY_MODE MAC+`0x7000` | `0x6804` = 1 (pairwise-key table selected, no cipher); nibbles [3:0], [7:4], [11:8], [15:12] of `0x7000` cleared (read-modify-write) | | the only hardware effect of the connect request before the join; no key material is handed down | missing (tables never written: all read 0) |
+| D2 | join: channel switch to the target's channel (C1-C3: `0x1405C` [7:0], TX_BAND_CFG, TX_PIN_CFG) | as C1-C3 | beacon-wait timer **2000 ms**; no probe request at join | | same writes at connect; **diff order**: no beacon wait, the authentication request follows at once |
+| D3 | beacon of the target BSSID received (software): management rate = CCK 1 Mbps from here on (§7.11.5); channel switch repeated; MAC+`0x132C` bit 0 cleared (20 MHz) | read-modify-write of `0x132C` | beacon-wait timer cancelled | always; bit 0 set only for a 40 MHz BSS below its control channel | n/a (rate fixed at CCK 1 Mbps; bit 0 never set) |
+| D4 | MAC+`0x1010`, `0x1014` MAC_BSSID_DW0/1 | `0x1010` = BSSID bytes 0-3 (byte 0 in [7:0]); `0x1014` = bytes 4-5 in [15:0], [31:16] = 0 | | before the authentication request | same (written at connect, same packing) |
+| D5 | slot 1 = the access point: MAC+`0x1808`, `0x180C` | `0x1808` = BSSID bytes 0-3; `0x180C` = bytes 4-5 in [15:0], [31:16] = 0 | | before the authentication request | **missing** |
+| D6 | deauthentication frame to the access point, reason 3 (unicast management TXWI, §7.11.5) | | | unless a MIC-failure block flag is set; precedes every authentication request | **missing** |
+| D7 | authentication request (open system, sequence 1; header duration 304 µs; §7.11.5) | | response timer **800 ms**; on expiry a deauthentication (reason 6) is sent and the request is repeated once (open again for WPA2-PSK); after the second failure → D8 and the next entry of the scan table | | diff: one attempt, 3000 ms; TXWI diff (§7.11.5); no deauthentication on timeout |
+| D8 | failed authentication or association: slot 1 rewritten from the software entry, which is zero at that point: MAC+`0x1808` = 0; MAC+`0x180C` [15:0] = 0, [31:16] kept (read-modify-write) [M:s; I for the zero] | | | after D7's second failure, after D9's failure; also at link-down (D31) | n/a |
+| D9 | association request (capability from the beacon masked `0x0533`, listen interval, RSN element from the host supplicant; §7.11.5) | | response timer **300 ms**; one attempt per BSS; on timeout or a non-zero status → D8, next entry | | diff: resent every 500 ms within 3000 ms; TXWI diff |
+| D10 | association response status 0: software station entry (WCID 1, AID from the response); no hardware write | | | | n/a |
+| D11 | MAC+`0x1010`, `0x1014` | BSSID again (as D4) | | infrastructure | same |
+| D12 | EDCA MAC+`0x1300`-`0x130C` | from the beacon's WMM parameter set: [7:0] TXOP (32 µs units), [11:8] AIFSN, [15:12] CWmin exponent, [19:16] CWmax exponent; AC2 (`0x1308`): AIFSN forced to 5, TXOP x 6/10; no WMM: `0xA4200`, `0xA4200`, `0xA4260`, `0xA4230` (TX burst off) | | | diff order: one access point's association-time values written at init (`0xA4300`, `0xA4700`, `0x43538`, `0x3222F`) |
+| D13 | TX_RTS_CFG MAC+`0x1344`; CCK_PROT_CFG MAC+`0x1364`; OFDM_PROT_CFG MAC+`0x1368` | `0x1344` [23:8] = RTS threshold 2347 (`0x92B`; `0x1000` when A-MSDU or aggregation is on), [7:0] kept; `0x1364` = `0x1368` = `0x07F40000` (no protection, NAV short, all TXOP allowed, RTS threshold enable) | | always at link-up; later, when the beacon's ERP element asks for protection, `0x1368` = `0x07F60000` (CTS-to-self at CCK 1 Mbps) | diff order (init), same values |
+| D14 | HT protection MAC+`0x136C`, `0x1370`, `0x1374`, `0x1378` (MM20, MM40, GF20, GF40) | by the beacon's HT operation mode: mode 0 → `0x01744004`, `0x03F44084`, `0x01744004` (`0x01754004` with a non-greenfield station), `0x03F44084`; modes 1 and 3 → `0x01754004`, `0x03F54084`, `0x01754004`, `0x03F54084` (`0x01750003`/`0x03F50003` when BG protection is on); mode 2 → `0x01744004`, `0x03F54084`, `0x01744004` (`0x01754004` non-GF), `0x03F54084`; a TX block-ack session later rewrites them as mode 8 (the mode-1 values) | | HT access point | diff order and value: `0x01754004`, `0x03F54084`, `0x01754004`, `0x03F54084` at init (the mode-1 values) |
+| D15 | AUTO_RSP_CFG MAC+`0x1404` | bit 4 = 1 (short-preamble auto responses; stays `0x13`) | | access point advertises short preamble and the configured preamble is not "long" | same (`0x13` at init) |
+| D16 | BCN_TIME_CFG MAC+`0x1114` | [15:0] = beacon interval x 16 (TU/16 units), [20:16] = `0x0B` (TSF ticking, TSF sync mode 1 = station, TBTT on, beacon generation off), [31:21] kept → `0x000B0640` for 100 TU | | | **missing** (no beacon sync; TSF not ticking) |
+| D17 | LEGACY_BASIC_RATE MAC+`0x1408` | bits of the access point's basic rates (b0 1, b1 2, b2 5.5, b3 11, b4 6, b5 9, b6 12, b7 18, b8 24, b9 36, b10 48, b11 54 Mbps) with b4, b6, b8 set whenever 6/12/24 Mbps are supported at all → `0x15F` for basic 1/2/5.5/11 [M:hw 2026-11-02]; HT_BASIC_RATE unchanged (`0x8003`); the management rate stays CCK 1 Mbps | | | same value, diff order (init) |
+| D18 | fallback tables MAC+`0x1354`, `0x1358`, `0x135C`, `0x1360` | `0x65432100`, `0xEDCBA980`, `0xEDCBA988`, `0x00002100` (the one-stream rate tables leave the defaults) | | | **missing** |
+| D19 | MAX_LEN_CFG MAC+`0x1018` | `0x000A0FFF` with [13:12] (max PSDU size) = the access point's A-MPDU factor 0..3 → `0xA3FFF` on the running vendor [M:hw] | | HT access point | `0xA3FFF` at init (diff order) |
+| D20 | EDCA_AC0 MAC+`0x1300` [7:0]; PBF_MAX_PCNT MAC+`0x40C` | TXOP byte = 0 and `0x40C` = `0x1F3F7F9F` (TX burst off); `0x60` and `0x1F3FBF9F` with TX burst | | | **diff value**: `0x1F3FBF9F` stays (queue-2 page limit `0xBF`, §7.11.5) |
+| D21 | RX_PARSER_CFG MAC+`0x1418` ("set NAV for all received frames" [IP:RT2x00]) | 1 when the link is infrastructure with WMM in use and the pairwise cipher is TKIP (the library's encryption-status code 4 [M:s; I for the TKIP reading of that code]), else 0: 0 for a CCMP link | | | **missing** (reset value unknown, §16 U17) |
+| D22 | TX_LINK_CFG MAC+`0x1350` bits 12 (CF-ACK piggyback) and 11 (RDG) with EDCA_AC0 TXOP = `0x80` | only when the access point's Ralink vendor element advertises them; otherwise untouched | | not on an ordinary access point | n/a (`0x007F1020` at init; [23:16] on the running vendor is a hardware-updated feedback field [I]) |
+| D23 | slot time: **no register write**; BKOFF_SLOT_CFG stays `0x00140314` (20 µs); short slot is a software flag only | | | | same |
+| D24 | media connected (software); the 802.1X port is "not secured": non-EAPOL data is dropped both ways in software until the pairwise key is installed | | a 20 s handshake timer exists only for the library's internal supplicant, which this build does not use | WPA modes | same (software) |
+| D25 | EAPOL frames from the host supplicant (messages 2/4 and 4/4, group 2/2): data path, WCID 1, queue word 4 (WIV 0), CCK 1 Mbps, no per-frame "do not encrypt" marker; they leave in the clear because slot 1's attribute has no cipher (D1) | | | | diff: WCID `0xFF` (no station entry); otherwise the same path |
+| D26 | pairwise key install, **after** message 4/4 has been handed to the MAC (no wait for its TX status): shared-key table MAC+`0x6C00` slot (BSS 0, key 0); SHARED_KEY_MODE MAC+`0x7000`; IV/EIV MAC+`0x6008`, `0x600C`; slot 1 attribute MAC+`0x6804` | `0x6C00` + 0..15 = TK, + 16..23 = TX MIC key, + 24..31 = RX MIC key (TKIP; for CCMP the two MIC fields are written as supplied, unused), as little-endian words (§7.13.2); `0x7000` [3:0] = cipher code (4 AES, 3 TKIP); `0x6008` = `0x20000001` (extended IV, key id 0, packet number 1), `0x600C` = 0; `0x6804` = (cipher & 7) << 1 \| (cipher & 8) << 7 \| BSS 0 → `0x8` for AES, `0x6` for TKIP (bit 0 = 0: shared-key table). The pairwise-key table MAC+`0x4000` is not used | | WPA2-PSK; received sequence counters are not loaded | **missing** (software CCMP only; group key not processed) |
+| D27 | group key install: shared-key table slot (BSS 0, key id from the GTK element, 1 or 2) MAC+`0x6C00` + 32 x id; SHARED_KEY_MODE nibble [4 id + 3 : 4 id] = cipher code | no attribute, no IV/EIV write | | | **missing** |
+| D28 | port secured (software) at the pairwise install (WPA2 family); application link-up and DHCP follow; no hardware write | | | | same |
+| D29 | rekey: the same slots are overwritten in place (packet number restarts at 1); the previous group slot stays | | | | n/a |
+| D30 | station-initiated disconnect: disassociation (reason 8) then a deauthentication to the access point (unicast management TXWI) | | | | not read |
+| D31 | link-down writes, in this order: AUTO_WAKEUP_CFG MAC+`0x1208` = 0; software entry deleted and slot 1 rewritten (D8); EDCA = the no-WMM set of D12; BCN_TIME_CFG [20:16] cleared; `0x6804` = 1 and the four BSS-0 nibbles of `0x7000` cleared; `0x1350` bits 12 and 11 cleared, `0x1300` [7:0] = 0; protection `0x1364` = `0x1368` = `0x07F40000`, `0x136C`.. = the mode-0 values of D14; MAX_LEN_CFG = `0x1FFF`; then the host clears the keys again (D1) | | | every link-down (deauthentication received, beacon loss, user request) | diff: the GPL clears `0x1010`/`0x1014` and rewrites RX_FILTER_CFG, which the vendor never does at link-down |
+| D32 | RX_FILTER_CFG MAC+`0x1400`: **never written in Phase D**; stays `0x17F97` while associated [M:hw 2026-11-02] | | | | **diff value**: `0x1BF93` during the connect, `0x1BF9F` after the handshake (bit 2 "drop unicast not to me" clear throughout; bit 3 set after the handshake) |
+
+Timers of Phase D [M:s]: join beacon wait 2000 ms (D2); authentication 800 ms, two attempts (D7);
+association 300 ms, one attempt per BSS (D9); disassociation 500 ms; the 100 ms periodic task
+(§7.13.4); no timer waits for a TX status. Nothing in Phase D writes `0x14000`-`0x140FF`,
+`0x11900`-`0x1197C`, the BBP, MAC_SYS_CTRL, MAC+`0x1200` or the timing registers
+`0x1100`-`0x1107` and `0x1330`-`0x1338` [M:s].
+
+The GPL driver's actual order at commit 76da132d, for reference: record read, boot clocks, replay
+of the stock-BLE capture (phase A equivalents A1-A24 with its own VCO search), 40 MHz-mode full
+trim, forced RF read-backs, bank-limit scan (24 MHz words, control loops off), LUT load with the
+bank patch, auto control #1 and the forced words again; then system clocks, a MAC reset ending in
+MAC_SYS_CTRL = 0, WDMA single writes, one PHY init (with resets), its own TX-filter bytes and
+compression ramp, calibration values into windows D/D', interrupt setup, MAC configuration
+(MAC_SYS_CTRL 0, 4, `0xC`); then LUT load and auto control #2 after all resets; scan per channel
+with the channel code, TX_BAND_CFG and TX_PIN_CFG; TX from the queue word [I, from the GPL
+source]. No write to `0x14000` on the boot path (12p).
 
 #### 4.2.1a Superseded: clock tree init sequence (2026-10-31), kept as errata
 
@@ -793,9 +999,11 @@ Post-load reset:
 1. Write `0` to RFSPI_CTL six times (flush pipeline)
 2. Write `0x10000` to RFSPI_CTL (restore start bit)
 
-**Optional calibration patches** (not required for basic operation) [M:s]:
+**Calibration patches** [M:s] (**ERRATA 2026-11-04**: not optional; the FEQ bank patch is what
+tunes the VCO band per channel (§14 row 6), and the AGC patch carries the RX DC results of
+§10.1.10 or §10.2):
 
-When calibration data is available, some entries are patched before loading:
+Entries are patched before loading:
 
 - **AGC word 0 (entries 128-223):** base value (0x7A or 0x0A) in low 12 bits, RX DC offset
   values from the RX DC calibration (four gain groups, sign-magnitude, bit 9 = non-negative,
@@ -824,10 +1032,13 @@ change (§4.2.1 C1). The FEQ bank patch is therefore likely what sets the VCO ba
 without it every FEQ entry carries bank 0 [I]. Listed in §14.
 
 **FEQ entry meaning** [PUB table, M:s for the index rule, I for the grid]: word 1 [28:21] is the
-feedback divider (fbds = f − 2321 MHz on the 24 MHz table). Entries 0-85 form a 1 MHz grid (fbds
-80..165, 2401-2486 MHz, the BLE/BT grid); entries 100-117 are a 5 MHz series; entries 102-115 are
-the 802.11 channels 1-14 (entry = channel + 101, channel 14 at fbds 163 = 2484 MHz). Entry 5
-(2406 MHz) is the one selected during the clock bring-up.
+feedback divider code (= f_MHz − 2321 on the 24 MHz table; the same convention as the analog
+register `0x1193C` [12:5]: the bank scan starts at code 73 = 2394 MHz and init parks at 121 =
+2442 MHz [M:s]). Entries 0-85 form a 1 MHz grid (codes 80..165, 2401-2486 MHz, the BLE/BT grid);
+entries 100-117 are a 5 MHz series; entries 102-115 are the 802.11 channels 1-14 (entry = channel
++ 101, channel 14 at code 163 = 2484 MHz; the library's 40 MHz table has 156 there, and differs
+from the published table in word 0 of entries 0-127 and word 1 of entries 115 and 180-255 [M:s]).
+Entry 5 (2406 MHz) is the one selected during the clock bring-up.
 
 ### 5.2 VCO bank scan and bank-limit table [M:s wl_rf_common.a, revised 2026-11-04]
 
@@ -856,10 +1067,21 @@ Procedure (inputs: none; output: 48 limits and the bank for one divider):
    limit[47] − (j − 1). If none, the bank is limit[47] − 47.
 6. End of scan: divider = 121 (2442 MHz), bank = lookup(121), detector off; no restart.
 
-Measured for comparison: the vendor radio holds bank `0x35` at divider 121 in `0x11938` [M:hw];
-the GPL driver's own bisection found a single band and never builds the table [I, GPL source].
-The 2026-10 emulator description "binary search over 64 bands" (§11.1) does not describe this
-procedure [M:t vs M:s]; the emulator models only the comparator.
+Arithmetic [M:s]: banks are 8-bit values masked to 7 bits when written to `0x11938` [25:19], so
+bank = (top − i) mod 128; in the degenerate case (top = 15) the sweep writes banks 15..0 and then
+127..97; limit[i] is truncated to 8 bits. The comparator read is one status-port read per probe:
+`0x11968` [31:28] = 1, eight writes of 1 to `0x11978`, one write of 0, one read (no poll, no delay).
+
+Measured [M:hw]: the vendor radio holds bank 53 (`0x35`) or 52 at divider 121, varying by one
+between boots (this oracle runs the full scan at every start). The GPL driver's scan
+(12n: run after its calibration, in the 24 MHz PLL state, with `0x11950` = 0 and `0x11938` bits
+26/27 clear) found top 47, lookup(121) = 43 and limits rising 71..169; with the 40 MHz PLL words or
+with auto control armed the comparator reads flat (every reading "below", limits at the sweep
+ceiling, top 15) [M:hw 12m]. With the 12n table in the LUT the receiver decodes on every channel
+[M:hw 12o]. The 10-bank difference to the vendor is unexplained (the vendor scans before its
+calibration in RF mode 5 with every path enable off; §16 U11) [I]. The 2026-10 emulator
+description "binary search over 64 bands" (§11.1) does not describe this procedure [M:t vs M:s];
+the emulator models only the comparator.
 
 ---
 
@@ -984,8 +1206,9 @@ core-fm1 (R2, R5, R6, R7, R10, R13, R14, R15, R16, R20) are therefore outcomes o
 baseband, not missing writes [I]. The core-fm1 R106 value 1 measured in 12h is the GPL's per-channel
 write (§4.2.1 C1) [M:hw, I].
 
-**GPL extras** (from the GPL source, 2026-11-04) [I]: R94 = 17 / 26 and R106 = channel at every
-channel switch; neither exists in the vendor.
+**GPL extras** (from the GPL source, 2026-11-04 morning) [I]: R94 = 17 / 26 and R106 = channel at
+every channel switch; neither exists in the vendor. Removed at commit 76da132d (12l): the GPL now
+writes no BBP register on a channel change [I, GPL source].
 
 ### 6.5 Boot transaction counts
 
@@ -1042,9 +1265,12 @@ C[`0x55`] = low and high byte of the 16-bit two's complement value 8i − 80; C[
 **Runtime AGC maximum gain** (in the receive path, only after a scan or connect has named a target
 access point): for each received frame whose transmitter address equals the target, the RSSI0
 byte of the RXWI selects a value for C[`0x2C`]: RSSI0 > −36: 34; > −46: 43; > −60: 51; > −76: 57;
-otherwise 66. The entry is written only when the value changes. An idle period (no frame within
-the receive wake interval: 11 OS ticks, about 110 ms with a 10 ms tick [I]) applies the "−76 or below" value 66, which equals the PHY-init
-final value [M:s]. Nothing is written before a target is named, so no runtime AGC write happens
+otherwise 66. The entry is written only when the value changes. The five bucket values were
+re-verified in pass 2 [M:s]. An idle rule applies the "−76 or below" value 66 (the PHY-init final
+value) when no frame from the target has arrived for interval x 110 ms (interval 2 by default,
+settable as max(1, ms / 100)), or on every interval-th empty receive wake; the adjustment is on by
+default and the first comparison value is 66, so nothing is written until a frame changes it
+[M:s; **ERRATA 2026-11-04**: not "11 ticks"]. Nothing is written before a target is named, so no runtime AGC write happens
 before the first scan result.
 
 ### 6.8 Per-channel behaviour [M:s wl_rf_common.a, wl_wifi_sta.a, 2026-11-04]
@@ -1063,8 +1289,49 @@ D[`0x4E`] = 15, D[`0x4F`] = 0; coefficient groups in D[`0x26`]..D[`0x4C`]; per-r
 odd entries D[`0x0B`]..D[`0x21`] = `20 20 20 20 20 2B 26 20 20 2B 26 20`; D[`0x23`] = `0x23`,
 D[`0x24`] = `0x32`, D[`0x25`] = 0. Mode 0 (before PHY init #1) writes D[`0x4D`] = 1, D[`0x4E`] = 1,
 D[`0x4F`] = 0 and 15 coefficients in D[`0x29`]..D[`0x4B`]; only the three tap counts survive the
-PHY init. The coefficient lists are short constant tables in the library (listed by count and
-index range here, not transcribed).
+PHY init. The complete write lists follow (policy route 3 of §0). Every write is a plain window write
+(entry index, value, commit 1); none is a read-modify-write [M:s]. Mode 0 ("TX filter" with
+argument 0, before PHY init #1) is 18 writes in this order:
+
+| # | Entry | Value | # | Entry | Value | # | Entry | Value |
+|---|-------|-------|---|-------|-------|---|-------|-------|
+| 1 | `0x4D` | `0x01` | 7 | `0x2C` | `0x02` | 13 | `0x3E` | `0x02` |
+| 2 | `0x4E` | `0x01` | 8 | `0x31` | `0x03` | 14 | `0x43` | `0x6C` |
+| 3 | `0x4F` | `0x00` | 9 | `0x36` | `0x6B` | 15 | `0x44` | `0x01` |
+| 4 | `0x29` | `0x6C` | 10 | `0x37` | `0x01` | 16 | `0x45` | `0x02` |
+| 5 | `0x2A` | `0x01` | 11 | `0x38` | `0x02` | 17 | `0x46` | `0x02` |
+| 6 | `0x2B` | `0x02` | 12 | `0x39` | `0x02` | 18 | `0x4B` | `0x03` |
+
+(three groups of five at bases `0x29`, `0x36`, `0x43`, each in the order base, +1, +2, +3, +8).
+Mode 1 (argument 1, after PHY init #2) is 57 writes in this order:
+
+| # | Entry | Value | # | Entry | Value | # | Entry | Value | # | Entry | Value |
+|---|-------|-------|---|-------|-------|---|-------|-------|---|-------|-------|
+| 1 | `0x4D` | `0x0F` | 16 | `0x32` | `0x00` | 31 | `0x41` | `0x01` | 46 | `0x11` | `0x20` |
+| 2 | `0x4E` | `0x0F` | 17 | `0x33` | `0x38` | 32 | `0x42` | `0x01` | 47 | `0x13` | `0x20` |
+| 3 | `0x4F` | `0x00` | 18 | `0x34` | `0x01` | 33 | `0x43` | `0x6B` | 48 | `0x15` | `0x2B` |
+| 4 | `0x26` | `0x37` | 19 | `0x35` | `0x01` | 34 | `0x44` | `0x01` | 49 | `0x17` | `0x26` |
+| 5 | `0x27` | `0x01` | 20 | `0x36` | `0xEC` | 35 | `0x45` | `0x02` | 50 | `0x19` | `0x20` |
+| 6 | `0x28` | `0x02` | 21 | `0x37` | `0x01` | 36 | `0x46` | `0x02` | 51 | `0x1B` | `0x20` |
+| 7 | `0x29` | `0x6C` | 22 | `0x38` | `0xB7` | 37 | `0x4B` | `0x02` | 52 | `0x1D` | `0x2B` |
+| 8 | `0x2A` | `0x01` | 23 | `0x39` | `0x02` | 38 | `0x47` | `0x6A` | 53 | `0x1F` | `0x26` |
+| 9 | `0x2B` | `0x02` | 24 | `0x3E` | `0x02` | 39 | `0x48` | `0x01` | 54 | `0x21` | `0x20` |
+| 10 | `0x2C` | `0x02` | 25 | `0x3A` | `0xEB` | 40 | `0x49` | `0x01` | 55 | `0x23` | `0x23` |
+| 11 | `0x31` | `0x03` | 26 | `0x3B` | `0x01` | 41 | `0x4A` | `0x02` | 56 | `0x24` | `0x32` |
+| 12 | `0x2D` | `0x6A` | 27 | `0x3C` | `0xB6` | 42 | `0x4C` | `0x00` | 57 | `0x25` | `0x00` |
+| 13 | `0x2E` | `0x01` | 28 | `0x3D` | `0x02` | 43 | `0x0B` | `0x20` | | | |
+| 14 | `0x2F` | `0x01` | 29 | `0x3F` | `0x01` | 44 | `0x0D` | `0x20` | | | |
+| 15 | `0x30` | `0x02` | 30 | `0x40` | `0x38` | 45 | `0x0F` | `0x20` | | | |
+
+Mode 1 writes each of the 39 entries `0x26`..`0x4C` exactly once (in each 13-entry group
+`0x26`-`0x32`, `0x33`-`0x3F`, `0x40`-`0x4C` the +11 entry comes before +7..+10), no even entry of
+`0x0C`-`0x22`, and nothing in `0x50`-`0x5F`. **Hardware cross-check [M:hw 2026-11-03]:** the
+vendor unit's window D read-back equals the mode-1 value for every entry `0x26`..`0x4C`, D[`0x23`]
+= `0x23`, and D[`0x4D`..`0x4F`] are not readable in that capture; the GPL's window D (which holds
+the PHY-init values plus its own four coefficients) differs from it in exactly the entries where
+mode 1 differs from the PHY-init table. The per-rate gain entries are rewritten to the same values
+by the per-rate gain step (A24) in the order `0x0B`, `0x0D`, `0x0F`, `0x11`, `0x1B`, `0x1D`,
+`0x1F`, `0x21`, `0x13`, `0x15`, `0x17`, `0x19`.
 
 **RAPP (TX soft compression)** register map in window D:
 
@@ -1085,15 +1352,50 @@ index range here, not transcribed).
 
 Load sequence: mode = 0; for i = 0..127: set D[`0x5C`] b4, D[`0x5D`] = i, D[`0x5E`] = data[7:0]
 with D[`0x5C`] b5 = data bit 8, clear D[`0x5C`] b4; then thresholds 11g/n = 160, 11b = 160, BPSK =
-400; powers 11g/n = `0x32D64`, 11b = `0x32D64`, BPSK = `0x23FD6`; mode = 2. The curve is 128 9-bit
-values falling monotonically from 511 to 271 (a soft-compression curve, a constant table in the
-library). Resulting D[`0x51`]..D[`0x5B`] = `BE 64 2D 64 2D D6 3F 40 A0 A0 90` [M:s; computed from
-the field writes, assuming a window read returns the last written value, I].
+400; powers 11g/n = `0x32D64`, 11b = `0x32D64`, BPSK = `0x23FD6`; mode = 2. The curve is the 128 9-bit values below (policy route 3 of §0: a RAM content the hardware
+consumes; no generating rule reproduces it, and the vendor never reads the RAM back) [M:s]; it
+falls from 511 to 271, never rises between entries, and every value is ≥ 256 (bit 8 = 1 for all
+128 entries). Entry i is written as D[`0x5E`] = value [7:0] and D[`0x5C`] bit 5 = value bit 8:
+
+| i | values i .. i+15 |
+|---|------------------|
+| 0 | 511 511 510 509 508 507 506 505 504 503 502 501 500 498 497 496 |
+| 16 | 495 493 492 491 489 488 487 485 484 482 481 479 477 476 474 473 |
+| 32 | 471 469 467 466 464 462 460 458 457 455 453 451 449 447 445 443 |
+| 48 | 441 439 437 435 433 431 428 426 424 422 420 418 416 413 411 409 |
+| 64 | 407 404 402 400 398 396 393 391 389 386 384 382 380 377 375 373 |
+| 80 | 371 368 366 364 362 359 357 355 353 350 348 346 344 341 339 337 |
+| 96 | 335 333 330 328 326 324 322 320 318 315 313 311 309 307 305 303 |
+| 112 | 301 299 297 295 293 291 289 287 285 283 281 279 277 275 273 271 |
+
+Write detail per entry [M:s]: D[`0x5C`] read, written with bit 4 set; D[`0x5D`] read, written with
+[6:0] = i (bit 7 kept); D[`0x5C`] read, then D[`0x5E`] = value [7:0], then D[`0x5C`] written with
+bit 5 = value bit 8 (bit 4 still set); D[`0x5C`] read, written with bit 4 cleared (the address is
+set before the data; the low byte before bit 8; bit 4 is cleared last, which is presumably the
+write strobe [I]). The thresholds and powers are then written as: read D[`0x58`], D[`0x59`] =
+`0xA0`, D[`0x58`] [2:0] = 0; read D[`0x51`], D[`0x52`] = `0x64`, D[`0x53`] = `0x2D`, D[`0x51`]
+[3:2] = 3; read D[`0x58`], D[`0x5A`] = `0xA0`, D[`0x58`] [5:3] = 0; read D[`0x51`], D[`0x54`] =
+`0x64`, D[`0x55`] = `0x2D`, D[`0x51`] [5:4] = 3; read D[`0x58`] and D[`0x5C`], D[`0x5B`] = `0x90`,
+D[`0x58`] [7:6] = 1, D[`0x5C`] bit 0 = 0; read D[`0x51`], D[`0x56`] = `0xD6`, D[`0x57`] = `0x3F`,
+D[`0x51`] [7:6] = 2; read D[`0x51`], D[`0x51`] [1:0] = 2. The read-modify-writes touch only
+D[`0x51`], D[`0x58`], D[`0x5C`] and D[`0x5D`]; the address clamps at 127 and the data at 511.
+
+Resulting D[`0x51`..`0x5E`] = `BE 64 2D 64 2D D6 3F 40 A0 A0 90 E0 7F 0F` (D[`0x5C`] = `0xE0`: the
+PHY-init `0xC0` with bit 5 = 1 from the last entry; D[`0x5D`] = `0x7F`; D[`0x5E`] = `0x0F` = 271
+[7:0]). **Confirmed on the vendor unit's read-back for every one of these fourteen entries
+[M:hw 2026-11-03]**, which also shows that a window read returns the last written value for the
+read-modify-written entries D[`0x51`], D[`0x58`], D[`0x5C`] (an open question of the 2026-11-04
+plan) and that D[`0x5E`] reads back the last data byte written; whether the curve RAM itself can
+be read back is unknown (§16).
 
 **Per-rate digital gain from VM 108** (§4.2.1 A24): defaults as in mode 1; each non-zero VM 108
 byte replaces one odd entry (bytes 0, 1, 2, 3, 5, 7, 9, 11, 12, 14, 16, 19 map to D[`0x0B`],
 D[`0x0D`], D[`0x0F`], D[`0x11`], D[`0x1B`], D[`0x1D`], D[`0x1F`], D[`0x21`], D[`0x13`], D[`0x15`],
-D[`0x17`], D[`0x19`]); all-zero VM 108 leaves the mode-1 values [M:s].
+D[`0x17`], D[`0x19`]); all-zero VM 108 leaves the mode-1 values [M:s]. The published default for record 108 is
+`50 50 50 50 72 72 85 80 64 64 62 52 72 90 80 64 64 64 50 43` [PUB
+`apps/demo/demo_wifi/board/wl82/board.c` L53-74], and the vendor unit's window D carries exactly
+those values in the twelve entries (D[`0x0B`] = `0x32` ... D[`0x19`] = `0x2B`) [M:hw 2026-11-03];
+bytes 4, 6, 8, 10, 13, 15, 17 and 18 are unused.
 
 **Calibration results in the windows**: D[4]-D[9] (TX I gain, I phase, Q gain, Q phase, I DC, Q DC
 high bytes), D[`0x61`], D[`0x62`] (their 2-bit low fields), D'[9]-D'[`0x0C`] (RX IQ). The quick
@@ -1568,7 +1870,7 @@ zero scan results despite successful probe request transmission.
 | 15 | DROP_BAR | 0 | 0 | Drop Block ACK Request |
 | 16 | DROP_CTRL_RSV | 1 | 1 | Drop reserved control subtypes |
 
-Linux initial value: `0x17F97`. Our value: same for scanning, `|= 0x08` after association.
+Linux initial value: `0x17F97`. Our value: same for scanning, `|= 0x08` after association. **ERRATA 2026-11-05:** the vendor never sets bit 3 in station mode and reads `0x17F97` while associated [M:hw 2026-11-02]; the GPL's `|= 0x08` is its own choice (§4.2.1 D32).
 
 **Other MAC config registers set during init:**
 
@@ -1619,11 +1921,39 @@ coming from the RT2800 layer are dropped by the vendor's register filter; the re
 ranges that matter (MAC_SYS_CTRL, timing, BBP port, `0x308`, `0x30C`, `0x324`, `0x328`) are written
 by the vendor's own low-level code instead (§4.2.1) [M:s wl_rf_common.a].
 
+**Association-time writes [M:s wl_wifi_sta.a; names IP:RT2x00].** At link-up the RT layer writes
+`0x3040C` = `0x1F3F7F9F` (TX burst off, the published profile's `TxBurst=0`; `0x1F3FBF9F` with TX
+burst on) and clears the AC0 TXOP byte of `0x31300`: this is the `0x1F3F7F9F` the running radio
+reads (**resolves the 2026-11-04 open item**: the hardware retains bit 15; software rewrites it),
+so the TX gate's queue-2 page limit becomes `0x7F` after association. Also at link-up: `0x31018`
+= `0xA0FFF`..`0xA3FFF` by peer type, `0x31418` = 1 or 0, BSSID `0x31010`/`0x31014`, `0x31114`
+(beacon sync), `0x31350`, `0x31300` (RDG/piggyback), `0x31404` (preamble), rate fallback
+`0x31354`, `0x31358`, `0x3135C`, `0x31360` = `0x2100`, the protection set `0x31344` (bits [23:8]
+from the RTS threshold, 2347 -> `0x1000`) and `0x31364`-`0x31378` (only when an HT-protection
+option or the operation mode calls for it), and the WMM EDCA `0x31300`-`0x3130C` from the beacon's
+parameters. Before association the only MAC writes outside §4.2.1 are the periodic task's PBF
+pulse (§7.11.9).
+
+**EDCA at interface up (ERRATA 2026-11-04) [M:s wl_wifi_sta.a, PUB profile].** The HT setup runs
+at interface up with the published profile's `WirelessMode=9`, finds no access-point EDCA set and
+writes the WMM defaults AIFSN 3/7/1/1, CWmin 4/4/3/2, CWmax 6/10/4/3, TXOP 0/0/94/47, packed as
+TXOP [7:0], AIFSN [11:8], CWmin [15:12], CWmax [19:16], with AC2's AIFSN forced to 5 and its TXOP
+scaled by 6/10: `0x31300` = `0x64300`, `0x31304` = `0xA4700`, `0x31308` = `0x43538`, `0x3130C` =
+`0x3212F`. The constant set (AC0 `0xA4200`, or `0xA4220` with TX burst; AC1 `0xA4200`; AC2
+`0xA4260`, or `0xA42C0` for B-only; AC3 `0xA4230`, or `0xA4260` for B-only) is written only at
+link-down or at association with an invalid set. The vendor unit's steady-state EDCA (`0xA4300`,
+`0xA4700`, `0x43538`, `0x3222F`) is the association-time rewrite from its access point's
+parameters [M:hw, M:s]. `0x3132C` bit 0 is written by the HT setup only with the 40 MHz option
+(profile `HT_BW=0`: never written at interface up); its reset value is unknown (§16 U1).
+RX_FILTER_CFG is written twice on a station start (the table, then the RX/TX enable step), both
+`0x17F97`; the AP arm writes `0x15F97` [M:s].
+
 ~~TX_LINK_CFG, EDCA_TID_AC_MAP, and TX_TIMEOUT_CFG are critical for TX scheduling:
 without them the MAC hardware cannot dispatch DMA'd frames to the air interface.~~ (**ERRATA
 2026-11-04:** two of these three names were wrong, see the table; the claim was an inference.)
-EDCA_AC0-AC3 (0x31300-0x3130C) are NOT in the static table; they are written dynamically when the
-MLME state machine starts [M:s].
+EDCA_AC0-AC3 (0x31300-0x3130C) are NOT in the static table; they are written at interface up by
+the HT setup (the WMM default set above) and rewritten at association from the access point's
+parameters [M:s].
 
 ### 7.11 JieLi WDMA engine (MAC offset 0xF00)
 
@@ -1688,7 +2018,7 @@ Configured once during WDMA initialization [M:s].
 | 17    | R   | **Received frame available.** The first test of the receive path; when clear, the receive task does nothing (and does not re-open the interrupt mask) | M:s |
 | 18-19 |     | Unknown; never accessed                                                     | M:s |
 | 20    | R   | **TX DMA complete.** Polled without bound after a TX start; cleared by the bit-10 acknowledge [I for the clearing] | M:s |
-| 21    | R   | **RX DMA complete.** Polled without bound after each RX phase; cleared by the bit-11 acknowledge [I for the clearing] | M:s |
+| 21    | R   | **RX DMA complete.** Polled without bound after each RX phase; cleared by the bit-11 acknowledge [I; supported by the vendor's order: RX phase 2 polls bit 21 right after the phase-1 acknowledge and a new start, which only works if the acknowledge clears it; the same reasoning applies to bits 10/20. Test T15 of §15 records it] | M:s, I |
 | 31:22 |     | Unknown; never accessed                                                     | M:s |
 
 The vendor reaches `0x00010037` at steady state: bits 0, 1, 2, 4, 5 from the init, bits 9-11 read
@@ -1739,16 +2069,33 @@ buffer; that word is **not** transferred. It explains the measured buffer sample
 and 48 for MPDU 26 [M:hw 2026-11-02] (the earlier formula "16 + round_up_4(frame) + 4" matched
 those two samples only because both lengths are 2 mod 4).
 
+**Staging buffer and what is stale [M:s wl_rf_common.a].** The vendor stages every frame in one
+2560-byte, 32-byte-aligned buffer declared zero-initialised: [0] the software length word (MPDU +
+22, written per frame, not transferred); [4] the queue word, of which only bits [2:0] are written
+per frame (a read-modify-write: bit 0 = TXINFO bit 24, bits [2:1] = TXINFO bits [26:25]), so bits
+[31:3] keep whatever was there (0 after a zeroed buffer); [8] the 16-byte TXWI, copied per frame
+(an A-MPDU-disable step that clears TXWI word 0 bit 4 is overwritten by that copy, so bit 4 goes
+out as the upper layer set it); [24] the frame; [24 + MPDU] two bytes copied from the source
+buffer after the frame; [26 + MPDU .. 30 + MPDU] four bytes not written for this frame (leftovers
+of earlier, longer frames, or 0). `WDMA_TX_ADR` = buffer + 4 is therefore only 4-byte aligned. A
+frame with MPDU + 26 > 2560 halts the system in a diagnostic loop. The stale bytes and the
+untouched queue-word bits are observations, not something to reproduce; an implementer may zero
+them [I]. A submission may carry several frames back to back, each gated and transferred
+separately (advance by TXINFO [15:0] + 4 while more than 16 bytes remain) [M:s].
+
 **TX readiness gate (before every transfer)** [M:s wl_rf_common.a]. With q = the frame's QSEL (2):
 
 1. Read TXRXQ_PCNT (`0x30438`), byte q (pages in TX queue q). It must be below the queue's page
-   limit (byte 1 of the value written to PBF_MAX_PCNT `0x3040C`, i.e. `0xBF` from the table), and
+   limit (byte (3 − q) = byte 1 of the value last written to PBF_MAX_PCNT `0x3040C`: `0xBF` from the
+   table, `0x7F` after association, §7.10), and
    (limit − pages) x 128 must exceed the MPDU length.
 2. Read `0x30434`; bit (8q + 2) = bit 18 must be 0 (queue busy/full flag, inferred).
 3. Read PBF_DBG `0x3043C`; bits [7:5] must be non-zero. If this is the only failing test the vendor
    prints a marker character, i.e. it is an expected transient.
-4. If any test fails: release the bus lock, wait (10 ms, or yield) and retry from 1, without bound;
-   every 10 s the vendor prints `0x30438`, `0x3040C`, `0x30434`, `0x3043C`, `0x31500`, `0x31504`.
+4. If any test fails: retry from 1 after a 10 ms sleep, a scheduler yield, or at once (a published
+   build option; the SDK default is the yield except with uCOS), **without bound**; every 10 s the
+   vendor reads `0x30438`, `0x3040C`, `0x30434`, `0x3043C`, `0x31500`, `0x31504` for a diagnostic;
+   only a driver shutdown ends the retry, and then the frame is dropped untransferred [M:s].
 
 `0x30434` is not named in the public RT2800 header. Captured on core-fm1 before a probe request, block
 released, front end enabled [M:hw 2026-11-04 12l]: `0x3043C` = `0x8400A0FE` ([7:5] = 7, ready), `0x30434` =
@@ -1767,27 +2114,69 @@ multiple of 4 [M:hw 12l].
 5. Barrier.
 6. Poll WDMA_CTL bit 20 until set (no bound in the vendor; a timeout is advisable [I]).
 7. Set WDMA_CTL bit 10.
-8. Optional fixed delay (configuration value; 0 by default).
+8. Optional fixed delay (a configuration value, 0 by default; no library path sets it, so by
+   default nothing waits after TX) [M:s].
 
 Completion is reported to the network layer synchronously; TX status (TX_STA_FIFO `0x31718`) is
 read only by the periodic statistics task and nothing waits for it [M:s wl_wifi_sta.a].
+
+**Concurrency [M:s wl_rf_common.a].** The vendor does not serialise TX transfers against RX
+transfers: both may be in flight at once, both read-modify-write `WDMA_CTL` (bit 10 on the TX
+side, bit 11 on the RX side, each writing back whatever other bits read as 1), and the gate reads
+of the TX side can interleave with the RX side's MAC+`0x324` write and an RX transfer. An
+implementer that runs TX and RX from different contexts must serialise `WDMA_CTL`
+read-modify-writes or establish that the bit-10 and bit-11 writes are independent [I].
 
 **TXWI as the vendor builds it** [M:s wl_wifi_sta.a; layout IP:RT2x00]:
 
 | Field | Management (probe request) | Data |
 |-------|----------------------------|------|
 | W0 TXOP [9:8] | **3** (backoff) | 0 |
-| W0 MPDU density [7:5] | 0 | per station |
-| W0 MCS / PHYMODE | management rate (CCK 1 Mbps during a 2.4 GHz scan [I]) | rate control |
+| W0 MPDU density [7:5] | 0 (a station entry is consulted only for WCID < 2) | from the station entry; 7 when the peer is flagged and encryption is on |
+| W0 MCS / PHYMODE / BW / SGI / STBC | the management transmit setting: at the first scan after bring-up PHYMODE 1 (OFDM), MCS 0 (6 Mbps), BW 0, SGI 0, STBC 0 [M:s]; CCK 1 Mbps (PHYMODE 0, MCS 0) only after a rate update that the initial scan does not run, unless the profile reader (not analysed) triggers one [I]. The MAC accepts a CCK 1 Mbps probe [M:hw 12l]. BW is set only for HT modes with the HT 40 MHz option | rate control |
 | W1 ACK [0] | per frame (0 for broadcast) | per frame |
 | W1 NSEQ [1] | 0 (software sequence numbers) | 0 |
-| W1 BA window [7:2] | min(configured, 7) | per BA |
-| W1 WCID [15:8] | `0xFF` | station entry |
+| W1 BA window [7:2] | min(global BA size, 7) = 7 with the default; the per-frame argument is ignored | same |
+| W1 WCID [15:8] | `0xFF` | station entry (1 for the access point) |
 | W1 MPDU [27:16] | frame length, unpadded | frame length |
+| W1 PacketId [31:28] | MCS[3:0] (0 for CCK 1 Mbps and OFDM 6 Mbps); the "PID" argument of the management path is not stored | MCS[3:0] |
 | W2, W3 | 0 | IV / EIV |
 
 Measured vendor QoS-null and data TXWIs carry TXOP 0 [M:hw 2026-11-02], so the hardware accepts
 TXOP 0 at least on that path.
+
+**TXWI for unicast management frames and for station EAPOL frames [M:s wl_wifi_sta.a; layout
+IP:RT2x00; added 2026-11-05].** Authentication request, association request, deauthentication and
+disassociation all take the management path with one constant TXWI; only ACK, the length and the
+rate state differ from the probe request. The station-side EAPOL-Key frames (messages 2/4, 4/4 and
+the group 2/2) take the data path.
+
+| Field | Auth request / assoc request / deauth / disassoc | EAPOL-Key from the station |
+|-------|---------------------------------------------------|----------------------------|
+| W0 FRAG, MIMO_PS, CF_ACK, TS, AMPDU [4:0] | 0 | 0 (CF_ACK 1 only with a Ralink piggyback-capable peer) |
+| W0 MPDU density [7:5] | 0 | the access point's density from its HT capabilities (7 with the "bad peer + WEP" case) |
+| W0 TXOP [9:8] | **3** (backoff) | 0 |
+| W0 MCS [22:16], BW, SGI, STBC | 0, 0, 0, 0 | 0, 0, 0, 0 |
+| W0 PHYMODE [31:30] | 0 (CCK 1 Mbps) after the join step (§4.2.1 D3); the first scan's probe requests go at OFDM 6 Mbps (PHYMODE 1) | 0 (CCK 1 Mbps; the low-rate class for EAPOL) |
+| W1 ACK [0] | 1 | 1 |
+| W1 NSEQ [1] | 0 (software sequence number: a 12-bit counter shared by all non-QoS frames, incremented per frame, wrapping at 4095) | 0 |
+| W1 BA window [7:2] | 7 | per block-ack state (7 default) |
+| W1 WCID [15:8] | `0xFF` (the station table is not consulted for these frames, whether or not slot 1 holds the access point) | 1 (the access point's entry; exists only after the association response) |
+| W1 MPDU [27:16] | frame length: 30 (open auth), 26 (deauth, disassoc), 28 + elements (assoc) | frame length |
+| W1 PacketId [31:28] | MCS & 0xF = 0 | 0 |
+| W2, W3 | 0 | 0 |
+| Queue word | 5 (WIV 1, QSEL 2) | 4 (WIV 0, QSEL 2) |
+| Header duration | **304 µs** (a 14-byte ACK at 1 Mbps with long preamble: 192 + 112; 50 µs would be used at OFDM 6 Mbps) | data path |
+| Header addr2 / addr3 | own address / BSSID (auth, requested deauth); own address / addr1 (assoc, disassoc, the deauth that precedes the auth) | data path |
+| Retry, more data, power management, protected bits | 0 (power management set only while a scan runs; protected only for shared-key sequence 3, encrypted in software) | data path |
+
+Related [M:s]: a deauthentication (reason 3) to the access point precedes every authentication
+request; a disassociation is followed by a deauthentication; no software wait for TX completion
+and no TX status read on this path, only the state-machine timers of §4.2.1 Phase D. The running
+vendor radio's TX status word read on 2026-11-02 (`0x800701EF`: valid, packet id 7, success,
+aggregated, ACK required, WCID 1, MCS 7, HT mixed) shows the status FIFO reporting a data frame to
+slot 1 [M:hw]. The GPL driver at build dev-20261105T064012Z sends every frame with TXOP 0, density
+5, duration 0, WCID `0xFF` (EAPOL included), ACK for unicast addr1, CCK 1 Mbps [I from its source].
 
 **Measured buffer samples (2026-11-02), kept with corrections:** the table below is the previous
 text. Offsets 0 and 4 are the software length word and the queue word (not "purpose unknown");
@@ -1897,24 +2286,46 @@ IP:RT2x00 `rt2800usb.h` RXD word]:
 3. If no receive buffer is free, return; the frame stays in the hardware and the mask stays
    closed.
 4. MAC+`0x324` = 2; phase 1 and phase 2 as above (length word byte-swapped, valid 1..4088; outside
-   that range the vendor prints a diagnostic and resets the system).
+   that range the vendor resets the system or prints a diagnostic and continues, by a build
+   option; the default build continues).
 5. Buffer layout after phase 2: [0] length n | [4] RXWI (16 bytes, §7.5b) | [20] frame | [4 + n]
    a 4-byte trailer (byte-swapped like the length) whose bits follow the RT2800 USB receive
    descriptor word: CRC error bit 8, cipher error bits [10:9], L2 padding bit 14, decrypted bit 16
-   [IP:RT2x00]. Frames with length 0, a length not a multiple of 4, an RXWI MPDU count larger than
-   the length, or a CRC error are dropped by the RT2800 layer [M:s wl_wifi_sta.a].
+   [IP:RT2x00]. The RT2800 layer reads n as the 16-bit little-endian value of bytes 0-1 (after the
+   transport's swap) and rejects the buffer without consuming it when fewer than 24 bytes remain,
+   n = 0, n is not a multiple of 4, n + 8 exceeds the bytes remaining, or the RXWI MPDU count
+   [27:16] exceeds n (n covers RXWI + frame); a frame is then dropped when trailer bit 8 (CRC
+   error) is set, when the frame-control ToDS bit is set, when the MPDU count exceeds 3840, or
+   when the trailer's cipher-error field [10:9] is non-zero on a decrypted frame (bit 16 set),
+   except the AES group-key fragment case; trailer bit 7 (my BSS) is consulted for MIC reports and
+   bit 14 (L2 pad) later as a pad flag [M:s wl_wifi_sta.a].
 6. Runtime AGC update from the frame's RSSI0 (§6.7).
-7. A software filter may drop the frame: then `WF_CON4` bit 0 is set again at once and the buffer
-   is kept. Otherwise the frame is handed up; `WF_CON4` bit 0 is set again when the network layer
-   re-posts the (single, 4096-byte) receive buffer.
+7. A software filter may drop the frame (the default filter never drops): then `WF_CON4` bit 0 is
+   set again at once and the buffer is kept. Otherwise the frame is handed up; `WF_CON4` bit 0 is
+   set again when the network layer re-posts the (single, 4096-byte) receive buffer.
 
-**Multiple frames:** after processing one frame, re-check WDMA_CTL bit 17. If set, repeat
-the two-phase read for the next frame [M:s].
+**Buffer, alignment and barriers [M:s wl_rf_common.a].** The receive buffer must be 4-byte
+aligned (a misaligned buffer is rejected with a reset or a diagnostic); the delivered length is
+n + 8 (length word, frame, trailer); the trailer is stored as one little-endian 32-bit word after
+byte-swapping. The vendor issues a core-sync barrier after the acknowledge write, after the length
+write and after the done poll of phase 1, and after the address and length writes of phase 2; the TX
+path issues them after its acknowledge and after its length write, none after done. No cache
+maintenance is performed anywhere on the vendor's path; whether its buffers are uncached or the
+SoC is coherent is not determinable (§16 U6). **Polling mode** (a build option, off by default):
+the vendor then writes neither MAC+`0x328` nor `0x14050` bit 0 and polls bit 17 continuously
+(§7.11.9).
+
+**Multiple frames (ERRATA 2026-11-04):** the vendor handles exactly one frame per wake and does
+not loop on bit 17; further frames wait for the next interrupt or the next timeout poll [M:s]. A
+bounded drain (the GPL uses 8 per poll) is the implementer's choice [I]; an unbounded drain, with
+a handler that never masked its source, stalled the CPU until the watchdog reset on the first
+reception [M:hw 12n].
 
 **Timeouts:** poll loops should use timeouts. Recommended: 1 ms for RX phase 1/2 (single-frame
 DMA completes in microseconds), 10 ms for TX [I].
 
-**Buffer sizing:** 4-byte length + max 1600-byte frame = 1604 bytes minimum [I].
+**Buffer sizing:** the vendor posts one 4096-byte buffer (n ≤ 4088) [M:s]; 4 + 16 + 1600 + 4
+bytes suffice for the frames of this profile [I].
 
 #### 7.11.7 WDMA vs WPDMA summary
 
@@ -1944,8 +2355,8 @@ implementation, WDMA is the recommended path.
 | WDMA RX bit 17 | [M:s] | **Confirmed** [M:hw] | Bit 17 stays low without `0x30328=2`. Root cause: MAC RX notification not enabled (§7.11.4 step 4) |
 | MAC RX notify enable (`0x30328`) | [M:s] | **Confirmed** [M:hw] | Must write `2` for bit 17 to assert. The vendor's interrupt setup does this (0, then 2) |
 | SoC WiFi IRQ enable (`0x14050` bit 0) | [M:s] | Set on core-fm1 [M:hw] | Interrupt unmask only (§7.11.9); not required for bit 17 [I] |
-| RX byte-swap | [M:s] | Untested | Pending RX enable fix |
-| Pre-RX MAC write (`0x30324`) | [M:s] | Untested | Vendor writes `2` before each RX read |
+| RX byte-swap | [M:s] | **Confirmed** [M:hw 12o] | frames decode with the swap |
+| Pre-RX MAC write (`0x30324`) | [M:s] | **Applied** [M:hw 12o] | written 2 before each read; not separately ablated |
 
 
 #### 7.11.9 Interrupt-driven and asynchronous steps [M:s wl_rf_common.a, wl_wifi_sta.a, 2026-11-04]
@@ -1961,20 +2372,53 @@ implementation, WDMA is the recommended path.
 - The interrupt is unmasked for the first time when the first receive buffer is posted (§4.2.1 B11),
   before line 52 is registered (B13).
 - **TX completion is polled** (`WDMA_CTL` bit 20); TX has no interrupt.
-- Asynchronous items before the first TX: a periodic task (nominally every 100 ms; reads the
-  statistics counters; on every second run [timing I] a watchdog pulses PBF_CFG to `0x00F40012`/`0x00F4000A` and back to `0x00F40006`
-  only if TX queue 0 or 1 is stuck non-empty) and, after a full calibration only, a one-shot
-  timer that saves VM 187 one second later [M:s]. Neither is needed for the first TX [I].
-- Polling mode (configuration option, off by default): a busy receive task replaces the interrupt;
-  register writes are the same [M:s].
+- Asynchronous items before the first TX [M:s wl_wifi_sta.a]: a periodic task armed with a 100 ms
+  period during the MLME init step, before the MAC configuration table is written (whether its
+  first tick lands before or after the table write is not determinable). Every tick reads
+  TX_STA_FIFO (`0x31718`) until empty; every second tick (about 200 ms) reads `0x31700`-`0x31714`
+  and `0x30438`, and if the TX0 (bits [7:0]) or TX1 (bits [15:8]) page count is non-zero at that
+  instant writes PBF_CFG `0x30408` = `0x00F40012` (TX0) or `0x00F4000A` (TX1), polls `0x30438` up
+  to 10 times at 1 µs, then writes `0x00F40006`; it also reads MAC+`0x10F4` (a hang test whose
+  MAC_SYS_CTRL writes of 1 and `0xC` are dropped by the vendor's filter and never reach hardware).
+  Rate switching, EDCA retuning and protection rewrites need association state. After a full trim
+  that ran because the stored record was invalid, a one-shot timer writes record 187 one second
+  later (§10.2). Neither is needed for the first TX [I].
+- Polling mode (a build option, off by default; **ERRATA 2026-11-04**): a busy receive task polls
+  `WDMA_CTL` bit 17 continuously; MAC+`0x328` is not written at all, interrupt 52 is not registered,
+  and `0x14050` bit 0 is neither set nor cleared (it stays at the 0 of the clock init). The
+  register writes are therefore **not** the same as in interrupt mode [M:s].
+- No sleep or clock-gating register is written between init and the first TX on a WiFi-only
+  start: the driver's sleep veto holds until 802.11 power save is requested [M:s]. The sleep path,
+  not on the start path, would write `0x1400C` bits 0, 1, 2, 16 (latch request) and 17 (busy poll),
+  save and zero `0x1405C` (restored on wake), and MAC+`0x1180` = `0x300C`/`0x300F`, MAC+`0x1184` =
+  `0x1000000`/`0x2000000`/`0x10000`/`0x20000`/`0x80000`, MAC+`0x1188`, MAC_SYS_CTRL and MAC+`0x1608`
+  [M:s].
+- Delays [M:s cpu library]: the vendor's microsecond delay is a NOP countdown of (system clock /
+  D) x µs iterations, D = 4,000,000 when the flash controller's control register (`0x40200`) bit 0
+  is clear and 8,000,000 when set (about 4 or 8 cycles per iteration); below 4 or 8 MHz the count
+  truncates to 0. The nominal 1/1/1/50 µs (clock tree), 5/5/100 µs (PLL restart), 80 µs (loop
+  pulse) and 1000 µs (ADC peak) are therefore approximate on the vendor as well; treat them as
+  minimums [I] (§16 U5).
+- On core-fm1 interrupt 52 has not fired during a scan although `0x14050` bit 0 is set and the
+  line is registered; polling `WDMA_CTL` bit 17 carries reception [M:hw 12o]. The vendor registers
+  the line after the probe returns, with priority argument 2 and CPU argument 1, between
+  MAC+`0x328` = 0 and = 2; the GPL attaches it before writing MAC+`0x328` and selects no CPU [I for
+  the cause; §16 U4].
 
 ---
 
 ### 7.12 Why no frame is received: RX path status [M:hw 2026-11-04]
 
+**Resolved 2026-11-04 (12o):** the receive path delivers frames (§7.11.6); the table below is the
+state after 12i, kept as the record of the diagnosis. The chain that closed it: `WL_CON0` never
+written (§4.2), the TX image from the queue word and the front-end registers (§7.11.5, §4.2.1
+C2-C3), the channel code with the bank-patched LUT measured in the 24 MHz PLL state and no reset
+after auto control (§5.2, §14 rows 5-7), a masking interrupt handler and a bounded drain
+(§7.11.9) [M:hw 12l-12o].
+
 Stage-by-stage state of the receive path on core-fm1 against the running vendor radio on the same
 FM-1 unit (fm1-base `/status` oracle), after iteration 12i. "Equal" means read back identical on
-both sides. Observation files: `.scratch/debug/observations/2026-11-0[2-4]*`.
+both sides. Observation files: the implementer's observation store, 2026-11-02 to 2026-11-04.
 
 | # | Stage | core-fm1 evidence | Vendor | State |
 |---|-------|-------------------|--------|-------|
@@ -2015,6 +2459,132 @@ their write order is in §6.6. Stage 7: the R0-R31 differences are not vendor wr
 code in `WF_CON7`, the FEQ bank patch and the end-of-init order) and by §6.8 (R106 constant 4).
 The candidates for stages 5 and 10 are ranked in §14. Also note that releasing `WL_CON0` (stage 2)
 only undoes a write the vendor never makes.
+
+### 7.13 Station table, key tables, address handling and the acknowledgement path [M:s wl_wifi_sta.a, hostapd_and_wpasupplicant.a, wl_rf_common.a; IP:RT2x00; PUB; M:hw; added 2026-11-05]
+
+#### 7.13.1 Addresses: what determines addr2 on the air, and where the vendor's address comes from
+
+- The transmitter address of a frame is the frame bytes. Nothing in the station library, the
+  transport library or the MAC substitutes it: the vendor copies its own address into addr2 of
+  every management header in software, the TXWI carries no address, and the only address
+  registers the vendor writes are MAC_ADDR_DW0/1 (B8: own address, DW1 [23:16] = `0xFF` unicast
+  mask), MAC_BSSID_DW0/1 (D4) and the station slots (§7.13.2) [M:s]. MAC_ADDR_DW0/1 is the receive
+  match for "unicast to me" and the source address of the MAC's own responses (ACK, CTS, block ack)
+  [IP:RT2x00]. No vendor code reads an address from any register: MAC+`0x300`/`0x304` read
+  `0x7001`/0 on both units and are not an address [M:hw, M:s].
+- The vendor libraries have no built-in address. The station library's default address hook
+  returns failure; the published profile string `MacAddress=00:00:00:00:00:00` makes the library
+  call the application's generator for its address [M:s; PUB wifi_conf.c L396, L530]. The published
+  generator (`apps/common/net/assign_macaddr.c` L314-L339; the L273-L310 variant adds a server
+  path) takes a stored address from flash if one exists, else: 16-byte NOR flash unique id →
+  CRC32 and CRC16 of it, each XOR the hardware random generator → 6 bytes; byte 0 bits 0 and 1
+  cleared (unicast, globally-administered form); the result is stored in flash so it stays the same
+  across boots [PUB]. The oracle build on this unit replaces that generator with a fold of the
+  flash unique id into 6 bytes with the locally-administered bit set, which gives
+  `72:7F:0B:02:72:6E` (`0x31008` = `0x020B7F72`, `0x3100C` = `0x00006E72`, every capture) [M:hw].
+  Which of the two the stock FM-1 firmware uses is not determinable from the analysed libraries
+  (§16 U20). An implementer may derive a stable address from the flash unique id by any rule; the
+  published rule above is citable.
+- The 2026-11-05 observation: `D8:C8:0C` is registered to Tuya Smart Inc. [PUB IEEE OUI registry,
+  2026-11-05]. The frames the GPL driver accepted as "its" authentication responses were addressed
+  to a Tuya station on the same channel; the GPL driver received them because RX_FILTER_CFG bit 2
+  (drop unicast not to me) is clear in `0x1BF93`, and its parser matched the sender only. The 0.15 s
+  to 2.2 s intervals between the GPL's request and those frames are not an access point's response
+  time (the vendor waits 800 ms at most, D7). After the override, the GPL's own registers matched
+  that address, so the same frames passed the addr1 check [I]. Consequence: the override is not a
+  fix for anything; the GPL's own address is the transmitter address of its frames, and the
+  question is why no station ever answers it (§7.13.4).
+
+#### 7.13.2 Station slot table (MAC+`0x1800` + 8 x slot, 256 x 8 bytes) [M:s, IP:RT2x00]
+
+| Item | Fact |
+|------|------|
+| Entry layout | word 0 = address bytes 0-3 (byte 0 in [7:0]); word 1 [15:0] = bytes 4-5, [31:16] = 0 when written by the vendor (the init pattern leaves `0x00FF` there) |
+| Init | slots 0..253 = `FF FF FF FF FF FF FF 00` (B3); slots 254 and 255 never written |
+| Slot 1 | the access point: written at join, before the authentication request (D5); rewritten with zeros on a failed authentication or association and at link-down (D8, D31); software entry (WCID 1, AID) created only after the association response (D10) |
+| Slot 0 / multicast | not written in station mode |
+| WCID `0xFF` | a TXWI literal for every frame sent without a station entry: probe requests and all unicast management frames (§7.11.5); the vendor's unicast management frames with WCID `0xFF` are acknowledged on the air (the vendor associates). Slot 255 (`0x1FF8`/`0x1FFC`) is never written; attribute 255 (`0x6BFC`) receives the init value 1 with all others |
+| Byte-array writes | every table written from a byte array goes in 32-bit words, little-endian (byte 0 in [7:0]), at offset, offset + 4, ...; the key tables are written as 16 + 8 + 8 bytes |
+
+#### 7.13.3 Key tables [M:s, IP:RT2x00]
+
+| Table | Base (MAC+) | Entry | Vendor use |
+|-------|-------------|-------|------------|
+| Pairwise key table | `0x4000` | 32 bytes x 256: key 16, TX MIC 8, RX MIC 8 | not used by the station library for WPA (the PTK goes to the shared table) |
+| IV/EIV table | `0x6000` | 8 bytes x 256: IV word, EIV word | slot 1: IV = `0x20000001` (bit 29 extended IV, [31:30] key id 0, [15:0] packet number 1), EIV = 0 at every pairwise install; nothing for the group key; nothing at init |
+| Attribute table | `0x6800` | 4 bytes x 256: bit 0 key-table select (0 shared-key table, 1 pairwise table); [3:1] cipher code bits 2:0, bit 10 cipher bit 3; [6:4] BSS index bits 2:0, bit 11 BSS bit 3; bits [9:7] (the cipher copy for the receive descriptor in the Linux driver) are never written by the vendor | init 1 for all 256; slot 1 = `0x8` (AES) or `0x6` (TKIP) at the pairwise install; 1 on removal, at link-down and at the host's pre-join clearing |
+| Shared key table | `0x6C00` | 32 bytes x 16: index 4 x BSS + key id; key 16, TX MIC 8, RX MIC 8 | (0, 0) = the pairwise key after message 4/4; (0, id) = the group key, id from the GTK element (1 or 2) |
+| SHARED_KEY_MODE | `0x7000` | 4 words; word = BSS / 2; nibble [4 k + 3 : 4 k] for BSS even, [4 k + 19 : 4 k + 16] for BSS odd, k = key id; value = cipher code | 0 x 4 at init (B5); (0, 0) and (0, id) set at the installs; BSS 0 nibbles cleared at link-down |
+| Cipher codes | 0 none, 1 WEP-64, 2 WEP-128, 3 TKIP, 4 AES-CCMP [IP:RT2x00 (the Linux driver's hardware cipher enumeration); M:s for 3 and 4 on the install path] | | |
+
+Order of a pairwise install (D26): key bytes (16, 8, 8), SHARED_KEY_MODE read-modify-write, IV/EIV
+(two words), attribute word; the frame carrying message 4/4 has been handed to the MAC before the
+first of these writes, without a wait for its TX status (§16 U18). Received sequence counters from
+the handshake are not loaded (replay detection is the host's).
+
+#### 7.13.4 The acknowledgement path: what the MAC needs to count a unicast frame as acknowledged [M:s, IP:RT2x00, M:hw]
+
+| Register / item | Fact |
+|-----------------|------|
+| TX_RTY_CFG MAC+`0x134C` = `0x47D01F0F` | [7:0] short retry limit 15; [15:8] long retry limit 31; [27:16] long-retry threshold 2000 bytes; bits 28/29 retry modes 0 (expire by retry count); bit 30 auto fallback 1 [IP:RT2x00 fields, M:s value]. A 30-byte frame uses the short limit: one transmission + 15 retries, then "given up". The GPL's counters after its authentication request (TX_STA_CNT0 [15:0] = 1, TX_STA_CNT1 = `0x000F0000`) are exactly "limit exhausted, no ACK recognised" [M:hw 2026-11-05]. The vendor changes the limits only while associated with a 100 % error rate (both to 0 for up to 330 ms, then restored) |
+| TX_STA_FIFO MAC+`0x1718` | bit 0 valid; [4:1] packet id; bit 5 success; bit 6 aggregated; bit 7 ACK required; [15:8] WCID; [22:16] MCS; bit 23 BW; bit 24 SGI; [31:30] PHY mode [IP:RT2x00]. The vendor pops it every 100 ms until bit 0 reads 0 (at most 16 counted entries), for statistics only, and discards entries with bit 7 = 0 or WCID > 1, i.e. every management frame; nothing waits on it [M:s]. Packet id = the MCS low nibble, so 1 Mbps frames carry packet id 0; whether the hardware reports packet id 0 is not determinable (the Linux driver uses 1..3 only) (§16 U15). The 2026-11-02 vendor read `0x800701EF` is a slot-1 HT data frame entry [M:hw] |
+| TX_STA_CNT0/1/2 MAC+`0x170C`-`0x1714` | [15:0] TX fail / [31:16] beacons; [15:0] success / [31:16] retransmissions; [15:0] zero-length / [31:16] underflow; read-to-clear; read by the periodic task every 200 ms [IP:RT2x00, M:s] |
+| AUTO_RSP_CFG MAC+`0x1404` | `0x13` from init to link-up (bit 0 auto responder, bit 1 block-ack policy, bit 4 short-preamble responses); `0x03` only if a later beacon signals Barker preamble; bits 2/3 never set. It governs the responses the station sends, not the recognition of the access point's ACK [IP:RT2x00, M:s] |
+| RX_FILTER_CFG MAC+`0x1400` | the vendor runs with bit 10 (drop ACK) and bit 2 (drop unicast not to me) set and still counts acknowledgements; the Linux driver does the same. The filter decides what reaches the host; the transmit state machine's ACK match is separate [IP:RT2x00, I] |
+| EXP_ACK_TIME MAC+`0x1380` = `0x002400CA` | [15:0] = 202 (CCK), [31:16] = 36 (OFDM): SIFS + PLCP preamble/header time until the response's payload, not the whole ACK (the Linux driver writes the same constant for every rate) [I]; never recomputed [M:s] |
+| TX_TIMEOUT_CFG MAC+`0x1348` = `0x000F1290` | [7:4] MPDU lifetime 9; [15:8] RX ACK timeout 18 (unit per the Linux field name "slot", not verified, §16 U19); [23:16] TXOP timeout 15 [IP:RT2x00]; never recomputed [M:s] |
+| XIFS_TIME_CFG `0x33A40C0B`, BKOFF_SLOT_CFG `0x00140314`, TX_SW_CFG0-2 | CCK SIFS 11 µs, OFDM SIFS 12 µs, OFDM XIFS 4, EIFS 314 µs, BB RX-end enable; slot 20 µs, CC delay 3; written once by the PHY init (A11) and never again; the GPL's values are identical [M:s, M:hw] |
+| Per-transmit writes | none: the transmit path reads the PBF gate registers and drives the WDMA only; TX_PIN_CFG `0x00050302` (PA/LNA/TR-switch enables) and TX_BAND_CFG are written per channel switch (C2-C3) and nowhere else; no BBP, RF-word or `0x1405C` access per transmit or in the periodic task [M:s] |
+| MAC_STATUS_CFG MAC+`0x1200` | never read or written by any vendor code [M:s]; the Linux driver reads bits [1:0] (BBP/RF busy TX/RX) before BBP access [IP:RT2x00]. The GPL's write of `0x00030601` reads back `0x00030F00` [M:hw 2026-11-05]: a live status register; the write is an error with no vendor counterpart (§16 U16) |
+| Basic-rate interplay | the ACK to a 1 Mbps CCK frame comes at 1 Mbps (bit 0 of `0x13F` and `0x15F`); to an OFDM 6 Mbps frame at 6 Mbps (bit 4); the vendor's expected-ACK-rate table is software, derived from the same bitmap [M:s] |
+| Periodic task (100 ms base) | 100 ms: TX_STA_FIFO drain; 200 ms: RX_STA_CNT0-2 and TX_STA_CNT0-2 read (clear), TXRXQ_PCNT read and, if TX queue 0 or 1 holds pages, PBF_CFG `0x408` = `0x00F40012` / `0x00F4000A` then `0x00F40006` (queue 2, the management queue, is never flushed), MAC+`0x10F4` hang test (its recovery writes are dropped by the filter); 500 ms (associated): TX counters for the retry-limit rule above; associated and HT: EDCA AC0/AC2 traffic-dependent tweaks and protection updates [M:s] |
+
+**What the 2026-11-05 observations show [M:hw, I].** Over every scan since iteration 12l (13
+channels, 16 networks listed) and over every connect attempt, no frame addressed to the GPL
+driver's own address has ever been received: no probe response to its probe requests, no
+authentication response (the ones it logged were the Tuya station's), no ACK counted. Every
+register that takes part in acknowledging a frame holds the vendor's value on the GPL side
+(timing, retry, response, address registers; the slot and key tables differ but are not consulted
+for unencrypted management frames). The remaining differences are on the transmit side: the TXWI
+(TXOP 0 instead of 3, density 5 instead of 0), the header duration (0 instead of 304 µs), no
+deauthentication before the authentication, no slot 1, and the TX back end (§4.2.1 A18/A19 and
+§6.9: whether build dev-20261105T064012Z carried the window D mode-1 set and the compression
+curve is not in the observation record). The cheapest discriminator is §15 T19 (a probe response
+to a directed probe request proves the transmissions are decodable); T21 then tests the TXWI and
+header differences one at a time.
+
+#### 7.13.5 Hand-off contract: 802.11 state machine, supplicant, key tables [M:s; PUB wifi_connect.h, wpa_supplicant_event.h]
+
+Behavioural contract, not an API: (1) connect request = SSID, optional BSSID, the RSN element for
+the association request and the auth/cipher/key-management selections; no key material; the only
+hardware effect before the join is the key clearing of D1. (2) The state machine joins,
+authenticates and associates by itself (D2-D10) and reports "associated" with the association
+request's elements and the BSSID; the response's elements are not reported. (3) The 802.1X port is
+"not secured" from association to the pairwise install: non-EAPOL data is discarded both ways in
+software; EAPOL passes both ways (received EAPOL frames go up as 802.3 frames, type `0x888E`;
+transmitted ones go down the data path to slot 1, D25). (4) The host supplicant runs the 4-way and
+group handshakes, sends message 4/4, then installs the pairwise key (D26) and the group key (D27).
+(5) "Port secured" at the pairwise install (WPA2) raises the network interface and starts DHCP;
+no hardware write. (6) Link-down (deauthentication received, beacon loss, user request) runs D31
+and then the host's key clearing. The published event enumeration and API that correspond to these
+events are `wifi_connect.h` L71-L113 and L170-L397 and `wpa_supplicant_event.h` L5-L12 [PUB].
+
+#### 7.13.6 WDMA buffer placement and cache (closes §16 U6) [M:s wl_rf_common.a, wl_wifi_sta.a; PUB; M:hw]
+
+- TX staging buffer: 2560 bytes, 32-byte aligned, zero-initialised, in the internal-RAM section
+  (`.sram`, collected into the `ram0` region at `0x01C00000` by both published linker scripts);
+  WDMA_TX_ADR = buffer + 4 (4-byte aligned source). RX buffer: 4096 bytes, 4-byte aligned, ordinary
+  static RAM (`.bss`), which is internal RAM on the FM-1 (no SDRAM). The running vendor's
+  read-backs (`0x01C26EB8`, `0x01C1EF40`) fall inside these buffers [M:hw oracle symbol table].
+- No cache maintenance exists anywhere in the WiFi, lwIP or supplicant code; the only barrier is
+  `csync` (TX: set WDMA_CTL bit 10, `csync`, address, length, `csync`, poll bit 20, set bit 10; RX:
+  as §7.11.6 with `csync` after each phase-1 step and none after phase 2) [M:s].
+- Published cache model: 32-byte lines; SDRAM at `0x04000000` is cached and has an uncached alias
+  at +`0x04000000`; addresses below `0x04000000` (internal RAM, the flash window) have no alias
+  [PUB cpu.h L45-L53, cache.h L22]. The vendor's other DMA users flush only SDRAM-resident buffers
+  (display) and keep descriptors in internal RAM with `csync` only (memory-to-memory DMA) [M:s].
+- Conclusion: a WDMA buffer in internal RAM needs ordering (`csync`) only; an SDRAM-resident
+  buffer would need line flush/invalidate [I]. The GPL's buffers are internal RAM (`0x01C0xxxx`).
 
 ## 8. OS abstraction requirements
 
@@ -2090,7 +2660,12 @@ dependencies [M:s]:
 - WiFi registers are saved and restored across deep sleep
 
 The BT controller directly accesses WiFi registers: `0x11924` (WL_PA0), `0x11950` (WL_A50),
-`0x14000` (WL_CTL0), `0x10010` (SYS_CLK2) [M:s].
+`0x14000` (WL_CTL0), `0x10010` (SYS_CLK2) [M:s]. Detail [M:s BT controller library, 2026-11-04]:
+its trim reload writes back the full 32-bit words `0x1191C` and `0x11920` from the snapshot that
+the WiFi init takes at its very end (§11.2.11); its PLL-reset helper (test paths only) clears or
+sets `0x11924` bits 2, 0, 1 and writes `0x11950` [3:0] = 0 or `|= 0xE`; its single-carrier test
+forces `0x11920` [6:0] = `0x7F` with bit 7 and `0x1191C` [14:8] = `0x7F` with bit 15. A BT start
+before WiFi is outside the supported profile (§16 U9).
 
 ---
 
@@ -2102,95 +2677,414 @@ at flash `0x0E8000` [M:hw] (not `0x093000` as in the emulator [M:d]).
 | VM ID | Size | Content                                        | Drives                                                                                             | Tag      |
 |-------|------|------------------------------------------------|----------------------------------------------------------------------------------------------------|----------|
 | 106   | 2 B  | left, right crystal load trims                 | `0x11930` bits [16:13], [22:19]                                                                    | M:t, M:s |
-| 107   | 7 B  | PA_C_I values (7 calibration bytes)            | `0x11924` [26:24], `0x11928` [2:0]/[11:9]/[17:15]/[25:22], `0x1192C` [2:0], plus 32 LUT words each | M:t, M:s |
+| 107   | 7 B  | PA trim bytes (7); published default `{1, 7, 4, 7, 11, 1, 7}` [PUB] | `0x11924` [26:24], `0x11928` [2:0]/[11:9]/[17:15]/[25:22], `0x1192C` [2:0], plus 32 LUT words each | M:t, M:s |
 | 108   | 20 B | WiFi PA per-rate digital gain                  | 12 BBP window-D entries                                                                            | M:s      |
-| 187   | 68 B | Full calibration cache (64 B payload + CRC-16) | Window-D/D' entries, `0x11908`, `0x1191C`, `0x11920`, `0x1195C`, `0x11960`, LUT word patches       | M:t, M:s |
+| 187   | 68 B | Calibration record (64 B payload + CRC-16 stored as a 32-bit word; §10.2) | Window-D/D' entries, `0x11908`, `0x1191C`, `0x11920`, `0x1195C`, `0x11960`, LUT word patches       | M:t, M:s |
 
 Record format: 4-byte header (CRC-16/XMODEM low byte, ID, length) + data [M:s].
-VM 187 has an inner CRC-16 at bytes 64-65 over the 64-byte payload [M:s].
+VM 187's CRC-16/XMODEM of bytes 0..63 is stored as a 32-bit word at bytes 64..67 (**ERRATA
+2026-11-04**: not "at bytes 64-65"); the complete layout, the validity check and the
+byte-to-register mapping are in §10.2 [M:s]. Record ids 106, 107, 108 and 187 are published
+[PUB `include_lib/utils/syscfg/syscfg_id.h` L205-233]. BLE-HW-FACTS.md §14 and §16.4 describe the
+same records from the BLE side.
 
-See BLE-HW-FACTS.md §14 and §16.4 for the complete byte-to-register mapping.
+### 10.1 Full RF calibration ("full trim") [M:s wl_rf_common.a; rewritten 2026-11-04]
 
-### 10.1 Boot-time calibration when VM 187 is absent [M:s, OS:fm1-base]
+Runs inside the RF init (§4.2.1 A16, §11.2.1 step 7) when the stored record is not valid (§10.2),
+after the PLL programming and the bank scan (§5.2, §11.2.9) and before the second PHY init. It
+needs the baseband tables of PHY init #1 in place and the RF front end at the end state of the
+constant block (§11.2.9). The earlier text of this section, which named the steps and pointed to a
+third-party calibration file for the tables, is withdrawn: everything below comes from the vendor
+library [M:s] with the hardware cross-checks noted, and an implementer needs nothing else.
+Every value this procedure measures is unit-specific and is never to be copied from another unit.
 
-When no VM 187 record exists in flash (`have & 0x08 == 0`), the BLE RF bytecode interpreter writes
-zeros for every calibration-dependent field: RC filter bandwidth codes, TX LO leakage trims, RX DC
-offset compensation, and RF-die LUT bank/RX-DC patches. **The receiver is completely deaf with
-uncalibrated defaults.** On bare metal without MMU, addresses 0-67 are valid SRAM, so the zero-fill
-does not crash, it silently corrupts all trim fields.
+When no valid record exists and this procedure is not run, the receiver is deaf: the RF-die LUT
+AGC words, the RX DC fields of `0x11908`, the TX LO fields and the RC codes all stay at their
+neutral or zero values [M:t, I].
 
-**Requirement:** when VM 187 is absent, the driver must perform live RF calibration at boot to
-measure and apply the radio's actual trim values. This is confirmed by the fm1-base project
-(Apache-2.0, `bsp/chip/fm1_rf_cal.h`) which performs identical calibration when `fm1_rf_cal_on=1`.
+**Notation.** `WLA_CONn` = `0x11900 + 4n`. C[i], D[i], D'[i] are BBP window entries (CCA, TX back
+end, RX front end) written and read through the port protocol of §6.2-§6.3; a read-modify-write of
+an entry is a window read (index, commit 2, read-back register) followed by a write. R<n> is a
+direct BBP register. "Status read" is the analog status port: `0x11968` [31:28] = 1, eight writes
+of 1 to `0x11978`, one write of 0, then one read of `0x11978`; no poll and no delay are involved.
+"PHY reset" is MAC_SYS_CTRL (`0x31004`) = `0xC`; R22 = 0; R21 = `0x31`; R21 = `0x30`; R25 = 0.
 
-**Calibration procedure** (runs after WiFi mode switch, ~15 ms total):
+#### 10.1.1 RF path enables (mode select)
 
-1. **RC filter tune** (`0x11968` tune engine, 3 runs for 6/10/20 MHz):
-   - Set `0x11904` [11:8] = 8, set `0x11950` bit 27
-   - For each bandwidth code (0x1FC, 0x122, 0x0A0): write `0x11968` [9:1], clear [17:11] to 15,
-     clear [22:18], clear bit 23, set bit 0 (start)
-   - Poll the analog status port (selector 1, §5.2) bit 5 for completion (timeout 5 ms)
-   - Read the result from the same port, bits [15:8]
-   - Clear bit 0 (stop)
-   - Clear `0x11950` bit 27
-   - **Apply codes:** `0x11920` [17:10], `0x11910` [21:14], `0x1195C` bytes 1-3, `0x11960` bytes 1-3
+The RF front end has 29 enable bits, written as single-bit read-modify-writes in the order of the
+table, each as 1 when its group's condition holds for the selected mode and 0 otherwise [M:s].
 
-2. **TX LO leakage search** (loopback self-test):
-   - Set RF enables for TX cal mode (29 enable bits, `fm1_rfc_en_set(2)`)
-   - Configure loopback attenuation (`0x11920` bits 20-23, `0x11924` [30:28], `0x11928` [14:13,28:27])
-   - PHY reset, CCA-for-trim setup, loopback test mode (`bbp[25]=0x18`)
-   - Generate test tone via window D entries 0x00, 0x5F, 0x01-0x03
-   - Configure estimator via window D' entries 0x00, 0x13, 0x14
-   - Set TX neutral (gains 1023, phases/DC 0), TX LO I/Q to 64
-   - Auto-tune VGA gain to ADC peak target > 47
-   - **I search:** sweep `0x1191C` [14:8] values 0-127, pick lowest I²+Q² metric
-   - **Q search:** sweep `0x11920` [6:0] values 0-127, pick lowest I²+Q² metric
-   - On timeout: restore defaults (I=64, Q=64)
+| # | Register | Bit | Group | # | Register | Bit | Group |
+|---|----------|-----|-------|---|----------|-----|-------|
+| 1 | `0x11900` | 23 | G1 | 16 | `0x1191C` | 4 | G4 |
+| 2 | `0x11904` | 15 | G2 | 17 | `0x11920` | 9 | G4 |
+| 3 | `0x1190C` | 4 | G3 | 18 | `0x11924` | 5 | G4 |
+| 4 | `0x1190C` | 5 | G3 | 19 | `0x11924` | 7 | G4 |
+| 5 | `0x1190C` | 20 | G3 | 20 | `0x11924` | 8 | G4 |
+| 6 | `0x11910` | 12 | G1 | 21 | `0x11924` | 27 | G4 |
+| 7 | `0x11910` | 27 | G1 | 22 | `0x11928` | 12 | G4 |
+| 8 | `0x11914` | 11 | G1 | 23 | `0x11928` | 26 | G4 |
+| 9 | `0x11914` | 18 | G1 | 24 | `0x11938` | 26 | G3 |
+| 10 | `0x11918` | 0 | G1 | 25 | `0x11938` | 27 | G4 |
+| 11 | `0x11918` | 1 | G1 | 26 | `0x11910` | 13 | G5 |
+| 12 | `0x11914` | 26 | G1 | 27 | `0x1192C` | 14 | G5 |
+| 13 | `0x11908` | 6 | G4 | 28 | `0x1192C` | 11 | G6 |
+| 14 | `0x11918` | 19 | G4 | 29 | `0x11908` | 29 | G6 |
+| 15 | `0x1191C` | 0 | G4 | | | | |
 
-3. **RX DC successive approximation** (4 front-end gain steps):
-   - Switch to RX mode (`fm1_rfc_en_set(0)`), clear `0x11904` bit 15
-   - PHY reset, CCA-for-trim, loopback
-   - Configure estimator for DC mean readout
-   - For each of 4 gain configs (`0x1190C` [7:6], `0x11910` [11:8,6:0]):
-     - Zero analog RX DC trims in `0x11908` (I [15:7]+bit16, Q [25:17]+bit26)
-     - 12 rounds: step starts at 256, halves to 1
-     - Read I mean (estimator sel=1): adjust I trim ±step, clamp ±510
-     - Read Q mean (estimator sel=2): adjust Q trim ±step, clamp ±510
-   - Result: encoded I/Q trims per gain step (4 x 2 values)
+| Mode | Use | G1 | G2 | G3 | G4 | G5 | G6 |
+|------|-----|----|----|----|----|----|----|
+| 0 | receive (the operating mode; also any value outside 1..5) | 1 | 1 | 1 | 0 | 0 | 0 |
+| 1 | transmit (not used by the start path) | 0 | 0 | 0 | 1 | 0 | 0 |
+| 2 | TX calibration (loopback) | 1 | 0 | 0 | 1 | 1 | 0 |
+| 3 | RX calibration (loopback) | 1 | 0 | 1 | 1 | 0 | 1 |
+| 4 | RX DC calibration (not passed directly; reached as mode 0 then `0x11904` bit 15 = 0) | 1 | 0 | 1 | 0 | 0 | 0 |
+| 5 | RF off (every enable 0) | 0 | 0 | 0 | 0 | 0 | 0 |
 
-4. **Record build** (68 bytes, §10 format):
-   - Bytes 0-23: TX IQ values (6 × 4-byte LE: I gain, I phase, Q gain, Q phase, I DC, Q DC)
-   - Byte 24: TX LO I (`0x1191C` [14:8])
-   - Byte 25: TX LO Q (`0x11920` [6:0])
-   - Bytes 26-27: RX I/Q gain (255 = neutral, not measured without full IQ cal)
-   - Bytes 28-31: zero (RX I/Q phase, not measured)
-   - Bytes 32-35: analog RX DC I (signed, from `0x11908`)
-   - Bytes 36-39: analog RX DC Q (signed, from `0x11908`)
-   - Bytes 40-43: filter cal register `0x1195C`
-   - Bytes 44-47: filter cal register `0x11960`
-   - Bytes 48-63: RX DC results, 4 gain groups x (I, Q) (8 × 2-byte LE)
-   - Bytes 64-65: CRC-16/XMODEM of bytes 0-63
+`0x11904` bit 15 is the receive-only flag (G2): no other mode sets it. Note that the auto-control
+step (§11.2.11) sets `0x11924` bits 5-8 and `0x11938` bits 26-27 afterwards, so in the operating
+state those G4 bits read 1 although mode 0 cleared them [M:s, M:hw].
 
-**Estimator protocol** (via window D'):
-- Write D'[0x15]=1, D'[0x16]=1, D'[0x15]=3, D'[0x16]=3
-- Poll D'[0x8D] bits [1:0] until clear (timeout 5 ms)
-- Read result (sel-dependent): sel=0/3: I²+Q² from D'[0x81:0x82,0x84:0x85];
-  sel=1: 24-bit I mean from D'[0x81-0x83]; sel=2: 24-bit Q mean from D'[0x8A-0x8C]
+Mode sequence of a WiFi start [M:s]: 5 (before the PLL programming and the bank scan; the RC tune
+also runs in 5) → 2 (TX trim) → 0 then `0x11904` bit 15 = 0 (RX DC trim) → 3 (RX IQ trim) → 0. The
+quick path (§10.2) goes 5 → 0.
 
-**RF enable table** (RF mode select, 29 entries):
-Each entry: register offset from `0x11900`, bit number, flag class. Six classes:
-A (rx|rxcal|txcal|rxdc), RX (receive), R (rx|rxcal|rxdc), T (tx|rxcal|txcal),
-TXC (txcal), RXC (rxcal). Mode selects which classes are active. See fm1-base
-`fm1_rfc_en_tab[29]` for the complete table [OS:fm1-base, Apache-2.0].
+#### 10.1.2 Receive gain steps (42 steps)
 
-**VGA gain table** (42 steps, 4 fields each):
-Per step: `0x11910` [24:22], [26:25]; `0x11914` [17:15]+[14:12]; `0x11914` [7:5].
-See fm1-base `fm1_rfc_vga[42][4]` [OS:fm1-base, Apache-2.0].
+A gain step n (0..41) is written as, in this order: `0x11910` bit 22, bit 23, bit 24 = bits 0, 1, 2
+of field A; `0x11910` bit 25, bit 26 = bits 0, 1 of field B; `0x11914` [17:15] = field C-low (one
+masked write); `0x11914` bit 12, bit 13, bit 14 = bits 0, 1, 2 of field C-high; `0x11914` [7:5] =
+field D (one masked write). The 42 x 4 table is reproduced exactly by this rule (policy route 2 of
+§0; checked for all 42 entries [M:s]): with g = n div 6 and j = n mod 6,
 
-Evidence: fm1-base `bsp/chip/fm1_rf_cal.h` (Apache-2.0) contains a complete C rewrite of
-`wl_rf_common.a`'s calibration, independently confirms all register addresses and bit fields
-above. Comments in that file document where the library's code diverges from the spec and which
-bugs it contains.
+| g | A `0x11910` [24:22] | B `0x11910` [26:25] | C-high `0x11914` [14:12] | C-low `0x11914` [17:15] | D `0x11914` [7:5] |
+|---|---|---|---|---|---|
+| 0 | 1 | 0 | 1 | j | 0 |
+| 1 | 1 | 0 | 2 | j | 1 |
+| 2 | 1 | 1 | 2 | j | 2 |
+| 3 | 2 | 1 | 2 | j | 3 |
+| 4 | 2 | 1 | 4 | j | 4 |
+| 5 | 2 | 2 | 4 | j | 5 |
+| 6 | 4 | 2 | 4 | j | 6 |
+
+Check values: step 0 = (A 1, B 0, C-high 1, C-low 0, D 0); step 41 = (4, 2, 4, 5, 6). Use: the ADC
+peak tune (§10.1.5) walks steps 0..36; the RX DC trim uses step 40; the end of the RF init writes
+step 0, which is the operating value (the vendor radio reads A = 1, B = 0, C-high = 1, C-low = 0,
+D = 0 [M:hw]).
+
+#### 10.1.3 Measurement engine (window D')
+
+One measurement: write D'[`0x15`] = 1, D'[`0x16`] = 1, D'[`0x15`] = 3, D'[`0x16`] = 3; poll
+D'[`0x8D`] until bits [1:0] are both 0 (no delay between polls; the vendor's poll has **no bound**);
+then read the result. The start sequence is the same for every measurement; the "selector" only
+decides which entries are read [M:s]:
+
+| Selector | Read | Result |
+|----------|------|--------|
+| power (used by the TX LO, TX DC, TX gain, TX phase and RX IQ searches) | I = signed 16-bit from D'[`0x81`] (high byte), D'[`0x82`] (low); Q = signed 16-bit from D'[`0x84`] (high), D'[`0x85`] (low) | I² + Q² as a signed 32-bit integer; smaller is better |
+| I mean (RX DC) | D'[`0x81`] (bits 23:16), D'[`0x82`] (15:8), D'[`0x83`] (7:0) | signed 24-bit two's complement |
+| Q mean (RX DC) | D'[`0x8A`] (23:16), D'[`0x8B`] (15:8), D'[`0x8C`] (7:0) | signed 24-bit two's complement |
+
+What the hardware measures physically behind these entries is not determinable [I]; the arithmetic
+above is what the vendor applies.
+
+#### 10.1.4 Trim prologue (before each loopback step)
+
+Each of the three loopback steps (TX trim, RX DC trim, RX IQ trim) starts with this identical
+sequence [M:s]:
+
+1. PHY reset.
+2. C[`0x15`] = 0; C[`0x14`] = 0.
+3. C[`0x40`]: clear bit 7 (read-modify-write); C[`0x41`]: clear bit 7.
+4. C[`0x28`] = 0; C[`0x27`] = 5.
+5. R4: clear bits 4:3 (read-modify-write; the only writer of R4; never restored. The vendor radio
+   reads R4 = 0 [M:hw]).
+6. PHY reset again; MAC_SYS_CTRL = `0xC`; R25 = `0x18` (loopback mode; returns to 0 at the next
+   PHY reset).
+
+Nothing is restored inside the trim. PHY init #2 (§6.6) rewrites C[`0x14`] = `0x7F`, C[`0x15`] =
+`0x0F`, C[`0x27`] = `0x84`, C[`0x28`] = `0x1E`, C[`0x40`] = `0xE7`, C[`0x41`] = `0x87` (the §11.2.6
+table values); R4 is not rewritten by anything.
+
+#### 10.1.5 ADC peak read and receive-gain auto-tune
+
+ADC peak read: D'[`0x17`] = `0x82`; wait 1000 µs; read D'[`0x80`] (unsigned byte = peak);
+D'[`0x17`] = 2 [M:s].
+
+Auto-tune (the variant the trim uses; the other variant stops at a peak of 16 or more and is not
+used): set gain step 0; read the peak twice and keep the second; if the peak is above 47 (48 or
+more) finish with step 0; otherwise increase the step by one, write it, read twice, and finish at
+the first step whose peak is above 47 or at step 36 (the bound; nothing aborts). Write the final
+step again at the end. Cost 2 ms per step tried; result in 0..36 [M:s].
+
+#### 10.1.6 Loopback attenuation
+
+Two variants, written before the TX trim ("TX") and before the RX IQ trim ("RX"); the RX DC trim
+inherits the TX variant. Both first write `0x11920` bit 20 = 0, then bit 21 = 1. Then: TX variant
+bit 22 = 0, bit 23 = 1; RX variant bit 22 = 1, bit 23 = 0. Both then write `0x11924` [30:28] = 5;
+`0x11928` bit 13 = 1, bit 14 = 1; `0x11928` [28:27] = 3 (TX) or 1 (RX); `0x11910` [11:8] = 9 [M:s].
+
+| Field | Constant block (§11.2.9) | During TX trim | During RX DC trim | During RX IQ trim and **after the full trim** |
+|-------|---|---|---|---|
+| `0x11920` b20 / b21 | 0 / 1 | 0 / 1 | 0 / 1 | 0 / 1 |
+| `0x11920` b22 / b23 | 0 / 1 | 0 / 1 | 0 / 1 | **1 / 0** |
+| `0x11924` [30:28] | 6 | 5 | 5 | **5** |
+| `0x11928` b13 / b14 | 1 / 1 | 1 / 1 | 1 / 1 | 1 / 1 |
+| `0x11928` [28:27] | 3 | 3 | 3 | **1** |
+| `0x11910` [11:8] | (not set by the block) | 9 | 0, 0, 3, 9 per gain configuration | 9 |
+
+Nothing after the trim touches these fields, so the "after" column is the operating state of a
+unit that ran the full trim; the vendor radio reads exactly those values [M:hw]. A quick-path start
+keeps the constant-block values instead (§10.2).
+
+#### 10.1.7 RC filter tune
+
+Preparation: `0x11904` [11:8] = 8 (left set); `0x11950` bit 27 = 1. For each bandwidth in the
+order 6 MHz, 10 MHz, 20 MHz: `0x11968` [9:1] = `0xFE`, `0x91`, `0x50` respectively (written as a
+read-modify-write of mask `0x3FE` with the raw values `0x1FC`, `0x122`, `0x0A0`); `0x11968`
+[17:11] = 15; [22:18] = 0; bit 23 = 0; bit 0 = 1 (start); then status reads until bit 5 = 1 (**no
+bound**, no delay); one more status read, whose bits [15:8] are the code; `0x11968` bit 0 = 0.
+After the three: `0x11950` bit 27 = 0; `0x11920` [17:10] = the 10 MHz code; `0x11910` [21:14] =
+the 10 MHz code; `0x1195C` = `0x11960` = ([20 MHz code] << 24) | ([10 MHz code] << 16) |
+([6 MHz code] << 8) | `0xFF` [M:s]. The vendor radio reads codes 253 / 127 / 55 and
+`0x1195C` = `0x11960` = `0x377FFDFF` [M:hw]; these are unit results.
+
+#### 10.1.8 TX digital correction fields
+
+Six 10-bit values live in window D as bits [9:2] in a main entry and bits [1:0] in a 2-bit slot of
+D[`0x61`] or D[`0x62`]; the slot is updated by a read-modify-write of its entry [M:s]:
+
+| Value | Main entry = v[9:2] | Slot = v[1:0] | Neutral | Signed |
+|-------|---------------------|---------------|---------|--------|
+| TX I gain | D[`0x04`] | D[`0x61`] [1:0] | 1023 (`0xFF`, slot 3) | no |
+| TX I phase | D[`0x05`] | D[`0x61`] [3:2] | 0 | yes (two's complement) |
+| TX Q gain | D[`0x06`] | D[`0x61`] [5:4] | 1023 | no |
+| TX Q phase | D[`0x07`] | D[`0x61`] [7:6] | 0 | yes |
+| TX I DC | D[`0x08`] | D[`0x62`] [1:0] | 0 | yes |
+| TX Q DC | D[`0x09`] | D[`0x62`] [3:2] | 0 | yes |
+
+TX LO leakage codes: I in `0x1191C` [14:8] (7 bits), Q in `0x11920` [6:0] (7 bits); mid-scale 64.
+
+#### 10.1.9 TX trim (mode 2, TX attenuation)
+
+Setup, in order: the prologue (§10.1.4); D[0] = 3, D[`0x5F`] = `0x10`, D[1] = `0x14`, D[2] = 0,
+D[3] = 0; D'[0] = `0x3E`, D'[`0x13`] = `0x1E`, D'[`0x14`] = `0x38`, then D'[`0x14`] = `0x34`; the
+six TX fields to neutral [M:s].
+
+1. **LO search.** LO I = 64, LO Q = 64; auto-tune (§10.1.5); LO I = 64, measure power, best = 64;
+   write LO I = 0, 1, ..., 127, measuring each; a code becomes best only when its power is strictly
+   lower; write LO I = best. Then the same for LO Q (0..127) with I fixed. 258 measurements.
+2. **DC search.** I DC = 0, Q DC = 0; auto-tune again; measure the baseline with I DC = 0; sweep
+   I DC through the 401 values −200..+200, each reduced to an 8-bit two's-complement value before
+   it is written (so the values actually written run 56..127, −128..127, −128..−56 and every
+   value in −128..+127 is visited at least once); strictly-lower wins; apply the best; the same for
+   Q DC with I fixed. 804 measurements.
+3. **Gain search.** D'[`0x13`] = `0x3C`; gains 1023/1023; baseline; for k = −423..+423: k < 0 →
+   I gain = 1023 + k, Q gain = 1023; k ≥ 0 → I gain = 1023, Q gain = 1023 − k; strictly-lower wins.
+   The vendor keeps the winning k reduced to an 8-bit two's-complement value b and applies b < 0 →
+   I gain = 1023 + b; b ≥ 0 → Q gain = 1023 − b, so a winner outside −128..+127 is applied aliased
+   [M:s; observed vendor behaviour, not a hardware requirement]. 848 measurements.
+4. **Phase search.** Both phases = 0; baseline; if b ≥ 0 sweep the Q phase, else the I phase, over
+   −200..+200 (the other phase stays 0); strictly-lower wins; the winner is again reduced to 8 bits
+   before it is applied. 402 measurements.
+
+#### 10.1.10 RX DC trim (mode 0 with `0x11904` bit 15 = 0)
+
+Preconditions: high-pass closed: `0x11914` [2:0] = 0, bit 3 = 0, bit 4 = 0. Setup: the prologue;
+D[0] = 3, D[`0x5F`] = `0x10` (D[1..3] keep the TX-trim values `0x14`, 0, 0); D'[0] = `0x3E`,
+D'[`0x1B`] = `0x38`, D'[`0x08`] = `0xC0`, D'[`0x13`] = 0, D'[`0x14`] = `0x38`, then D'[`0x14`] =
+`0x34`; gain step 40 [M:s].
+
+Gain configurations, written in the order `0x1190C` [7:6], `0x11910` [11:8], `0x11910` [6:0]:
+
+| Configuration | `0x1190C` [7:6] | `0x11910` [11:8] | `0x11910` [6:0] |
+|---|---|---|---|
+| 0 | 0 | 0 | 127 |
+| 1 | 1 | 0 | 127 |
+| 2 | 1 | 3 | 69 |
+| 3 | 1 | 9 | 14 |
+
+Analog DC code encoding in `0x11908`, for a signed code v: I magnitude [15:7] = |v| (9 bits), sign
+bit 16; Q magnitude [25:17] = |v|, sign bit 26; **a sign bit of 1 means non-negative, 0 means
+negative**. The magnitude field is written first, the sign bit in a second write. The saved 10-bit
+code is v | `0x200` for v ≥ 0 and |v| for v < 0 (bit 9 = non-negative flag) [M:s].
+
+Procedure, for each configuration 0..3: write the configuration; write analog I = 0 then Q = 0;
+step = 256, I = Q = 0; 12 rounds of: measure the I mean; if it is positive and I > −510, I −= step;
+if negative and I < 510, I += step (zero leaves it); write analog I; measure the Q mean; apply the
+same rule to Q and write it; step = max(step / 2, 1) (256, 128, 64, 32, 16, 8, 4, 2, 1, 1, 1, 1).
+Then write the final I and Q once more and save both codes. Outputs: a 4 x 2 table of 10-bit codes;
+`0x11908` is left holding the configuration-3 result (the vendor radio reads I = +90, Q = +56
+[M:hw], unit results); the register state ends at `0x1190C` [7:6] = 1, `0x11910` [11:8] = 9,
+[6:0] = 14. Afterwards the high-pass is reopened: `0x11914` [2:0] = 1, bit 3 = 1, bit 4 = 1.
+
+The table is consumed by the LUT load (§5.1, A20): entries 128-132 use configuration 0, 133-179
+configuration 1, 180-185 configuration 2, 186-223 configuration 3; word 0 = (base [11:0]) |
+(I code << 12) | (Q code << 22) [M:s].
+
+#### 10.1.11 RX IQ trim (mode 3, RX attenuation)
+
+Setup: the prologue; D[0] = 3, D[`0x5F`] = `0x10`, D[1] = `0x14`, D[2] = 0, D[3] = `0x11`;
+D'[`0x09`] = D'[`0x0B`] = `0xFF` (RX I/Q gain), D'[`0x0A`] = D'[`0x0C`] = 0 (RX I/Q phase, signed);
+D'[0] = `0x3E`, D'[`0x14`] = `0x38`, then D'[`0x14`] = 4, then D'[`0x13`] = `0x1E`; auto-tune;
+gains `0xFF` again; baseline (power selector). Gain sweep k = −105..+105: k < 0 → I gain = 255 + k;
+k ≥ 0 → Q gain = 255 − k; strictly-lower wins; apply. Phases = 0; baseline; if the winning k ≥ 0
+sweep the Q phase D'[`0x0C`], else the I phase D'[`0x0A`], over −50..+50 as signed 8-bit; apply the
+best. 314 measurements [M:s]. D[3] = `0x11` is not restored by anything that follows; the vendor
+radio reads D[1] = `0x14`, D[2] = 0, D[3] = `0x11` [M:hw 2026-11-03], i.e. a full trim has run on
+that unit (in that boot, or earlier if window D survives a reset [I]).
+
+#### 10.1.12 End of the trim and the operating state
+
+After the RX IQ trim the shared tail of the RF init runs: mode 0; the PA fields from the seven PA
+trim bytes (§10, §11.2.9); a software snapshot of the TX fields (D[4..9], D[`0x61`], D[`0x62`],
+decoded as 10-bit values) and of `0x1191C`/`0x11920` (§11.2.11); the record build of §10.2. The
+measured results stay in the hardware: TX fields in window D, TX LO codes, RX DC in `0x11908`, RC
+codes in `0x11920`/`0x11910`/`0x1195C`/`0x11960`, RX IQ in D'[9..`0x0C`]; the LUT AGC words carry
+the RX DC codes once A20 loads them. The vendor radio reads TX I gain high byte D[4] = `0xF8`,
+I phase D[5] = `0xFC`, I DC D[8] = 3, Q DC D[9] = `0xFF`, Q gain D[6] = `0xFF`, Q phase D[7] = 0
+[M:hw 2026-11-03]: unit results.
+
+#### 10.1.13 Bounds, failure and timing
+
+| Wait | Done when | Delay in loop | Bound | Vendor disposition on failure |
+|------|-----------|---------------|-------|-------------------------------|
+| RC tune done | status bit 5 = 1 | none | **none** | hangs |
+| measurement done | D'[`0x8D`] [1:0] = 0 | none | **none** | hangs |
+| ADC peak | fixed 1000 µs wait, no poll | | | |
+| auto-tune | peak > 47 | 2 ms per step | step 36 | continues with 36 |
+| bank-scan comparator | one status read per probe (after 5/5/100 µs) | | 24 probes + 47 sweeps of at most 99 steps | always terminates (§5.2) |
+| BBP port busy (every window access) | `0x3101C` bit 17 = 0 | none | **none** | hangs |
+
+The full trim has no failure exit: every search applies its best value, and the two unbounded
+waits hang if the hardware never completes. An implementer should bound them (a few ms each is
+far above the observed completion; measured latencies are not recorded) and treat a timeout as
+"calibration unsupported on this unit" rather than invent a recovery [I]. The only explicit delay
+inside the trim is the 1000 µs per ADC peak read: 6-222 ms in total over the three auto-tunes;
+2722 measurements whose duration the hardware sets (not determinable from the vendor; measure on
+hardware). An 80 µs delay precedes the trim (the PLL loop pulse, §11.2.9).
+
+**Resulting state that a quick-path start does not have:** R4 bits 4:3 cleared, D[1..3] =
+`0x14`, 0, `0x11`, the "after the full trim" attenuation column of §10.1.6, and
+`0x11904` [11:8] = 8 (the quick path writes this one too).
+
+#### 10.1.14 GPL driver calibration behaviour [M:hw 2026-11-05]
+
+**Update 2026-11-05 23:00Z:** TX IQ calibration is now producing valid results:
+D[4] = 0xF8, D[5] = 0xFC, D[6] = 0xFF, D[8] = 3, D[9] = 0xFF, TX LO I = 75, TX LO
+Q = 49. All match the vendor unit's values [M:hw, observation
+2026-11-05T23:00:00Z]. The implementer fixed the calibration path (A25 resolved).
+
+**Earlier state (historical, kept for traceability):** the A24-only build produced neutral
+defaults (D[4..9] = `FF 00 FF 00 00 00`) with only 354 of ~2722 expected measurements.
+This was traced to the TX loopback path not producing a measurable signal for the
+calibration sweeps; the RC tune (analog status port) was unaffected [M:hw, observation
+2026-11-05T16:30:00Z].
+
+**Current blocker (T25b confirmed, root cause identified 2026-11-06):** `0x11900` never
+switches from RX mode (0xEAA00005) to TX mode during transmission. The PA, DAC, and TX
+mixer stay off. Root cause: **ordering bug in `wifi_rf_arm()`**. The function calls
+`wifi_rf_auto_control()` then `wifi_cal_rf_mode(0)`. Auto_control sets G4 enable bits in
+`0x11924` (bits 5,7,8) and `0x11938` (bit 27) that the RF auto-switch hardware needs. Then
+`wifi_cal_rf_mode(0)` writes all 29 enable bits for mode 0 (G4=0), clearing those bits.
+The vendor runs them in the opposite order (A16 mode(0), then A20 LUT, then A21
+auto_control), so auto_control's G4 bits survive. Fix: in `wifi_rf_arm()`, move
+`wifi_cal_rf_mode(0)` before `wifi_rf_auto_control()`. The `0x11950` value (0x57BFFFDC)
+and `0x1405C` enable group are both correct.
+
+Analysis details: observation 2026-11-06T00:00:00Z-WIFI-reader-T25b-analysis.md.
+
+### 10.2 Stored record 187: validity, quick path, when it is written [M:s wl_rf_common.a, cpu library; 2026-11-04]
+
+**Record layout (68 bytes, little-endian; bytes 0..63 are covered by the CRC):**
+
+| Offset | Size | Content | Encoding |
+|--------|------|---------|----------|
+| 0 | 4 | TX I gain | 10-bit unsigned in a 32-bit word (bits [9:2] → D[`0x04`], [1:0] → D[`0x61`] [1:0]) |
+| 4 | 4 | TX I phase | 10-bit signed, sign-extended (→ D[`0x05`], D[`0x61`] [3:2]) |
+| 8 | 4 | TX Q gain | 10-bit unsigned (→ D[`0x06`], D[`0x61`] [5:4]) |
+| 12 | 4 | TX Q phase | 10-bit signed (→ D[`0x07`], D[`0x61`] [7:6]) |
+| 16 | 4 | TX I DC | 10-bit signed (→ D[`0x08`], D[`0x62`] [1:0]) |
+| 20 | 4 | TX Q DC | 10-bit signed (→ D[`0x09`], D[`0x62`] [3:2]) |
+| 24 | 1 | TX LO I | `0x1191C` [14:8] |
+| 25 | 1 | TX LO Q | `0x11920` [6:0] |
+| 26 | 1 | RX I gain | D'[`0x09`] |
+| 27 | 1 | RX Q gain | D'[`0x0B`] |
+| 28 | 1 | RX I phase | D'[`0x0A`] (signed) |
+| 29 | 1 | RX Q phase | D'[`0x0C`] (signed) |
+| 30 | 2 | padding | included in the CRC as stored (0 when the vendor builds it) |
+| 32 | 4 | analog RX DC I | signed 32-bit: +magnitude when `0x11908` bit 16 = 1, −magnitude when 0; magnitude = [15:7] |
+| 36 | 4 | analog RX DC Q | signed 32-bit from [25:17] and bit 26, same rule |
+| 40 | 4 | `0x1195C` | raw word: [7:0] = `0xFF`, [15:8] 6 MHz code, [23:16] 10 MHz code, [31:24] 20 MHz code |
+| 44 | 4 | `0x11960` | raw word, same layout |
+| 48 | 16 | RX DC codes | four (I, Q) pairs of 16-bit values for gain configurations 0..3 (§10.1.10), I first; each is the 10-bit code: bit 9 = non-negative, [8:0] = magnitude |
+| 64 | 4 | CRC | CRC-16/XMODEM of bytes 0..63, zero-extended to 32 bits (bytes 66-67 = 0) |
+
+CRC-16/XMODEM: polynomial `0x1021`, initial value 0, no reflection, no final XOR; check value of
+"123456789" is `0x31C3`. The SoC has a CRC unit used for it outside interrupt context: write 0 to
+`0x13504` (seed), write each byte zero-extended as one 32-bit write to `0x13500`, then read
+`0x13504` [15:0] after a pipeline sync; the same software CRC is used otherwise, so the two are
+equivalent [M:s cpu library; the hardware polynomial is inferred from that equivalence, I].
+
+**ERRATA (2026-11-04):** earlier text said "inner CRC-16 at bytes 64-65"; the CRC is compared as a
+32-bit word at 64..67, and a stored word of 0 is invalid.
+
+**Validity check** (run at boot before the RF init, and again at the start of the quick path): the
+read must return all 68 bytes; the stored CRC word must be non-zero and equal to the CRC of bytes
+0..63. A short read, a missing record, a wrong CRC or a zero CRC all count as invalid [M:s]. The
+record is read through the SDK's published record interface (record id 187, 68 bytes) [PUB].
+Each successful validation copies bytes 48..63 into the RAM table that the LUT load consumes
+(§10.1.10).
+
+**Quick path** (taken when the published use-stored-trim option is on, its default, and the record
+is valid), in this write order [M:s]:
+
+1. `0x1191C` [14:8] = byte 24; `0x11920` [6:0] = byte 25.
+2. The six TX words into their entries and slots in the order of the table (each: main entry
+   write, then a read-modify-write of the slot).
+3. `0x11908`: I then Q, each as a 16-bit signed value: v ≥ 0 → magnitude = v & `0x1FF`, sign bit
+   set; v < 0 → magnitude = (−v) & `0x1FF`, sign bit cleared; magnitude field first, sign bit second.
+4. D'[`0x09`] = byte 26, D'[`0x0B`] = byte 27, D'[`0x0A`] = byte 28, D'[`0x0C`] = byte 29.
+5. `0x1195C` = word at 40; `0x11960` = word at 44 (plain stores).
+6. `0x11904` [11:8] = 8.
+7. `0x11920` [17:10] = `0x1195C` [23:16] (the 10 MHz code, taken from a read-back of the register);
+   `0x11910` [21:14] = the same code.
+
+The quick path contains no PHY reset, no RF mode change, no attenuation write, no high-pass
+change and no measurement; it does not write the LUT (A20 does, from the RAM table). After it the
+shared tail runs as after a full trim (mode 0, PA fields, snapshot). It leaves the constant-block
+values of the attenuation fields (§10.1.6), R4 untouched and D[1..3] untouched.
+
+**When the record is written [M:s]:** only when the stored-trim option is on **and** the boot-time
+validity check failed. Then, after the full trim and the shared tail, the record is built at once
+from the registers (the TX fields, LO codes, RX IQ entries, `0x11908`, `0x1195C`, `0x11960` and the
+RX DC table of that trim), and a one-shot timer writes it one second later with the CRC filled
+in. A valid record is never rewritten; a full trim that ran because the quick path's second
+validation failed is **not** saved; the full trim has no failure outcome that would prevent a save.
+**ERRATA (2026-11-04):** earlier text that said "saved after any full trim" and "a failed full
+trim is not saved" is replaced by this rule.
+
+**Failure contract:**
+
+| Case | Vendor behaviour | Record written |
+|------|------------------|----------------|
+| record missing or short | treated as invalid; full trim | yes, one second after the trim |
+| CRC wrong or stored CRC = 0 | same | yes |
+| quick path fails (second validation) | full trim | **no** |
+| a full-trim step "fails" | not possible: no step reports failure; the two unbounded waits hang; every search applies its best | n/a |
+| bank search exhausted (§5.2) | silent; banks 15..0 then 127..97 | never (the bank table is RAM only) |
+
+**Where the record lives:** the SDK's key-value store in flash; on the FM-1 the store is at flash
+`0x0E8000` [M:hw] (§10). An implementer that cannot or does not want to read the vendor store must
+run the full trim every boot (about 2722 measurements plus up to 222 ms of fixed delays) or keep
+its own copy of the 68-byte image in the same format.
+
+**State transitions of a start [M:s]:** quick path: RF mode 5 → PLL/bank scan → mode 0. Full
+trim: mode 5 → PLL/bank scan → RC tune (still 5) → mode 2 → PHY reset x2 (TX trim) → high-pass
+closed → mode 0 with bit 15 = 0 → PHY reset x2 (RX DC) → high-pass open → mode 3 → PHY reset x2
+(RX IQ) → mode 0. Every PHY reset inside the trim ends with MAC_SYS_CTRL = `0xC`. Warm restarts,
+repeated start/stop, sleep/wake and a BT start before WiFi are outside the supported profile of
+this sheet (§16).
 
 ---
 
@@ -2425,6 +3319,10 @@ high enough for OFDM Short Training Field correlation; DSSS thresholds must matc
 preamble timing. Using conservative defaults (0x10/0x40) makes the receiver deaf to all
 WiFi signals.
 
+The running vendor radio's window C read-back of 2026-11-02 equals this (active) set entry for
+entry; the alternative set that the published file keeps in a disabled block (179, 16, 3, 180,
+180, 180, 120, 80, 72, 3) is not what runs on the FM-1 [M:hw, PUB].
+
 #### 11.2.7 RX frontend register table (BBP window D') [M:s]
 
 Written through BBP window D' (§6.1).
@@ -2539,49 +3437,174 @@ unknown; the simulation builds them up entirely from RMW operations on zero).
 **ERRATA (2026-11-04):** the simulation below assumed a 40 MHz crystal. The FM-1 has a 24 MHz
 crystal, so the PLL words (`0x11934`, `0x11938`, `0x1193C`, `0x11940`, `0x11954`) and the crystal
 word in this table do **not** apply to this board; the 24 MHz end values are the vendor read-backs
-(`0x11938` = `0x8DAFD065`: N = 101, bank `0x35`; `0x1193C` = `0x12640F32`: fbds 121; `0x11940` =
+(`0x11938` = `0x8DAFD065`: N = 101, bank `0x35`; `0x1193C` = `0x12640F32`: divider code 121; `0x11940` =
 `0x08B41411`; `0x11954` = `0x02822520`; `0x11930` = `0x05D9625F`) [M:hw]. For 24 MHz the PLL is
 set for 2442 MHz with N = 101, fraction `0xC00000`, `0x11940` b0 = 1 and [7:6] = 0, `0x1193C`
 [21:18] = 9 and [29:27] = 2 [M:s wl_rf_common.a]. Calibrating with the 40 MHz words on a 24 MHz
 unit is listed in §14 (row 8).
 
+**24 MHz RF init, complete [M:s wl_rf_common.a, cpu library; 2026-11-04].** Register names below
+are the published `WLA_CONn` names of the SDK chip header (`0x11900 + 4n`) [PUB]; the names
+`PLL_CON0..4` and `ANA_CON0..5` that the 40 MHz table further down uses for `0x11934`-`0x11964`
+were the reader's and clash with the published `PLL_CON0`/`PLL_CON1` at `0x119A0`/`0x119A4`
+(**ERRATA 2026-11-04**; read that table with this map: `0x11930` WLA_CON12, `0x11934` WLA_CON13,
+`0x11938` WLA_CON14, `0x1193C` WLA_CON15, `0x11940` WLA_CON16, `0x11944` WLA_CON17, `0x11950`
+WLA_CON20, `0x11954` WLA_CON21, `0x11964` WLA_CON25; and `0x11900`-`0x1192C` are WLA_CON0-11, not
+WL_CON0-11).
+
+**Crystal detection.** The library asks the clock layer for the crystal frequency; that query
+returns 40 MHz when `PLL_CON0` (`0x119A0`) [27:26] = 2 and 24 MHz otherwise. No library code writes
+that field (boot, power and reboot code touch only `PLL_CON0` [1:0]), so it is a hardware or
+boot-ROM state; the FM-1 reads 24 MHz [M:hw: `0x11930` [27:23] = `0x0B`]. The published clock
+header does not define the field [PUB]. An implementer may hard-code 24 MHz for the FM-1 or test
+the field.
+
+**Crystal word `0x11930` (WLA_CON12), write order, no delays:** bit 0, then bit 1, bit 2, bit 3,
+bit 4 set one at a time; [6:5] = 2; bit 7 = 0; [9:8] = 2; bit 10 = 0; bit 11 = 0; bit 12 = 0;
+bit 17 = 0; bit 18 = 0; [16:13] = low nibble of the left crystal cap byte; [22:19] = low nibble of
+the right cap byte; [27:23] = `0x0B` (24 MHz; `0x1A` at 40 MHz). [31:28] is never written. The
+cap bytes are record 106 [PUB id]; when the record is absent the published default `0x0B`/`0x0B`
+is used and written back [PUB `apps/common/config/user_cfg.c` L529-540, `apps/demo/demo_wifi/board/wl82/board.c` L50-51].
+Boot clock code has already written `0x11930` before the WiFi init (bit 0 cleared, bits 7 and 17
+set, [27:23] = `0x13`, bit 0 set); the WiFi init overrides all of it. The vendor radio reads
+`0x05D9625F` = exactly this sequence with caps `0xB`/`0xB` [M:hw].
+
+**Constant block** (straight-line field writes in this order after the crystal word; values at
+24 MHz; "[a:b] = v" is a masked read-modify-write, "bn = v" a single-bit one):
+
+- `0x11950` = 0 (whole word).
+- `0x11900`: b0 = 1; [4:1] = 2; b5 = 0; [7:6] = 0; b8 = 0; b9 = 0; b10 = 0; [13:11] = 0; b18 = 0; [21:19] = 4.
+- `0x11904`: b31 = 0.
+- `0x11900`: b22 = 0; b23 = 0; [25:24] = 2; b26 = 0; b27 = 1; b28 = 0.
+- `0x11904`: [7:0] = `0x80`.
+- `0x11900`: b29 = 1; b30 = 1; b31 = 1.
+- `0x11904`: [11:8] = 8; [14:12] = 5; b15 = 0; [17:16] = 3; [21:18] = 0; [25:22] = 7; [29:26] = 0; b30 = 0.
+- `0x11908`: [2:0] = 0; [4:3] = 2; b5 = 0; b6 = 0; [15:7] = 0; b16 = 1; [25:17] = 0; b26 = 1; b27 = 1; b28 = 1; b29 = 0; [31:30] = 2.
+- `0x1190C`: [1:0] = 1; [3:2] = 2; b4 = 0; b5 = 0; [7:6] = 1; [10:8] = 3; [12:11] = 2; b13 = 0; [15:14] = 2; [18:16] = 3; b19 = 1; b20 = 0; [22:21] = 1; b23 = 0; b24 = 1; [27:25] = 3.
+- `0x11910`: [6:0] = `0x0E`; b7 = 1; [11:8] = 9.
+- `0x1190C`: b28 = 0; [31:29] = 3.
+- `0x11910`: b12 = 0; b13 = 0; [21:14] = `0x20`; b22 = 0; b23 = 0; b24 = 1; b25 = 0; b26 = 1; b27 = 0; b28 = 0; b29 = 0.
+- `0x11914`: [2:0] = 1; b3 = 1; b4 = 1; [7:5] = 0; [10:8] = 3; b11 = 0; b12 = 0; b13 = 0; b14 = 1; [17:15] = 1; b18 = 0; [20:19] = 3.
+- `0x11918`: b0 = 0; b1 = 0.
+- `0x11914`: b21 = 1; [24:22] = 1; b25 = 0; b26 = 0; [28:27] = 0; [30:29] = 2.
+- `0x11918`: b2 = 1; [5:3] = 4; b6 = 0; b7 = 0; [9:8] = 2; [12:10] = 2; b13 = 1; [15:14] = 1; [18:16] = 7; b19 = 0.
+- `0x1191C`: b0 = 0; [3:1] = 3; b4 = 0; [7:5] = 3; [14:8] = `0x40`; b15 = 1; b16 = 1; [19:17] = 2; b20 = 1; [22:21] = 0; b23 = 0; b24 = 1; b25 = 0.
+- `0x11920`: [6:0] = `0x40`; b7 = 1; b8 = 1.
+- `0x1191C`: [28:26] = 2; b29 = 1; [31:30] = 0.
+- `0x11920`: b9 = 0; [17:10] = `0x90`; b18 = 1; b19 = 0; b20 = 0; b21 = 1; b22 = 0; b23 = 1; [26:24] = 0; [29:27] = 0.
+- `0x11924`: [2:0] = 7; [4:3] = 2; b5 = 0; b6 = 1; b7 .. b17 = 0; [19:18] = 2; [21:20] = 3; b22 = 0; b23 = 1; [26:24] = 5; b27 = 0; [30:28] = 6.
+- `0x11928`: [2:0] = 7; b3 = 0; [5:4] = 2; [8:6] = 7; [11:9] = 3; b12 = 0; [14:13] = 3; [17:15] = 5; b18 = 0; b19 = 1; [21:20] = 3; [25:22] = `0xB`; b26 = 0; [28:27] = 3.
+- `0x1192C`: [2:0] = 0; b3 = 0; b4 = 1; [6:5] = 3; [8:7] = 0; [10:9] = 0; b11 = 0; [13:12] = 2; b14 = 0; b15 = 1; [17:16] = 2; b18 = 0; [20:19] = 2; [22:21] = 2.
+- `0x11934`: [23:0] = 0; b24 = 1; b25 = 0; [27:26] = 0; [29:28] = 0.
+- `0x11938`: [11:0] = 51; [15:12] = `0xD`; b16 = 1; b17 = 1; b18 = 0; [25:19] = 51; b26 .. b30 = 0; b31 = 1.
+- `0x1193C`: [1:0] = 2; [4:2] = 4; [12:5] = 119; [17:13] = 0; [21:18] = `0xE`; [23:22] = 1; b24 = 0; [26:25] = 1; [29:27] = 7; b30 = 0.
+- `0x11940`: b0 = 0; b1 = 0; [4:2] = 4; b5 = 0; [7:6] = 2; b8 = 0; [13:9] = 10 (18 at 40 MHz); b14 = 0; [17:15] = 0; b18 = 1; [20:19] = 2; [22:21] = 1; b23 = 1; b24 .. b26 = 0; [29:27] = 1.
+- `0x11944`: [1:0] = 0; [3:2] = 0; b4 .. b6 = 0; [8:7] = 1; [10:9] = 1; [12:11] = 1; [16:13] = 0; [18:17] = 0; b19 = 0.
+- `0x11964`: [17:16] = 1.
+
+End values of the block (bits the block never touches are listed; every such bit that was
+captured reads 0 on hardware): `0x11900` `0xEA200005` ([17:14] untouched); `0x11904`
+`0x01C35880`; `0x11908` `0x9C010010`; `0x1190C` `0x672B9349`; `0x11910` `0x0508098E` ([31:30]);
+`0x11914` `0x4078C319` (b31); `0x11918` `0x00076A24` ([31:20]); `0x1191C` `0x2915C066`; `0x11920`
+`0x00A641C0` ([31:30]); `0x11924` `0x65B80057` (b31); `0x11928` `0x1AFAE7E7` ([31:29]); `0x1192C`
+`0x0052A070` ([31:23]); `0x11938` `0x819BD033`; `0x1193C` `0x3A780EF2` (b31); `0x11940`
+`0x08B41490` ([31:30]); `0x11944` `0x00000A80` ([31:20]); `0x11950` 0. (For `0x1190C`-`0x1192C` these equal the
+"WiFi target" column of the 40 MHz table below, which the two crystal paths share; that table's
+`0x11900` value carries a residue bit 17 from the old simulation's starting word, and its
+`0x11930`-`0x11954` rows are the 40 MHz values and do not apply.)
+
+**PLL for 2442 MHz at 24 MHz, after the block:** mode 5 (§10.1.1); restart pulse; bank scan
+(§5.2: `0x11940` b24 = 1 during the scan, 0 after; ends with `0x1193C` [12:5] = 121 and `0x11938`
+[25:19] = the bank for 121); then `0x11934` b25 = 0, [27:26] = 0, [23:0] = `0xC00000`; `0x11938`
+[11:0] = 101 (N; the fraction gives 4884/48 = 101.75; at 40 MHz N = 40, fraction `0xB33333`);
+`0x11940` b0 = 1, [7:6] = 0 (1 at 40 MHz); `0x1193C` [21:18] = 9 (8 at 40 MHz), [29:27] = 2;
+`0x11954` = `0x02822520` (`0x000A2500` at 40 MHz); restart pulse; loop pulse (`0x11938` b18 = 0,
+80 µs, b18 = 1). The restart pulse is `0x11938` b16 = 0, b18 = 0, `0x11934` b24 = 0; 5 µs; b16 = 1;
+5 µs; `0x11934` b24 = 1, `0x11938` b18 = 1; 100 µs. The vendor radio's `0x1193C` = `0x12640F32`
+decodes to [1:0] = 2, [4:2] = 4, [12:5] = 121, [21:18] = 9, [23:22] = 1, [26:25] = 1, [29:27] = 2,
+and `0x11938` = `0x8DAFD065` to N = 101, [15:12] = `0xD`, b16 = b17 = b18 = 1, bank 53, b26 = b27 =
+1, b31 = 1: both exactly as predicted [M:hw, M:s].
+
+**Vendor steady state at 24 MHz and what each part is [M:hw 2026-11-02; classification M:s].**
+Starting from the block end values and applying, in order, the PLL step above, RF mode 0
+(§10.1.1), the calibration writes (§10.1 or §10.2), the init tail (`0x11904` [14:12] = 4, `0x11908`
+[2:0] = 0), gain step 0 (§10.1.2), the last attenuation variant (§10.1.6), the PA trim bytes and
+the auto-control sequence (§11.2.11) reproduces every captured word exactly. Fields marked **unit** are this unit's results or trims and must never be
+hard-coded; everything else is the same on every FM-1.
+
+| Register | Vendor reads | Constant part | Unit-specific fields (value on this unit) |
+|----------|--------------|---------------|--------------------------------------------|
+| `0x11900` | `0xEAA00005` | block + mode 0 (b23) | none |
+| `0x11908` | `0x9C712D10` | `0x9C010010` | **unit**: RX DC I [15:7] = 90, Q [25:17] = 56, signs b16 = b26 = 1 (§10.1.10) |
+| `0x11910` | `0x085FD98E` | block, [11:8] = 9, gain step 0 ([24:22] = 1, [26:25] = 0), mode 0 (b12, b27) | **unit**: RC code [21:14] = `0x7F` |
+| `0x11914` | `0x447C1B19` | block, gain step 0 ([14:12] = 1, [17:15] = 0, [7:5] = 0), mode 0 (b11, b18, b26), high-pass open | none |
+| `0x1191C` | `0x2915CD66` | block | **unit**: TX LO I [14:8] = 77 |
+| `0x11920` | `0x0065FDB1` | block, attenuation after trim (b22 = 1, b23 = 0) | **unit**: TX LO Q [6:0] = 49, RC code [17:10] = `0x7F` |
+| `0x11924` | `0x51B801F7` | block, attenuation after trim ([30:28] = 5), auto control (b5-b8) | **trim bytes**: [26:24] = 1 |
+| `0x11928` | `0x0AFBE9E7` | block, attenuation after trim ([28:27] = 1) | **trim bytes**: [2:0] = 7, [11:9] = 4, [17:15] = 7, [25:22] = 11 |
+| `0x11930` | `0x05D9625F` | crystal word, type `0x0B` | **unit** (record 106): caps [16:13] = [22:19] = `0xB` (the published default) |
+| `0x11938` | `0x8DAFD065` | N = 101, [15:12] = `0xD`, restart bits, auto control (b26, b27), b31 | **unit, per boot**: VCO bank [25:19] = 53 (52 in two other captures) |
+| `0x1193C` | `0x12640F32` | PLL step | none |
+| `0x11940` | `0x08B41411` | block + PLL step (b0 = 1, [7:6] = 0) | none |
+| `0x11950` | `0x57BFFFDC` | auto control | none |
+| `0x11954` | `0x02822520` | PLL step | none |
+| `0x1195C`, `0x11960` | `0x377FFDFF` | layout `[20 MHz][10 MHz][6 MHz]FF` | **unit**: RC codes 55 / 127 / 253 |
+| `0x11964` | `0x3B010000` | block ([17:16] = 1) + auto control ([31:29] = 1, [28:24] = `0x1B`) | none |
+
+Captured on the vendor unit in both 2026-11-02 pages [M:hw]: `0x11904` = `0x01C3C880` (block end
+`0x01C35880` plus mode 0's bit 15 and the init tail's [14:12] = 4), `0x1190C` = `0x673B9379` (block
+end plus mode 0's bits 4, 5, 20; the RX DC configuration-3 field [7:6] = 1 is already the block
+value), `0x11918` = `0x00076A27` (block end plus mode 0's bits 0, 1), `0x1192C` = `0x0052A071`
+(block end plus trim byte 5 = 1 in [2:0]), `0x11934` = `0x01C00000` (fraction `0xC00000`, bit 24 =
+1 after the restart): each equals the replay of the block and the later steps. Not captured:
+`0x11944`, `0x11968`. Per-boot variation on the same unit (this oracle runs the full trim at every
+start): TX LO I [14:8] read 74, 75 and 77 and the VCO bank at divider 121 read 52 and 53 across
+three captures [M:hw 2026-11-02]. The attenuation "after trim" values apply to a unit that ran the
+full trim; a quick-path start keeps the block values (§10.1.6).
+
+**PA trim bytes (record 107, 7 bytes) [M:s; defaults PUB]:** byte 0 → `0x11924` [26:24]; byte 1 →
+`0x11928` [2:0]; byte 2 → `0x11928` [11:9]; byte 3 → `0x11928` [17:15]; byte 4 → `0x11928` [25:22]
+(4 bits); byte 5 → `0x1192C` [2:0]; byte 6 → no register (LUT APC patch only, §5.1). Published
+default when the record is absent: `{1, 7, 4, 7, 11, 1, 7}` [PUB `apps/demo/demo_wifi/board/wl82/board.c` L52];
+the vendor radio's fields read exactly these values [M:hw].
+
 **Target register values after the RF init completes (40MHz crystal, not this board) [M:s]:**
 
 | Addr      | Name      | BLE residue  | WiFi target  | Delta        | Notes                           |
 |-----------|-----------|-------------|-------------|-------------|----------------------------------|
-| `0x11900` | WL_CON0   | `0xEA9E0005` | `0xEA220005` | `0x00BC0000` | Clear 23,20,19,18; set 21. LNA/mixer BLE->WiFi |
-| `0x11904` | WL_CON1   | `0x01C40480` | `0x01C34880` | `0x00074C00` | Clear 18,10; set 17,16,14,11. Filter/bias |
-| `0x11908` | WL_CON2   | `0x9C010010` | `0x9C010010` | `0x00000000` | No net change |
-| `0x1190C` | WL_CON3   | unknown     | `0x672B9349` | --          | Filter/VGA/mixer |
-| `0x11910` | WL_CON4   | unknown     | `0x0508098E` | --          | Analog config |
-| `0x11914` | WL_CON5   | unknown     | `0x4078C319` | --          | Analog config |
-| `0x11918` | WL_CON6   | unknown     | `0x00076A24` | --          | Analog config |
-| `0x1191C` | WL_CON7   | unknown     | `0x2915C066` | --          | Analog config |
-| `0x11920` | WL_CON8   | unknown     | `0x00A641C0` | --          | Analog config |
-| `0x11924` | WL_CON9   | unknown     | `0x65B80057` | --          | PA trims |
-| `0x11928` | WL_CON10  | unknown     | `0x1AFAE7E7` | --          | PA config |
-| `0x1192C` | WL_CON11  | unknown     | `0x0052A070` | --          | Analog config |
-| `0x11930` | WL_ANL2   | `0x0580065F` | `0x0D00025F` | `0x08800400` | Set 27 (40MHz); clear 23,10 |
-| `0x11934` | PLL_CON0  | unknown     | `0x01B33333` | --          | PLL frac (WiFi 2.4GHz) |
-| `0x11938` | PLL_CON1  | unknown     | `0x819FD028` | --          | PLL int=40, config |
-| `0x1193C` | PLL_CON2  | unknown     | `0x12600EF2` | --          | PLL config |
-| `0x11940` | PLL_CON3  | unknown     | `0x08B42451` | --          | PLL config (40MHz path) |
-| `0x11944` | PLL_CON4  | unknown     | `0x00000A80` | --          | PLL config |
-| `0x11950` | ANA_CON0  | --          | `0x00000000` | --          | Zeroed explicitly |
-| `0x11954` | ANA_CON1  | --          | `0x000A2500` | --          | Analog frontend (40MHz) |
-| `0x11964` | ANA_CON5  | --          | `0x00010000` | --          | Analog config |
+| `0x11900` | WLA_CON0  | `0xEA9E0005` | `0xEA220005` | `0x00BC0000` | Clear 23,20,19,18; set 21. LNA/mixer BLE->WiFi |
+| `0x11904` | WLA_CON1  | `0x01C40480` | `0x01C34880` | `0x00074C00` | Clear 18,10; set 17,16,14,11. Filter/bias |
+| `0x11908` | WLA_CON2  | `0x9C010010` | `0x9C010010` | `0x00000000` | No net change |
+| `0x1190C` | WLA_CON3  | unknown     | `0x672B9349` | --          | Filter/VGA/mixer |
+| `0x11910` | WLA_CON4  | unknown     | `0x0508098E` | --          | Analog config |
+| `0x11914` | WLA_CON5  | unknown     | `0x4078C319` | --          | Analog config |
+| `0x11918` | WLA_CON6  | unknown     | `0x00076A24` | --          | Analog config |
+| `0x1191C` | WLA_CON7  | unknown     | `0x2915C066` | --          | Analog config |
+| `0x11920` | WLA_CON8  | unknown     | `0x00A641C0` | --          | Analog config |
+| `0x11924` | WLA_CON9  | unknown     | `0x65B80057` | --          | PA trims |
+| `0x11928` | WLA_CON10 | unknown     | `0x1AFAE7E7` | --          | PA config |
+| `0x1192C` | WLA_CON11 | unknown     | `0x0052A070` | --          | Analog config |
+| `0x11930` | WLA_CON12 | `0x0580065F` | `0x0D00025F` | `0x08800400` | Set 27 (40MHz); clear 23,10 |
+| `0x11934` | WLA_CON13 | unknown     | `0x01B33333` | --          | PLL frac (WiFi 2.4GHz) |
+| `0x11938` | WLA_CON14 | unknown     | `0x819FD028` | --          | PLL int=40, config |
+| `0x1193C` | WLA_CON15 | unknown     | `0x12600EF2` | --          | PLL config |
+| `0x11940` | WLA_CON16 | unknown     | `0x08B42451` | --          | PLL config (40MHz path) |
+| `0x11944` | WLA_CON17 | unknown     | `0x00000A80` | --          | PLL config |
+| `0x11950` | WLA_CON20 | --          | `0x00000000` | --          | Zeroed explicitly |
+| `0x11954` | WLA_CON21 | --          | `0x000A2500` | --          | Analog frontend (40MHz) |
+| `0x11964` | WLA_CON25 | --          | `0x00010000` | --          | Analog config |
 
 **Bit-level delta for known-starting-value registers:**
 
-WL_CON0 (`0x11900`): switches LNA/mixer from BLE to WiFi receive path.
+WLA_CON0 (`0x11900`): switches LNA/mixer from BLE to WiFi receive path.
 - Clear bits 23, 20, 19, 18 (BLE path enables)
 - Set bit 21 (WiFi path enable)
 
-WL_CON1 (`0x11904`): adjusts filter bandwidth and bias for 20MHz WiFi channels.
+WLA_CON1 (`0x11904`): adjusts filter bandwidth and bias for 20MHz WiFi channels.
 - Clear bits 18, 10 (BLE narrow filter)
 - Set bits 17, 16, 14, 11 (WiFi wide filter + bias)
 
-WL_ANL_CON2 (`0x11930`): configures PLL clock source for 40MHz crystal.
+WLA_CON12 (`0x11930`): configures PLL clock source for 40MHz crystal.
 - Set bit 27 (40MHz mode select)
 - Clear bits 23, 10
 
@@ -2627,7 +3650,9 @@ be written back later.
 **ERRATA (2026-11-04):** these are the TX LO trims (calibration result of the TX LO search, §10.1
 step 2), not RX DC offsets; and the restore is used by the **BT controller** (it reloads the WiFi TX
 LO values), not by the WiFi channel switch, which writes only `0x1405C` [7:0] [M:s wl_rf_common.a,
-BT controller library].
+BT controller library]. The snapshot is a plain read of both words taken at the very end of the
+WiFi hardware init, after the per-rate gain step; the BT controller writes both words back in
+full (§9.3) [M:s].
 
 **RF auto control register sequence** [M:s, completed 2026-11-04]: `0x11950` (WLA_CON20) is built by
 single-bit read-modify-writes, interleaved with the other registers, in this order: clear b0, clear
@@ -2702,8 +3727,10 @@ SDK API, not register maps [M:s].
   for RT2800 DMA/interrupt/MAC register map. IP ancestor of the AC791N WiFi MAC (see
   `docs/hardware/AC791N_IP_ANCESTRY.md` §3)
 - `docs/hardware/AC791N_IP_ANCESTRY.md`: IP ancestry analysis for all AC791N subsystems
-- JieLi SDK: `https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK` (binary drivers,
-  Chinese docs, example applications)
+- JieLi SDK: `https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK` (Apache-2.0 repository: the
+  published application sources and headers cited [PUB] per §0; the pre-compiled radio libraries
+  in it are not published source)
+- `docs/hardware/wifi/CLEAN_ROOM_METHODOLOGY.md`: methodology, barrier, permitted references, licence record
 - IEEE 802.11-2020: WLAN standard (MAC, PHY)
 - FIPS 197 (AES), FIPS 180-4 (SHA-1), RFC 2104 (HMAC), RFC 2898 (PBKDF2): crypto standards
 - IEEE 802.11i: WPA2/CCMP security
@@ -2714,32 +3741,329 @@ SDK API, not register maps [M:s].
 
 Each row is a vendor behaviour the GPL driver currently lacks or does differently (§4.2.1 GPL
 column), stated as register, value, position in the sequence of §4.2.1 and the observable effect
-expected if the behaviour matters. Rows are ordered by how likely each explains the present state
-(TX: the MAC never queues a frame, `TXRXQ_PCNT` 0, no TX status; RX: the CCA detector counts energy
-but no frame is demodulated, PHY/CRC error counters 0; the four read-only indicators of §4.2
-unchanged). The ranking is an inference [I]; the register facts carry their own tags. "Read on
+expected if the behaviour matters. Rows were ordered by how likely each explained the state before 12l (no frame queued, nothing
+demodulated). **Status 2026-11-04 (pass 2):** TX works since 12l and RX since 12o [M:hw]; each row
+now starts with its state: collected (values read), confirmed (effect reproduced against a
+baseline with one change), confirmed in combination (effect seen only together with other
+changes), applied (implemented, not measured), open (not implemented), with the observation that
+decided it. The original ranking was an inference [I]; the register facts carry their own tags. "Read on
 both" means: read the register on the running vendor radio and on core-fm1 before changing
 anything; none of these registers has been compared so far unless stated.
 
 | # | Register | Value | Position | Expected observable effect | Tag |
 |---|----------|-------|----------|----------------------------|-----|
 | 1 | **Confirmed 2026-11-04 12l [M:hw]: frame queued and transmitted.** WDMA TX image: first transferred word | queue word (bit 0 = WIV, bits [2:1] = QSEL = 2; 5 for management, 4 for data), then the 16-byte TXWI, the unpadded frame and 6 more bytes; `WDMA_TX_ADR` = address of the queue word, `WDMA_TX_LEN` = MPDU + 26 | every TX (§4.2.1 C7-C8, §7.11.5) | `TXRXQ_PCNT` byte 2 rises during the transfer and falls after; `TX_STA_CNT0` success or failure counts move; `TX_STA_FIFO` (`0x31718`) valid bit set; the probe request appears on a sniffer. The GPL's first word today is the software length (bits [2:1] of 56 = queue 0) and its TXWI is shifted by 4 bytes | M:s wl_rf_common.a, M:hw (buffer samples), I |
-| 2 | `0x3043C` [7:5], `0x30434` bit 18, `0x30438` byte 2 | vendor requires [7:5] != 0, bit 18 = 0 and byte 2 below the queue-2 limit before every TX | read immediately before each TX (C6) | Cheapest discriminating read for TX: if `0x3043C` [7:5] reads 0 on core-fm1 the packet buffer is not ready and no framing change can queue a frame; if it is non-zero the blocker is downstream (row 1). Read on both | M:s wl_rf_common.a, I |
+| 2 | **Collected 12l [M:hw]: `0x3043C` = `0x8400A0FE` ([7:5] = 7), `0x30434` = `0x22020602` (bit 18 clear), queue-2 pages 0 before and 1 right after the kick; the gate passed first try.** `0x3043C` [7:5], `0x30434` bit 18, `0x30438` byte 2 | vendor requires [7:5] != 0, bit 18 = 0 and byte 2 below the queue-2 limit before every TX | read immediately before each TX (C6) | Cheapest discriminating read for TX: if `0x3043C` [7:5] reads 0 on core-fm1 the packet buffer is not ready and no framing change can queue a frame; if it is non-zero the blocker is downstream (row 1). Read on both | M:s wl_rf_common.a, I |
 | 3 | **Confirmed [M:hw 12l-12o]: with rows 1, 3-7 applied the receiver decodes frames on every channel.** MAC+`0x1328` TX_PIN_CFG | `0x00050302` (RT2800 bits: PA_PE_G0_EN 1, LNA_PE_A0_EN 8, LNA_PE_G0_EN 9, RFTR_EN 16, TRSW_EN 18) | at every channel switch, after the channel code (C1) and TX_BAND_CFG (C2), before the first probe request; never written earlier | RX: PLCP/CRC error counts in `RX_STA_CNT0` become non-zero, beacons and probe responses arrive (bit 17 of `WDMA_CTL`, interrupt 52). TX: PA enabled on air. Read on both first (expected vendor `0x00050302`, core-fm1 the reset value) | M:s wl_wifi_sta.a, IP:RT2x00 for bit names, I |
-| 4 | MAC+`0x132C` TX_BAND_CFG | read-modify-write: bits [2:1] cleared, bit 2 set (2.4 GHz band) | every channel switch, directly before TX_PIN_CFG (C2) | band select for TX and RX paths [IP:RT2x00]; same effects as row 3 if the reset value selects the other band. Read on both first | M:s wl_wifi_sta.a, IP:RT2x00, I |
-| 5 | `0x1405C` [7:0] | channel + 101 (one read-modify-write, no delay); with no BBP R94 write, no BBP R106 write (R106 stays 4), no `0x1193C`/`0x11934` write | every channel switch (C1), first after the scan starts | BBP R106 reads 4 throughout a scan (core-fm1 reads the channel number today); the RF die retunes from the LUT entry for the channel; demodulation on channels other than 6; the two `WF_CON6` codes change with the channel [I] | M:s wl_rf_common.a, M:hw (R106), I |
-| 6 | RF-die LUT word 1, entries 0-127 | `\|=` bank << 9, bank = lookup(word 1 [28:21]) in the 48-entry limit table built by the bank scan of §5.2 | LUT load (A20), after PHY init #2, CFR mode 1 and RAPP, before auto control | With auto control on, the synthesizer runs in the right VCO band for the selected channel; candidates for `WF_CON4` b23 / `WF_CON8` b23 (lock or ready) asserting and for the `WF_CON6` codes leaving `0xFF` [I] | M:s wl_rf_common.a, I |
-| 7 | End of the front-end init | order PHY init #2 → CFR mode 1 → RAPP → LUT load → auto control → power → channel, and **no** MAC/BBP reset (MAC_SYS_CTRL 3, MAC+`0x30C` pulse, R21 pulse) or PHY init after the LUT load and auto control | A17-A23 | Read the four indicators after each of A20, A21 and A23: if one asserts, the step that raised it is the missing condition. A reset after auto control may stop the RF-die sequencer [I] | M:s wl_rf_common.a, I |
-| 8 | RF calibration settings | 24 MHz crystal type (`0x11930` [27:23] = `0x0B`), N = 101, fraction `0xC00000`, `0x11954` = `0x02822520` during calibration; or the quick path from VM 187 when its CRC-16 is valid | A16 | RX DC values in the LUT AGC words and TX IQ/DC values in window D taken under the board's real reference clock; RX sensitivity and AGC behaviour closer to the vendor (R32-R46 values) | M:s wl_rf_common.a, M:hw (crystal type), I |
-| 9 | MAC+`0x1800` + 8i (i = 0..253); MAC+`0x6800` + 4i (i = 0..255); MAC+`0x7000`..`0x700C`; MAC+`0x1114` | `0xFFFFFFFF`, `0x00FFFFFF`; 1; 0; `&= ~0x001F0000` | interface up (B3, B5, B6), before the first TX | The broadcast/unassociated WCID (`0xFF`) used by the probe request has a defined table entry; TX status for WCID `0xFF` frames [IP:RT2x00, I]; TSF/beacon sync off during the scan | M:s wl_wifi_sta.a, IP:RT2x00, I |
-| 10 | `0x14000` WL_CON0 | never written: no `0xFFFF`, no later 0; clock tree (A2-A3) built before the first MAC access | whole start | MAC/BBP readable from power-on with `WL_CON0` = 0; results identical to the released case of 12j/12k. Confirms that the v13 fault came from a missing clock tree, and removes the BT/WiFi arbitration side effects of `0xFFFF` | M:s all libraries, M:hw (vendor 0), I |
-| 11 | MAC_SYS_CTRL (MAC+`0x1004`) | only 3 (with the `0x30C` pulse) and `0xC`; never 0 or 4 after the last PHY reset | A9, A10, A13, end of A15/A17; nothing in phase B | No transient TX/RX disable after init; effect unknown | M:s wl_rf_common.a, I |
-| 12 | MAC configuration values | table of §7.10 (e.g. `0x31408` = `0x13F`, `0x31400` = `0x17F97` from B12, `0x31350` = `0x1020`), no write to MAC+`0x1200` or MAC+`0x137C` | B2, B12 | Unlikely to block a scan; RX filter differences (DROP_UC_NOME, DROP_BA, DROP_BAR) do not affect beacons [IP:RT2x00, I] | M:s wl_wifi_sta.a |
-| 13 | Window D CFR mode 1 and RAPP | §6.9 values (tap counts 15/15/0, per-rate gains, RAPP curve 511 → 271, thresholds 160/160/400, mode 2) | A18, A19 | TX spectral quality and power; not expected to change "never queued" [I] | M:s wl_rf_common.a |
-| 14 | Management TXWI W0 TXOP | 3 | every management TX | Unlikely to matter: the vendor's QoS-null and data TXWIs use TXOP 0 and are sent [M:hw] | M:s wl_wifi_sta.a, M:hw |
-| 15 | WDMA init | nine `WDMA_CTL` and nine `WDMA_CFG0` read-modify-writes before any MAC reset; `WDMA_CTL` bit 16 never written | A5-A7 | Unlikely to matter (final values equal; bit 16 is read-only) | M:s wl_rf_common.a, M:hw |
-| 16 | Interrupt handler | clears `WF_CON4` bit 0 and wakes the receive task only; no access to MAC+`0x328` | after B13 | None until a frame arrives; avoids disturbing the receive-notify source | M:s wl_rf_common.a |
+| 4 | **Confirmed with row 3 [M:hw 12l-12o].** MAC+`0x132C` TX_BAND_CFG | read-modify-write: bits [2:1] cleared, bit 2 set (2.4 GHz band) | every channel switch, directly before TX_PIN_CFG (C2) | band select for TX and RX paths [IP:RT2x00]; same effects as row 3 if the reset value selects the other band. Read on both first | M:s wl_wifi_sta.a, IP:RT2x00, I |
+| 5 | **Confirmed in combination [M:hw 12m-12o]: with the channel code as the only per-channel RF write, frames decode on channels 3-11; R106 stays 4; the MMIO PLL words stay at divider 121 / the init bank on both units.** `0x1405C` [7:0] | channel + 101 (one read-modify-write, no delay); with no BBP R94 write, no BBP R106 write (R106 stays 4), no `0x1193C`/`0x11934` write | every channel switch (C1), first after the scan starts | BBP R106 reads 4 throughout a scan (core-fm1 reads the channel number today); the RF die retunes from the LUT entry for the channel; demodulation on channels other than 6; the two `WF_CON6` codes change with the channel [I] | M:s wl_rf_common.a, M:hw (R106), I |
+| 6 | **Confirmed in combination [M:hw 12n-12o]: a flat bank table (bank 15 everywhere, 12m) gave no reception; the measured table (12n) gave reception on every channel (12o); the necessity of the bank field alone was not isolated (§15 T3).** RF-die LUT word 1, entries 0-127 | `\|=` bank << 9, bank = lookup(word 1 [28:21]) in the 48-entry limit table built by the bank scan of §5.2 | LUT load (A20), after PHY init #2, CFR mode 1 and RAPP, before auto control | With auto control on, the synthesizer runs in the right VCO band for the selected channel; candidates for `WF_CON4` b23 / `WF_CON8` b23 (lock or ready) asserting and for the `WF_CON6` codes leaving `0xFF` [I] | M:s wl_rf_common.a, I |
+| 7 | **Applied at HEAD (LUT load and auto control repeated after the MAC init, so no reset follows them); not separately measured (§15 T4).** End of the front-end init | order PHY init #2 → CFR mode 1 → RAPP → LUT load → auto control → power → channel, and **no** MAC/BBP reset (MAC_SYS_CTRL 3, MAC+`0x30C` pulse, R21 pulse) or PHY init after the LUT load and auto control | A17-A23 | Read the four indicators after each of A20, A21 and A23: if one asserts, the step that raised it is the missing condition. A reset after auto control may stop the RF-die sequencer [I] | M:s wl_rf_common.a, I |
+| 8 | **Open:** the GPL calibrates with the 40 MHz words, then forces fifteen RF registers to the vendor unit's read-backs (§11.2.9 marks the unit-specific ones); no quick path (§15 T6). RF calibration settings | 24 MHz crystal type (`0x11930` [27:23] = `0x0B`), N = 101, fraction `0xC00000`, `0x11954` = `0x02822520` during calibration; or the quick path from VM 187 when its CRC-16 is valid | A16 | RX DC values in the LUT AGC words and TX IQ/DC values in window D taken under the board's real reference clock; RX sensitivity and AGC behaviour closer to the vendor (R32-R46 values) | M:s wl_rf_common.a, M:hw (crystal type), I |
+| 9 | **Open (missing at HEAD; §15 T8).** MAC+`0x1800` + 8i (i = 0..253); MAC+`0x6800` + 4i (i = 0..255); MAC+`0x7000`..`0x700C`; MAC+`0x1114` | `0xFFFFFFFF`, `0x00FFFFFF`; 1; 0; `&= ~0x001F0000` | interface up (B3, B5, B6), before the first TX | The broadcast/unassociated WCID (`0xFF`) used by the probe request has a defined table entry; TX status for WCID `0xFF` frames [IP:RT2x00, I]; TSF/beacon sync off during the scan | M:s wl_wifi_sta.a, IP:RT2x00, I |
+| 10 | **Implemented at HEAD 76da132d (12p): no write to `0x14000` on the boot path; the plain-boot scan result is the §15 T1 regression check, not yet in the observation record.** `0x14000` WL_CON0 | never written: no `0xFFFF`, no later 0; clock tree (A2-A3) built before the first MAC access | whole start | MAC/BBP readable from power-on with `WL_CON0` = 0; results identical to the released case of 12j/12k. Confirms that the v13 fault came from a missing clock tree, and removes the BT/WiFi arbitration side effects of `0xFFFF` | M:s all libraries, M:hw (vendor 0), I |
+| 11 | **Open (the GPL writes 0 and 4; §15 T7).** MAC_SYS_CTRL (MAC+`0x1004`) | only 3 (with the `0x30C` pulse) and `0xC`; never 0 or 4 after the last PHY reset | A9, A10, A13, end of A15/A17; nothing in phase B | No transient TX/RX disable after init; effect unknown | M:s wl_rf_common.a, I |
+| 12 | **Open (the GPL uses post-association values; §7.10 now gives the interface-up and association sets; §15 T9).** MAC configuration values | table of §7.10 (e.g. `0x31408` = `0x13F`, `0x31400` = `0x17F97` from B12, `0x31350` = `0x1020`), no write to MAC+`0x1200` or MAC+`0x137C` | B2, B12 | Unlikely to block a scan; RX filter differences (DROP_UC_NOME, DROP_BA, DROP_BAR) do not affect beacons [IP:RT2x00, I] | M:s wl_wifi_sta.a |
+| 13 | **Open; §6.9 now gives both coefficient sets and the curve (the GPL writes a rising ramp and the thresholds at the wrong entries; §15 T10).** Window D CFR mode 1 and RAPP | §6.9 values (tap counts 15/15/0, per-rate gains, RAPP curve 511 → 271, thresholds 160/160/400, mode 2) | A18, A19 | TX spectral quality and power; not expected to change "never queued" [I] | M:s wl_rf_common.a |
+| 14 | **Open (the GPL sends TXOP 0, density 5, PacketId 0; §15 T11).** Management TXWI W0 TXOP | 3 | every management TX | Unlikely to matter: the vendor's QoS-null and data TXWIs use TXOP 0 and are sent [M:hw] | M:s wl_wifi_sta.a, M:hw |
+| 15 | **Open (the GPL makes one write of `0x00010E37`; §15 T12).** WDMA init | nine `WDMA_CTL` and nine `WDMA_CFG0` read-modify-writes before any MAC reset; `WDMA_CTL` bit 16 never written | A5-A7 | Unlikely to matter (final values equal; bit 16 is read-only) | M:s wl_rf_common.a, M:hw |
+| 16 | **Done 12o [M:hw]: the handler masks `0x14050` bit 0 and touches no MAC register; a handler that re-armed MAC+`0x328` plus an unbounded drain stalled the CPU until the watchdog (12n).** Interrupt handler | clears `WF_CON4` bit 0 and wakes the receive task only; no access to MAC+`0x328` | after B13 | None until a frame arrives; avoids disturbing the receive-notify source | M:s wl_rf_common.a |
+| 17 | **Open (missing at HEAD; §15 T20).** Station slot 1 and the BSSID registers before the authentication request | MAC+`0x1808`/`0x180C` = access point; `0x1010`/`0x1014` = BSSID | join (D4-D5) | none expected for the ACK itself [I]; required for the key install (slot 1 attribute and IV, D26) and for the hardware to decrypt unicast data | M:s wl_wifi_sta.a |
+| 18 | **Open (diff at HEAD; §15 T21).** Unicast management TXWI and header | TXOP 3, density 0, PacketId 0, duration 304 µs; a deauthentication before the authentication | D6-D7 (§7.11.5) | if the access point then acknowledges (TX_STA_CNT1 [15:0] = 1), the frame format was the cause | M:s wl_wifi_sta.a |
+| 19 | **Open (§15 T19).** Transmit decodability: no frame addressed to the GPL driver's own address has ever been received (no probe response, no ACK) [M:hw 2026-11-05]; the address the access point answered belongs to another station (§7.13.1) | TX back end (A18, A19, §6.9) and the §7.11.5 differences | before any Phase D work | a probe response to a directed probe request | M:hw, PUB (OUI registry), I |
 
 **Not worth trying** (no vendor counterpart) [M:s]: writing the four indicator bits, writing
 `0x14054`, `0x14058` or `0x14060`, any write to `0x40000`-`0x40FFF`, any write to BBP R32-R63 or
 R94, an MCU command or firmware download, polling an indicator as a start condition.
+
+---
+
+## 15. Hardware tests for the implementer (2026-11-04)
+
+Each test is a hardware experiment: prerequisites, register actions, what to record, and how to
+read the result. The implementer designs the code and the logging; nothing here is a source
+change recipe. Vendor-side values to compare against are in §4.2, §4.3, §6.9 and §11.2.9 [M:hw];
+where a value is marked "vendor: not captured", the reader supplies it from the vendor unit (the
+implementer never runs the vendor build). Record every run as an observation file with the
+decision taken, the build id, and the values read; a result is "confirmed" only when the effect
+reproduces against a baseline with one variable changed, "confirmed in combination" when several
+changes were made at once, "collected" when only values were read.
+
+Common to every test: sample the four indicators (`0x14050` bit 23, `0x14060` bit 23, `0x14058`
+[23:16] and [7:0], `0x30F04` bit 16) at the existing init boundaries and at the boundary the test
+names; scan with a known access point on channel 6 unless stated; the driver state referred to as
+"HEAD" is commit 76da132d (12p).
+
+**T0 (no flash): read the 12l-12o logs.** Already decided: `0x3043C` [7:5] = 7 and `0x30434`
+bit 18 = 0 before TX (gate passes), queue 2 shows one page after the kick, `TX_STA_CNT1` counts a
+frame, beacons decode on channels 3-11 [M:hw]. Remaining T0 decisions: none.
+
+**T1 (regression, implemented at HEAD): plain boot never writes `0x14000`.** Boot with the clock
+tree (§4.2.1 A1-A4) before the first MAC access and no write to `0x14000`; read `0x31000` right
+after A3 (expect `0x00300100`, no fault) and `0x14000` at every boundary (expect 0); then the normal
+init and a scan from the panel without any host probe. Expect the 12o readings. Decision: no
+fault → record [M:hw] that the 2026-10-28 fault came from a MAC read before the clock tree and
+keep this as the base of every later test; fault → report the boundary. The plain-boot scan result
+is not in the observation record at the evidence cutoff: run this first.
+
+**T2 (superseded by T3, implemented at HEAD).** Kept for the record: OR a constant bank `0x35`
+into word 1 bits [15:9] of every FEQ entry and compare the indicators and `RX_STA_CNT0` during a
+dwell. Not needed now that T3 is in.
+
+**T3 (implemented at HEAD, result to record): bank-limit table.** Build the 48-entry table of §5.2
+during the RF init in the 24 MHz PLL state with `0x11950` = 0 and `0x11938` bits 26/27 clear, patch
+every FEQ entry, and log the top bank, the 48 limits and lookup(121). Recorded so far: top 47,
+lookup(121) = 43 (vendor 53), limits 71..169 [M:hw 12n]; a scan with the 40 MHz words gives a flat
+table (top 15, every limit at the ceiling) [M:hw 12m]. Open: explain the 10-bank difference
+(§16 U11). A selective reversal (the 12n table against a flat one, everything else equal) would
+turn "confirmed in combination" into "confirmed" for §14 row 6.
+
+**T4 (§14 row 7): no reset after auto control.** Order the end of the init as §4.2.1 A17-A23 (PHY
+init #2, TX filter mode 1, compression curve, LUT load, auto control, power, channel) with no
+MAC_SYS_CTRL = 3, MAC+`0x30C` pulse, R21 pulse or PHY init after the LUT load. Sample the
+indicators after A20, A21, A23 and after every later init stage. Expect an indicator to assert and
+stay. Decision: asserts and stays → row 7 confirmed; asserts then drops at a later stage → that
+stage is the disturbing step; never asserts → ordering is not the condition (and §16 U7 stays open).
+HEAD approximates this by repeating LUT load + auto control after the MAC init; the vendor order is
+the cleaner experiment.
+
+**T5 (implemented at HEAD, per-switch reads to log): channel code only.** A channel switch is one
+read-modify-write of `0x1405C` [7:0] = channel + 101, no delay, no BBP or PLL write. After each
+switch read `0x1405C` (expect channel + 101), BBP R106 (expect 4), `0x1193C` and `0x11938` (expect
+unchanged: 121 and the init bank), `0x14058`. Scan channels 1-13 with the access point on a channel
+other than 6. Recorded: frames on channels 3-11 with no PLL write [M:hw 12o]. Decision: already
+"confirmed in combination"; log the per-switch reads once to close §14 row 5 fully.
+
+**T6 (§14 row 8): stored record and 24 MHz calibration.** Requires §10.2 (now present). Two parts
+in one flash: (a) read the 68-byte record 187 from the store and log the validity check of §10.2
+and the raw bytes; (b) if valid, apply the quick path of §10.2 (including D'[9..`0x0C`] and the
+four RX DC pairs into the LUT AGC words) instead of a full trim; if invalid, run the full trim of
+§10.1 with the 24 MHz crystal type `0x0B`, N = 101, fraction `0xC00000`, `0x11954` =
+`0x02822520` (no 40 MHz words anywhere), and remove the forced vendor read-backs of the unit
+results (§11.2.9 marks them). Read BBP R32-R46 and R4 after init. Expect R32-R46 near the vendor
+(`0x0B 0x0E 0x1F 0x04 0x09 0x38 0x07 0xBA 0x0F 0xC4 0x01`), R4 = 0, `RX_STA_CNT0` non-zero during
+a dwell, and the §10.1.6 "after trim" attenuation values when the full trim ran. Decision: valid
+record → the quick path is the vendor path on this unit, keep it; invalid → the 24 MHz full trim
+becomes the default; no change in reception either way → "no effect observed under these
+conditions" (the forced read-backs were already this unit's results).
+
+**T7 (§14 row 11): MAC_SYS_CTRL never 0 or 4.** Remove every write of 0 and 4; the last write is
+`0xC` at the end of the PHY init. Read MAC_SYS_CTRL at every boundary (expect `0xC` from the PHY
+init on). Decision: any change in `TXRXQ_PCNT` / `TX_STA_CNT1` behaviour → record; none → keep the
+vendor behaviour.
+
+**T8 (§14 row 9): WCID, attribute and key tables, beacon sync off.** At interface up write
+MAC+`0x1800` + 8i = `0xFFFFFFFF` then `0x00FFFFFF` for i = 0..253, MAC+`0x6800` + 4i = 1 for i =
+0..255, MAC+`0x7000`..`0x700C` = 0, MAC+`0x1114` `&= ~0x001F0000`. Read back `0x31800`/`0x31804`,
+`0x31FE8`/`0x31FEC`, `0x36800`, `0x31114`. Note that the vendor never writes entries 254 and 255
+and never uses WCID `0xFF` as a table index (§4.2.1 B3): keep both readings open (special "no
+station" selector vs ordinary index) until measured. Decision: observe `TX_STA_FIFO` validity for
+WCID `0xFF` frames and `TX_STA_CNT0`; no conclusion without a queued frame.
+
+**T9 (§14 row 12): MAC table as the vendor writes it.** The 22 values of §4.2.1 B2, no write to
+MAC+`0x1200` or MAC+`0x137C`, RX_FILTER_CFG `0x17F97`, EDCA as §7.10's interface-up set. Read back
+`0x31200` (vendor `0x00020603` / `0x00030001`: hardware busy bits) and `0x31400`. Expect no change
+in scan results. Decision: change → report; none → keep the vendor values.
+
+**T10 (§14 row 13): TX filter mode 1 and the compression curve.** Requires §6.9 (now complete).
+After PHY init #2: the 57 mode-1 writes, then the curve load and thresholds/powers of §6.9 with
+mode 0 before and mode 2 after. Read back D[`0x4D`..`0x4F`] (expect 15, 15, 0), the odd entries
+D[`0x0B`..`0x21`] (expect the mode-1 gains, or the published per-rate defaults if record 108 is
+applied) and D[`0x51`..`0x5E`] (expect `BE 64 2D 64 2D D6 3F 40 A0 A0 90 E0 7F 0F`). Expect a TX
+power/spectrum change only (sniffer RSSI). The vendor unit's read-back already matches these
+finals [M:hw 2026-11-03]; the test confirms the GPL load reproduces them.
+
+**T11 (§14 row 14): management TXWI as the vendor builds it.** TXOP [9:8] = 3, MPDU density 0,
+BA window 7, PacketId = MCS[3:0], NSEQ 0, WCID `0xFF`, ACK 0 for broadcast (§7.11.5). Expect no
+change unless TX is queued but never completes. Also test the probe rate: OFDM 6 Mbps (PHYMODE 1,
+MCS 0) against CCK 1 Mbps; both should be accepted (§16 U8).
+
+**T12 (§14 row 15): WDMA init as nine and nine read-modify-writes** directly after the clock
+tree, before any MAC reset; never write bit 16. Log `WDMA_CTL` after each step; expect final `0x37`,
+bit 9 reads 0 after being set, bit 16 = 0 (status). Low yield; keep.
+
+**T13 (implemented at HEAD 12o): interrupt handler.** The handler clears `0x14050` bit 0 and
+flags; no MAC+`0x328` access; the receive path re-opens bit 0 after draining. Remaining check:
+read MAC+`0x328` at each boundary (expect 2 after B13) and find out why interrupt 52 never fires
+on core-fm1 although the line is registered and bit 0 is set (§16 U4): try registering the line
+after MAC+`0x328` = 2 as the vendor does, and compare the interrupt controller's enable/priority
+registers for line 52 against the published header's semantics.
+
+**T14 (mutating, piggyback on any flash): window C' and D' contents.** After init read all 72 C'
+entries and D' entries 0..`0x1C` through their read-back registers (poll the port busy bit before
+each read). Expect the §6.6 values with C'[`0x3C`] = 1 and D'[9..`0x0C`] = calibration results.
+Then write one C' entry, pulse R21 bit 0, read it back (expect preserved). Mismatch → the window
+write path or a reset clears windows; report entries.
+
+**T15 (mutating, piggyback): acknowledge semantics.** After one TX: read `WDMA_CTL` bit 20
+(expect 1), write bit 10, read again (expect 0); the same for bit 21 / bit 11 once a frame arrived.
+Records [M:hw] whether bits 10/11 are write-1-to-clear for 20/21 (§7.11.3 infers it from the
+vendor's poll order).
+
+**T16 (piggyback): front-end register reset values.** Before the first channel switch read
+MAC+`0x1328` and MAC+`0x132C` (vendor: not captured; the reset value of `0x132C` bit 0 is §16 U1);
+after each switch expect `0x00050302` and bit 2 set, bits [2:1] = 10.
+
+**T17 (settled by the reader, no flash needed): PBF_MAX_PCNT.** The running vendor reads
+`0x1F3F7F9F` because the association path writes it (TX burst off); the hardware retains bit 15
+(§7.10). Use byte 1 = `0x7F` as the queue-2 page limit after association and `0xBF` before.
+
+**T18 (dropped).** The direct divider write no longer exists at HEAD.
+
+**Phase D tests (added 2026-11-05; T17 and T18 were already taken, so these start at T19). Order:
+T19 first (it decides whether any Phase D register matters yet), then T8, T20, T21, T22, T23, T24,
+T25; T26 last.**
+
+**T19 (first; no association needed): are the GPL driver's transmissions decodable?** On the
+channel of a known access point, with RX_FILTER_CFG bit 2 clear, send directed probe requests
+(addr1 = addr3 = the access point, its SSID in the element) once per second, alternately at CCK
+1 Mbps and OFDM 6 Mbps (PHYMODE 1, MCS 0), and count, within 50 ms of each request, probe
+responses whose addr1 equals the driver's own address; log beacons from the same access point as
+the control, and TX_STA_CNT0/1 after each request (a directed probe request with the ACK bit set is
+acknowledged by the access point). Decision: responses or an acknowledgement at either rate → the
+transmissions are decodable, continue with T8/T20/T21; none at both rates with beacons arriving →
+the transmit chain is the blocker: compare the window D state of the running build with §6.9
+(T10) and the TX gain fields of §4.2.1 A18/A24 before any Phase D register work. Record the rate at
+which responses appear (§16 U8, U21).
+
+**T8** as given above (tables as B3/B5/B6), run before T20.
+
+**T20 (§14 row 17): join-time writes.** At connect, before the authentication request, write slot 1
+(MAC+`0x1808` = BSSID bytes 0-3, `0x180C` = bytes 4-5, [31:16] = 0) and the BSSID registers (D4-D5);
+read back `0x31808`/`0x3180C` and `0x31010`/`0x31014`. Decision: no behavioural change is expected
+for the ACK; the slot is needed by T24.
+
+**T21 (§14 row 18): unicast management frames as the vendor builds them.** One variable per flash,
+in this order: (a) TXWI TXOP [9:8] = 3 and density 0 for the authentication request; (b) header
+duration = 304 µs for unicast management frames at CCK 1 Mbps (50 at OFDM 6 Mbps); (c) a
+deauthentication (reason 3) to the access point immediately before the authentication request;
+(d) authentication timeout 800 ms with one repeat, association timeout 300 ms. After each flash read
+TX_STA_CNT0 [15:0] and TX_STA_CNT1 after the authentication request. Decision: TX_STA_CNT1 [15:0]
+= 1 → that variable was the cause; record it in §14 row 18.
+
+**T22 (§16 U15): TX status for packet id 0.** Send the authentication request with TXWI PacketId
+[31:28] = 1 (then 0 as the baseline) and poll TX_STA_FIFO bit 0 within 20 ms. Decision: an entry
+appears only with packet id 1 → the hardware suppresses reports for packet id 0 (and the vendor's
+management frames are therefore never reported); entries in both cases → U15 closed.
+
+**T23 (D11-D21): link-up set.** After the association response write D12-D21 (EDCA from the
+beacon's WMM set, protection, basic rates with the 6/12/24 Mbps rule, fallback tables,
+MAX_LEN_CFG from the A-MPDU factor, PBF_MAX_PCNT `0x1F3F7F9F`, BCN_TIME_CFG with the beacon
+interval and `0x0B` in [20:16], RX_PARSER_CFG). Read back `0x31114`, `0x31408`, `0x31018`,
+`0x3040C`, `0x31418`, `0x31354`-`0x31360`, `0x31300`-`0x3130C`; expect the §4.2.1 D values and
+the running vendor's steady state (§7.10). Decision: TSF ticking (`0x3110C`/`0x31110` advance)
+and beacon reception unchanged → set kept; any regression → report the register.
+
+**T24 (D26-D27): hardware key install.** After message 4/4 is handed to the MAC: shared-key slot
+(0, 0) with the TK (16 bytes, 8 + 8 MIC bytes as supplied), SHARED_KEY_MODE [3:0] = 4, IV/EIV of
+slot 1 = `0x20000001`/0, attribute of slot 1 = `0x8`; the group key from the GTK element into slot
+(0, id) with its nibble. Read back `0x36C00`-`0x36C1F` (expect the key bytes in little-endian words),
+`0x37000`, `0x36008`/`0x3600C`, `0x36804`. Then send one unicast data frame with the TXWI of
+§7.11.5 (data, WCID 1, WIV 0) and no software encryption: expect the access point to acknowledge
+it and to answer a ping; expect received unicast data to arrive decrypted (the RX trailer's
+decrypted/cipher-error bits of §7.11.6). Decision: both work → software CCMP retired; TX works, RX
+does not → compare the attribute bits [9:7] (the Linux driver writes the cipher there, the vendor
+does not); nothing → keep software CCMP and report.
+
+**T25 (§7.13.1): the station address.** Drop the override and the random fallback; derive a
+stable locally-administered address from the flash unique id (the published rule is citable). Ask
+the router's client list which device carries `D8:C8:0C:F7:36:E2`. Decision: a Tuya device → §14
+row 19's address part is closed; nothing → report (the registry assignment stands either way).
+
+**T26 (D31, optional): link-down writes.** On disconnect perform D31 and read back `0x31114`,
+`0x31018`, `0x36804`, `0x37000`; keep the GPL's BSSID clearing and RX filter restore as its own
+choice (the vendor does neither).
+
+**Longer observations (not one flash):** (a) an indicator timeline over a vendor-order build
+(T1 + T4 + T5 + T6) to find the first boundary where each indicator asserts (§16 U7); (b) a full
+register sweep (`0x11900`-`0x119AF`, `0x14000`-`0x140FF`, `0x30000`-`0x31FFF`, BBP R0-R127 and all
+four windows) of the GPL build against the vendor unit's sweep, which the reader captures; (c) the
+elapsed time of the clock-tree, PLL-restart and loop-pulse delays measured with the cycle counter
+(§16 U5).
+
+---
+
+## 16. Unspecified steps, unknowns and housekeeping (2026-11-04)
+
+**Supported profile of this revision:** FM-1 board, 24 MHz crystal, WiFi-only cold start, station
+mode: scan, authenticate, associate, data. Transitions outside it are not characterised and are
+excluded until measured: warm restart of the WiFi block, repeated start/stop, sleep/wake (the
+sleep registers are listed in §7.11.9 as not on the start path), and a Bluetooth start before or
+alongside WiFi (U9).
+
+**16.1 Steps not yet specified.** As of this revision every step of §4.2.1 A0-C8 and D1-D32, §11.2.1 1-16,
+§10.1 and §10.2 has its registers, values (or generating rule) and order in this sheet. No step is
+blocked. Rows are added here, with a stable id, if a later pass finds a gap; resolved rows stay
+with their resolution.
+
+**16.2 Unknowns.** Each has a stable id; "blocking" means a feature of the supported profile
+cannot be claimed until it is resolved; "optional" means the profile works without it.
+
+| Id | Unknown | Class | Cheapest route |
+|----|---------|-------|----------------|
+| U1 | Reset value of MAC+`0x132C` bit 0 (HT 40 MHz select); the vendor never writes it in 20 MHz operation | optional | T16 |
+| U2 | Meaning of MAC+`0x434` bit (8q + 2) and MAC+`0x43C` [7:5]; values collected (`0x22020602`, `0x8400A0FE`) [M:hw 12l] | optional | longer observation (b) |
+| U3 | Whether the compression curve RAM can be read back (the vendor never reads it; D[`0x5E`] returns the last data byte written [M:hw]) | optional | T10 variant: set D[`0x5D`] to an address and read D[`0x5E`] |
+| U4 | Why interrupt 52 never fires on core-fm1 (line registered, `0x14050` bit 0 set; polling carries reception) [M:hw 12o] | optional (polling works) | T13 |
+| U5 | Real durations of the vendor's NOP-loop delays (§7.11.9): the nominal 1/1/1/50, 5/5/100, 80 and 1000 µs are approximate on the vendor too | optional | longer observation (c) |
+| U6 | Cache coherency of the WDMA buffers: **narrowed 2026-11-05** (§7.13.6): the vendor keeps both buffers in internal RAM and does no cache maintenance; the published cache model gives SDRAM an uncached alias and internal RAM none. Closed for internal-RAM buffers (the GPL's case); an SDRAM-resident buffer would need line flush/invalidate [I] | closed for the supported profile | none |
+| U7 | What asserts the four read-only indicators (§4.2) | optional | longer observation (a) |
+| U8 | Whether the vendor's first probe request is sent at OFDM 6 Mbps or CCK 1 Mbps (profile-dependent, §7.11.5); the MAC accepts CCK 1 Mbps [M:hw] | optional | T11 |
+| U9 | Coexistence arbiter programming (`0x14004` tables, `0x14000` bits 0-1) when BT runs too | blocking for BT + WiFi only | out of scope of this profile |
+| U10 | Whether the TX IQ gain/phase fields accept the full ±423 / ±200 ranges: the vendor applies winners aliased to 8 bits (§10.1.9) | optional | T6 (full-trim run) with the winners logged |
+| U11 | The GPL's bank table differs from the vendor's (43 vs 53 at divider 121) though reception works [M:hw 12n-12o] | optional | compare the 48 limits against the vendor unit's (reader capture) |
+| U12 | Semantics of MAC+`0x308` = `0x9407`, MAC+`0x30C` [4:1], MAC+`0x324` = 2, MAC+`0x328` = 2 | optional | bit ablation after reception works |
+| U13 | Whether the hardware drops bit 15 of `0x3040C`: no, software rewrites it (§7.10); closed 2026-11-04 | closed | |
+| U14 | WCID `0xFF`: **narrowed 2026-11-05** (§7.13.2): a TXWI literal for frames sent without a station entry, including the vendor's acknowledged unicast management frames; slot 255 never written, attribute 255 = 1 with all others. Whether the hardware indexes the tables with `0xFF` is unmeasured and not needed for Phase D | optional | T8 |
+| U15 | Whether TX_STA_FIFO reports frames queued with packet id 0 (the vendor's 1 Mbps management frames carry 0 and their entries, if any, are discarded; the Linux driver never uses 0) | optional | T22 |
+| U16 | Meaning of MAC_STATUS_CFG `0x1200` bits [11:8] and [17:16] (the GPL reads `0x00030F00` after an erroneous write; no vendor access) | optional | none; stop writing it |
+| U17 | RX_PARSER_CFG `0x1418`: reset value and effect; the vendor writes 1 only for an infrastructure WMM link with TKIP, 0 otherwise (D21), so a CCMP link gets 0 | optional | T23 read-back |
+| U18 | Whether a queued EAPOL message 4/4 can still be encrypted by the MAC when the pairwise key is installed before it leaves (the vendor installs after the DMA hand-off without waiting for TX status) | optional | T24 ordering |
+| U19 | Unit of TX_TIMEOUT_CFG [15:8] (RX ACK timeout 18; "slot" per the Linux field name) | optional | none needed |
+| U20 | The stock FM-1 firmware's WiFi address source (a stored record, the published generator, or another rule); the two known sources are in §7.13.1 | optional | router client list; stock firmware record dump |
+| U21 | Why no frame addressed to the GPL driver's own address has ever been received (no probe response over every scan, no ACK). **Root cause identified 2026-11-06** (§10.1.14, T25b): `0x11900` never switches from RX to TX mode. The RF analog TX path (PA, DAC, TX mixer) stays off during transmit. Cause: ordering bug in `wifi_rf_arm()` where `wifi_cal_rf_mode(0)` runs after `wifi_rf_auto_control()`, overwriting the G4 enable bits in `0x11924` and `0x11938` that the auto-switch hardware needs. The vendor sequence (A16→A20→A21) runs mode(0) before auto_control. Fix: swap the order in `wifi_rf_arm()`. `0x11950` = 0x57BFFFDC is correct. | **blocking** (association) | T26: apply ordering fix, verify 0x11900 changes during TX |
+
+**16.3 Housekeeping for the implementer (barrier-clean; file:line as of HEAD 76da132d).**
+
+Citations in the driver that do not resolve to the section they mean (every `§` citation in code
+must point at a heading that supports the claim; creating §15 and §16 in this revision does not
+make the old `§15`-`§18` citations valid):
+
+| file:line | cites | should cite |
+|-----------|-------|-------------|
+| wifi_rf.c:59, :988 | "§17 step 27" | §11.2.11 (TX LO snapshot) |
+| wifi_rf.c:661, :683, :697, :711 | "§15" (LUT patches) | §5.1 |
+| wifi_rf.c:938 | "§17 steps 12-16, §18" | §11.2.1 steps 12-16, §10.2 |
+| wifi_rf.c:974 | "§14.10" (RF mode 0) | §10.1.1 |
+| wifi_sdio.c:626, :637, :647, :720 | "§18" (record 187) | §10, §10.2 |
+| wifi_sdio.c:712 | "§17 step 19" | §11.2.1 |
+| wifi_sdio.c:590, :603, :613, :619, :717 | "§7" (compression) | §6.9 |
+| wifi_sdio.c:551 | "§6" (TX filter) | §6.9 |
+| wifi_sdio.c:572 | "DISCOVERY §11.2.12" | §6.6 step 7 (and the DISCOVERY reference is not a public document: remove) |
+| wifi_rf_cal.c:333 | "§10.1/§11.1" (bank scan) | §5.2 |
+| wifi_mac.c:424 | "§3.20.3.5" | the RT5350 datasheet section, say so |
+
+Identifiers to replace (the reader's scan; replacement names are suggestions in this sheet's
+vocabulary; the reason is provenance hygiene, not function):
+
+| file:line | replace with |
+|-----------|--------------|
+| wifi_rf_cal.c: every `wcal_`-prefixed function, macro, enum and variable (:9-:12, :16, :18, :43-:103, :105, :119, :138, :148, :165, :172, :181, :200-:338, :351-:393, :433, :475, :495, :536, :599-:684) | a `wifi_cal_` prefix with the §10.1 names: rf_mode (:119), gain_step (:148), highpass_open/close (:165/:172), loopback_attenuation (:181), measurement (:227), adc_peak (:261), gain_autotune (:271), tx_lo_i/q (:289/:290), rx_dc_analog (:294), divider_code (:335), vco_bank (:336), pll_restart (:338), comparator_read (:351), detector (:357), mid_bank_search (:359), bank_lookup (:384), rc_tune (:433), tx_lo_search (:475); the table at :105 → rf_mode_table (§10.1.1); the table at :138 → generate from the §10.1.2 rule; :393 is unused and can go |
+| wifi_rf_cal.c:225 (comment) | describe the measurement engine of §10.1.3 without the name |
+| wifi_rf_cal.c:4, :100, :136 (fm1-base references) | remove; cite §10.1 |
+| wifi_rf.c:63, :284, :989-:992 | `wifi_rf_tx_lo_snapshot` (§11.2.11) |
+| wifi_rf.c:208, :621, :961 and wifi_rf_lut_data.c:2 ("RFD RAM") | "RF-die LUT" (§5) |
+| wifi_rf.c:643, :616, :964 | `wifi_rf_lut_load` |
+| wifi_rf.c:709 (stale comment) | remove |
+| wifi_rf.c:838, :842, :968 | `wifi_rf_auto_control` (§11.2.11) |
+| wifi_rf.c:978 | the renamed rf_mode (0) |
+| wifi_sdio.c:672, :726 (comments naming vendor routines) | describe by §4.2.1 row (A2-A4; B13) |
+
+The terms RAPP (TX soft compression) and CFR (TX filter) are defined in §6.9 and may stay. The
+published register names (`WF_CONn`, `WL_CONn`, `WLA_CONn`) are public [PUB] and may be used.
+
+Other housekeeping: `tests/wifi/test_rf_init.py` reads vendor intermediate representation from the reader's private store (two
+tests): writer-side tests must not depend on reader material; remove them. The verbatim 128-word
+AGC table in wifi_sdio.c:433-466 is to be generated from the §6.7 rule. The forced vendor
+read-backs in wifi_rf.c:279-296 contain this unit's results (§11.2.9 marks them) and are retired
+by T6.
